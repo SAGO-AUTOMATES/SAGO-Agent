@@ -1,81 +1,113 @@
-"""Simple Agent Executor - Direct LLM + tool execution with full project context."""
+"""Simple Agent Executor - Auto-discovers all tools, prevents loops, provides progress."""
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 
 from openai import OpenAI
 
-from sago.tools.file.read_file import ReadFileTool
-from sago.tools.file.write_file import WriteFileTool
-from sago.tools.file.edit_file import EditFileTool
-from sago.tools.file.glob_files import GlobFilesTool
-from sago.tools.file.grep_content import GrepContentTool
-from sago.tools.file.spawn_agent import SpawnAgentTool
-from sago.tools.shell.execute import ExecuteShellTool
-from sago.tools.system.git_ops import GitOps
+from sago.tools.base import BaseTool
 
 
-TOOL_MAP = {
-    "read_file": ReadFileTool,
-    "write_file": WriteFileTool,
-    "edit_file": EditFileTool,
-    "glob_files": GlobFilesTool,
-    "grep_content": GrepContentTool,
-    "spawn_agent": SpawnAgentTool,
-    "execute_shell": ExecuteShellTool,
-    "git_ops": GitOps,
-}
+# Auto-discover all tools from sago/tools/
+_TOOL_CLASSES: dict[str, type[BaseTool]] = {}
+_TOOL_DESCRIPTIONS: str = ""
+
+
+def _discover_tools() -> dict[str, type[BaseTool]]:
+    """Auto-discover all BaseTool subclasses from sago/tools/."""
+    global _TOOL_CLASSES, _TOOL_DESCRIPTIONS
+    if _TOOL_CLASSES:
+        return _TOOL_CLASSES
+
+    tools_dir = Path(__file__).parent.parent / "tools"
+    skip = {"base.py", "__init__.py"}
+
+    for py_file in tools_dir.rglob("*.py"):
+        if py_file.name.startswith("_") or py_file.name in skip:
+            continue
+        try:
+            parts = py_file.relative_to(tools_dir).with_suffix("").as_posix().split("/")
+            mod_name = f"sago.tools.{'.'.join(parts)}"
+            mod = importlib.import_module(mod_name)
+            for attr_name in dir(mod):
+                obj = getattr(mod, attr_name)
+                if (
+                    isinstance(obj, type)
+                    and issubclass(obj, BaseTool)
+                    and obj is not BaseTool
+                    and hasattr(obj, "name")
+                    and obj.name
+                ):
+                    _TOOL_CLASSES[obj.name] = obj
+        except Exception:
+            pass
+
+    # Build description string
+    lines = []
+    for name, cls in sorted(_TOOL_CLASSES.items()):
+        desc = cls.description or name
+        args = ""
+        if cls.args_model:
+            fields = cls.args_model.model_fields
+            arg_parts = []
+            for fname, finfo in fields.items():
+                req = "required" if finfo.is_required() else f"default={finfo.default}"
+                arg_parts.append(f"{fname} ({req})")
+            args = ", ".join(arg_parts)
+        lines.append(f"- {name}({args}): {desc}")
+    _TOOL_DESCRIPTIONS = "\n".join(lines)
+
+    return _TOOL_CLASSES
 
 
 def _get_project_context(cwd: str | None = None) -> str:
-    """Gather project context: files, README, structure."""
+    """Gather project context."""
     work_dir = Path(cwd) if cwd else Path.cwd()
     lines = [f"Working directory: {work_dir}"]
 
-    # Read README
-    for name in ["README.md", "readme.md", "README.txt", "readme.txt"]:
-        readme_path = work_dir / name
-        if readme_path.exists():
+    # README
+    for name in ["README.md", "readme.md"]:
+        p = work_dir / name
+        if p.exists():
             try:
-                content = readme_path.read_text(encoding="utf-8")[:4000]
-                lines.append(f"\n--- {name} ---\n{content}")
+                lines.append(f"\n--- {name} ---\n{p.read_text('utf-8')[:4000]}")
             except Exception:
                 pass
             break
 
-    # List project files
+    # Files
+    skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", "env", ".tox", ".mypy_cache", "dist", "build"}
     file_list = []
-    skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", "env", ".tox", ".mypy_cache", ".pytest_cache", "dist", "build", ".eggs"}
-
     try:
         for item in sorted(work_dir.iterdir()):
             if item.name.startswith(".") or item.name in skip_dirs:
                 continue
             if item.is_dir():
                 try:
-                    child_count = sum(1 for _ in item.iterdir())
-                    file_list.append(f"  {item.name}/ ({child_count} items)")
+                    file_list.append(f"  {item.name}/ ({sum(1 for _ in item.iterdir())} items)")
                 except Exception:
                     file_list.append(f"  {item.name}/")
             else:
                 try:
-                    size = item.stat().st_size
-                    file_list.append(f"  {item.name} ({size} bytes)" if size < 100_000 else f"  {item.name} ({size // 1024}KB)")
+                    s = item.stat().st_size
+                    file_list.append(f"  {item.name} ({s}B)" if s < 100_000 else f"  {item.name} ({s//1024}KB)")
                 except Exception:
                     file_list.append(f"  {item.name}")
     except PermissionError:
         pass
 
     if file_list:
-        lines.append(f"\nProject files ({work_dir.name}/):")
-        lines.extend(file_list[:60])
+        lines.append(f"\nFiles ({work_dir.name}/):")
+        lines.extend(file_list[:50])
 
-    # Git info
+    # Git
     try:
         import subprocess
         r = subprocess.run(["git", "status", "--short"], capture_output=True, text=True, timeout=5, cwd=str(work_dir))
@@ -97,58 +129,33 @@ def execute_agent_task(
     max_tokens: int = 4096,
     max_iterations: int = 5,
     cwd: str | None = None,
+    on_tool_call: Any = None,
+    on_thinking: Any = None,
 ) -> dict[str, Any]:
-    """Execute a task using direct LLM + tool calls with full project context."""
+    """Execute a task with auto-discovered tools, loop protection, and progress callbacks."""
+    tools = _discover_tools()
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
-
     project_ctx = _get_project_context(cwd)
+    start_time = time.time()
+
+    # Track state to prevent loops
+    seen_tool_results: set[str] = set()
+    consecutive_same_tool = 0
+    last_tool_call = ""
+    total_input_tokens = 0
+    total_output_tokens = 0
 
     default_prompt = (
-        f"You are {agent_role}. You are working on the user's actual machine with real files.\n\n"
+        f"You are {agent_role}. Working on the user's real machine.\n\n"
         f"PROJECT CONTEXT:\n{project_ctx}\n\n"
-        "=== TOOLS YOU CAN USE ===\n\n"
-        "1. read_file(file_path, offset?, limit?)\n"
-        "   Read any file. Use relative paths.\n"
-        '   Example: {"name": "read_file", "args": {"file_path": "README.md"}}\n\n'
-        "2. write_file(file_path, content)\n"
-        "   Write content to a file. Creates dirs automatically.\n"
-        '   Example: {"name": "write_file", "args": {"file_path": "output.py", "content": "print(42)"}}\n\n'
-        "3. edit_file(file_path, old_string, new_string)\n"
-        "   Edit a file by finding and replacing exact text.\n"
-        '   Example: {"name": "edit_file", "args": {"file_path": "app.py", "old_string": "old", "new_string": "new"}}\n\n'
-        "4. glob_files(pattern, path?)\n"
-        "   Find files matching patterns like **/*.py or src/**/*.ts\n"
-        '   Example: {"name": "glob_files", "args": {"pattern": "**/*.py"}}\n\n'
-        "5. grep_content(pattern, path?, include?)\n"
-        "   Search file contents with regex. Returns matching lines.\n"
-        '   Example: {"name": "grep_content", "args": {"pattern": "def main", "include": "*.py"}}\n\n'
-        "6. execute_shell(command, cwd?)\n"
-        "   Run ANY shell command: ls, cat, grep, find, git, python, npm, etc.\n"
-        '   Example: {"name": "execute_shell", "args": {"command": "ls -la"}}\n'
-        '   Example: {"name": "execute_shell", "args": {"command": "python -c \"print(1+1)\""}}\n\n'
-        "7. git_ops(operation, args?, cwd?)\n"
-        "   Git operations: status, log, diff, add, commit, push, pull, branch, checkout\n"
-        '   Example: {"name": "git_ops", "args": {"operation": "status"}}\n'
-        '   Example: {"name": "git_ops", "args": {"operation": "log", "args": "--oneline -10"}}\n\n'
-        "8. spawn_agent(task, agent_name, context?)\n"
-        "   Delegate work to a specialist agent. Available agents:\n"
-        "   python-engineer, javascript-engineer, java-engineer, go-engineer,\n"
-        "   rust-engineer, cpp-engineer, frontend-engineer, backend-engineer,\n"
-        "   fullstack-engineer, devops, security-engineer, qa-engineer,\n"
-        "   debugger, code-reviewer, data-engineer, ml-engineer,\n"
-        "   database-engineer, technical-writer, system-architect, mobile-engineer,\n"
-        "   ios-engineer, android-engineer, flutter-engineer, kubernetes-engineer,\n"
-        "   docker-engineer, cloud-engineer, performance-engineer, api-engineer,\n"
-        "   ui-engineer, ux-engineer, css-engineer, software-engineer\n"
-        '   Example: {"name": "spawn_agent", "args": {"task": "fix the bug", "agent_name": "debugger"}}\n'
-        '   Example: {"name": "spawn_agent", "args": {"task": "write tests", "agent_name": "qa-engineer", "context": "module does X"}}\n\n'
-        "=== RULES ===\n"
-        "- You HAVE tools. USE THEM. Never say you can't read files or run commands.\n"
-        "- Always use tools to explore before answering questions about the project.\n"
-        "- Use relative paths (relative to working directory shown above).\n"
-        "- Output EXACTLY one JSON object per tool call, on its own line.\n"
-        "- After getting tool results, provide a clear summary.\n"
-        "- If you need to read a file, USE read_file. If you need to run a command, USE execute_shell.\n"
+        f"TOOLS ({len(tools)} available):\n{_TOOL_DESCRIPTIONS}\n\n"
+        "RULES:\n"
+        "- Output ONE JSON per tool call on its own line: {\"name\": \"tool\", \"args\": {...}}\n"
+        "- Use relative paths (relative to working directory).\n"
+        "- Never say you can't - you have full tool access.\n"
+        "- After tool results, provide a clear summary.\n"
+        "- If a tool fails, try a different approach.\n"
+        "- Do NOT repeat the same tool call with the same arguments.\n"
     )
 
     messages = [
@@ -160,17 +167,38 @@ def execute_agent_task(
     content = ""
 
     for i in range(max_iterations):
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=0.3,
-        )
+        iteration_start = time.time()
+
+        if on_thinking:
+            on_thinking(f"Iteration {i+1}/{max_iterations}...")
+
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=0.3,
+            )
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "output": content,
+                "tool_calls": tools_used,
+                "iterations": i + 1,
+                "tokens": {"input": total_input_tokens, "output": total_output_tokens},
+                "elapsed": time.time() - start_time,
+            }
 
         choice = response.choices[0]
         content = choice.message.content or ""
         if not content and hasattr(choice.message, "reasoning") and choice.message.reasoning:
             content = choice.message.reasoning
+
+        # Track tokens
+        if hasattr(response, "usage") and response.usage:
+            total_input_tokens += response.usage.prompt_tokens or 0
+            total_output_tokens += response.usage.completion_tokens or 0
 
         messages.append({"role": "assistant", "content": content})
 
@@ -182,6 +210,8 @@ def execute_agent_task(
                 "output": content,
                 "tool_calls": tools_used,
                 "iterations": i + 1,
+                "tokens": {"input": total_input_tokens, "output": total_output_tokens},
+                "elapsed": time.time() - start_time,
             }
 
         for match in tool_matches:
@@ -190,31 +220,56 @@ def execute_agent_task(
                 tool_name = tool_data.get("name", "")
                 tool_args = tool_data.get("args", {})
 
-                tool_class = TOOL_MAP.get(tool_name)
+                # Loop detection: same tool+args repeated
+                call_sig = f"{tool_name}:{json.dumps(tool_args, sort_keys=True)}"
+                if call_sig == last_tool_call:
+                    consecutive_same_tool += 1
+                    if consecutive_same_tool >= 2:
+                        messages.append({"role": "user", "content": "You already tried this exact call and got a result. Do NOT repeat it. Use the result you have and provide your final answer."})
+                        continue
+                else:
+                    consecutive_same_tool = 0
+                last_tool_call = call_sig
+
+                # Loop detection: same result seen
+                result_key = call_sig[:100]
+                if result_key in seen_tool_results:
+                    messages.append({"role": "user", "content": "This tool call was already executed. Use existing results and move forward."})
+                    continue
+
+                # Execute tool
+                if on_tool_call:
+                    on_tool_call(tool_name, tool_args)
+
+                tool_class = tools.get(tool_name)
                 if tool_class:
                     tool_instance = tool_class()
                     result = tool_instance.run(**tool_args)
-                    result_str = str(result)[:2000]
+                    result_str = str(result)[:3000]
+                    seen_tool_results.add(result_key)
                     tools_used.append({"tool": tool_name, "args": tool_args, "result": result_str[:500]})
                     messages.append({"role": "user", "content": f"[Tool: {tool_name}]\n{result_str}"})
                 else:
-                    available = ", ".join(TOOL_MAP.keys())
+                    available = ", ".join(sorted(tools.keys()))
                     messages.append({"role": "user", "content": f"Unknown tool '{tool_name}'. Available: {available}"})
+
             except json.JSONDecodeError:
-                messages.append({"role": "user", "content": "Invalid JSON format. Output exactly: {\"name\": \"tool\", \"args\": {...}}"})
+                messages.append({"role": "user", "content": "Invalid JSON. Output exactly: {\"name\": \"tool\", \"args\": {...}}"})
             except Exception as e:
-                messages.append({"role": "user", "content": f"Tool error: {e}. Try a different approach."})
+                messages.append({"role": "user", "content": f"Tool error: {type(e).__name__}: {e}. Try different approach."})
 
     return {
         "success": True,
         "output": content,
         "tool_calls": tools_used,
         "iterations": max_iterations,
+        "tokens": {"input": total_input_tokens, "output": total_output_tokens},
+        "elapsed": time.time() - start_time,
     }
 
 
 def _extract_tool_calls(content: str) -> list[str]:
-    """Extract tool calls from LLM output in various formats."""
+    """Extract tool calls from LLM output."""
     matches = []
 
     # JSON on its own line

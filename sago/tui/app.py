@@ -370,6 +370,11 @@ class SagoApp(App):
         if self._spinner:
             self._spinner.advance()
 
+    def _update_spinner(self, text: str) -> None:
+        if self._spinner:
+            self._spinner.spin_text = text
+            self._spinner.refresh()
+
     def _hide_spinner(self) -> None:
         if hasattr(self, "_spinner_timer") and self._spinner_timer:
             self._spinner_timer.stop()
@@ -729,21 +734,38 @@ class SagoApp(App):
                 self.call_from_thread(self._add_system_message, "No API key.")
                 return
 
+            def on_tool(name, args):
+                args_str = ", ".join(f"{k}={v[:30]}" for k, v in list(args.items())[:3])
+                self.call_from_thread(self._update_spinner, f"Using {name}({args_str})")
+
+            def on_thinking(text):
+                self.call_from_thread(self._update_spinner, text)
+
             from sago.engine.simple_executor import execute_agent_task
             result = execute_agent_task(
                 task=message,
                 agent_role=self.current_agent.replace("-", " ").title(),
                 api_key=api_key,
                 model=self.current_model,
-                max_tokens=2048,
-                max_iterations=3,
+                max_tokens=4096,
+                max_iterations=5,
+                on_tool_call=on_tool,
+                on_thinking=on_thinking,
             )
 
             self.call_from_thread(self._hide_spinner)
             output = result.get("output", "No response")
+            elapsed = result.get("elapsed", 0)
+            tokens = result.get("tokens", {})
+            iters = result.get("iterations", 0)
+
             for tc in result.get("tool_calls", []):
-                self.call_from_thread(self._add_system_message, f"  {tc.get('tool','')}: {tc.get('result','')[:100]}")
-            self.call_from_thread(self._add_assistant_message, output)
+                tool_name = tc.get("tool", "")
+                tool_result = tc.get("result", "")[:150]
+                self.call_from_thread(self._add_system_message, f"  {tool_name}: {tool_result}")
+
+            meta = f"[{iters} iters | {tokens.get('input',0)}+{tokens.get('output',0)} tokens | {elapsed:.1f}s]"
+            self.call_from_thread(self._add_assistant_message, output, meta=meta)
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_system_message, f"Error: {e}")
