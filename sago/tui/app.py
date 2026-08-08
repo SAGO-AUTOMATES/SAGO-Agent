@@ -1,24 +1,65 @@
-"""Sago TUI - Clean Terminal Interface."""
+"""Sago TUI - Clean Terminal Interface with Autocomplete."""
 
 from __future__ import annotations
 
 import os
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rich.syntax import Syntax
-from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import ScrollableContainer, Vertical
 from textual.reactive import reactive
-from textual.widgets import Footer, Input, Static
+from textual.widgets import Input, Static
+
+
+COMMANDS = {
+    "/help": "Show this help",
+    "/h": "Show help",
+    "/agents": "List all agents",
+    "/a": "List agents",
+    "/clear": "Clear chat",
+    "/c": "Clear chat",
+    "/status": "System status",
+    "/s": "System status",
+    "/export": "Export session to markdown",
+    "/e": "Export session",
+    "/sessions": "List recent sessions",
+    "/session": "Switch session",
+    "/history": "Show chat history",
+    "/model": "Show current model",
+    "/provider": "Show current provider",
+    "/version": "Show version",
+    "/exit": "Quit",
+    "/q": "Quit",
+    "/quit": "Quit",
+}
+
+
+class SuggestionList(Static):
+    """Popup suggestion list."""
+
+    def __init__(self, items: list[str], **kwargs) -> None:
+        self.items = items
+        self.selected = 0
+        super().__init__(**kwargs)
+
+    def render(self) -> str:
+        lines = []
+        for i, item in enumerate(self.items[:10]):
+            if i == self.selected:
+                lines.append(f"▸ {item}")
+            else:
+                lines.append(f"  {item}")
+        return "\n".join(lines)
 
 
 class SagoApp(App):
-    """Clean Sago TUI."""
+    """Clean Sago TUI with autocomplete."""
 
     CSS = """
     Screen {
@@ -71,6 +112,30 @@ class SagoApp(App):
         border: tall #58a6ff;
     }
 
+    #suggestions {
+        display: none;
+        max-height: 12;
+        overflow-y: auto;
+        background: #161b22;
+        border: tall #30363d;
+        margin: 0 1;
+        padding: 1;
+    }
+
+    #suggestions.visible {
+        display: block;
+    }
+
+    .suggestion-item {
+        color: #c9d1d9;
+        padding: 0 1;
+    }
+
+    .suggestion-item.selected {
+        color: #58a6ff;
+        text-style: bold;
+    }
+
     .tool-call {
         color: #58a6ff;
         padding: 0 0 1 0;
@@ -93,25 +158,43 @@ class SagoApp(App):
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear"),
+        Binding("escape", "dismiss_suggestions", "Dismiss"),
     ]
 
     TITLE = "Sago"
 
     current_agent: reactive[str] = reactive("sago-orchestrator")
     messages: reactive[list[dict]] = reactive(list)
+    show_suggestions: reactive[bool] = reactive(False)
+    suggestion_items: reactive[list[str]] = reactive(list)
+    suggestion_index: reactive[int] = reactive(0)
+    suggestion_mode: reactive[str] = reactive("")  # "command", "agent", "file"
 
     def compose(self) -> ComposeResult:
         yield ScrollableContainer(id="messages")
+        yield Vertical(id="suggestions")
         with Vertical(id="input-area"):
             yield Input(
-                placeholder="Message... (/help for commands)",
+                placeholder="Message... (/, @, # for autocomplete)",
                 id="msg-input",
             )
-        yield Footer()
 
     def on_mount(self) -> None:
-        self._add_system_message("Sago v0.1.0 — Type /help for commands")
+        self._add_system_message("Sago v0.1.0 — /help for commands, @ for agents, # for files")
         self.query_one("#msg-input").focus()
+
+    @on(Input.Changed, "#msg-input")
+    def on_input_changed(self, event: Input.Changed) -> None:
+        value = event.value
+
+        if value.startswith("/"):
+            self._show_command_suggestions(value)
+        elif value.startswith("@"):
+            self._show_agent_suggestions(value)
+        elif value.startswith("#"):
+            self._show_file_suggestions(value)
+        else:
+            self._hide_suggestions()
 
     @on(Input.Submitted, "#msg-input")
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -120,6 +203,7 @@ class SagoApp(App):
             return
 
         event.input.value = ""
+        self._hide_suggestions()
 
         if message.startswith("/"):
             self._handle_command(message)
@@ -128,19 +212,82 @@ class SagoApp(App):
         self._add_user_message(message)
         self._process_message(message)
 
+    def _show_command_suggestions(self, prefix: str) -> None:
+        matches = [cmd for cmd in COMMANDS if cmd.startswith(prefix.lower())]
+        if matches:
+            items = [f"{cmd} — {COMMANDS[cmd]}" for cmd in matches]
+            self._show_suggestions(items, "command")
+        else:
+            self._hide_suggestions()
+
+    def _show_agent_suggestions(self, prefix: str) -> None:
+        try:
+            from sago.agents.registry import list_agents
+            agents = list_agents()
+            search = prefix[1:].lower()
+            matches = [a["name"] for a in agents if search in a["name"].lower()]
+            if matches:
+                items = [f"@{name}" for name in matches[:15]]
+                self._show_suggestions(items, "agent")
+            else:
+                self._hide_suggestions()
+        except Exception:
+            self._hide_suggestions()
+
+    def _show_file_suggestions(self, prefix: str) -> None:
+        search = prefix[1:].lower()
+        items = []
+
+        try:
+            cwd = Path.cwd()
+            for p in sorted(cwd.iterdir()):
+                if search in p.name.lower():
+                    if p.is_dir():
+                        items.append(f"# {p.name}/")
+                    else:
+                        items.append(f"# {p.name}")
+                if len(items) >= 15:
+                    break
+
+            if items:
+                self._show_suggestions(items, "file")
+            else:
+                self._hide_suggestions()
+        except Exception:
+            self._hide_suggestions()
+
+    def _show_suggestions(self, items: list[str], mode: str) -> None:
+        self.suggestion_items = items
+        self.suggestion_mode = mode
+        self.suggestion_index = 0
+        self.show_suggestions = True
+
+        container = self.query_one("#suggestions")
+        container.remove_children()
+        container.add_class("visible")
+        for i, item in enumerate(items):
+            cls = "suggestion-item selected" if i == 0 else "suggestion-item"
+            container.mount(Static(item, classes=cls))
+
+    def _hide_suggestions(self) -> None:
+        self.show_suggestions = False
+        self.suggestion_items = []
+        container = self.query_one("#suggestions")
+        container.remove_children()
+        container.remove_class("visible")
+
+    def action_dismiss_suggestions(self) -> None:
+        if self.show_suggestions:
+            self._hide_suggestions()
+        else:
+            self.exit()
+
     def _handle_command(self, command: str) -> None:
         cmd = command.lower().strip()
 
         if cmd in ("/help", "/h"):
-            self._add_system_message(
-                "Commands:\n"
-                "  /help, /h    — Show this help\n"
-                "  /agents, /a  — List agents\n"
-                "  /clear, /c   — Clear chat\n"
-                "  /status, /s  — System status\n"
-                "  /export, /e  — Export session\n"
-                "  /exit, /q    — Quit"
-            )
+            lines = "\n".join(f"  {cmd}" for cmd in sorted(COMMANDS.keys()))
+            self._add_system_message(f"Commands:\n{lines}")
         elif cmd in ("/agents", "/a"):
             self._show_agents()
         elif cmd in ("/clear", "/c"):
@@ -149,6 +296,18 @@ class SagoApp(App):
             self._show_status()
         elif cmd in ("/export", "/e"):
             self._export_session()
+        elif cmd in ("/sessions",):
+            self._show_sessions()
+        elif cmd in ("/session",):
+            self._add_system_message("Usage: /session <id>")
+        elif cmd in ("/history",):
+            self._show_history()
+        elif cmd in ("/model",):
+            self._add_system_message("Model: openrouter/free")
+        elif cmd in ("/provider",):
+            self._add_system_message("Provider: OpenRouter")
+        elif cmd in ("/version",):
+            self._add_system_message("Sago v0.1.0")
         elif cmd in ("/exit", "/q", "/quit"):
             self.exit()
         else:
@@ -158,8 +317,8 @@ class SagoApp(App):
         try:
             from sago.agents.registry import list_agents
             agents = list_agents()
-            lines = "\n".join(f"  {a['name']}" for a in agents[:20])
-            self._add_system_message(f"Agents:\n{lines}")
+            lines = "\n".join(f"  {a['name']}" for a in agents[:30])
+            self._add_system_message(f"Agents ({len(agents)} total):\n{lines}")
         except Exception as e:
             self._add_system_message(f"Error: {e}")
 
@@ -170,10 +329,38 @@ class SagoApp(App):
             self._add_system_message(
                 f"Sago v0.1.0\n"
                 f"  Agents: {len(agents)}\n"
-                f"  Model: openrouter/free"
+                f"  Model: openrouter/free\n"
+                f"  Messages: {len(self.messages)}"
             )
         except Exception as e:
             self._add_system_message(f"Error: {e}")
+
+    def _show_sessions(self) -> None:
+        try:
+            from sago.database import Database
+            db = Database()
+            sessions = db.get_recent_sessions(limit=10)
+            if sessions:
+                lines = "\n".join(
+                    f"  {s.get('id', '?')[:8]} — {s.get('title', 'Untitled')}"
+                    for s in sessions
+                )
+                self._add_system_message(f"Recent sessions:\n{lines}")
+            else:
+                self._add_system_message("No sessions found")
+        except Exception as e:
+            self._add_system_message(f"Sessions: {e}")
+
+    def _show_history(self) -> None:
+        if self.messages:
+            lines = []
+            for msg in self.messages[-10:]:
+                role = msg.get("role", "?")
+                content = msg.get("content", "")[:60]
+                lines.append(f"  [{role}] {content}")
+            self._add_system_message("Recent messages:\n" + "\n".join(lines))
+        else:
+            self._add_system_message("No history yet")
 
     def _export_session(self) -> None:
         export = "# Sago Session\n\n"
