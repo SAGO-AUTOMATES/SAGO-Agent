@@ -23,21 +23,22 @@ class SpawnAgentTool(BaseTool):
 
     name = "spawn_agent"
     description = (
-        "Delegate a task to a specialist agent. Available agents: "
-        "python-engineer, javascript-engineer, java-engineer, go-engineer, "
-        "rust-engineer, cpp-engineer, ruby-engineer, php-engineer, "
-        "frontend-engineer, backend-engineer, fullstack-engineer, "
-        "mobile-engineer, ios-engineer, android-engineer, flutter-engineer, "
-        "data-engineer, ml-engineer, data-analyst, "
-        "devops, sre-engineer, kubernetes-engineer, docker-engineer, "
-        "security-engineer, appsec-engineer, "
+        "Delegate a task to a specialist agent. Use the exact agent name. "
+        "Common agents: python-engineer, java-engineer, go-engineer, rust-engineer, cpp-engineer, "
+        "ruby-engineer, php-engineer, dart-engineer, swift-engineer, kotlin-engineer, "
+        "frontend-engineer, backend-engineer, fullstack-developer, mobile-engineer, "
+        "android-engineer, ios-engineer, data-engineer, ml-engineer, ai-engineer, "
+        "devops-engineer, sre-engineer, kubernetes-engineer, docker-engineer, cloud-engineer, "
+        "aws-engineer, azure-engineer, gcp-engineer, "
+        "security-engineer, appsec-engineer, penetration-engineer, "
         "qa-engineer, test-engineer, automation-engineer, "
-        "code-reviewer, debugger, software-engineer, "
-        "technical-writer, documentation-updater, "
-        "database-engineer, api-engineer, "
-        "performance-engineer, cloud-engineer, "
-        "ui-engineer, ux-engineer, css-engineer, "
-        "system-architect, solution-architect"
+        "reviewer, architect, cloud-architect, data-architect, "
+        "technical-writer, database-engineer, api-engineer, "
+        "performance-engineer, caching-engineer, network-engineer, "
+        "blockchain-engineer, crypto-engineer, iot-engineer, "
+        "game-developer, unity-developer, unreal-developer, "
+        "rust-engineer, golang-engineer, haskell-engineer, "
+        "lua-engineer, perl-engineer, r-engineer, scala-engineer"
     )
     args_model = SpawnAgentArgs
 
@@ -98,23 +99,25 @@ class SpawnAgentTool(BaseTool):
         # Fallback prompts for common agents
         prompts = {
             "python-engineer": "You are a Python expert. Write clean, efficient Python code. Use type hints, docstrings, and follow PEP 8.",
-            "javascript-engineer": "You are a JavaScript/TypeScript expert. Write modern ES6+ code with proper error handling.",
             "java-engineer": "You are a Java expert. Write clean OOP Java code with proper design patterns.",
             "go-engineer": "You are a Go expert. Write idiomatic Go with proper error handling and concurrency.",
             "rust-engineer": "You are a Rust expert. Write safe, efficient Rust code with proper ownership.",
+            "cpp-engineer": "You are a C++ expert. Write modern C++ with RAII and smart pointers.",
             "frontend-engineer": "You are a frontend expert. Build responsive, accessible UIs with modern frameworks.",
             "backend-engineer": "You are a backend expert. Build scalable APIs and services.",
-            "fullstack-engineer": "You are a full-stack expert. Build complete web applications.",
-            "devops": "You are a DevOps expert. Manage infrastructure, CI/CD, containers, and deployment.",
+            "fullstack-developer": "You are a full-stack expert. Build complete web applications.",
+            "devops-engineer": "You are a DevOps expert. Manage infrastructure, CI/CD, containers, and deployment.",
             "security-engineer": "You are a security expert. Identify vulnerabilities and implement security best practices.",
             "qa-engineer": "You are a QA expert. Write comprehensive tests and ensure code quality.",
-            "debugger": "You are a debugging expert. Find and fix bugs systematically.",
-            "code-reviewer": "You are a code review expert. Review code for quality, security, and best practices.",
+            "reviewer": "You are a code review expert. Review code for quality, security, and best practices.",
             "data-engineer": "You are a data engineering expert. Build data pipelines and ETL processes.",
             "ml-engineer": "You are an ML engineer. Build and deploy machine learning models.",
             "database-engineer": "You are a database expert. Design schemas, optimize queries, and manage data.",
             "technical-writer": "You are a technical writing expert. Write clear documentation and guides.",
-            "system-architect": "You are a systems architect. Design scalable, maintainable system architectures.",
+            "architect": "You are a systems architect. Design scalable, maintainable system architectures.",
+            "kubernetes-engineer": "You are a Kubernetes expert. Manage k8s clusters, deployments, services.",
+            "docker-engineer": "You are a Docker expert. Build and optimize containers and docker-compose.",
+            "cloud-engineer": "You are a cloud expert. Design and manage cloud infrastructure.",
         }
 
         base_prompt = prompts.get(agent_name, f"You are a {agent_name} specialist.")
