@@ -1,4 +1,4 @@
-"""Sago TUI - Clean Terminal Interface with Autocomplete."""
+"""Sago TUI - Clean Terminal Interface with Smart Autocomplete."""
 
 from __future__ import annotations
 
@@ -19,33 +19,25 @@ from textual.widgets import Input, Static
 
 COMMANDS = {
     "/help": "Show all commands",
-    "/h": "Show help",
-    "/agents": "List all agents (or filter: /a engineer)",
-    "/a": "List agents",
+    "/agents": "List agents (or /a <filter>)",
     "/clear": "Clear chat",
-    "/c": "Clear chat",
     "/status": "System status",
-    "/s": "System status",
-    "/export": "Export session to markdown",
-    "/e": "Export session",
+    "/export": "Export to markdown",
     "/sessions": "List recent sessions",
-    "/session": "Switch session by id",
+    "/session": "Switch session",
     "/history": "Show chat history",
     "/model": "Show or change model",
     "/provider": "Show or change provider",
-    "/effort": "Set effort level (low/medium/high)",
-    "/chain": "Chain agents for task",
-    "/cost": "Show token usage & cost",
-    "/compact": "Summarize current context",
+    "/effort": "Set effort level",
+    "/chain": "Chain agents",
+    "/cost": "Token usage & cost",
+    "/compact": "Summarize context",
     "/retry": "Retry last message",
-    "/edit": "Edit last response",
     "/reset": "Reset session",
-    "/save": "Save current context",
-    "/load": "Load saved context",
+    "/save": "Save context",
+    "/load": "Load context",
     "/version": "Show version",
     "/exit": "Quit",
-    "/q": "Quit",
-    "/quit": "Quit",
 }
 
 MODELS = [
@@ -63,12 +55,11 @@ MODELS = [
 ]
 
 PROVIDERS = ["openrouter", "openai", "anthropic", "gemini", "ollama"]
-
 EFFORT_LEVELS = ["low", "medium", "high"]
 
 
 class SagoApp(App):
-    """Clean Sago TUI with autocomplete."""
+    """Clean Sago TUI with smart autocomplete."""
 
     CSS = """
     Screen {
@@ -128,7 +119,7 @@ class SagoApp(App):
         background: #161b22;
         border: tall #30363d;
         margin: 0 1;
-        padding: 1;
+        padding: 0;
     }
 
     #suggestions.visible {
@@ -137,12 +128,12 @@ class SagoApp(App):
 
     .suggestion-item {
         color: #c9d1d9;
-        padding: 0 1;
+        padding: 0 2;
     }
 
-    .suggestion-item.selected {
-        color: #58a6ff;
-        text-style: bold;
+    .suggestion-item.highlighted {
+        color: #ffffff;
+        background: #1f6feb;
     }
 
     .tool-call {
@@ -177,6 +168,7 @@ class SagoApp(App):
     messages: reactive[list[dict]] = reactive(list)
     show_suggestions: reactive[bool] = reactive(False)
     suggestion_items: reactive[list[str]] = reactive(list)
+    suggestion_values: reactive[list[str]] = reactive(list)
     suggestion_index: reactive[int] = reactive(0)
     suggestion_mode: reactive[str] = reactive("")
 
@@ -218,11 +210,61 @@ class SagoApp(App):
         self._add_user_message(message)
         self._process_message(message)
 
+    def on_key(self, event) -> None:
+        if not self.show_suggestions:
+            return
+
+        if event.key == "down":
+            event.prevent_default()
+            self._move_selection(1)
+        elif event.key == "up":
+            event.prevent_default()
+            self._move_selection(-1)
+        elif event.key in ("right", "tab"):
+            event.prevent_default()
+            self._select_current()
+
+    def _move_selection(self, delta: int) -> None:
+        if not self.suggestion_items:
+            return
+        self.suggestion_index = (self.suggestion_index + delta) % len(self.suggestion_items)
+        self._update_suggestion_highlight()
+
+    def _select_current(self) -> None:
+        if not self.suggestion_values:
+            return
+        value = self.suggestion_values[self.suggestion_index]
+        inp = self.query_one("#msg-input")
+        inp.value = value + " "
+        inp.cursor_position = len(inp.value)
+        self._hide_suggestions()
+
+    def _update_suggestion_highlight(self) -> None:
+        container = self.query_one("#suggestions")
+        for i, child in enumerate(container.children):
+            if i == self.suggestion_index:
+                child.add_class("highlighted")
+            else:
+                child.remove_class("highlighted")
+
     def _show_command_suggestions(self, prefix: str) -> None:
-        matches = [cmd for cmd in COMMANDS if cmd.startswith(prefix.lower())]
+        # Don't show aliases, only full commands
+        matches = []
+        for cmd, desc in COMMANDS.items():
+            if cmd.startswith(prefix.lower()):
+                # Skip aliases if full command exists
+                if len(cmd) > 3 and any(cmd.startswith(c) for c in [c for c in COMMANDS if len(c) <= 3 and c != cmd]):
+                    continue
+                matches.append((cmd, desc))
+
+        if not matches:
+            # Fallback: show all matching
+            matches = [(cmd, desc) for cmd, desc in COMMANDS.items() if cmd.startswith(prefix.lower())]
+
         if matches:
-            items = [f"{cmd} — {COMMANDS[cmd]}" for cmd in matches]
-            self._show_suggestions(items, "command")
+            items = [f"{cmd} — {desc}" for cmd, desc in matches]
+            values = [cmd for cmd, _ in matches]
+            self._show_suggestions(items, values, "command")
         else:
             self._hide_suggestions()
 
@@ -234,7 +276,8 @@ class SagoApp(App):
             matches = [a["name"] for a in agents if search in a["name"].lower()]
             if matches:
                 items = [f"@{name}" for name in matches[:15]]
-                self._show_suggestions(items, "agent")
+                values = [name for name in matches[:15]]
+                self._show_suggestions(items, values, "agent")
             else:
                 self._hide_suggestions()
         except Exception:
@@ -243,25 +286,29 @@ class SagoApp(App):
     def _show_file_suggestions(self, prefix: str) -> None:
         search = prefix[1:].lower()
         items = []
+        values = []
         try:
             cwd = Path.cwd()
             for p in sorted(cwd.iterdir()):
                 if search in p.name.lower():
                     if p.is_dir():
                         items.append(f"# {p.name}/")
+                        values.append(p.name + "/")
                     else:
                         items.append(f"# {p.name}")
+                        values.append(p.name)
                 if len(items) >= 15:
                     break
             if items:
-                self._show_suggestions(items, "file")
+                self._show_suggestions(items, values, "file")
             else:
                 self._hide_suggestions()
         except Exception:
             self._hide_suggestions()
 
-    def _show_suggestions(self, items: list[str], mode: str) -> None:
+    def _show_suggestions(self, items: list[str], values: list[str], mode: str) -> None:
         self.suggestion_items = items
+        self.suggestion_values = values
         self.suggestion_mode = mode
         self.suggestion_index = 0
         self.show_suggestions = True
@@ -269,12 +316,13 @@ class SagoApp(App):
         container.remove_children()
         container.add_class("visible")
         for i, item in enumerate(items):
-            cls = "suggestion-item selected" if i == 0 else "suggestion-item"
+            cls = "suggestion-item highlighted" if i == 0 else "suggestion-item"
             container.mount(Static(item, classes=cls))
 
     def _hide_suggestions(self) -> None:
         self.show_suggestions = False
         self.suggestion_items = []
+        self.suggestion_values = []
         container = self.query_one("#suggestions")
         container.remove_children()
         container.remove_class("visible")
@@ -290,7 +338,7 @@ class SagoApp(App):
         cmd = parts[0].lower()
         args = parts[1] if len(parts) > 1 else ""
 
-        if cmd in ("/help", "/h"):
+        if cmd == "/help":
             self._show_help()
         elif cmd in ("/agents", "/a"):
             self._show_agents(args)
@@ -337,35 +385,29 @@ class SagoApp(App):
             self._add_system_message(f"Unknown command: {cmd}")
 
     def _show_help(self) -> None:
-        help_text = """Commands:
-  /help, /h         — Show this help
-  /agents, /a       — List agents (or /a <filter>)
-  /clear, /c        — Clear chat
-  /status, /s       — System status
-  /export, /e       — Export session to markdown
+        self._add_system_message("""Commands:
+  /help             — Show this help
+  /agents [filter]  — List agents (or filter)
+  /clear            — Clear chat
+  /status           — System status
+  /export           — Export to markdown
   /sessions         — List recent sessions
   /session <id>     — Switch session
   /history          — Show chat history
-  /model            — Show current model
-  /model <name>     — Change model
-  /provider         — Show current provider
-  /provider <name>  — Change provider
+  /model [name]     — Show or change model
+  /provider [name]  — Show or change provider
   /effort <level>   — Set effort (low/medium/high)
-  /chain <agents>   — Chain agents for task
-  /cost             — Show token usage & cost
+  /chain <agents>   — Chain agents
+  /cost             — Token usage & cost
   /compact          — Summarize context
   /retry            — Retry last message
   /reset            — Reset session
   /save [name]      — Save context
   /load <name>      — Load context
   /version          — Show version
-  /exit, /q         — Quit
+  /exit             — Quit
 
-Autocomplete:
-  / — Commands
-  @ — Agents
-  # — Files"""
-        self._add_system_message(help_text)
+Autocomplete: / @ #""")
 
     def _show_agents(self, filter: str = "") -> None:
         try:
@@ -377,7 +419,6 @@ Autocomplete:
                     a for a in agents
                     if filter.lower() in a["name"].lower()
                     or filter.lower() in a.get("category", "").lower()
-                    or filter.lower() in " ".join(a.get("skills", [])).lower()
                 ]
                 if filtered:
                     lines = "\n".join(f"  {a['name']}" for a in filtered[:30])
@@ -385,14 +426,13 @@ Autocomplete:
                 else:
                     self._add_system_message(f"No agents matching '{filter}'")
             else:
-                # Group by category
                 categories: dict[str, list] = {}
                 for a in agents:
                     cat = a.get("category", "other")
                     categories.setdefault(cat, []).append(a)
 
                 lines = []
-                for cat in sorted(categories.keys()):
+                for cat in sorted(categories.keys())[:8]:
                     names = [a["name"] for a in categories[cat][:5]]
                     lines.append(f"\n  [{cat}]")
                     for n in names:
@@ -456,14 +496,13 @@ Autocomplete:
             lines = "\n".join(f"  {m}" for m in MODELS)
             self._add_system_message(f"Current: {self.current_model}\n\nAvailable:\n{lines}")
             return
-        # Find matching model
         for m in MODELS:
             if model.lower() in m.lower():
                 self.current_model = m
-                self._add_system_message(f"Model changed to: {m}")
+                self._add_system_message(f"Model: {m}")
                 return
         self.current_model = model
-        self._add_system_message(f"Model set to: {model}")
+        self._add_system_message(f"Model: {model}")
 
     def _change_provider(self, provider: str) -> None:
         if not provider:
@@ -472,57 +511,45 @@ Autocomplete:
             return
         for p in PROVIDERS:
             if provider.lower() in p.lower():
-                self._add_system_message(f"Provider changed to: {p}")
+                self._add_system_message(f"Provider: {p}")
                 return
         self._add_system_message(f"Unknown provider: {provider}")
 
     def _set_effort(self, level: str) -> None:
         if not level:
-            self._add_system_message(f"Current effort: medium\nAvailable: {', '.join(EFFORT_LEVELS)}")
+            self._add_system_message(f"Current: medium\nAvailable: {', '.join(EFFORT_LEVELS)}")
             return
         if level.lower() in EFFORT_LEVELS:
-            self._add_system_message(f"Effort set to: {level}")
+            self._add_system_message(f"Effort: {level}")
         else:
-            self._add_system_message(f"Invalid effort. Use: {', '.join(EFFORT_LEVELS)}")
+            self._add_system_message(f"Use: {', '.join(EFFORT_LEVELS)}")
 
     def _show_cost(self) -> None:
-        try:
-            from sago.tracking.token_tracker import TokenTracker
-            tracker = TokenTracker()
-            stats = tracker.get_stats()
-            self._add_system_message(
-                f"Token Usage:\n"
-                f"  Total tokens: {stats.get('total_tokens', 0)}\n"
-                f"  Total cost: ${stats.get('total_cost', 0):.4f}"
-            )
-        except Exception:
-            self._add_system_message("Token tracking not available yet")
+        self._add_system_message("Token tracking: coming soon")
 
     def _compact(self) -> None:
         if len(self.messages) > 5:
-            summary = f"Session compacted. {len(self.messages)} messages summarized."
             self.messages = self.messages[-3:]
-            self._add_system_message(summary)
+            self._add_system_message("Context compacted.")
         else:
             self._add_system_message("Nothing to compact")
 
     def _retry_last(self) -> None:
         user_msgs = [m for m in self.messages if m.get("role") == "user"]
         if user_msgs:
-            last = user_msgs[-1].get("content", "")
-            self._process_message(last)
+            self._process_message(user_msgs[-1].get("content", ""))
         else:
             self._add_system_message("No message to retry")
 
     def _save_context(self, name: str) -> None:
         name = name or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        self._add_system_message(f"Context saved as: {name}")
+        self._add_system_message(f"Saved: {name}")
 
     def _load_context(self, name: str) -> None:
         if not name:
             self._add_system_message("Usage: /load <name>")
             return
-        self._add_system_message(f"Context loaded: {name}")
+        self._add_system_message(f"Loaded: {name}")
 
     def _export_session(self) -> None:
         export = "# Sago Session\n\n"
@@ -533,7 +560,7 @@ Autocomplete:
         filename = f"sago_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
         with open(filename, "w") as f:
             f.write(export)
-        self._add_system_message(f"Exported to {filename}")
+        self._add_system_message(f"Exported: {filename}")
 
     def _add_user_message(self, content: str) -> None:
         msg = {"role": "user", "content": content}
