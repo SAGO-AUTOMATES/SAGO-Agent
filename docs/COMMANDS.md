@@ -3,7 +3,7 @@
 ## CLI Commands
 
 ### `sago smart`
-AI-powered agent routing. The AI picks the best agent for your task.
+AI-powered agent routing.
 
 ```bash
 sago smart "Fix the auth bug"
@@ -37,22 +37,58 @@ List all tools.
 
 ## TUI Commands
 
-### Slash Commands
+### General
 
 | Command | Alias | Description |
 |---------|-------|-------------|
-| `/help` | `/h` | Show help |
-| `/agents` | `/a` | List agents |
-| `/clear` | `/c` | Clear chat |
-| `/status` | `/s` | System status |
-| `/export` | `/e` | Export to markdown |
-| `/sessions` | — | List recent sessions |
-| `/session` | — | Switch session |
-| `/history` | — | Show chat history |
-| `/model` | — | Show current model |
-| `/provider` | — | Show current provider |
+| `/help` | `/h` | Show all commands |
 | `/version` | — | Show version |
-| `/exit` | `/q` | Quit |
+| `/exit` | `/q`, `/quit` | Quit |
+
+### Agents
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/agents` | `/a` | List all agents grouped by category |
+| `/agents <filter>` | `/a <filter>` | Filter agents by name/skill |
+
+### Chat
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/clear` | `/c` | Clear chat |
+| `/history` | — | Show recent messages |
+| `/retry` | — | Retry last message |
+| `/compact` | — | Summarize context |
+| `/reset` | — | Reset session |
+
+### Model & Provider
+
+| Command | Description |
+|---------|-------------|
+| `/model` | Show current model |
+| `/model <name>` | Change model |
+| `/provider` | Show available providers |
+| `/provider <name>` | Change provider |
+| `/effort <level>` | Set effort: low/medium/high |
+
+### Sessions
+
+| Command | Description |
+|---------|-------------|
+| `/sessions` | List recent sessions |
+| `/session <id>` | Switch session |
+| `/save [name]` | Save context |
+| `/load <name>` | Load context |
+| `/export` | Export to markdown |
+
+### Monitoring
+
+| Command | Description |
+|---------|-------------|
+| `/status` | System status with agent count |
+| `/cost` | Token usage and cost |
+| `/chain <agents>` | Chain agents for task |
 
 ### Autocomplete
 
@@ -62,7 +98,7 @@ List all tools.
 | `@` | Agent list |
 | `#` | Files in current directory |
 
-Type `/`, `@`, or `#` and see suggestions appear. Press Escape to dismiss.
+Press Escape to dismiss suggestions.
 
 ### Keyboard Shortcuts
 
@@ -81,11 +117,25 @@ export OPENROUTER_API_KEY="sk-or-..."
 sago smart "task"
 ```
 
+## Available Models
+
+- `openrouter/free` (default)
+- `openrouter/auto`
+- `anthropic/claude-3.5-sonnet`
+- `openai/gpt-4o`
+- `openai/gpt-4o-mini`
+- `google/gemini-2.0-flash`
+- `meta-llama/llama-3.1-70b-instruct`
+- `mistralai/mistral-7b-instruct:free`
+
 ## Examples
 
 ```bash
 sago smart "Fix the authentication bug"
 sago smart "Create a Java calculator"
-sago smart "Build a REST API with Flask"
 sago tui
+# In TUI:
+/a engineer     # Filter agents
+/model gpt      # Change model
+/sessions       # List sessions
 ```
