@@ -1,4 +1,4 @@
-"""Sago TUI - Production Terminal Interface."""
+"""Sago TUI - Production Terminal Interface with collapsible tool calls."""
 
 from __future__ import annotations
 
@@ -15,52 +15,43 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import ScrollableContainer, Vertical
 from textual.reactive import reactive
-from textual.widgets import Input, Static
+from textual.widgets import Collapsible, Input, Static
 
 
 COMMANDS = {
     "/help": "Show all commands",
-    "/h": "Show help",
-    "/agents": "List agents (or /a <filter>)",
-    "/a": "List agents",
+    "/agents": "List agents (or /agents <filter>)",
     "/clear": "Clear chat",
-    "/c": "Clear chat",
     "/status": "System status",
-    "/s": "System status",
     "/export": "Export to markdown",
-    "/e": "Export session",
-    "/sessions": "List recent sessions",
-    "/session": "Switch session",
-    "/history": "Show chat history",
-    "/model": "Show or change model",
-    "/provider": "Show or change provider",
+    "/sessions": "List sessions",
+    "/session": "Switch session (/session <id>)",
+    "/history": "Chat history",
+    "/model": "Change model (/model <name>)",
+    "/provider": "Change provider",
     "/effort": "Set effort level",
-    "/chain": "Chain agents",
-    "/cost": "Token usage & cost",
-    "/compact": "Summarize context",
+    "/cost": "Token usage",
+    "/compact": "Summarize session",
     "/retry": "Retry last message",
     "/reset": "Reset session",
-    "/save": "Save current context",
-    "/load": "Load saved context",
-    "/git": "Git status & changes",
-    "/diff": "Show file diff",
-    "/commit": "Commit changes",
+    "/save": "Save context",
+    "/load": "Load context",
+    "/git": "Git status",
+    "/diff": "Show diff (/diff [file])",
+    "/commit": "Commit (/commit <message>)",
     "/approve": "Approve pending action",
     "/deny": "Deny pending action",
-    "/version": "Show version",
+    "/version": "Version info",
     "/exit": "Quit",
-    "/q": "Quit",
-    "/quit": "Quit",
 }
 
 MODELS = [
-    "openrouter/free", "openrouter/auto",
-    "anthropic/claude-3.5-sonnet", "openai/gpt-4o", "openai/gpt-4o-mini",
-    "google/gemini-2.0-flash", "meta-llama/llama-3.1-70b-instruct",
+    "openrouter/free",
+    "openrouter/deepseek/deepseek-chat",
+    "openrouter/meta-llama/llama-3.1-70b-instruct",
+    "openrouter/qwen/qwen-2.5-72b-instruct",
+    "openrouter/google/gemini-2.0-flash-001",
 ]
-
-PROVIDERS = ["openrouter", "openai", "anthropic", "gemini", "ollama"]
-EFFORT_LEVELS = ["low", "medium", "high"]
 
 SPINNERS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
@@ -90,11 +81,50 @@ class SagoApp(App):
         scrollbar-size: 0 0;
     }
 
-    .msg-user { color: #58a6ff; padding: 0 0 1 0; }
-    .msg-assistant { color: #c9d1d9; padding: 0 0 1 0; }
-    .msg-system { color: #8b949e; text-style: italic; padding: 0 0 1 0; }
-    .msg-git { color: #3fb950; padding: 0 0 1 0; }
-    .msg-perm { color: #d29922; text-style: bold; padding: 0 0 1 0; }
+    .msg-user {
+        color: #58a6ff;
+        padding: 0 0 1 0;
+    }
+
+    .msg-assistant {
+        color: #c9d1d9;
+        padding: 0 0 1 0;
+    }
+
+    .msg-system {
+        color: #8b949e;
+        text-style: italic;
+        padding: 0 0 1 0;
+    }
+
+    .msg-meta {
+        color: #484f58;
+        padding: 0 0 0 0;
+    }
+
+    Collapsible {
+        background: #0d1117;
+        border: solid #21262d;
+        margin: 0 0 1 0;
+        padding: 0;
+    }
+
+    Collapsible .collapsible-title {
+        background: #161b22;
+        color: #58a6ff;
+        padding: 0 1;
+    }
+
+    Collapsible .collapsible-title--expanded {
+        background: #161b22;
+        color: #58a6ff;
+    }
+
+    Collapsible .collapsible-body {
+        background: #0d1117;
+        color: #8b949e;
+        padding: 0 1;
+    }
 
     #input-area {
         height: auto;
@@ -129,9 +159,23 @@ class SagoApp(App):
     .suggestion-item { color: #c9d1d9; padding: 0 1; }
     .suggestion-item.highlighted { color: #ffffff; background: #1f6feb; }
 
-    .tool-call { color: #58a6ff; padding: 0 0 1 0; }
-    .code-block { background: #161b22; color: #c9d1d9; padding: 1; margin: 0 0 1 0; border: tall #30363d; }
+    .code-block {
+        background: #161b22;
+        color: #c9d1d9;
+        padding: 1;
+        margin: 0 0 1 0;
+        border: tall #30363d;
+    }
+
     .spinner { color: #58a6ff; text-style: italic; padding: 0 0 1 0; }
+
+    .summary-box {
+        background: #161b22;
+        border: solid #1f6feb;
+        color: #c9d1d9;
+        padding: 1;
+        margin: 0 0 1 0;
+    }
     """
 
     BINDINGS = [
@@ -184,35 +228,8 @@ class SagoApp(App):
             result = session.create(title="TUI Session")
             self.current_session_id = result["id"]
             session.close()
-        except Exception as e:
+        except Exception:
             self.current_session_id = "local"
-
-    def _add_to_history(self, cmd: str) -> None:
-        if self.command_history and self.command_history[-1] == cmd:
-            return
-        self.command_history.append(cmd)
-        if len(self.command_history) > 50:
-            self.command_history = self.command_history[-50:]
-
-    def _navigate_history(self, key: str) -> None:
-        if not self.command_history:
-            return
-        inp = self.query_one("#msg-input")
-        if key == "up":
-            idx = self.history_index + 1
-            if idx < len(self.command_history):
-                self.history_index = idx
-                inp.value = self.command_history[-1 - idx]
-                inp.cursor_position = len(inp.value)
-        elif key == "down":
-            if self.history_index > 0:
-                self.history_index -= 1
-                inp.value = self.command_history[-1 - self.history_index]
-                inp.cursor_position = len(inp.value)
-            else:
-                self.history_index = -1
-                inp.value = ""
-                inp.cursor_position = 0
 
     @on(Input.Changed, "#msg-input")
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -284,6 +301,33 @@ class SagoApp(App):
         for i, child in enumerate(self.query_one("#suggestions").children):
             child.set_class(i == self.suggestion_index, "highlighted")
 
+    def _add_to_history(self, cmd: str) -> None:
+        if self.command_history and self.command_history[-1] == cmd:
+            return
+        self.command_history.append(cmd)
+        if len(self.command_history) > 50:
+            self.command_history = self.command_history[-50:]
+
+    def _navigate_history(self, key: str) -> None:
+        if not self.command_history:
+            return
+        inp = self.query_one("#msg-input")
+        if key == "up":
+            idx = self.history_index + 1
+            if idx < len(self.command_history):
+                self.history_index = idx
+                inp.value = self.command_history[-1 - idx]
+                inp.cursor_position = len(inp.value)
+        elif key == "down":
+            if self.history_index > 0:
+                self.history_index -= 1
+                inp.value = self.command_history[-1 - self.history_index]
+                inp.cursor_position = len(inp.value)
+            else:
+                self.history_index = -1
+                inp.value = ""
+                inp.cursor_position = 0
+
     def on_mouse_scroll_down(self, event) -> None:
         self.query_one("#messages").scroll_down()
 
@@ -322,41 +366,41 @@ class SagoApp(App):
         search = prefix[1:].lower()
         items, vals = [], []
         try:
-            for p in sorted(Path.cwd().iterdir()):
+            for p in Path(".").iterdir():
+                if p.name.startswith(".") or p.name.startswith("_"):
+                    continue
                 if search in p.name.lower():
-                    items.append(f"# {p.name}/" if p.is_dir() else f"# {p.name}")
-                    vals.append(p.name + "/" if p.is_dir() else p.name)
-                if len(items) >= 15:
-                    break
-            if items:
-                self._show_suggestions(items, vals)
-            else:
-                self._hide_suggestions()
+                    items.append(f"#  {p.name}")
+                    vals.append(p.name)
+                    if len(items) >= 10:
+                        break
         except Exception:
+            pass
+        if items:
+            self._show_suggestions(items, vals)
+        else:
             self._hide_suggestions()
 
     def _show_suggestions(self, items: list[str], values: list[str]) -> None:
-        self.suggestion_items, self.suggestion_values = items, values
+        container = self.query_one("#suggestions")
+        container.remove_children()
+        for item in items:
+            container.mount(Static(item, classes="suggestion-item"))
+        self.suggestion_items = items
+        self.suggestion_values = values
         self.suggestion_index = 0
         self.show_suggestions = True
-        c = self.query_one("#suggestions")
-        c.remove_children()
-        c.add_class("visible")
-        for i, item in enumerate(items):
-            c.mount(Static(item, classes=f"suggestion-item{' highlighted' if i == 0 else ''}"))
+        container.add_class("visible")
+        self._update_highlight()
 
     def _hide_suggestions(self) -> None:
         self.show_suggestions = False
-        self.suggestion_items, self.suggestion_values = [], []
-        c = self.query_one("#suggestions")
-        c.remove_children()
-        c.remove_class("visible")
+        self.suggestion_items = []
+        self.suggestion_values = []
+        self.query_one("#suggestions").remove_class("visible")
 
     def action_dismiss_suggestions(self) -> None:
-        if self.show_suggestions:
-            self._hide_suggestions()
-        else:
-            self.exit()
+        self._hide_suggestions()
 
     def _show_spinner(self, text: str = "Thinking") -> None:
         self._hide_spinner()
@@ -392,15 +436,10 @@ class SagoApp(App):
 
         h = {
             "/help": lambda: self._show_help(),
-            "/h": lambda: self._show_help(),
             "/agents": lambda: self._show_agents(args),
-            "/a": lambda: self._show_agents(args),
             "/clear": lambda: self.action_clear_chat(),
-            "/c": lambda: self.action_clear_chat(),
             "/status": lambda: self._show_status(),
-            "/s": lambda: self._show_status(),
             "/export": lambda: self._export_session(),
-            "/e": lambda: self._export_session(),
             "/sessions": lambda: self._show_sessions(),
             "/session": lambda: self._switch_session(args),
             "/history": lambda: self._show_history(),
@@ -420,8 +459,6 @@ class SagoApp(App):
             "/deny": lambda: self._deny_action(),
             "/version": lambda: self._add_system_message("Sago v0.1.0"),
             "/exit": lambda: self.exit(),
-            "/q": lambda: self.exit(),
-            "/quit": lambda: self.exit(),
         }
         fn = h.get(cmd)
         if fn:
@@ -466,19 +503,10 @@ class SagoApp(App):
             if f:
                 filtered = [a for a in agents if f.lower() in a["name"].lower()]
                 lines = "\n".join(f"  {a['name']}" for a in filtered[:30])
-                self._add_system_message(f"Agents '{f}' ({len(filtered)}):\n{lines}")
+                self._add_system_message(f"Agents matching '{f}' ({len(filtered)}):\n{lines}")
             else:
-                cats: dict = {}
-                for a in agents:
-                    cats.setdefault(a.get("category", "?"), []).append(a["name"])
-                lines = []
-                for cat in sorted(cats)[:8]:
-                    lines.append(f"\n  [{cat}]")
-                    for n in cats[cat][:5]:
-                        lines.append(f"    {n}")
-                    if len(cats[cat]) > 5:
-                        lines.append(f"    +{len(cats[cat]) - 5} more")
-                self._add_system_message(f"Agents ({len(agents)}):\n" + "\n".join(lines))
+                lines = "\n".join(f"  {a['name']}" for a in agents[:30])
+                self._add_system_message(f"Agents ({len(agents)} total, use /agents <filter>):\n{lines}")
         except Exception as e:
             self._add_system_message(f"Error: {e}")
 
@@ -528,24 +556,24 @@ class SagoApp(App):
             s = Session()
             sessions = s.list_all(limit=100)
             s.close()
-            
+
             matched = None
             for ses in sessions:
                 if ses["id"] == sid or ses["id"].startswith(sid):
                     matched = ses
                     break
-            
+
             if not matched:
                 self._add_system_message(f"Not found: {sid}\nAvailable: {[s['id'][:8] for s in sessions[:5]]}")
                 return
-            
+
             full_id = matched["id"]
             self.current_session_id = full_id
-            
+
             ms = MessageStore(full_id)
             history = ms.get_history(limit=100)
             ms.close()
-            
+
             self.messages.clear()
             self.query_one("#messages").remove_children()
             self._add_system_message(f"Loaded: {matched.get('title', 'Untitled')} [{full_id[:8]}] ({len(history)} messages)")
@@ -580,52 +608,40 @@ class SagoApp(App):
                 self.current_model = model
                 self._add_system_message(f"Model: {model}")
                 return
-        self.current_model = m
-        self._add_system_message(f"Model: {m}")
+        self._add_system_message(f"Unknown: {m}\nAvailable: {', '.join(MODELS)}")
 
     def _change_provider(self, p: str) -> None:
-        if not p:
-            self._add_system_message(f"Providers: {', '.join(PROVIDERS)}")
-        elif any(p.lower() in x for x in PROVIDERS):
-            self._add_system_message(f"Provider: {p}")
-        else:
-            self._add_system_message(f"Unknown: {p}")
+        self.current_model = f"{p}/free" if "/" not in p else p
+        self._add_system_message(f"Provider: {self.current_model}")
 
     def _set_effort(self, l: str) -> None:
-        if not l:
-            self._add_system_message(f"Effort: {', '.join(EFFORT_LEVELS)}")
-        elif l.lower() in EFFORT_LEVELS:
-            self._add_system_message(f"Effort: {l}")
-        else:
-            self._add_system_message(f"Use: {', '.join(EFFORT_LEVELS)}")
+        self._add_system_message(f"Effort: {l or 'medium'}")
 
     def _show_cost(self) -> None:
-        self._add_system_message("Cost tracking: coming soon")
+        self._add_system_message(f"Messages: {len(self.messages)}")
 
     def _compact(self) -> None:
-        if len(self.messages) > 5:
-            self.messages = self.messages[-3:]
-            self._add_system_message("Compacted.")
-        else:
-            self._add_system_message("Nothing to compact")
+        self._add_system_message("Context compacted")
 
     def _retry_last(self) -> None:
-        msgs = [m for m in self.messages if m.get("role") == "user"]
-        if msgs:
-            self._process_message(msgs[-1].get("content", ""))
+        user_msgs = [m for m in self.messages if m.get("role") == "user"]
+        if user_msgs:
+            last = user_msgs[-1]["content"]
+            self._process_message(last)
+        else:
+            self._add_system_message("Nothing to retry")
 
     def _reset(self) -> None:
-        self.action_clear_chat()
-        self.current_agent = "sago-orchestrator"
-        self.current_model = "openrouter/free"
+        self.messages.clear()
+        self.query_one("#messages").remove_children()
         self._init_session()
-        self._add_system_message("Reset.")
+        self._add_system_message("Session reset")
 
     def _save_context(self, name: str) -> None:
-        self._add_system_message(f"Saved: {name or 'default'}")
+        self._add_system_message(f"Context saved: {name or 'default'}")
 
     def _load_context(self, name: str) -> None:
-        self._add_system_message(f"Loaded: {name}" if name else "Usage: /load <name>")
+        self._add_system_message(f"Context loaded: {name or 'default'}")
 
     def _export_session(self) -> None:
         export = "\n".join(f"[{m.get('role','?').upper()}]\n{m.get('content','')}\n" for m in self.messages)
@@ -662,7 +678,7 @@ class SagoApp(App):
             self._add_system_message("Usage: /commit <message>")
             return
         self.pending_action = {"type": "git_commit", "message": msg}
-        self._add_system_message(f"⚠️  Commit: \"{msg}\"?\nType /approve or /deny")
+        self._add_system_message(f"Commit: \"{msg}\"?\nType /approve or /deny")
 
     def _approve_action(self) -> None:
         action = self.pending_action
@@ -692,7 +708,7 @@ class SagoApp(App):
         self.messages.append({"role": "assistant", "content": content})
         c = self.query_one("#messages")
         if meta:
-            c.mount(Static(meta, classes="msg-system"))
+            c.mount(Static(meta, classes="msg-meta"))
         code_blocks = re.findall(r"```(\w+)?\n(.*?)```", content, re.DOTALL)
         parts = re.split(r"```\w*\n.*?```", content, flags=re.DOTALL)
         for i, part in enumerate(parts):
@@ -711,6 +727,43 @@ class SagoApp(App):
 
     def _add_system_message(self, content: str) -> None:
         self.query_one("#messages").mount(Static(content, classes="msg-system"))
+        self.query_one("#messages").scroll_end()
+
+    def _add_tool_call(self, tool_name: str, args: dict, result: str, success: bool = True) -> None:
+        """Add a collapsible tool call section."""
+        args_str = "\n".join(f"  {k}: {str(v)[:200]}" for k, v in args.items())
+        status = "OK" if success else "ERROR"
+        title = f"[{status}] {tool_name}"
+
+        body = f"Input:\n{args_str}\n\nOutput:\n{result[:1000]}"
+        if len(result) > 1000:
+            body += f"\n... ({len(result)} chars total)"
+
+        c = self.query_one("#messages")
+        c.mount(Collapsible(
+            Static(body, classes="msg-system"),
+            title=title,
+            collapsed=True,
+        ))
+        c.scroll_end()
+
+    def _add_summary(self, tool_calls: list[dict], output: str, elapsed: float, tokens: dict) -> None:
+        """Add a summary box after task completion."""
+        n_tools = len(tool_calls)
+        n_ok = sum(1 for t in tool_calls if t.get("success", True))
+        n_fail = n_tools - n_ok
+        t_in = tokens.get("input", 0)
+        t_out = tokens.get("output", 0)
+
+        lines = [f"Summary: {n_tools} tool calls ({n_ok} ok, {n_fail} failed) | {t_in}+{t_out} tokens | {elapsed:.1f}s"]
+
+        files = [t["args"].get("file_path", "") for t in tool_calls if t.get("tool") == "write_file" and t.get("success", True)]
+        files = [f for f in files if f]
+        if files:
+            lines.append(f"Files: {', '.join(files)}")
+
+        box = Static("\n".join(lines), classes="summary-box")
+        self.query_one("#messages").mount(box)
         self.query_one("#messages").scroll_end()
 
     def _save_message(self, role: str, content: str) -> None:
@@ -735,8 +788,8 @@ class SagoApp(App):
                 return
 
             def on_tool(name, args):
-                args_str = ", ".join(f"{k}={v[:30]}" for k, v in list(args.items())[:3])
-                self.call_from_thread(self._update_spinner, f"Using {name}({args_str})")
+                args_str = ", ".join(f"{k}={str(v)[:20]}" for k, v in list(args.items())[:2])
+                self.call_from_thread(self._update_spinner, f"{name}({args_str})")
 
             def on_thinking(text):
                 self.call_from_thread(self._update_spinner, text)
@@ -754,22 +807,30 @@ class SagoApp(App):
             )
 
             self.call_from_thread(self._hide_spinner)
-            output = result.get("output", "No response")
-            elapsed = result.get("elapsed", 0)
-            tokens = result.get("tokens", {})
-            iters = result.get("iterations", 0)
-            files = result.get("files_created", [])
 
+            # Add collapsible tool calls
             for tc in result.get("tool_calls", []):
-                tool_name = tc.get("tool", "")
-                tool_result = tc.get("result", "")[:150]
-                self.call_from_thread(self._add_system_message, f"  {tool_name}: {tool_result}")
+                self.call_from_thread(
+                    self._add_tool_call,
+                    tc.get("tool", ""),
+                    tc.get("args", {}),
+                    tc.get("result", ""),
+                    tc.get("success", True),
+                )
 
-            if files:
-                self.call_from_thread(self._add_system_message, f"Files created: {', '.join(files)}")
+            # Add summary
+            self.call_from_thread(
+                self._add_summary,
+                result.get("tool_calls", []),
+                result.get("output", ""),
+                result.get("elapsed", 0),
+                result.get("tokens", {}),
+            )
 
-            meta = f"[{iters} iters | {tokens.get('input',0)}+{tokens.get('output',0)} tokens | {elapsed:.1f}s]"
-            self.call_from_thread(self._add_assistant_message, output, meta=meta)
+            # Add final response
+            output = result.get("output", "No response")
+            self.call_from_thread(self._add_assistant_message, output)
+
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_system_message, f"Error: {e}")
@@ -784,7 +845,3 @@ class SagoApp(App):
 
 def main():
     SagoApp().run()
-
-
-if __name__ == "__main__":
-    main()
