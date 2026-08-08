@@ -85,7 +85,7 @@ class SagoApp(App):
 
     #messages {
         height: 1fr;
-        padding: 0 2;
+        padding: 1 2 2 2;
         overflow-y: auto;
         scrollbar-size: 0 0;
     }
@@ -242,7 +242,8 @@ class SagoApp(App):
             child.set_class(i == self.suggestion_index, "highlighted")
 
     def _show_cmd_suggestions(self, prefix: str) -> None:
-        matches = [(c, d) for c, d in COMMANDS.items() if c.startswith(prefix.lower())]
+        full_commands = {k: v for k, v in COMMANDS.items() if len(k) > 2}
+        matches = [(c, d) for c, d in full_commands.items() if c.startswith(prefix.lower())]
         if matches:
             self._show_suggestions([f"{c} — {d}" for c, d in matches], [c for c, _ in matches])
         else:
@@ -360,11 +361,12 @@ class SagoApp(App):
     def _show_help(self) -> None:
         self._add_system_message(
             "Commands:\n"
-            "  /help, /h         Show this help\n"
-            "  /agents, /a       List agents\n"
-            "  /clear, /c        Clear chat\n"
-            "  /status, /s       System status\n"
-            "  /export, /e       Export to markdown\n"
+            "\n"
+            "  /help             Show this help\n"
+            "  /agents [filter]  List agents\n"
+            "  /clear            Clear chat\n"
+            "  /status           System status\n"
+            "  /export           Export to markdown\n"
             "  /sessions         List sessions\n"
             "  /session <id>     Switch session\n"
             "  /history          Chat history\n"
@@ -383,7 +385,7 @@ class SagoApp(App):
             "  /approve          Approve action\n"
             "  /deny             Deny action\n"
             "  /version          Version\n"
-            "  /exit, /q         Quit"
+            "  /exit             Quit"
         )
 
     def _show_agents(self, f: str = "") -> None:
