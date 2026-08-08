@@ -176,6 +176,33 @@ class SagoApp(App):
         except Exception:
             self.current_session_id = "local"
 
+    def _add_to_history(self, cmd: str) -> None:
+        if self.command_history and self.command_history[-1] == cmd:
+            return
+        self.command_history.append(cmd)
+        if len(self.command_history) > 50:
+            self.command_history = self.command_history[-50:]
+
+    def _navigate_history(self, key: str) -> None:
+        if not self.command_history:
+            return
+        inp = self.query_one("#msg-input")
+        if key == "up":
+            idx = self.history_index + 1
+            if idx < len(self.command_history):
+                self.history_index = idx
+                inp.value = self.command_history[-1 - idx]
+                inp.cursor_position = len(inp.value)
+        elif key == "down":
+            if self.history_index > 0:
+                self.history_index -= 1
+                inp.value = self.command_history[-1 - self.history_index]
+                inp.cursor_position = len(inp.value)
+            else:
+                self.history_index = -1
+                inp.value = ""
+                inp.cursor_position = 0
+
     @on(Input.Changed, "#msg-input")
     def on_input_changed(self, event: Input.Changed) -> None:
         v = event.value
@@ -246,40 +273,11 @@ class SagoApp(App):
         for i, child in enumerate(self.query_one("#suggestions").children):
             child.set_class(i == self.suggestion_index, "highlighted")
 
-    def _add_to_history(self, cmd: str) -> None:
-        if self.command_history and self.command_history[-1] == cmd:
-            return
-        self.command_history.append(cmd)
-        if len(self.command_history) > 50:
-            self.command_history = self.command_history[-50:]
-
-    def _navigate_history(self, key: str) -> None:
-        if not self.command_history:
-            return
-        inp = self.query_one("#msg-input")
-        if key == "up":
-            idx = self.history_index + 1
-            if idx < len(self.command_history):
-                self.history_index = idx
-                inp.value = self.command_history[-1 - idx]
-                inp.cursor_position = len(inp.value)
-        elif key == "down":
-            if self.history_index > 0:
-                self.history_index -= 1
-                inp.value = self.command_history[-1 - self.history_index]
-                inp.cursor_position = len(inp.value)
-            else:
-                self.history_index = -1
-                inp.value = ""
-                inp.cursor_position = 0
-
     def on_mouse_scroll_down(self, event) -> None:
-        msg_container = self.query_one("#messages")
-        msg_container.scroll_down(3)
+        self.query_one("#messages").scroll_down()
 
     def on_mouse_scroll_up(self, event) -> None:
-        msg_container = self.query_one("#messages")
-        msg_container.scroll_up(3)
+        self.query_one("#messages").scroll_up()
 
     def on_click(self, event) -> None:
         if self.show_suggestions:
