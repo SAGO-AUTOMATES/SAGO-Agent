@@ -20,18 +20,22 @@ def _register_providers() -> None:
         return
 
     from sago.llm.claude import ClaudeProvider
-    from sago.llm.gemini import GeminiProvider
     from sago.llm.ollama import OllamaProvider
     from sago.llm.openai_provider import OpenAIProvider
     from sago.llm.openrouter import OpenRouterProvider
 
     _PROVIDER_MAP = {
-        "gemini": GeminiProvider,
         "openai": OpenAIProvider,
         "claude": ClaudeProvider,
         "openrouter": OpenRouterProvider,
         "ollama": OllamaProvider,
     }
+
+    try:
+        from sago.llm.gemini import GeminiProvider
+        _PROVIDER_MAP["gemini"] = GeminiProvider
+    except ImportError:
+        pass
 
 
 def create_provider(

@@ -736,9 +736,8 @@ def usage() -> None:
 @click.argument("message")
 def chat(message: str) -> None:
     """Interactive chat with Sago."""
-    from sago.engine.production import ProductionEngine
-
-    engine = ProductionEngine()
+    import os
+    from sago.engine.simple_executor import execute_agent_task
 
     console.print(Panel.fit(
         "[bold green]Sago Chat[/]\n"
@@ -746,16 +745,25 @@ def chat(message: str) -> None:
         border_style="green",
     ))
 
-    session = engine.create_session("Chat Session")
-    console.print(f"[dim]Session: {session.id[:12]}[/]\n")
+    api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+    if not api_key:
+        console.print("[red]Error: No API key. Set OPENROUTER_API_KEY[/]")
+        return
 
-    # Process initial message
-    result = engine.run_task(message, session_id=session.id, stream=True)
+    session_id = str(__import__("uuid").uuid4())[:12]
+    console.print(f"[dim]Session: {session_id}[/]\n")
 
-    if not result.get("success"):
-        console.print(f"[red]Error: {result.get('error', 'Unknown error')}[/]")
+    result = execute_agent_task(
+        task=message,
+        agent_role="Sago Orchestrator",
+        api_key=api_key,
+        model="openrouter/free",
+        max_tokens=2048,
+        max_iterations=3,
+    )
 
-    engine.shutdown()
+    output = result.get("output", "No response")
+    console.print(f"\n[green]Sago:[/] {output}")
 
 
 @cli.command()

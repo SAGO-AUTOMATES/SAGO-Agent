@@ -164,9 +164,17 @@ class SagoApp(App):
     def on_mount(self) -> None:
         self._spinner = None
         self._spinner_timer = None
+        self._init_db()
         self._init_session()
         self._add_system_message("Sago v0.1.0 — /help for commands")
         self.query_one("#msg-input").focus()
+
+    def _init_db(self) -> None:
+        try:
+            from sago.database import init_db
+            init_db()
+        except Exception:
+            pass
 
     def _init_session(self) -> None:
         try:
@@ -175,7 +183,7 @@ class SagoApp(App):
             result = session.create(title="TUI Session")
             self.current_session_id = result["id"]
             session.close()
-        except Exception:
+        except Exception as e:
             self.current_session_id = "local"
 
     def _add_to_history(self, cmd: str) -> None:
@@ -486,7 +494,8 @@ class SagoApp(App):
 
     def _show_sessions(self) -> None:
         try:
-            from sago.database import Session
+            from sago.database import Session, init_db
+            init_db()
             s = Session()
             sessions = s.list_all(limit=15)
             s.close()
@@ -508,7 +517,8 @@ class SagoApp(App):
             self._add_system_message("Usage: /session <id>")
             return
         try:
-            from sago.database import Session, MessageStore
+            from sago.database import Session, MessageStore, init_db
+            init_db()
             s = Session()
             sessions = s.list_all(limit=100)
             s.close()
@@ -520,19 +530,19 @@ class SagoApp(App):
                     break
             
             if not matched:
-                self._add_system_message(f"Not found: {sid}")
+                self._add_system_message(f"Not found: {sid}\nAvailable: {[s['id'][:8] for s in sessions[:5]]}")
                 return
             
             full_id = matched["id"]
             self.current_session_id = full_id
             
             ms = MessageStore(full_id)
-            history = ms.get_history(limit=50)
+            history = ms.get_history(limit=100)
             ms.close()
             
             self.messages.clear()
             self.query_one("#messages").remove_children()
-            self._add_system_message(f"Loaded: {matched.get('title', 'Untitled')} [{full_id[:8]}]")
+            self._add_system_message(f"Loaded: {matched.get('title', 'Untitled')} [{full_id[:8]}] ({len(history)} messages)")
             for msg in history:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
@@ -543,8 +553,10 @@ class SagoApp(App):
                     self.messages.append({"role": "assistant", "content": content})
                     self.query_one("#messages").mount(Static(content, classes="msg-assistant"))
             self.query_one("#messages").scroll_end()
+            self.query_one("#messages").refresh()
         except Exception as e:
-            self._add_system_message(f"Error: {e}")
+            import traceback
+            self._add_system_message(f"Error: {e}\n{traceback.format_exc()}")
 
     def _show_history(self) -> None:
         if self.messages:
