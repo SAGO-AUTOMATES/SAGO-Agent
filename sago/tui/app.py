@@ -152,6 +152,8 @@ class SagoApp(App):
     suggestion_index: reactive[int] = reactive(0)
     is_thinking: reactive[bool] = reactive(False)
     pending_action: reactive[dict] = reactive(dict)
+    command_history: reactive[list[str]] = reactive(list)
+    history_index: reactive[int] = reactive(-1)
 
     def compose(self) -> ComposeResult:
         yield ScrollableContainer(id="messages")
@@ -201,28 +203,31 @@ class SagoApp(App):
 
         event.input.value = ""
         self._hide_suggestions()
+        self.history_index = -1
 
         if msg.startswith("/"):
+            if msg != "/history":
+                self._add_to_history(msg)
             self._handle_command(msg)
         else:
+            self._add_to_history(msg)
             self._add_user_message(msg)
             self._process_message(msg)
 
     def on_key(self, event) -> None:
-        if not self.show_suggestions:
-            return
-        if event.key == "down":
+        if self.show_suggestions:
+            if event.key == "down":
+                event.prevent_default()
+                self._move_sel(1)
+            elif event.key == "up":
+                event.prevent_default()
+                self._move_sel(-1)
+            elif event.key in ("right", "tab"):
+                event.prevent_default()
+                self._select_current()
+        elif event.key in ("up", "down"):
             event.prevent_default()
-            self._move_sel(1)
-        elif event.key == "up":
-            event.prevent_default()
-            self._move_sel(-1)
-        elif event.key == "right":
-            event.prevent_default()
-            self._select_current()
-        elif event.key == "tab":
-            event.prevent_default()
-            self._select_current()
+            self._navigate_history(event.key)
 
     def _move_sel(self, d: int) -> None:
         if self.suggestion_items:
@@ -240,6 +245,49 @@ class SagoApp(App):
     def _update_highlight(self) -> None:
         for i, child in enumerate(self.query_one("#suggestions").children):
             child.set_class(i == self.suggestion_index, "highlighted")
+
+    def _add_to_history(self, cmd: str) -> None:
+        if self.command_history and self.command_history[-1] == cmd:
+            return
+        self.command_history.append(cmd)
+        if len(self.command_history) > 50:
+            self.command_history = self.command_history[-50:]
+
+    def _navigate_history(self, key: str) -> None:
+        if not self.command_history:
+            return
+        inp = self.query_one("#msg-input")
+        if key == "up":
+            idx = self.history_index + 1
+            if idx < len(self.command_history):
+                self.history_index = idx
+                inp.value = self.command_history[-1 - idx]
+                inp.cursor_position = len(inp.value)
+        elif key == "down":
+            if self.history_index > 0:
+                self.history_index -= 1
+                inp.value = self.command_history[-1 - self.history_index]
+                inp.cursor_position = len(inp.value)
+            else:
+                self.history_index = -1
+                inp.value = ""
+                inp.cursor_position = 0
+
+    def on_mouse_scroll_down(self, event) -> None:
+        msg_container = self.query_one("#messages")
+        msg_container.scroll_down(3)
+
+    def on_mouse_scroll_up(self, event) -> None:
+        msg_container = self.query_one("#messages")
+        msg_container.scroll_up(3)
+
+    def on_click(self, event) -> None:
+        if self.show_suggestions:
+            for i, child in enumerate(self.query_one("#suggestions").children):
+                if child.hovered:
+                    self.suggestion_index = i
+                    self._select_current()
+                    break
 
     def _show_cmd_suggestions(self, prefix: str) -> None:
         full_commands = {k: v for k, v in COMMANDS.items() if len(k) > 2}
