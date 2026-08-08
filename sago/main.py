@@ -1,0 +1,879 @@
+"""Sago - Multi-Agent Orchestration System.
+
+Main entry point for the Sago application.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import click
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
+console = Console()
+
+
+@click.group()
+@click.version_option(version="0.1.0", prog_name="sago")
+def cli() -> None:
+    """Sago - Sophisticated Multi-Agent Orchestration System.
+
+    A CrewAI-based system with infinite tools, cross-platform support,
+    and a master orchestrator named Sago.
+    """
+    pass
+
+
+@cli.command()
+@click.argument("task")
+@click.option("--agent", "-a", default=None, help="Specific agent to use")
+@click.option("--chain", "-c", default=None, help="Comma-separated agent chain (e.g. python-pro,code-reviewer)")
+@click.option("--interactive", "-i", is_flag=True, help="Interactive mode with agent selection")
+def run(task: str, agent: str | None, chain: str | None, interactive: bool) -> None:
+    """Execute a task using Sago agents.
+
+    Examples:
+        sago run "Write a Python web scraper"
+        sago run "Debug this error" --agent debugger
+        sago run "Build a REST API" --chain system-architect,fullstack-dev,code-reviewer
+        sago run "Fix security issues" --interactive
+    """
+    import os
+    from sago.database import init
+    from sago.engine.simple_executor import execute_agent_task
+
+    init()
+
+    console.print(Panel.fit(
+        f"[bold green]Sago Agent System[/]\n"
+        f"[dim]Task: {task[:80]}{'...' if len(task) > 80 else ''}[/]",
+        border_style="green",
+    ))
+
+    # Get API key from environment
+    api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+    if not api_key:
+        console.print("[red]Error: No API key found. Set OPENROUTER_API_KEY or OPENAI_API_KEY[/]")
+        return
+
+    agent_name = agent or "python-engineer"
+    console.print(f"[green]Using agent: {agent_name}[/]\n")
+
+    result = execute_agent_task(
+        task=task,
+        agent_role=agent_name.replace("-", " ").title(),
+        api_key=api_key,
+        model="openrouter/free",
+        max_tokens=2048,
+        max_iterations=5,
+    )
+
+    # Display result
+    if isinstance(result, dict):
+        output = result.get("output", "No output")
+        tool_calls = result.get("tool_calls", [])
+        
+        if tool_calls:
+            console.print(f"\n[bold]Tool calls:[/]")
+            for tc in tool_calls:
+                console.print(f"  [cyan]{tc['tool']}[/]: {tc.get('result', '')[:100]}")
+        
+        console.print(Panel(
+            output,
+            title="[bold]Result[/]",
+            border_style="blue",
+        ))
+    else:
+        console.print(Panel(
+            str(result),
+            title="[bold]Result[/]",
+            border_style="blue",
+        ))
+
+
+@cli.command()
+def agents() -> None:
+    """List all available specialist agents."""
+    from sago.agents.registry import list_agents
+
+    agents_list = list_agents()
+
+    console.print(Panel.fit(
+        "[bold]Sago Specialist Agents[/]",
+        border_style="blue",
+    ))
+
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Name", style="cyan")
+    table.add_column("Codename", style="yellow")
+    table.add_column("Role")
+    table.add_column("Skills")
+    table.add_column("Handoff To", style="dim")
+
+    from sago.agents.registry import get_agent
+
+    for a in agents_list:
+        agent_def = get_agent(a["name"])
+        handoff = ", ".join(agent_def.handoff_to) if agent_def else ""
+        table.add_row(
+            a["name"],
+            a["codename"],
+            a["role"],
+            ", ".join(a["skills"][:4]),
+            handoff,
+        )
+
+    console.print(table)
+    console.print(f"\n[dim]Total: {len(agents_list)} agents[/]")
+
+
+@cli.command()
+@click.argument("agent_name")
+def info(agent_name: str) -> None:
+    """Show detailed info about a specific agent."""
+    from sago.agents.registry import get_agent, get_handoff_targets
+
+    agent = get_agent(agent_name)
+    if agent is None:
+        console.print(f"[red]Agent not found: {agent_name}[/]")
+        console.print("Use 'sago agents' to see available agents.")
+        return
+
+    console.print(Panel.fit(
+        f"[bold]{agent.codename}[/]\n"
+        f"[dim]{agent.role}[/]",
+        border_style="blue",
+    ))
+
+    console.print(f"\n[bold]Description:[/]\n{agent.description}")
+    console.print(f"\n[bold]Skills:[/]\n{', '.join(agent.skills)}")
+    console.print(f"\n[bold]Tools:[/]\n{', '.join(agent.tools)}")
+    console.print(f"\n[bold]Max Iterations:[/] {agent.max_iterations}")
+    console.print(f"\n[bold]Temperature:[/] {agent.temperature}")
+
+    handoff = get_handoff_targets(agent_name)
+    if handoff:
+        console.print(f"\n[bold]Can Hand Off To:[/]")
+        for h in handoff:
+            console.print(f"  - {h.name} ({h.codename})")
+
+
+@cli.command()
+def status() -> None:
+    """Show Sago system status."""
+    from sago.config.loader import get_config
+    from sago.paths import get_sago_home, get_db_path
+    from sago.database import Session
+
+    config = get_config()
+
+    console.print(Panel.fit(
+        "[bold]Sago System Status[/]",
+        border_style="blue",
+    ))
+
+    console.print(f"\n[bold]Version:[/] 0.1.0")
+    console.print(f"[bold]Home:[/] {get_sago_home()}")
+    console.print(f"[bold]Database:[/] {get_db_path()}")
+
+    # Check if DB exists
+    if get_db_path().exists():
+        session = Session()
+        sessions = session.list_all(limit=10)
+        console.print(f"[bold]Sessions:[/] {len(sessions)} stored")
+    else:
+        console.print("[bold]Database:[/] Not initialized")
+
+    console.print(f"\n[bold]Default LLM:[/] {config.llm_providers.default}")
+    console.print(f"[bold]Orchestrator:[/] {config.orchestrator.name}")
+
+    # Enabled agents
+    from sago.agents.registry import list_agents
+    agents_list = list_agents()
+    console.print(f"[bold]Agents:[/] {len(agents_list)} available")
+
+
+@cli.command()
+def tools() -> None:
+    """List all available tools."""
+    from sago.config.loader import get_config
+
+    config = get_config()
+
+    console.print(Panel.fit(
+        "[bold]Sago Tools Registry[/]",
+        border_style="blue",
+    ))
+
+    tool_categories = {
+        "File Operations": ["read_file", "write_file", "edit_file", "glob_files", "grep_content", "file_operations"],
+        "Shell": ["execute_shell", "background_process"],
+        "SSH": ["ssh_connect", "ssh_command", "ssh_transfer"],
+        "Session": ["session_manager", "clipboard"],
+        "Coding": ["code_analyzer", "linter", "formatter", "test_runner", "debugger", "log_analyzer"],
+        "Network": ["http_client", "dns_lookup", "port_scan", "network_config"],
+        "Admin": ["software_install", "permission_manager", "sudo_executor", "prompt_generator"],
+        "System": ["os_detector", "process_manager", "env_manager"],
+    }
+
+    for category, tool_list in tool_categories.items():
+        console.print(f"\n[bold]{category}:[/]")
+        for tool in tool_list:
+            console.print(f"  - {tool}")
+
+
+@cli.command()
+def sessions() -> None:
+    """List recent sessions."""
+    from sago.database import Session
+
+    session = Session()
+    sessions_list = session.list_all(limit=20)
+
+    if not sessions_list:
+        console.print("[dim]No sessions found.[/]")
+        return
+
+    console.print(Panel.fit("[bold]Recent Sessions[/]", border_style="blue"))
+
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("ID", style="cyan", max_width=12)
+    table.add_column("Title")
+    table.add_column("Created")
+    table.add_column("Status")
+
+    for s in sessions_list:
+        table.add_row(
+            s["id"][:12],
+            (s.get("title") or "Untitled")[:50],
+            s["created_at"][:19],
+            s.get("status", "active"),
+        )
+
+    console.print(table)
+
+
+@cli.command()
+@click.argument("session_id")
+def history(session_id: str) -> None:
+    """Show message history for a session."""
+    from sago.database import MessageStore
+
+    msg_store = MessageStore(session_id)
+    messages = msg_store.get_history(limit=50)
+
+    if not messages:
+        console.print(f"[dim]No messages found for session {session_id}[/]")
+        return
+
+    console.print(Panel.fit(
+        f"[bold]Session History: {session_id[:12]}[/]",
+        border_style="blue",
+    ))
+
+    for msg in messages:
+        role = msg["role"]
+        agent = msg.get("agent_name", "")
+        content = msg["content"]
+
+        if role == "user":
+            console.print(f"\n[bold blue]User:[/]")
+        elif role == "assistant":
+            console.print(f"\n[bold green]{agent or 'Sago'}:[/]")
+        else:
+            console.print(f"\n[bold]{role}:[/]")
+
+        console.print(content[:500])
+        if len(content) > 500:
+            console.print("[dim]...[/]")
+
+
+@cli.command()
+@click.option("--name", "-n", default=None, help="Project name")
+@click.option("--ssh/--no-ssh", default=False, help="Enable SSH tools")
+def init(name: str | None, ssh: bool) -> None:
+    """Initialize Sago in the current directory.
+
+    Creates a config.sago.json file that lets you customize agents,
+    tools, permissions, and prompts for this project.
+
+    Examples:
+        sago init
+        sago init --name my-project
+        sago init --ssh
+    """
+    from sago.config.project_config import (
+        create_config_file,
+        detect_project_languages,
+        detect_project_frameworks,
+    )
+    from sago.agents.loader import load_all_profiles
+
+    project_path = Path.cwd()
+
+    console.print(Panel.fit(
+        "[bold blue]Sago Project Initialization[/]",
+        border_style="blue",
+    ))
+
+    # Detect project info
+    languages = detect_project_languages(project_path)
+    frameworks = detect_project_frameworks(project_path)
+
+    console.print(f"\n[bold]Project:[/] {project_path.name}")
+    if languages:
+        console.print(f"[bold]Languages:[/] {', '.join(languages)}")
+    if frameworks:
+        console.print(f"[bold]Frameworks:[/] {', '.join(frameworks)}")
+
+    # Check for existing config
+    config_path = project_path / "config.sago.json"
+    if config_path.exists():
+        console.print("[yellow]config.sago.json already exists![/]")
+        if not click.confirm("Overwrite?"):
+            console.print("[dim]Cancelled.[/]")
+            return
+
+    # Create config
+    config_file = create_config_file(
+        project_path=project_path,
+        project_name=name or project_path.name,
+        languages=languages,
+        frameworks=frameworks,
+        enable_all_agents=True,
+        enable_ssh=ssh,
+    )
+
+    # Show what was created
+    profiles = load_all_profiles()
+    console.print(f"\n[green]Created: {config_file.name}[/]")
+    console.print(f"\n[bold]Configured {len(profiles)} agents:[/]")
+
+    for agent_name in sorted(profiles.keys()):
+        profile = profiles[agent_name]
+        console.print(f"  [cyan]{agent_name}[/] - {profile.role}")
+
+    console.print(f"\n[bold]Customize by editing config.sago.json:[/]")
+    console.print("  - Enable/disable agents")
+    console.print("  - Override system prompts")
+    console.print("  - Add/remove tools per agent")
+    console.print("  - Configure permissions")
+    console.print("  - Set LLM provider preferences")
+
+    console.print(f"\n[bold]Usage:[/]")
+    console.print("  sago run \"your task\"          # Auto-orchestrate")
+    console.print("  sago run \"task\" --agent X     # Use specific agent")
+    console.print("  sago agents                   # List all agents")
+
+
+@cli.command()
+def setup() -> None:
+    """Interactive setup wizard for Sago."""
+    from rich.prompt import Prompt, Confirm
+
+    console.print(Panel.fit(
+        "[bold blue]Sago Setup Wizard[/]\n"
+        "[dim]Configure your multi-agent system[/]",
+        border_style="blue",
+    ))
+
+    # Select LLM provider
+    console.print("\n[bold]Select LLM Provider:[/]")
+    console.print("  1. Gemini (Google)")
+    console.print("  2. OpenAI (GPT)")
+    console.print("  3. Claude (Anthropic)")
+    console.print("  4. OpenRouter")
+    console.print("  5. Ollama (Local)")
+
+    choice = Prompt.ask("Choice", default="1")
+    providers = {"1": "gemini", "2": "openai", "3": "claude", "4": "openrouter", "5": "ollama"}
+    provider = providers.get(choice, "gemini")
+
+    # Get API key
+    api_key_env = {
+        "gemini": "GEMINI_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "claude": "ANTHROPIC_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+    }.get(provider)
+
+    if api_key_env:
+        import os
+        key = Prompt.ask(f"Enter {api_key_env} (or press Enter to skip)")
+        if key:
+            os.environ[api_key_env] = key
+            console.print(f"[green]Set {api_key_env}[/]")
+
+    # Initialize database
+    from sago.database import init
+    init()
+    console.print("[green]Database initialized.[/]")
+
+    console.print(f"\n[green]Setup complete![/]")
+    console.print("Run [bold]sago run 'your task'[/] to get started.")
+    console.print("Run [bold]sago agents[/] to see available agents.")
+
+
+@cli.command()
+@click.argument("task")
+@click.option("--effort", "-e", default="medium", help="Effort level: minimal/low/medium/high/max")
+@click.option("--thinking/--no-thinking", default=False, help="Show thinking traces")
+def smart(task: str, effort: str, thinking: bool) -> None:
+    """Smart task execution with auto-delegation and streaming.
+
+    Automatically analyzes the task, selects the best agent,
+    and executes with streaming output and thinking traces.
+
+    Examples:
+        sago smart "Fix the authentication bug"
+        sago smart "Write a REST API" --effort high
+        sago smart "Review this code" --thinking
+    """
+    import os
+    import json
+    from openai import OpenAI
+    from sago.agents.registry import get_agent, list_agents
+    from sago.engine.simple_executor import execute_agent_task
+
+    api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+    if not api_key:
+        console.print("[red]Error: No API key found. Set OPENROUTER_API_KEY or OPENAI_API_KEY[/]")
+        return
+
+    # First: Ask the AI which agent to use
+    agents = list_agents()
+    agent_list_str = "\n".join([
+        f"- {a['name']}: {a.get('role', '')} | Skills: {', '.join(a.get('skills', [])[:5])}"
+        for a in agents[:50]
+    ])
+
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+    router_response = client.chat.completions.create(
+        model="openrouter/free",
+        messages=[
+            {"role": "system", "content": (
+                "You are a task router. Given a task, select the EXACT BEST agent name from the list.\n"
+                "Reply with ONLY the exact agent name, nothing else. No quotes, no explanation.\n"
+                "If the task mentions Java, use java-engineer. If Python, use python-engineer.\n\n"
+                f"Available agents:\n{agent_list_str}"
+            )},
+            {"role": "user", "content": f"Task: {task}"},
+        ],
+        max_tokens=50,
+    )
+
+    agent_name = router_response.choices[0].message.content
+    # Some models put response in reasoning field
+    if not agent_name and router_response.choices[0].message.reasoning:
+        # Extract agent name from reasoning
+        for a in agents:
+            if a["name"] in router_response.choices[0].message.reasoning:
+                agent_name = a["name"]
+                break
+    if agent_name:
+        agent_name = agent_name.strip().strip('"').strip("'")
+    else:
+        agent_name = "python-engineer"
+
+    # Validate agent exists, fallback to python-engineer
+    agent_def = get_agent(agent_name)
+    if not agent_def:
+        # Try partial match
+        for a in agents:
+            if agent_name.lower() in a["name"].lower() or a["name"].lower() in agent_name.lower():
+                agent_name = a["name"]
+                agent_def = get_agent(agent_name)
+                break
+    
+    if not agent_def:
+        agent_name = "python-engineer"
+        agent_def = get_agent(agent_name)
+
+    agent_role = agent_def.role if agent_def else agent_name
+
+    console.print(Panel.fit(
+        f"[bold green]Smart Execution[/]\n"
+        f"[dim]Agent: {agent_name} ({agent_role}) | Effort: {effort}[/]\n"
+        f"[dim]Task: {task[:60]}{'...' if len(task) > 60 else ''}[/]",
+        border_style="green",
+    ))
+
+    with console.status(f"[bold green]Agent {agent_name} is working...[/]"):
+        result = execute_agent_task(
+            task=task,
+            agent_role=agent_role,
+            api_key=api_key,
+            model="openrouter/free",
+            max_tokens=2048,
+            max_iterations=5,
+        )
+
+    # Display result
+    if isinstance(result, dict):
+        output = result.get("output", "No output")
+        tool_calls = result.get("tool_calls", [])
+        iterations = result.get("iterations", 0)
+
+        if tool_calls:
+            console.print("\n[bold]Tool calls:[/]")
+            for tc in tool_calls:
+                console.print(f"  [cyan]{tc.get('tool', '')}[/]: {tc.get('result', '')[:100]}")
+
+        console.print(Panel(
+            output,
+            title=f"[bold]{agent_name}[/]",
+            border_style="blue",
+        ))
+        console.print(f"[dim]Completed in {iterations} iterations[/]")
+    else:
+        console.print(Panel(str(result), title="[bold]Result[/]", border_style="blue"))
+
+
+@cli.command()
+@click.argument("task")
+@click.option("--chain", "-c", required=True, help="Comma-separated agent chain")
+@click.option("--effort", "-e", default="medium", help="Effort level")
+def chain(task: str, chain: str, effort: str) -> None:
+    """Execute task through an agent chain.
+
+    Each agent processes the output of the previous one.
+
+    Examples:
+        sago chain "Build a web app" --chain system-architect,fullstack-dev,code-reviewer
+        sago chain "Fix security issue" --chain security-engineer,debugger,code-reviewer
+    """
+    from sago.engine.production import ProductionEngine
+
+    engine = ProductionEngine()
+    agent_list = [a.strip() for a in chain.split(",")]
+
+    console.print(Panel.fit(
+        f"[bold green]Agent Chain[/]\n"
+        f"[dim]{' -> '.join(agent_list)}[/]",
+        border_style="green",
+    ))
+
+    result = engine.run_chain(task, agent_list, effort=effort)
+
+    if result.get("success"):
+        console.print("\n[green]Chain completed successfully![/]")
+    else:
+        console.print(f"\n[red]Chain failed: {result.get('error', 'Unknown error')}[/]")
+
+    engine.shutdown()
+
+
+@cli.command()
+def workflows() -> None:
+    """List all workflows."""
+    from sago.paths import get_sago_home
+    from sago.workflow.engine import WorkflowEngine
+
+    engine = WorkflowEngine(persist_dir=get_sago_home() / "workflows")
+    workflows_list = engine.list_workflows()
+
+    if not workflows_list:
+        console.print("[dim]No workflows found. Use 'sago workflow-create' to create one.[/]")
+        return
+
+    console.print(Panel.fit("[bold]Workflows[/]", border_style="blue"))
+
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("ID", style="cyan", max_width=12)
+    table.add_column("Name")
+    table.add_column("Status")
+    table.add_column("Steps")
+    table.add_column("Created")
+
+    for w in workflows_list:
+        table.add_row(
+            w["id"][:12],
+            w["name"][:40],
+            w["status"],
+            w.get("progress", "0/0"),
+            str(w.get("created_at", ""))[:19],
+        )
+
+    console.print(table)
+
+
+@cli.command()
+@click.argument("name")
+@click.option("--description", "-d", default="", help="Workflow description")
+@click.option("--trigger", "-t", default="manual", help="Trigger type: manual/schedule/event/ticket")
+def workflow_create(name: str, description: str, trigger: str) -> None:
+    """Create a new workflow interactively."""
+    from sago.paths import get_sago_home
+    from sago.workflow.engine import WorkflowEngine, TriggerType
+
+    engine = WorkflowEngine(persist_dir=get_sago_home() / "workflows")
+
+    trigger_map = {
+        "manual": TriggerType.MANUAL,
+        "schedule": TriggerType.SCHEDULE,
+        "event": TriggerType.EVENT,
+        "ticket": TriggerType.TICKET,
+    }
+
+    workflow = engine.create_workflow(
+        name=name,
+        description=description,
+        trigger=trigger_map.get(trigger, TriggerType.MANUAL),
+    )
+
+    console.print(f"[green]Created workflow: {workflow.name}[/]")
+    console.print(f"ID: {workflow.id}")
+    console.print("\nAdd steps with:")
+    console.print(f"  sago workflow-add-step {workflow.id}")
+
+
+@cli.command()
+@click.argument("workflow_id")
+@click.option("--name", "-n", required=True, help="Step name")
+@click.option("--type", "-t", "step_type", required=True, help="Step type: agent_call/tool_call")
+@click.option("--agent", "-a", default=None, help="Agent name (for agent_call)")
+@click.option("--tool", default=None, help="Tool name (for tool_call)")
+@click.option("--task", required=True, help="Task description or command")
+def workflow_add_step(
+    workflow_id: str,
+    name: str,
+    step_type: str,
+    agent: str | None,
+    tool: str | None,
+    task: str,
+) -> None:
+    """Add a step to a workflow."""
+    from sago.paths import get_sago_home
+    from sago.workflow.engine import WorkflowEngine
+
+    engine = WorkflowEngine(persist_dir=get_sago_home() / "workflows")
+
+    config = {"task": task}
+    if agent:
+        config["agent"] = agent
+    if tool:
+        config["tool"] = tool
+
+    step = engine.add_step(
+        workflow_id,
+        name,
+        step_type,
+        config,
+    )
+
+    if step:
+        console.print(f"[green]Added step: {name}[/]")
+    else:
+        console.print("[red]Failed to add step. Check workflow ID.[/]")
+
+
+@cli.command()
+@click.argument("workflow_id")
+def workflow_run(workflow_id: str) -> None:
+    """Execute a workflow."""
+    from sago.paths import get_sago_home
+    from sago.workflow.engine import WorkflowEngine
+
+    engine = WorkflowEngine(persist_dir=get_sago_home() / "workflows")
+
+    console.print(f"[green]Running workflow {workflow_id[:12]}...[/]\n")
+
+    result = engine.execute_workflow(workflow_id)
+
+    if "error" in result:
+        console.print(f"[red]Workflow failed: {result['error']}[/]")
+    else:
+        console.print(f"[green]Workflow completed![/]")
+        console.print(f"Status: {result.get('status')}")
+        console.print(f"Progress: {result.get('progress')}")
+
+
+@cli.command()
+def usage() -> None:
+    """Show token usage and cache statistics."""
+    from sago.tracking.token_tracker import get_token_tracker
+    from sago.cache.intelligent import get_cache
+
+    tracker = get_token_tracker(persist=False)
+    cache = get_cache(persist=False)
+
+    console.print(Panel.fit("[bold]Usage Statistics[/]", border_style="blue"))
+
+    # Token usage
+    summary = tracker.get_summary()
+    console.print("\n[bold]Token Usage:[/]")
+    console.print(f"  Total Requests: {summary.total_requests}")
+    console.print(f"  Total Tokens: {summary.total_tokens:,}")
+    console.print(f"  Input Tokens: {summary.total_input_tokens:,}")
+    console.print(f"  Output Tokens: {summary.total_output_tokens:,}")
+    console.print(f"  Total Cost: ${summary.total_cost_usd:.6f}")
+    console.print(f"  Avg Latency: {summary.avg_latency_ms:.1f}ms")
+
+    if summary.by_provider:
+        console.print("\n[bold]By Provider:[/]")
+        for provider, stats in summary.by_provider.items():
+            console.print(f"  {provider}: {stats['requests']} requests, {stats['tokens']:,} tokens")
+
+    # Cache stats
+    cache_stats = cache.get_stats_dict()
+    console.print("\n[bold]Cache Statistics:[/]")
+    console.print(f"  Hits: {cache_stats['hits']}")
+    console.print(f"  Misses: {cache_stats['misses']}")
+    console.print(f"  Hit Rate: {cache_stats['hit_rate_percent']}%")
+    console.print(f"  Entries: {cache_stats['total_entries']}")
+    console.print(f"  Size: {cache_stats['total_size_kb']} KB")
+    console.print(f"  Evictions: {cache_stats['evictions']}")
+
+
+@cli.command()
+@click.argument("message")
+def chat(message: str) -> None:
+    """Interactive chat with Sago."""
+    from sago.engine.production import ProductionEngine
+
+    engine = ProductionEngine()
+
+    console.print(Panel.fit(
+        "[bold green]Sago Chat[/]\n"
+        "[dim]Type 'exit' to quit, 'help' for commands[/]",
+        border_style="green",
+    ))
+
+    session = engine.create_session("Chat Session")
+    console.print(f"[dim]Session: {session.id[:12]}[/]\n")
+
+    # Process initial message
+    result = engine.run_task(message, session_id=session.id, stream=True)
+
+    if not result.get("success"):
+        console.print(f"[red]Error: {result.get('error', 'Unknown error')}[/]")
+
+    engine.shutdown()
+
+
+@cli.command()
+def tui() -> None:
+    """Launch the interactive Textual TUI.
+
+    Features:
+        - Slash commands (/help, /agents, /sessions, etc.)
+        - @ file/folder attachments
+        - Syntax highlighting
+        - Streaming responses
+        - Session management
+        - Autocomplete suggestions
+
+    Examples:
+        sago tui
+    """
+    from sago.tui.app import SagoApp
+
+    console.print("[green]Launching Sago TUI...[/]")
+    SagoApp().run()
+
+
+@cli.command()
+@click.option("--host", "-h", default="0.0.0.0", help="Bind host (0.0.0.0 for all interfaces)")
+@click.option("--port", "-p", default=7654, help="Port number")
+@click.option("--foreground", "-f", is_flag=True, help="Run in foreground")
+def serve(host: str, port: int, foreground: bool) -> None:
+    """Start Sago daemon server.
+
+    Runs Sago as a background service for remote task execution
+    and peer communication.
+
+    Examples:
+        sago serve                          # Default 0.0.0.0:7654
+        sago serve --host 127.0.0.1         # Localhost only
+        sago serve --port 9000              # Custom port
+        sago serve --foreground             # Run in foreground
+    """
+    from sago.server.daemon import get_daemon
+
+    daemon = get_daemon(host=host, port=port)
+
+    if daemon.is_running():
+        console.print(f"[yellow]Daemon already running (PID: {daemon.get_pid()})[/]")
+        return
+
+    console.print(f"[green]Starting Sago daemon on {host}:{port}...[/]")
+    daemon.start(foreground=foreground)
+
+
+@cli.command()
+def stop() -> None:
+    """Stop Sago daemon server."""
+    from sago.server.daemon import get_daemon
+
+    daemon = get_daemon()
+
+    if not daemon.is_running():
+        console.print("[yellow]Daemon not running[/]")
+        return
+
+    console.print("[green]Stopping daemon...[/]")
+    daemon.stop()
+    console.print("[green]Daemon stopped[/]")
+
+
+@cli.command()
+def daemon_status() -> None:
+    """Show Sago daemon status."""
+    from sago.server.daemon import get_daemon
+
+    daemon = get_daemon()
+
+    if daemon.is_running():
+        console.print(f"[green]{daemon.status()}[/]")
+    else:
+        console.print("[yellow]Daemon not running[/]")
+
+
+@cli.command()
+@click.argument("task")
+@click.option("--agent", "-a", default=None, help="Specific agent")
+@click.option("--host", "-h", default="127.0.0.1", help="Daemon host")
+@click.option("--port", "-p", default=7654, help="Daemon port")
+def remote(task: str, agent: str | None, host: str, port: int) -> None:
+    """Execute task on daemon server.
+
+    Examples:
+        sago remote "fix the bug"
+        sago remote "review code" --agent code-reviewer
+        sago remote "task" --host 192.168.1.100
+    """
+    from sago.server.daemon import get_client
+
+    client = get_client(host=host, port=port)
+
+    if not client.ping():
+        console.print("[red]Daemon not running. Start with: sago serve[/]")
+        return
+
+    console.print(f"[green]Executing on daemon: {task[:60]}...[/]")
+    result = client.execute(task, agent)
+
+    if result.get("status") == "completed":
+        console.print(Panel(
+            result.get("result", ""),
+            title="[bold]Result[/]",
+            border_style="blue",
+        ))
+    else:
+        console.print(f"[red]Error: {result.get('error', 'Unknown error')}[/]")
+
+
+def main() -> None:
+    """Main entry point."""
+    cli()
+
+
+if __name__ == "__main__":
+    main()

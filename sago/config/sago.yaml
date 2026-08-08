@@ -1,0 +1,224 @@
+# Sago Master Configuration
+# ========================
+# This is the primary configuration file for the Sago multi-agent system.
+# Edit this file to customize behavior, enable/disable agents, and set preferences.
+
+project:
+  name: "sago"
+  version: "0.1.0"
+  description: "Sophisticated Multi-Agent Orchestration System"
+
+# Master Agent Configuration
+orchestrator:
+  name: "Sago"
+  description: "Master orchestrator that routes tasks to specialist agents"
+  model: "gemini-2.0-flash"  # Default model for orchestrator
+  max_iterations: 25
+  verbose: true
+  memory: true
+  planning: true
+
+# Global Settings
+settings:
+  # Operating system compatibility
+  auto_detect_os: true
+  preferred_shell: null  # null = auto-detect, or "bash", "powershell", "zsh"
+
+  # Execution settings
+  max_concurrent_tools: 5
+  tool_timeout_seconds: 300
+  retry_on_failure: true
+  max_retries: 3
+
+  # Logging
+  log_level: "INFO"
+  log_to_file: true
+  log_directory: "~/.sago/logs"
+
+  # Session management
+  session_persistence: true
+  session_directory: "~/.sago/sessions"
+  max_session_history: 100
+
+  # Output settings
+  verbose_output: false
+  color_output: true
+  markdown_output: true
+
+# Agent Selection
+# Enable/disable specific agents. Sago will only use enabled agents.
+agents:
+  enabled:
+    - sago          # Master orchestrator (always enabled)
+    - coder         # Code writing and modification
+    - debugger      # Bug identification and fixing
+    - architect     # System design and architecture
+    - devops        # Infrastructure and deployment
+    - reviewer      # Code review and quality
+    - researcher    # Information gathering and analysis
+    - planner       # Task planning and breakdown
+
+  # Agent-specific overrides
+  overrides:
+    coder:
+      model: "gemini-2.0-flash"
+      max_iterations: 15
+    debugger:
+      model: "gemini-2.0-flash"
+      max_iterations: 20
+    architect:
+      model: "gemini-2.0-flash"
+      max_iterations: 10
+
+# Tool Configuration
+tools:
+  # Enable/disable tool categories
+  categories:
+    file: true
+    shell: true
+    ssh: true
+    session: true
+    coding: true
+    network: true
+    admin: true
+    system: true
+
+  # Tool-specific settings
+  file:
+    max_file_size_mb: 50
+    allowed_extensions: null  # null = all, or list like [".py", ".js", ".yaml"]
+    backup_before_edit: true
+
+  shell:
+    allowed_commands: null  # null = all, or list of allowed command prefixes
+    blocked_commands:
+      - "rm -rf /"
+      - "mkfs"
+      - "dd if="
+    require_confirmation: true
+
+  ssh:
+    known_hosts_file: "~/.ssh/known_hosts"
+    connection_timeout: 30
+    max_retries: 3
+
+  admin:
+    require_sudo_password: true
+    prompt_for_permission: true
+    allowed_install_methods:
+      - "apt"
+      - "yum"
+      - "brew"
+      - "choco"
+      - "pip"
+      - "npm"
+      - "cargo"
+
+# LLM Provider Configuration
+llm_providers:
+  # Default provider
+  default: "gemini"
+
+  # Provider-specific settings
+  providers:
+    gemini:
+      enabled: true
+      api_key_env: "GEMINI_API_KEY"
+      model: "gemini-2.0-flash"
+      max_tokens: 8192
+      temperature: 0.7
+
+    openai:
+      enabled: true
+      api_key_env: "OPENAI_API_KEY"
+      model: "gpt-4o"
+      max_tokens: 4096
+      temperature: 0.7
+
+    claude:
+      enabled: true
+      api_key_env: "ANTHROPIC_API_KEY"
+      model: "claude-sonnet-4-20250514"
+      max_tokens: 4096
+      temperature: 0.7
+
+    openrouter:
+      enabled: false
+      api_key_env: "OPENROUTER_API_KEY"
+      model: "anthropic/claude-sonnet-4"
+      max_tokens: 4096
+      temperature: 0.7
+
+    ollama:
+      enabled: false
+      base_url: "http://localhost:11434"
+      model: "llama3.1"
+      max_tokens: 4096
+      temperature: 0.7
+
+# Task Routing Rules
+routing:
+  # Keywords that trigger specific agents
+  triggers:
+    coder:
+      - "write code"
+      - "implement"
+      - "create function"
+      - "add feature"
+      - "refactor"
+      - "code"
+      - "program"
+      - "script"
+
+    debugger:
+      - "debug"
+      - "fix bug"
+      - "error"
+      - "exception"
+      - "crash"
+      - "not working"
+      - "broken"
+      - "issue"
+
+    architect:
+      - "design"
+      - "architecture"
+      - "system design"
+      - "structure"
+      - "pattern"
+      - "scale"
+      - "planning"
+
+    devops:
+      - "deploy"
+      - "docker"
+      - "kubernetes"
+      - "ci/cd"
+      - "pipeline"
+      - "infrastructure"
+      - "server"
+      - "cloud"
+
+    reviewer:
+      - "review"
+      - "check"
+      - "audit"
+      - "quality"
+      - "best practice"
+      - "optimize"
+
+    researcher:
+      - "research"
+      - "find"
+      - "search"
+      - "compare"
+      - "evaluate"
+      - "analyze"
+
+    planner:
+      - "plan"
+      - "break down"
+      - "steps"
+      - "roadmap"
+      - "milestone"
+      - "task"

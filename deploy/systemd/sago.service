@@ -1,0 +1,33 @@
+[Unit]
+Description=Sago AI Agent Daemon
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=%i
+Group=%i
+WorkingDirectory=%h
+ExecStart=/usr/local/bin/sago serve
+ExecStop=/usr/local/bin/sago stop
+PIDFile=/home/%i/.sago/daemon.pid
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sago
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.sago
+
+# Environment
+Environment=GEMINI_API_KEY=
+Environment=OPENAI_API_KEY=
+Environment=ANTHROPIC_API_KEY=
+Environment=OPENROUTER_API_KEY=
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+# Sago Session Export
+Session: default
+Exported: 2026-08-09T02:31:11.420875
+Provider: gemini/gemini-2.0-flash
+Tokens: 42
+Cost: $0.0000
+
+[USER]
+hey there what can you do ?
+
+[USER]
+can you tell me a joke ?
+
+[USER]
+/help
+
+[USER]
+/export

@@ -1,0 +1,344 @@
+# Tool Registry
+# =============
+# Defines all available tools, their capabilities, and which agents can use them.
+# Each tool maps to exactly one Python file in the tools/ directory.
+
+tools:
+  # File Operations
+  read_file:
+    name: "Read File"
+    category: "file"
+    description: "Read the contents of a file"
+    module: "sago.tools.file.read_file"
+    class_name: "ReadFileTool"
+    permissions: ["read"]
+
+  write_file:
+    name: "Write File"
+    category: "file"
+    description: "Write content to a file (creates or overwrites)"
+    module: "sago.tools.file.write_file"
+    class_name: "WriteFileTool"
+    permissions: ["read", "write"]
+
+  edit_file:
+    name: "Edit File"
+    category: "file"
+    description: "Edit a file using exact string replacement"
+    module: "sago.tools.file.edit_file"
+    class_name: "EditFileTool"
+    permissions: ["read", "edit"]
+
+  glob_files:
+    name: "Find Files"
+    category: "file"
+    description: "Find files matching glob patterns"
+    module: "sago.tools.file.glob_files"
+    class_name: "GlobFilesTool"
+    permissions: ["read"]
+
+  grep_content:
+    name: "Search Content"
+    category: "file"
+    description: "Search file contents using regex patterns"
+    module: "sago.tools.file.grep_content"
+    class_name: "GrepContentTool"
+    permissions: ["read"]
+
+  file_operations:
+    name: "File Operations"
+    category: "file"
+    description: "Move, copy, delete, or rename files and directories"
+    module: "sago.tools.file.file_ops"
+    class_name: "FileOperationsTool"
+    permissions: ["read", "write"]
+
+  # Shell Operations
+  execute_shell:
+    name: "Execute Shell Command"
+    category: "shell"
+    description: "Execute a shell command and return output"
+    module: "sago.tools.shell.execute"
+    class_name: "ExecuteShellTool"
+    permissions: ["bash"]
+
+  background_process:
+    name: "Background Process"
+    category: "shell"
+    description: "Run a long-running process in the background"
+    module: "sago.tools.shell.background"
+    class_name: "BackgroundProcessTool"
+    permissions: ["bash"]
+
+  # SSH Operations
+  ssh_connect:
+    name: "SSH Connect"
+    category: "ssh"
+    description: "Establish an SSH connection to a remote host"
+    module: "sago.tools.ssh.ssh_connect"
+    class_name: "SSHConnectTool"
+    permissions: ["bash"]
+
+  ssh_command:
+    name: "SSH Command"
+    category: "ssh"
+    description: "Execute a command on a remote host via SSH"
+    module: "sago.tools.ssh.ssh_command"
+    class_name: "SSHCommandTool"
+    permissions: ["bash"]
+
+  ssh_transfer:
+    name: "SSH Transfer"
+    category: "ssh"
+    description: "Transfer files to/from remote hosts via SCP/SFTP"
+    module: "sago.tools.ssh.ssh_transfer"
+    class_name: "SSHTransferTool"
+    permissions: ["bash"]
+
+  # Session Operations
+  session_manager:
+    name: "Session Manager"
+    category: "session"
+    description: "Manage persistent sessions across tool calls"
+    module: "sago.tools.session.session_manager"
+    class_name: "SessionManagerTool"
+    permissions: ["read", "write"]
+
+  clipboard:
+    name: "Clipboard"
+    category: "session"
+    description: "Read from or write to the system clipboard"
+    module: "sago.tools.session.clipboard"
+    class_name: "ClipboardTool"
+    permissions: ["read", "write"]
+
+  # Coding Tools
+  code_analyzer:
+    name: "Code Analyzer"
+    category: "coding"
+    description: "Analyze code for structure, complexity, and issues"
+    module: "sago.tools.coding.code_analyzer"
+    class_name: "CodeAnalyzerTool"
+    permissions: ["read"]
+
+  linter:
+    name: "Linter"
+    category: "coding"
+    description: "Run linting tools on code files"
+    module: "sago.tools.coding.linter"
+    class_name: "LinterTool"
+    permissions: ["read", "bash"]
+
+  formatter:
+    name: "Code Formatter"
+    category: "coding"
+    description: "Format code according to style standards"
+    module: "sago.tools.coding.formatter"
+    class_name: "FormatterTool"
+    permissions: ["read", "edit"]
+
+  test_runner:
+    name: "Test Runner"
+    category: "coding"
+    description: "Run tests and report results"
+    module: "sago.tools.coding.test_runner"
+    class_name: "TestRunnerTool"
+    permissions: ["read", "bash"]
+
+  debugger:
+    name: "Debugger"
+    category: "coding"
+    description: "Debug code execution and trace issues"
+    module: "sago.tools.coding.debugger"
+    class_name: "DebuggerTool"
+    permissions: ["read", "bash"]
+
+  log_analyzer:
+    name: "Log Analyzer"
+    category: "coding"
+    description: "Analyze log files for errors and patterns"
+    module: "sago.tools.coding.log_analyzer"
+    class_name: "LogAnalyzerTool"
+    permissions: ["read"]
+
+  # Network Tools
+  http_client:
+    name: "HTTP Client"
+    category: "network"
+    description: "Make HTTP requests to APIs and web services"
+    module: "sago.tools.network.http_client"
+    class_name: "HTTPClientTool"
+    permissions: ["bash"]
+
+  dns_lookup:
+    name: "DNS Lookup"
+    category: "network"
+    description: "Perform DNS lookups and resolve hostnames"
+    module: "sago.tools.network.dns_lookup"
+    class_name: "DNSLookupTool"
+    permissions: ["bash"]
+
+  port_scan:
+    name: "Port Scanner"
+    category: "network"
+    description: "Scan ports on a target host"
+    module: "sago.tools.network.port_scan"
+    class_name: "PortScanTool"
+    permissions: ["bash"]
+
+  network_config:
+    name: "Network Config"
+    category: "network"
+    description: "View and configure network settings"
+    module: "sago.tools.network.config_manager"
+    class_name: "NetworkConfigTool"
+    permissions: ["read", "bash"]
+
+  # Admin Tools
+  software_install:
+    name: "Software Installer"
+    category: "admin"
+    description: "Install software packages using system package managers"
+    module: "sago.tools.admin.software_install"
+    class_name: "SoftwareInstallTool"
+    permissions: ["bash"]
+
+  permission_manager:
+    name: "Permission Manager"
+    category: "admin"
+    description: "Manage file and directory permissions"
+    module: "sago.tools.admin.permission_manager"
+    class_name: "PermissionManagerTool"
+    permissions: ["bash"]
+
+  sudo_executor:
+    name: "Sudo Executor"
+    category: "admin"
+    description: "Execute commands with elevated privileges"
+    module: "sago.tools.admin.sudo_executor"
+    class_name: "SudoExecutorTool"
+    permissions: ["bash"]
+
+  prompt_generator:
+    name: "Prompt Generator"
+    category: "admin"
+    description: "Generate and manage AI prompts for various tasks"
+    module: "sago.tools.admin.prompt_generator"
+    class_name: "PromptGeneratorTool"
+    permissions: ["read", "write"]
+
+  # System Tools
+  os_detector:
+    name: "OS Detector"
+    category: "system"
+    description: "Detect operating system and system information"
+    module: "sago.tools.system.os_detector"
+    class_name: "OSDetectorTool"
+    permissions: ["read"]
+
+  process_manager:
+    name: "Process Manager"
+    category: "system"
+    description: "List, monitor, and manage system processes"
+    module: "sago.tools.system.process_manager"
+    class_name: "ProcessManagerTool"
+    permissions: ["read", "bash"]
+
+  env_manager:
+    name: "Environment Manager"
+    category: "system"
+    description: "Manage environment variables and system paths"
+    module: "sago.tools.system.env_manager"
+    class_name: "EnvManagerTool"
+    permissions: ["read", "write", "bash"]
+
+  # Network Tools - Extended
+  web_crawler:
+    name: "Web Crawler"
+    category: "network"
+    description: "Crawl websites and extract content, links, and images"
+    module: "sago.tools.network.web_crawler"
+    class_name: "WebCrawler"
+    permissions: ["bash"]
+
+  # System Tools - Extended
+  git_ops:
+    name: "Git Operations"
+    category: "system"
+    description: "Execute git commands: status, log, diff, add, commit, push, pull"
+    module: "sago.tools.system.git_ops"
+    class_name: "GitOps"
+    permissions: ["bash"]
+
+  docker_ops:
+    name: "Docker Operations"
+    category: "system"
+    description: "Execute docker commands: ps, build, run, stop, compose"
+    module: "sago.tools.system.docker_ops"
+    class_name: "DockerOps"
+    permissions: ["bash"]
+
+  cron_schedule:
+    name: "Cron Schedule"
+    category: "system"
+    description: "Manage scheduled tasks and cron jobs"
+    module: "sago.tools.system.cron_schedule"
+    class_name: "CronSchedule"
+    permissions: ["bash"]
+
+  # File Tools - Extended
+  data_processor:
+    name: "Data Processor"
+    category: "file"
+    description: "Process JSON/YAML: parse, validate, format, query, merge, diff"
+    module: "sago.tools.file.data_processor"
+    class_name: "DataProcessor"
+    permissions: ["read"]
+
+  hash_checksum:
+    name: "Hash/Checksum"
+    category: "file"
+    description: "Generate and verify file/string hashes (md5, sha1, sha256)"
+    module: "sago.tools.file.hash_checksum"
+    class_name: "HashChecksum"
+    permissions: ["read"]
+
+  archive:
+    name: "Archive"
+    category: "file"
+    description: "Create, extract, and list archives (zip, tar, tar.gz)"
+    module: "sago.tools.file.archive"
+    class_name: "Archive"
+    permissions: ["read", "write"]
+
+  pdf_reader:
+    name: "PDF Reader"
+    category: "file"
+    description: "Extract text and info from PDF files"
+    module: "sago.tools.file.pdf_reader"
+    class_name: "PDFReader"
+    permissions: ["read"]
+
+  database_query:
+    name: "Database Query"
+    category: "file"
+    description: "Execute SQL queries on SQLite databases"
+    module: "sago.tools.file.database_query"
+    class_name: "DatabaseQuery"
+    permissions: ["read", "write"]
+
+  regex_tester:
+    name: "Regex Tester"
+    category: "file"
+    description: "Test and debug regular expressions"
+    module: "sago.tools.file.regex_tester"
+    class_name: "RegexTester"
+    permissions: ["read"]
+
+  diff_tool:
+    name: "Diff Tool"
+    category: "file"
+    description: "Compare files and text with unified/context diff"
+    module: "sago.tools.file.diff_tool"
+    class_name: "DiffTool"
+    permissions: ["read"]

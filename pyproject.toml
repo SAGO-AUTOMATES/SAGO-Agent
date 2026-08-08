@@ -1,0 +1,52 @@
+[project]
+name = "sago"
+version = "0.1.0"
+description = "Sophisticated Multi-Agent Orchestration System with infinite tools, cross-platform support, and TUI interface"
+readme = "README.md"
+authors = [
+    { name = "CrimsonDevil333333", email = "satyaagoyal333333@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp>=3.14.3",
+    "click>=8.4.2",
+    "crewai[google-genai]>=1.15.13",
+    "crewai-tools>=1.15.13",
+    "httpx>=0.28.1",
+    "langchain-core>=1.5.3",
+    "paramiko>=5.0.0",
+    "psutil>=7.2.2",
+    "pydantic>=2.12.5",
+    "python-dotenv>=1.2.2",
+    "pyyaml>=6.0.3",
+    "rich>=14.3.4",
+    "textual>=8.2.8",
+]
+
+[project.optional-dependencies]
+gemini = ["google-generativeai>=0.8.0", "langchain-google-genai>=2.0.0"]
+openai = ["langchain-openai>=0.3.0"]
+claude = ["anthropic>=0.40.0", "langchain-anthropic>=0.3.0"]
+ollama = ["langchain-community>=0.3.0"]
+dev = ["ruff>=0.8.0", "mypy>=1.13.0", "pytest>=8.0.0"]
+
+[project.scripts]
+sago = "sago.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+warn_return_any = true
+warn_unused_configs = true

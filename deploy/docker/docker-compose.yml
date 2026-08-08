@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  sago:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    container_name: sago
+    ports:
+      - "7654:7654"
+    volumes:
+      - sago_data:/root/.sago
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('127.0.0.1', 7654)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  sago_data:
