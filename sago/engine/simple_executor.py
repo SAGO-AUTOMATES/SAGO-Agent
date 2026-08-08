@@ -15,6 +15,7 @@ from sago.tools.file.write_file import WriteFileTool
 from sago.tools.file.edit_file import EditFileTool
 from sago.tools.file.glob_files import GlobFilesTool
 from sago.tools.file.grep_content import GrepContentTool
+from sago.tools.file.spawn_agent import SpawnAgentTool
 from sago.tools.shell.execute import ExecuteShellTool
 from sago.tools.system.git_ops import GitOps
 
@@ -25,6 +26,7 @@ TOOL_MAP = {
     "edit_file": EditFileTool,
     "glob_files": GlobFilesTool,
     "grep_content": GrepContentTool,
+    "spawn_agent": SpawnAgentTool,
     "execute_shell": ExecuteShellTool,
     "git_ops": GitOps,
 }
@@ -128,6 +130,18 @@ def execute_agent_task(
         "   Git operations: status, log, diff, add, commit, push, pull, branch, checkout\n"
         '   Example: {"name": "git_ops", "args": {"operation": "status"}}\n'
         '   Example: {"name": "git_ops", "args": {"operation": "log", "args": "--oneline -10"}}\n\n'
+        "8. spawn_agent(task, agent_name, context?)\n"
+        "   Delegate work to a specialist agent. Available agents:\n"
+        "   python-engineer, javascript-engineer, java-engineer, go-engineer,\n"
+        "   rust-engineer, cpp-engineer, frontend-engineer, backend-engineer,\n"
+        "   fullstack-engineer, devops, security-engineer, qa-engineer,\n"
+        "   debugger, code-reviewer, data-engineer, ml-engineer,\n"
+        "   database-engineer, technical-writer, system-architect, mobile-engineer,\n"
+        "   ios-engineer, android-engineer, flutter-engineer, kubernetes-engineer,\n"
+        "   docker-engineer, cloud-engineer, performance-engineer, api-engineer,\n"
+        "   ui-engineer, ux-engineer, css-engineer, software-engineer\n"
+        '   Example: {"name": "spawn_agent", "args": {"task": "fix the bug", "agent_name": "debugger"}}\n'
+        '   Example: {"name": "spawn_agent", "args": {"task": "write tests", "agent_name": "qa-engineer", "context": "module does X"}}\n\n'
         "=== RULES ===\n"
         "- You HAVE tools. USE THEM. Never say you can't read files or run commands.\n"
         "- Always use tools to explore before answering questions about the project.\n"
