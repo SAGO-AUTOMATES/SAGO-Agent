@@ -20,10 +20,15 @@ from textual.widgets import Input, Static
 
 COMMANDS = {
     "/help": "Show all commands",
+    "/h": "Show help",
     "/agents": "List agents (or /a <filter>)",
+    "/a": "List agents",
     "/clear": "Clear chat",
+    "/c": "Clear chat",
     "/status": "System status",
+    "/s": "System status",
     "/export": "Export to markdown",
+    "/e": "Export session",
     "/sessions": "List recent sessions",
     "/session": "Switch session",
     "/history": "Show chat history",
@@ -44,6 +49,8 @@ COMMANDS = {
     "/deny": "Deny pending action",
     "/version": "Show version",
     "/exit": "Quit",
+    "/q": "Quit",
+    "/quit": "Quit",
 }
 
 MODELS = [
@@ -75,19 +82,53 @@ class Spinner(Static):
 class SagoApp(App):
     CSS = """
     Screen { background: #0d1117; }
-    #messages { height: 1fr; padding: 0 2; overflow-y: auto; }
+
+    #messages {
+        height: 1fr;
+        padding: 0 2;
+        overflow-y: auto;
+        scrollbar-size: 0 0;
+    }
+
     .msg-user { color: #58a6ff; padding: 0 0 1 0; }
     .msg-assistant { color: #c9d1d9; padding: 0 0 1 0; }
     .msg-system { color: #8b949e; text-style: italic; padding: 0 0 1 0; }
     .msg-git { color: #3fb950; padding: 0 0 1 0; }
     .msg-perm { color: #d29922; text-style: bold; padding: 0 0 1 0; }
-    #input-area { height: auto; padding: 0 2 1 2; background: #161b22; border-top: solid #30363d; }
-    #msg-input { background: #0d1117; border: tall #30363d; color: #c9d1d9; margin: 0; }
+
+    #input-area {
+        height: auto;
+        padding: 1 2;
+        background: #161b22;
+        border: solid #30363d;
+        margin: 0 1 1 1;
+    }
+
+    #msg-input {
+        background: #0d1117;
+        border: tall #30363d;
+        color: #c9d1d9;
+        margin: 0;
+    }
+
     #msg-input:focus { border: tall #58a6ff; }
-    #suggestions { display: none; max-height: 14; overflow-y: auto; background: #161b22; border-top: solid #30363d; padding: 0 2; }
+
+    #suggestions {
+        display: none;
+        max-height: 14;
+        overflow-y: auto;
+        background: #161b22;
+        border: solid #30363d;
+        margin: 0 1 0 1;
+        padding: 0;
+        scrollbar-size: 0 0;
+    }
+
     #suggestions.visible { display: block; }
-    .suggestion-item { color: #c9d1d9; }
+
+    .suggestion-item { color: #c9d1d9; padding: 0 1; }
     .suggestion-item.highlighted { color: #ffffff; background: #1f6feb; }
+
     .tool-call { color: #58a6ff; padding: 0 0 1 0; }
     .code-block { background: #161b22; color: #c9d1d9; padding: 1; margin: 0 0 1 0; border: tall #30363d; }
     .spinner { color: #58a6ff; text-style: italic; padding: 0 0 1 0; }
@@ -150,8 +191,17 @@ class SagoApp(App):
         msg = event.value.strip()
         if not msg:
             return
+
+        if self.show_suggestions and self.suggestion_values:
+            val = self.suggestion_values[self.suggestion_index]
+            event.input.value = val + " "
+            event.input.cursor_position = len(event.input.value)
+            self._hide_suggestions()
+            return
+
         event.input.value = ""
         self._hide_suggestions()
+
         if msg.startswith("/"):
             self._handle_command(msg)
         else:
@@ -167,7 +217,10 @@ class SagoApp(App):
         elif event.key == "up":
             event.prevent_default()
             self._move_sel(-1)
-        elif event.key in ("right", "tab"):
+        elif event.key == "right":
+            event.prevent_default()
+            self._select_current()
+        elif event.key == "tab":
             event.prevent_default()
             self._select_current()
 
@@ -267,6 +320,7 @@ class SagoApp(App):
 
         h = {
             "/help": lambda: self._show_help(),
+            "/h": lambda: self._show_help(),
             "/agents": lambda: self._show_agents(args),
             "/a": lambda: self._show_agents(args),
             "/clear": lambda: self.action_clear_chat(),
@@ -304,31 +358,33 @@ class SagoApp(App):
             self._add_system_message(f"Unknown: {cmd}")
 
     def _show_help(self) -> None:
-        self._add_system_message("""Commands:
-  /help             Show help
-  /agents [filter]  List agents
-  /clear            Clear chat
-  /status           System status
-  /export           Export to markdown
-  /sessions         List sessions
-  /session <id>     Switch session
-  /history          Chat history
-  /model [name]     Change model
-  /provider [name]  Change provider
-  /effort <level>   Set effort
-  /cost             Token usage
-  /compact          Summarize
-  /retry            Retry last
-  /reset            Reset
-  /save [name]      Save
-  /load <name>      Load
-  /git              Git status
-  /diff [file]      Show diff
-  /commit <msg>     Commit changes
-  /approve          Approve action
-  /deny             Deny action
-  /version          Version
-  /exit             Quit""")
+        self._add_system_message(
+            "Commands:\n"
+            "  /help, /h         Show this help\n"
+            "  /agents, /a       List agents\n"
+            "  /clear, /c        Clear chat\n"
+            "  /status, /s       System status\n"
+            "  /export, /e       Export to markdown\n"
+            "  /sessions         List sessions\n"
+            "  /session <id>     Switch session\n"
+            "  /history          Chat history\n"
+            "  /model [name]     Change model\n"
+            "  /provider [name]  Change provider\n"
+            "  /effort <level>   Set effort\n"
+            "  /cost             Token usage\n"
+            "  /compact          Summarize\n"
+            "  /retry            Retry last\n"
+            "  /reset            Reset\n"
+            "  /save [name]      Save\n"
+            "  /load <name>      Load\n"
+            "  /git              Git status\n"
+            "  /diff [file]      Show diff\n"
+            "  /commit <msg>     Commit\n"
+            "  /approve          Approve action\n"
+            "  /deny             Deny action\n"
+            "  /version          Version\n"
+            "  /exit, /q         Quit"
+        )
 
     def _show_agents(self, f: str = "") -> None:
         try:
@@ -359,10 +415,8 @@ class SagoApp(App):
             n = len(list_agents())
         except Exception:
             n = 0
-        git = self._git_check()
         self._add_system_message(
-            f"Sago v0.1.0 | {n} agents | {self.current_model} | "
-            f"{len(self.messages)} msgs | Git: {'clean' if git else 'N/A'}"
+            f"Sago v0.1.0 | {n} agents | {self.current_model} | {len(self.messages)} msgs"
         )
 
     def _show_sessions(self) -> None:
@@ -407,7 +461,7 @@ class SagoApp(App):
                         self._add_assistant_message(content)
                 self._add_system_message(f"Session: {sid[:8]}")
             else:
-                self._add_system_message(f"Session not found: {sid}")
+                self._add_system_message(f"Not found: {sid}")
         except Exception as e:
             self._add_system_message(f"Error: {e}")
 
@@ -480,26 +534,16 @@ class SagoApp(App):
         Path(fn).write_text(f"# Sago Session\n\n{export}")
         self._add_system_message(f"Exported: {fn}")
 
-    def _git_check(self) -> bool:
-        try:
-            subprocess.run(["git", "rev-parse", "--git-dir"], capture_output=True, check=True)
-            return True
-        except Exception:
-            return False
-
     def _git_status(self) -> None:
         try:
             r = subprocess.run(["git", "status", "--short"], capture_output=True, text=True, timeout=5)
             if r.returncode == 0:
                 files = r.stdout.strip()
-                if files:
-                    self._add_system_message(f"Git changes:\n{files}")
-                else:
-                    self._add_system_message("Git: clean working tree")
+                self._add_system_message(f"Git changes:\n{files}" if files else "Git: clean")
             else:
-                self._add_system_message("Git: not a repository")
+                self._add_system_message("Not a git repo")
         except Exception:
-            self._add_system_message("Git: not available")
+            self._add_system_message("Git unavailable")
 
     def _git_diff(self, file: str) -> None:
         try:
@@ -512,7 +556,7 @@ class SagoApp(App):
             else:
                 self._add_system_message("No changes")
         except Exception:
-            self._add_system_message("Git diff failed")
+            self._add_system_message("Diff failed")
 
     def _git_commit(self, msg: str) -> None:
         if not msg:
@@ -532,12 +576,12 @@ class SagoApp(App):
                 r = subprocess.run(["git", "commit", "-m", action["message"]], capture_output=True, text=True, timeout=5)
                 self._add_system_message(f"Committed: {r.stdout.strip()[:100]}")
             except Exception as e:
-                self._add_system_message(f"Commit failed: {e}")
+                self._add_system_message(f"Failed: {e}")
         self.pending_action = {}
 
     def _deny_action(self) -> None:
         self.pending_action = {}
-        self._add_system_message("Action denied")
+        self._add_system_message("Denied")
 
     def _add_user_message(self, content: str) -> None:
         self.messages.append({"role": "user", "content": content})
@@ -588,7 +632,7 @@ class SagoApp(App):
             api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
-                self.call_from_thread(self._add_system_message, "No API key. Set OPENROUTER_API_KEY.")
+                self.call_from_thread(self._add_system_message, "No API key.")
                 return
 
             from sago.engine.simple_executor import execute_agent_task
