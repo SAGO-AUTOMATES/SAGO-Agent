@@ -1,4 +1,4 @@
-"""Simple Agent Executor - Auto-discovers all tools, prevents loops, provides progress."""
+"""Smart Agent Executor - Thinks before acting, learns from results, no loops."""
 
 from __future__ import annotations
 
@@ -8,71 +8,57 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from openai import OpenAI
 
 from sago.tools.base import BaseTool
 
 
-# Auto-discover all tools from sago/tools/
+# Auto-discover all tools
 _TOOL_CLASSES: dict[str, type[BaseTool]] = {}
-_TOOL_DESCRIPTIONS: str = ""
+_TOOL_DESCRIPTIONS = ""
 
 
 def _discover_tools() -> dict[str, type[BaseTool]]:
-    """Auto-discover all BaseTool subclasses from sago/tools/."""
     global _TOOL_CLASSES, _TOOL_DESCRIPTIONS
     if _TOOL_CLASSES:
         return _TOOL_CLASSES
 
     tools_dir = Path(__file__).parent.parent / "tools"
-    skip = {"base.py", "__init__.py"}
-
     for py_file in tools_dir.rglob("*.py"):
-        if py_file.name.startswith("_") or py_file.name in skip:
+        if py_file.name.startswith("_") or py_file.name == "base.py":
             continue
         try:
             parts = py_file.relative_to(tools_dir).with_suffix("").as_posix().split("/")
-            mod_name = f"sago.tools.{'.'.join(parts)}"
-            mod = importlib.import_module(mod_name)
-            for attr_name in dir(mod):
-                obj = getattr(mod, attr_name)
-                if (
-                    isinstance(obj, type)
-                    and issubclass(obj, BaseTool)
-                    and obj is not BaseTool
-                    and hasattr(obj, "name")
-                    and obj.name
-                ):
+            mod = importlib.import_module(f"sago.tools.{'.'.join(parts)}")
+            for attr in dir(mod):
+                obj = getattr(mod, attr)
+                if isinstance(obj, type) and issubclass(obj, BaseTool) and obj is not BaseTool and getattr(obj, "name", None):
                     _TOOL_CLASSES[obj.name] = obj
         except Exception:
             pass
 
-    # Build description string
     lines = []
     for name, cls in sorted(_TOOL_CLASSES.items()):
         desc = cls.description or name
         args = ""
         if cls.args_model:
             fields = cls.args_model.model_fields
-            arg_parts = []
-            for fname, finfo in fields.items():
-                req = "required" if finfo.is_required() else f"default={finfo.default}"
-                arg_parts.append(f"{fname} ({req})")
-            args = ", ".join(arg_parts)
+            parts = []
+            for fn, fi in fields.items():
+                req = "REQ" if fi.is_required() else f"={fi.default}"
+                parts.append(f"{fn}({req})")
+            args = ", ".join(parts)
         lines.append(f"- {name}({args}): {desc}")
     _TOOL_DESCRIPTIONS = "\n".join(lines)
-
     return _TOOL_CLASSES
 
 
-def _get_project_context(cwd: str | None = None) -> str:
-    """Gather project context."""
+def _get_context(cwd: str | None = None) -> str:
     work_dir = Path(cwd) if cwd else Path.cwd()
     lines = [f"Working directory: {work_dir}"]
 
-    # README
     for name in ["README.md", "readme.md"]:
         p = work_dir / name
         if p.exists():
@@ -82,41 +68,77 @@ def _get_project_context(cwd: str | None = None) -> str:
                 pass
             break
 
-    # Files
-    skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", "env", ".tox", ".mypy_cache", "dist", "build"}
-    file_list = []
+    skip = {".git", "node_modules", "__pycache__", ".venv", "venv", "env", ".tox", "dist", "build"}
+    files = []
     try:
         for item in sorted(work_dir.iterdir()):
-            if item.name.startswith(".") or item.name in skip_dirs:
+            if item.name.startswith(".") or item.name in skip:
                 continue
             if item.is_dir():
                 try:
-                    file_list.append(f"  {item.name}/ ({sum(1 for _ in item.iterdir())} items)")
+                    files.append(f"  {item.name}/ ({sum(1 for _ in item.iterdir())} items)")
                 except Exception:
-                    file_list.append(f"  {item.name}/")
+                    files.append(f"  {item.name}/")
             else:
                 try:
                     s = item.stat().st_size
-                    file_list.append(f"  {item.name} ({s}B)" if s < 100_000 else f"  {item.name} ({s//1024}KB)")
+                    files.append(f"  {item.name} ({s}B)" if s < 100_000 else f"  {item.name} ({s//1024}KB)")
                 except Exception:
-                    file_list.append(f"  {item.name}")
+                    files.append(f"  {item.name}")
     except PermissionError:
         pass
-
-    if file_list:
+    if files:
         lines.append(f"\nFiles ({work_dir.name}/):")
-        lines.extend(file_list[:50])
+        lines.extend(files[:50])
 
-    # Git
     try:
         import subprocess
         r = subprocess.run(["git", "status", "--short"], capture_output=True, text=True, timeout=5, cwd=str(work_dir))
         if r.returncode == 0 and r.stdout.strip():
-            lines.append(f"\nGit changes:\n{r.stdout.strip()[:1000]}")
+            lines.append(f"\nGit changes:\n{r.stdout.strip()[:800]}")
     except Exception:
         pass
 
     return "\n".join(lines)
+
+
+SYSTEM_PROMPT_TEMPLATE = """You are {agent_role}. You are a SMART agent that thinks before acting.
+
+{project_ctx}
+
+=== YOUR TOOLS ({tool_count} available) ===
+{tool_descriptions}
+
+=== HOW TO THINK ===
+
+1. UNDERSTAND: Read the task carefully. What exactly is being asked?
+2. PLAN: What steps do you need? Which tools in what order?
+3. ACT: Execute ONE tool at a time. Wait for the result.
+4. LEARN: What did the tool tell you? Does it match your expectation?
+5. ADAPT: If it failed or wasn't what you expected, try a DIFFERENT approach.
+6. ANSWER: Once you have enough info, give a clear final answer.
+
+=== CRITICAL RULES ===
+
+- NEVER repeat the exact same tool call. If it failed, try something different.
+- NEVER use the same tool more than 3 times in a row.
+- If a file read fails, try a different path or use glob_files to find it.
+- If a command fails, read the error and fix your approach.
+- STOP using tools once you have the answer. Don't over-explore.
+- Your final response should be AFTER all tool calls, summarizing what you found/did.
+
+=== TOOL FORMAT ===
+
+Output EXACTLY one JSON per tool call on its own line:
+{{"name": "tool_name", "args": {{"param": "value"}}}}
+
+Examples:
+{{"name": "execute_shell", "args": {{"command": "ls -la"}}}}
+{{"name": "read_file", "args": {{"file_path": "README.md"}}}}
+{{"name": "glob_files", "args": {{"pattern": "**/*.py"}}}}
+{{"name": "grep_content", "args": {{"pattern": "class App", "include": "*.py"}}}}
+{{"name": "spawn_agent", "args": {{"task": "write tests", "agent_name": "qa-engineer"}}}}
+"""
 
 
 def execute_agent_task(
@@ -129,48 +151,40 @@ def execute_agent_task(
     max_tokens: int = 4096,
     max_iterations: int = 5,
     cwd: str | None = None,
-    on_tool_call: Any = None,
-    on_thinking: Any = None,
+    on_tool_call: Callable | None = None,
+    on_thinking: Callable | None = None,
 ) -> dict[str, Any]:
-    """Execute a task with auto-discovered tools, loop protection, and progress callbacks."""
     tools = _discover_tools()
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
-    project_ctx = _get_project_context(cwd)
+    project_ctx = _get_context(cwd)
     start_time = time.time()
 
-    # Track state to prevent loops
-    seen_tool_results: set[str] = set()
-    consecutive_same_tool = 0
-    last_tool_call = ""
-    total_input_tokens = 0
-    total_output_tokens = 0
+    # Build smart system prompt
+    if not system_prompt:
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+            agent_role=agent_role,
+            project_ctx=project_ctx,
+            tool_count=len(tools),
+            tool_descriptions=_TOOL_DESCRIPTIONS,
+        )
 
-    default_prompt = (
-        f"You are {agent_role}. Working on the user's real machine.\n\n"
-        f"PROJECT CONTEXT:\n{project_ctx}\n\n"
-        f"TOOLS ({len(tools)} available):\n{_TOOL_DESCRIPTIONS}\n\n"
-        "RULES:\n"
-        "- Output ONE JSON per tool call on its own line: {\"name\": \"tool\", \"args\": {...}}\n"
-        "- Use relative paths (relative to working directory).\n"
-        "- Never say you can't - you have full tool access.\n"
-        "- After tool results, provide a clear summary.\n"
-        "- If a tool fails, try a different approach.\n"
-        "- Do NOT repeat the same tool call with the same arguments.\n"
-    )
+    # State tracking
+    tool_history: list[dict] = []  # [{name, args, result, success}]
+    tool_call_counts: dict[str, int] = {}  # tool_name -> count
+    failed_calls: set[str] = set()  # "tool:args_hash" for failed calls
+    total_tokens_in = 0
+    total_tokens_out = 0
 
     messages = [
-        {"role": "system", "content": system_prompt or default_prompt},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": task},
     ]
 
-    tools_used = []
     content = ""
 
     for i in range(max_iterations):
-        iteration_start = time.time()
-
         if on_thinking:
-            on_thinking(f"Iteration {i+1}/{max_iterations}...")
+            on_thinking(f"Thinking... (step {i+1}/{max_iterations})")
 
         try:
             response = client.chat.completions.create(
@@ -183,10 +197,10 @@ def execute_agent_task(
             return {
                 "success": False,
                 "error": str(e),
-                "output": content,
-                "tool_calls": tools_used,
+                "output": content or f"API error: {e}",
+                "tool_calls": tool_history,
                 "iterations": i + 1,
-                "tokens": {"input": total_input_tokens, "output": total_output_tokens},
+                "tokens": {"input": total_tokens_in, "output": total_tokens_out},
                 "elapsed": time.time() - start_time,
             }
 
@@ -195,84 +209,102 @@ def execute_agent_task(
         if not content and hasattr(choice.message, "reasoning") and choice.message.reasoning:
             content = choice.message.reasoning
 
-        # Track tokens
         if hasattr(response, "usage") and response.usage:
-            total_input_tokens += response.usage.prompt_tokens or 0
-            total_output_tokens += response.usage.completion_tokens or 0
+            total_tokens_in += response.usage.prompt_tokens or 0
+            total_tokens_out += response.usage.completion_tokens or 0
 
         messages.append({"role": "assistant", "content": content})
 
-        tool_matches = _extract_tool_calls(content)
+        tool_calls = _extract_tool_calls(content)
 
-        if not tool_matches:
+        if not tool_calls:
             return {
                 "success": True,
                 "output": content,
-                "tool_calls": tools_used,
+                "tool_calls": tool_history,
                 "iterations": i + 1,
-                "tokens": {"input": total_input_tokens, "output": total_output_tokens},
+                "tokens": {"input": total_tokens_in, "output": total_tokens_out},
                 "elapsed": time.time() - start_time,
             }
 
-        for match in tool_matches:
+        # Execute each tool call
+        results_for_llm = []
+        for call_str in tool_calls:
             try:
-                tool_data = json.loads(match) if isinstance(match, str) else match
-                tool_name = tool_data.get("name", "")
-                tool_args = tool_data.get("args", {})
+                call = json.loads(call_str) if isinstance(call_str, str) else call_str
+                name = call.get("name", "")
+                args = call.get("args", {})
 
-                # Loop detection: same tool+args repeated
-                call_sig = f"{tool_name}:{json.dumps(tool_args, sort_keys=True)}"
-                if call_sig == last_tool_call:
-                    consecutive_same_tool += 1
-                    if consecutive_same_tool >= 2:
-                        messages.append({"role": "user", "content": "You already tried this exact call and got a result. Do NOT repeat it. Use the result you have and provide your final answer."})
-                        continue
-                else:
-                    consecutive_same_tool = 0
-                last_tool_call = call_sig
-
-                # Loop detection: same result seen
-                result_key = call_sig[:100]
-                if result_key in seen_tool_results:
-                    messages.append({"role": "user", "content": "This tool call was already executed. Use existing results and move forward."})
+                # Check if this exact call already failed
+                call_key = f"{name}:{json.dumps(args, sort_keys=True)}"
+                if call_key in failed_calls:
+                    results_for_llm.append(f"[SKIP] Already failed: {name}")
                     continue
 
-                # Execute tool
-                if on_tool_call:
-                    on_tool_call(tool_name, tool_args)
+                # Check if tool exists
+                if name not in tools:
+                    avail = ", ".join(sorted(tools.keys()))
+                    results_for_llm.append(f"Unknown tool '{name}'. Available: {avail}")
+                    continue
 
-                tool_class = tools.get(tool_name)
-                if tool_class:
-                    tool_instance = tool_class()
-                    result = tool_instance.run(**tool_args)
-                    result_str = str(result)[:3000]
-                    seen_tool_results.add(result_key)
-                    tools_used.append({"tool": tool_name, "args": tool_args, "result": result_str[:500]})
-                    messages.append({"role": "user", "content": f"[Tool: {tool_name}]\n{result_str}"})
+                # Check if repeating same tool too much
+                tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
+                if tool_call_counts[name] > 3:
+                    results_for_llm.append(
+                        f"[STOP] You've used {name} {tool_call_counts[name]} times. "
+                        f"Try a different tool or give your final answer."
+                    )
+                    continue
+
+                # Execute
+                if on_tool_call:
+                    on_tool_call(name, args)
+
+                tool_instance = tools[name]()
+                result = tool_instance.run(**args)
+                result_str = str(result)[:3000]
+
+                # Determine success
+                is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
+                if is_error:
+                    failed_calls.add(call_key)
+
+                tool_history.append({
+                    "tool": name,
+                    "args": args,
+                    "result": result_str[:500],
+                    "success": not is_error,
+                })
+
+                # Format result with context
+                if is_error:
+                    results_for_llm.append(f"[ERROR] {name}:\n{result_str}\nHint: Fix your approach, don't retry the same thing.")
                 else:
-                    available = ", ".join(sorted(tools.keys()))
-                    messages.append({"role": "user", "content": f"Unknown tool '{tool_name}'. Available: {available}"})
+                    results_for_llm.append(f"[OK] {name}:\n{result_str}")
 
             except json.JSONDecodeError:
-                messages.append({"role": "user", "content": "Invalid JSON. Output exactly: {\"name\": \"tool\", \"args\": {...}}"})
+                results_for_llm.append("Invalid JSON format. Use: {\"name\": \"tool\", \"args\": {...}}")
             except Exception as e:
-                messages.append({"role": "user", "content": f"Tool error: {type(e).__name__}: {e}. Try different approach."})
+                results_for_llm.append(f"Tool crashed: {type(e).__name__}: {e}")
 
+        # Send all results back to LLM
+        combined = "\n\n".join(results_for_llm)
+        messages.append({"role": "user", "content": combined})
+
+    # Max iterations reached
     return {
         "success": True,
         "output": content,
-        "tool_calls": tools_used,
+        "tool_calls": tool_history,
         "iterations": max_iterations,
-        "tokens": {"input": total_input_tokens, "output": total_output_tokens},
+        "tokens": {"input": total_tokens_in, "output": total_tokens_out},
         "elapsed": time.time() - start_time,
     }
 
 
 def _extract_tool_calls(content: str) -> list[str]:
-    """Extract tool calls from LLM output."""
     matches = []
 
-    # JSON on its own line
     for line in content.splitlines():
         line = line.strip()
         if line.startswith("{") and line.endswith("}"):
@@ -286,7 +318,6 @@ def _extract_tool_calls(content: str) -> list[str]:
     if matches:
         return matches
 
-    # ```json blocks
     for pattern in [r'```json\s*\n(.*?)\n```', r'```\s*\n(\{.*?\})\n```']:
         for f in re.findall(pattern, content, re.DOTALL):
             try:
@@ -299,7 +330,6 @@ def _extract_tool_calls(content: str) -> list[str]:
     if matches:
         return matches
 
-    # <tool_call>...</tool_call>
     for tool_name, args_str in re.findall(r'<tool_call>(\w+)(.*?)</tool_call>', content, re.DOTALL):
         args = {}
         for m in re.finditer(r'<arg_key>(\w+)</arg_key><arg_value>(.*?)</arg_value>', args_str, re.DOTALL):
