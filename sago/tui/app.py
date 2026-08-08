@@ -748,7 +748,7 @@ class SagoApp(App):
                 api_key=api_key,
                 model=self.current_model,
                 max_tokens=4096,
-                max_iterations=5,
+                max_iterations=8,
                 on_tool_call=on_tool,
                 on_thinking=on_thinking,
             )
@@ -758,11 +758,15 @@ class SagoApp(App):
             elapsed = result.get("elapsed", 0)
             tokens = result.get("tokens", {})
             iters = result.get("iterations", 0)
+            files = result.get("files_created", [])
 
             for tc in result.get("tool_calls", []):
                 tool_name = tc.get("tool", "")
                 tool_result = tc.get("result", "")[:150]
                 self.call_from_thread(self._add_system_message, f"  {tool_name}: {tool_result}")
+
+            if files:
+                self.call_from_thread(self._add_system_message, f"Files created: {', '.join(files)}")
 
             meta = f"[{iters} iters | {tokens.get('input',0)}+{tokens.get('output',0)} tokens | {elapsed:.1f}s]"
             self.call_from_thread(self._add_assistant_message, output, meta=meta)

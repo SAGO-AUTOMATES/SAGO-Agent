@@ -67,19 +67,23 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool) -> N
         agent_role=agent_name.replace("-", " ").title(),
         api_key=api_key,
         model="openrouter/free",
-        max_tokens=2048,
-        max_iterations=5,
+        max_tokens=4096,
+        max_iterations=8,
     )
 
     # Display result
     if isinstance(result, dict):
         output = result.get("output", "No output")
         tool_calls = result.get("tool_calls", [])
+        files = result.get("files_created", [])
         
         if tool_calls:
             console.print(f"\n[bold]Tool calls:[/]")
             for tc in tool_calls:
                 console.print(f"  [cyan]{tc['tool']}[/]: {tc.get('result', '')[:100]}")
+        
+        if files:
+            console.print(f"\n[green]Files created:[/] {', '.join(files)}")
         
         console.print(Panel(
             output,

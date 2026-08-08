@@ -1,4 +1,4 @@
-"""Smart Agent Executor - Thinks before acting, learns from results, no loops."""
+"""Smart Executor - Handles complex multi-step tasks like building projects."""
 
 from __future__ import annotations
 
@@ -59,26 +59,27 @@ def _get_context(cwd: str | None = None) -> str:
     work_dir = Path(cwd) if cwd else Path.cwd()
     lines = [f"Working directory: {work_dir}"]
 
-    for name in ["README.md", "readme.md"]:
+    for name in ["README.md", "readme.md", "pyproject.toml", "package.json", "Cargo.toml", "go.mod"]:
         p = work_dir / name
         if p.exists():
             try:
-                lines.append(f"\n--- {name} ---\n{p.read_text('utf-8')[:4000]}")
+                lines.append(f"\n--- {name} ---\n{p.read_text('utf-8')[:3000]}")
             except Exception:
                 pass
-            break
 
     skip = {".git", "node_modules", "__pycache__", ".venv", "venv", "env", ".tox", "dist", "build"}
     files = []
+    dirs = []
     try:
         for item in sorted(work_dir.iterdir()):
             if item.name.startswith(".") or item.name in skip:
                 continue
             if item.is_dir():
                 try:
-                    files.append(f"  {item.name}/ ({sum(1 for _ in item.iterdir())} items)")
+                    count = sum(1 for _ in item.iterdir())
+                    dirs.append(f"  {item.name}/ ({count} items)")
                 except Exception:
-                    files.append(f"  {item.name}/")
+                    dirs.append(f"  {item.name}/")
             else:
                 try:
                     s = item.stat().st_size
@@ -87,6 +88,9 @@ def _get_context(cwd: str | None = None) -> str:
                     files.append(f"  {item.name}")
     except PermissionError:
         pass
+    if dirs:
+        lines.append(f"\nDirectories ({work_dir.name}/):")
+        lines.extend(dirs[:30])
     if files:
         lines.append(f"\nFiles ({work_dir.name}/):")
         lines.extend(files[:50])
@@ -102,43 +106,96 @@ def _get_context(cwd: str | None = None) -> str:
     return "\n".join(lines)
 
 
-SYSTEM_PROMPT_TEMPLATE = """You are {agent_role}. You are a SMART agent that thinks before acting.
+# Task-specific system prompts
+PROMPTS = {
+    "create": """You are {agent_role}. The user wants you to CREATE something (file, project, feature).
 
 {project_ctx}
 
-=== YOUR TOOLS ({tool_count} available) ===
-{tool_descriptions}
+=== YOUR CAPABILITIES ===
+You have {tool_count} tools. For creation tasks, you'll typically:
+1. Explore existing structure with glob_files, read_file
+2. Create files with write_file (creates directories automatically)
+3. Edit files with edit_file for modifications
+4. Test with execute_shell (run tests, linting, etc.)
 
-=== HOW TO THINK ===
+=== CREATION STRATEGY ===
+- Start by understanding what exists (glob_files, read_file)
+- Create files ONE AT A TIME using write_file
+- After each file, verify it was created correctly
+- For projects: create structure first, then implement
+- Always verify your work (run tests, check syntax)
 
-1. UNDERSTAND: Read the task carefully. What exactly is being asked?
-2. PLAN: What steps do you need? Which tools in what order?
-3. ACT: Execute ONE tool at a time. Wait for the result.
-4. LEARN: What did the tool tell you? Does it match your expectation?
-5. ADAPT: If it failed or wasn't what you expected, try a DIFFERENT approach.
-6. ANSWER: Once you have enough info, give a clear final answer.
+{tool_list}
 
-=== CRITICAL RULES ===
+=== FORMAT ===
+One JSON per tool call on its own line:
+{{"name": "write_file", "args": {{"file_path": "src/app.py", "content": "import os\\n\\nclass App:\\n    def run(self):\\n        print('Hello')"}}}}
 
-- NEVER repeat the exact same tool call. If it failed, try something different.
-- NEVER use the same tool more than 3 times in a row.
-- If a file read fails, try a different path or use glob_files to find it.
-- If a command fails, read the error and fix your approach.
-- STOP using tools once you have the answer. Don't over-explore.
-- Your final response should be AFTER all tool calls, summarizing what you found/did.
+IMPORTANT: When writing files, put the ACTUAL CODE in the content field. No markdown, no backticks, just the raw code.""",
 
-=== TOOL FORMAT ===
+    "fix": """You are {agent_role}. The user wants you to FIX something (bug, error, issue).
 
-Output EXACTLY one JSON per tool call on its own line:
-{{"name": "tool_name", "args": {{"param": "value"}}}}
+{project_ctx}
 
-Examples:
-{{"name": "execute_shell", "args": {{"command": "ls -la"}}}}
-{{"name": "read_file", "args": {{"file_path": "README.md"}}}}
-{{"name": "glob_files", "args": {{"pattern": "**/*.py"}}}}
-{{"name": "grep_content", "args": {{"pattern": "class App", "include": "*.py"}}}}
-{{"name": "spawn_agent", "args": {{"task": "write tests", "agent_name": "qa-engineer"}}}}
-"""
+=== YOUR CAPABILITIES ===
+You have {tool_count} tools. For fixing tasks:
+1. Understand the error (read error messages, logs)
+2. Find the relevant code (grep_content, read_file)
+3. Fix the issue (edit_file or write_file)
+4. Verify the fix (run tests, execute commands)
+
+=== FIX STRATEGY ===
+- Read the error message carefully
+- Find the file and line causing the issue
+- Understand the root cause before fixing
+- Make minimal changes to fix
+- Test that the fix works
+
+{tool_list}
+
+=== FORMAT ===
+One JSON per tool call on its own line:
+{{"name": "edit_file", "args": {{"file_path": "app.py", "old_string": "broken code", "new_string": "fixed code"}}}}""",
+
+    "analyze": """You are {agent_role}. The user wants you to ANALYZE something (code, project, issue).
+
+{project_ctx}
+
+=== YOUR CAPABILITIES ===
+You have {tool_count} tools. For analysis tasks:
+1. Explore structure (glob_files, execute_shell with ls/find)
+2. Read relevant files (read_file)
+3. Search for patterns (grep_content)
+4. Provide comprehensive analysis
+
+=== ANALYSIS STRATEGY ===
+- Be thorough but focused
+- Read multiple files to understand the full picture
+- Look for patterns, issues, improvements
+- Provide actionable recommendations
+
+{tool_list}
+
+=== FORMAT ===
+One JSON per tool call on its own line:
+{{"name": "grep_content", "args": {{"pattern": "def ", "include": "*.py"}}}}""",
+}
+
+
+def _detect_task_type(task: str) -> str:
+    task_lower = task.lower()
+    create_words = ["create", "build", "write", "implement", "make", "generate", "setup", "set up", "add", "new"]
+    fix_words = ["fix", "debug", "repair", "resolve", "patch", "correct", "solve", "issue", "error", "bug", "broken"]
+    analyze_words = ["analyze", "review", "explain", "describe", "show", "list", "find", "search", "what", "how", "why"]
+
+    if any(w in task_lower for w in fix_words):
+        return "fix"
+    if any(w in task_lower for w in create_words):
+        return "create"
+    if any(w in task_lower for w in analyze_words):
+        return "analyze"
+    return "create"
 
 
 def execute_agent_task(
@@ -149,7 +206,7 @@ def execute_agent_task(
     api_key: str = "",
     base_url: str = "https://openrouter.ai/api/v1",
     max_tokens: int = 4096,
-    max_iterations: int = 5,
+    max_iterations: int = 8,
     cwd: str | None = None,
     on_tool_call: Callable | None = None,
     on_thinking: Callable | None = None,
@@ -159,21 +216,24 @@ def execute_agent_task(
     project_ctx = _get_context(cwd)
     start_time = time.time()
 
-    # Build smart system prompt
+    # Auto-detect task type and use appropriate prompt
     if not system_prompt:
-        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+        task_type = _detect_task_type(task)
+        template = PROMPTS.get(task_type, PROMPTS["create"])
+        system_prompt = template.format(
             agent_role=agent_role,
             project_ctx=project_ctx,
             tool_count=len(tools),
-            tool_descriptions=_TOOL_DESCRIPTIONS,
+            tool_list=_TOOL_DESCRIPTIONS,
         )
 
     # State tracking
-    tool_history: list[dict] = []  # [{name, args, result, success}]
-    tool_call_counts: dict[str, int] = {}  # tool_name -> count
-    failed_calls: set[str] = set()  # "tool:args_hash" for failed calls
+    tool_history: list[dict] = []
+    tool_call_counts: dict[str, int] = {}
+    failed_calls: set[str] = set()
     total_tokens_in = 0
     total_tokens_out = 0
+    files_created: list[str] = []
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -184,7 +244,9 @@ def execute_agent_task(
 
     for i in range(max_iterations):
         if on_thinking:
-            on_thinking(f"Thinking... (step {i+1}/{max_iterations})")
+            phase = "Planning" if i == 0 else "Working"
+            files_info = f" ({len(files_created)} files created)" if files_created else ""
+            on_thinking(f"{phase}... (step {i+1}/{max_iterations}{files_info})")
 
         try:
             response = client.chat.completions.create(
@@ -202,6 +264,7 @@ def execute_agent_task(
                 "iterations": i + 1,
                 "tokens": {"input": total_tokens_in, "output": total_tokens_out},
                 "elapsed": time.time() - start_time,
+                "files_created": files_created,
             }
 
         choice = response.choices[0]
@@ -225,9 +288,9 @@ def execute_agent_task(
                 "iterations": i + 1,
                 "tokens": {"input": total_tokens_in, "output": total_tokens_out},
                 "elapsed": time.time() - start_time,
+                "files_created": files_created,
             }
 
-        # Execute each tool call
         results_for_llm = []
         for call_str in tool_calls:
             try:
@@ -235,39 +298,38 @@ def execute_agent_task(
                 name = call.get("name", "")
                 args = call.get("args", {})
 
-                # Check if this exact call already failed
+                # Loop prevention
                 call_key = f"{name}:{json.dumps(args, sort_keys=True)}"
                 if call_key in failed_calls:
-                    results_for_llm.append(f"[SKIP] Already failed: {name}")
+                    results_for_llm.append(f"[SKIP] Already failed: {name} with same args")
                     continue
 
-                # Check if tool exists
                 if name not in tools:
                     avail = ", ".join(sorted(tools.keys()))
                     results_for_llm.append(f"Unknown tool '{name}'. Available: {avail}")
                     continue
 
-                # Check if repeating same tool too much
                 tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
-                if tool_call_counts[name] > 3:
-                    results_for_llm.append(
-                        f"[STOP] You've used {name} {tool_call_counts[name]} times. "
-                        f"Try a different tool or give your final answer."
-                    )
+                if tool_call_counts[name] > 4:
+                    results_for_llm.append(f"[STOP] Used {name} {tool_call_counts[name]} times. Try different approach or finish.")
                     continue
 
-                # Execute
                 if on_tool_call:
                     on_tool_call(name, args)
 
                 tool_instance = tools[name]()
                 result = tool_instance.run(**args)
-                result_str = str(result)[:3000]
+                result_str = str(result)[:4000]
 
-                # Determine success
                 is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
                 if is_error:
                     failed_calls.add(call_key)
+
+                # Track created files
+                if name == "write_file" and not is_error:
+                    fp = args.get("file_path", "")
+                    if fp and fp not in files_created:
+                        files_created.append(fp)
 
                 tool_history.append({
                     "tool": name,
@@ -276,22 +338,23 @@ def execute_agent_task(
                     "success": not is_error,
                 })
 
-                # Format result with context
                 if is_error:
-                    results_for_llm.append(f"[ERROR] {name}:\n{result_str}\nHint: Fix your approach, don't retry the same thing.")
+                    results_for_llm.append(f"[ERROR] {name}:\n{result_str}\nTry a different approach.")
                 else:
-                    results_for_llm.append(f"[OK] {name}:\n{result_str}")
+                    # Truncate long results
+                    display = result_str[:1500] + "..." if len(result_str) > 1500 else result_str
+                    results_for_llm.append(f"[OK] {name}:\n{display}")
 
             except json.JSONDecodeError:
-                results_for_llm.append("Invalid JSON format. Use: {\"name\": \"tool\", \"args\": {...}}")
+                results_for_llm.append("Invalid JSON. Use: {{\"name\": \"tool\", \"args\": {{...}}}}")
             except Exception as e:
-                results_for_llm.append(f"Tool crashed: {type(e).__name__}: {e}")
+                results_for_llm.append(f"Tool error: {type(e).__name__}: {e}")
 
-        # Send all results back to LLM
-        combined = "\n\n".join(results_for_llm)
+        # Add context about progress
+        progress = f"\n[Progress: {len(tool_history)} tools used, {len(files_created)} files created]"
+        combined = "\n\n".join(results_for_llm) + progress
         messages.append({"role": "user", "content": combined})
 
-    # Max iterations reached
     return {
         "success": True,
         "output": content,
@@ -299,6 +362,7 @@ def execute_agent_task(
         "iterations": max_iterations,
         "tokens": {"input": total_tokens_in, "output": total_tokens_out},
         "elapsed": time.time() - start_time,
+        "files_created": files_created,
     }
 
 
