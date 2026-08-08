@@ -1,4 +1,4 @@
-"""Simple Agent Executor - Direct LLM + tool execution with project context."""
+"""Simple Agent Executor - Direct LLM + tool execution with full project context."""
 
 from __future__ import annotations
 
@@ -10,15 +10,23 @@ from typing import Any
 
 from openai import OpenAI
 
-from sago.tools.file.write_file import WriteFileTool
 from sago.tools.file.read_file import ReadFileTool
+from sago.tools.file.write_file import WriteFileTool
+from sago.tools.file.edit_file import EditFileTool
+from sago.tools.file.glob_files import GlobFilesTool
+from sago.tools.file.grep_content import GrepContentTool
 from sago.tools.shell.execute import ExecuteShellTool
+from sago.tools.system.git_ops import GitOps
 
 
 TOOL_MAP = {
-    "write_file": WriteFileTool,
     "read_file": ReadFileTool,
+    "write_file": WriteFileTool,
+    "edit_file": EditFileTool,
+    "glob_files": GlobFilesTool,
+    "grep_content": GrepContentTool,
     "execute_shell": ExecuteShellTool,
+    "git_ops": GitOps,
 }
 
 
@@ -27,30 +35,24 @@ def _get_project_context(cwd: str | None = None) -> str:
     work_dir = Path(cwd) if cwd else Path.cwd()
     lines = [f"Working directory: {work_dir}"]
 
-    readme_content = ""
+    # Read README
     for name in ["README.md", "readme.md", "README.txt", "readme.txt"]:
         readme_path = work_dir / name
         if readme_path.exists():
             try:
-                readme_content = readme_path.read_text(encoding="utf-8")[:3000]
-                lines.append(f"\n--- {name} ---\n{readme_content}")
+                content = readme_path.read_text(encoding="utf-8")[:4000]
+                lines.append(f"\n--- {name} ---\n{content}")
             except Exception:
                 pass
             break
 
+    # List project files
     file_list = []
-    skip_dirs = {
-        ".git", "node_modules", "__pycache__", ".venv", "venv", "env",
-        ".env", ".tox", ".mypy_cache", ".pytest_cache", "dist", "build",
-        ".eggs", "*.egg-info",
-    }
-    skip_files = {".pyc", ".pyo", ".so", ".o", ".a", ".dylib"}
+    skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", "env", ".tox", ".mypy_cache", ".pytest_cache", "dist", "build", ".eggs"}
 
     try:
         for item in sorted(work_dir.iterdir()):
-            if item.name.startswith("."):
-                continue
-            if item.name in skip_dirs:
+            if item.name.startswith(".") or item.name in skip_dirs:
                 continue
             if item.is_dir():
                 try:
@@ -58,21 +60,27 @@ def _get_project_context(cwd: str | None = None) -> str:
                     file_list.append(f"  {item.name}/ ({child_count} items)")
                 except Exception:
                     file_list.append(f"  {item.name}/")
-            elif item.suffix not in skip_files:
+            else:
                 try:
                     size = item.stat().st_size
-                    if size < 100_000:
-                        file_list.append(f"  {item.name} ({size} bytes)")
-                    else:
-                        file_list.append(f"  {item.name} ({size // 1024}KB)")
+                    file_list.append(f"  {item.name} ({size} bytes)" if size < 100_000 else f"  {item.name} ({size // 1024}KB)")
                 except Exception:
                     file_list.append(f"  {item.name}")
     except PermissionError:
-        lines.append("  (permission denied)")
+        pass
 
     if file_list:
-        lines.append(f"\nFiles in {work_dir.name}/:")
-        lines.extend(file_list[:50])
+        lines.append(f"\nProject files ({work_dir.name}/):")
+        lines.extend(file_list[:60])
+
+    # Git info
+    try:
+        import subprocess
+        r = subprocess.run(["git", "status", "--short"], capture_output=True, text=True, timeout=5, cwd=str(work_dir))
+        if r.returncode == 0 and r.stdout.strip():
+            lines.append(f"\nGit changes:\n{r.stdout.strip()[:1000]}")
+    except Exception:
+        pass
 
     return "\n".join(lines)
 
@@ -88,29 +96,45 @@ def execute_agent_task(
     max_iterations: int = 5,
     cwd: str | None = None,
 ) -> dict[str, Any]:
-    """Execute a task using direct LLM + tool calls with project context."""
+    """Execute a task using direct LLM + tool calls with full project context."""
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
 
     project_ctx = _get_project_context(cwd)
 
     default_prompt = (
-        f"You are {agent_role}. You are working in a real project on the user's machine.\n\n"
+        f"You are {agent_role}. You are working on the user's actual machine with real files.\n\n"
         f"PROJECT CONTEXT:\n{project_ctx}\n\n"
-        "TOOLS AVAILABLE:\n"
-        "1. read_file(file_path) - Read any file. Use relative paths from the working directory.\n"
-        "2. write_file(file_path, content) - Write content to a file.\n"
-        "3. execute_shell(command) - Run any shell command (ls, cat, grep, git, python, etc.).\n\n"
-        "HOW TO USE TOOLS:\n"
-        "Output a JSON object on its OWN line (no other text before or after):\n"
-        '{"name": "read_file", "args": {"file_path": "README.md"}}\n'
-        '{"name": "execute_shell", "args": {"command": "ls -la"}}\n'
-        '{"name": "write_file", "args": {"file_path": "output.txt", "content": "hello"}}\n\n'
-        "RULES:\n"
-        "- Always use tools to read files, list directories, or run commands.\n"
-        "- Do NOT guess file contents - read them first.\n"
-        "- Use relative paths (relative to the working directory shown above).\n"
-        "- After using tools and getting results, provide a clear summary.\n"
-        "- If the user asks to read a file, USE the read_file tool immediately.\n"
+        "=== TOOLS YOU CAN USE ===\n\n"
+        "1. read_file(file_path, offset?, limit?)\n"
+        "   Read any file. Use relative paths.\n"
+        '   Example: {"name": "read_file", "args": {"file_path": "README.md"}}\n\n'
+        "2. write_file(file_path, content)\n"
+        "   Write content to a file. Creates dirs automatically.\n"
+        '   Example: {"name": "write_file", "args": {"file_path": "output.py", "content": "print(42)"}}\n\n'
+        "3. edit_file(file_path, old_string, new_string)\n"
+        "   Edit a file by finding and replacing exact text.\n"
+        '   Example: {"name": "edit_file", "args": {"file_path": "app.py", "old_string": "old", "new_string": "new"}}\n\n'
+        "4. glob_files(pattern, path?)\n"
+        "   Find files matching patterns like **/*.py or src/**/*.ts\n"
+        '   Example: {"name": "glob_files", "args": {"pattern": "**/*.py"}}\n\n'
+        "5. grep_content(pattern, path?, include?)\n"
+        "   Search file contents with regex. Returns matching lines.\n"
+        '   Example: {"name": "grep_content", "args": {"pattern": "def main", "include": "*.py"}}\n\n'
+        "6. execute_shell(command, cwd?)\n"
+        "   Run ANY shell command: ls, cat, grep, find, git, python, npm, etc.\n"
+        '   Example: {"name": "execute_shell", "args": {"command": "ls -la"}}\n'
+        '   Example: {"name": "execute_shell", "args": {"command": "python -c \"print(1+1)\""}}\n\n'
+        "7. git_ops(operation, args?, cwd?)\n"
+        "   Git operations: status, log, diff, add, commit, push, pull, branch, checkout\n"
+        '   Example: {"name": "git_ops", "args": {"operation": "status"}}\n'
+        '   Example: {"name": "git_ops", "args": {"operation": "log", "args": "--oneline -10"}}\n\n'
+        "=== RULES ===\n"
+        "- You HAVE tools. USE THEM. Never say you can't read files or run commands.\n"
+        "- Always use tools to explore before answering questions about the project.\n"
+        "- Use relative paths (relative to working directory shown above).\n"
+        "- Output EXACTLY one JSON object per tool call, on its own line.\n"
+        "- After getting tool results, provide a clear summary.\n"
+        "- If you need to read a file, USE read_file. If you need to run a command, USE execute_shell.\n"
     )
 
     messages = [
@@ -129,9 +153,10 @@ def execute_agent_task(
             temperature=0.3,
         )
 
-        content = response.choices[0].message.content or ""
-        if not content and response.choices[0].message.reasoning:
-            content = response.choices[0].message.reasoning
+        choice = response.choices[0]
+        content = choice.message.content or ""
+        if not content and hasattr(choice.message, "reasoning") and choice.message.reasoning:
+            content = choice.message.reasoning
 
         messages.append({"role": "assistant", "content": content})
 
@@ -155,12 +180,16 @@ def execute_agent_task(
                 if tool_class:
                     tool_instance = tool_class()
                     result = tool_instance.run(**tool_args)
-                    tools_used.append({"tool": tool_name, "args": tool_args, "result": str(result)[:500]})
-                    messages.append({"role": "user", "content": f"Tool [{tool_name}] result:\n{result}"})
+                    result_str = str(result)[:2000]
+                    tools_used.append({"tool": tool_name, "args": tool_args, "result": result_str[:500]})
+                    messages.append({"role": "user", "content": f"[Tool: {tool_name}]\n{result_str}"})
                 else:
-                    messages.append({"role": "user", "content": f"Unknown tool: {tool_name}. Use read_file, write_file, or execute_shell."})
+                    available = ", ".join(TOOL_MAP.keys())
+                    messages.append({"role": "user", "content": f"Unknown tool '{tool_name}'. Available: {available}"})
             except json.JSONDecodeError:
-                messages.append({"role": "user", "content": f"Invalid tool format. Use JSON: {{\"name\": \"tool\", \"args\": {{...}}}}"})
+                messages.append({"role": "user", "content": "Invalid JSON format. Output exactly: {\"name\": \"tool\", \"args\": {...}}"})
+            except Exception as e:
+                messages.append({"role": "user", "content": f"Tool error: {e}. Try a different approach."})
 
     return {
         "success": True,
@@ -190,8 +219,7 @@ def _extract_tool_calls(content: str) -> list[str]:
 
     # ```json blocks
     for pattern in [r'```json\s*\n(.*?)\n```', r'```\s*\n(\{.*?\})\n```']:
-        found = re.findall(pattern, content, re.DOTALL)
-        for f in found:
+        for f in re.findall(pattern, content, re.DOTALL):
             try:
                 data = json.loads(f.strip())
                 if "name" in data and "args" in data:
@@ -202,9 +230,8 @@ def _extract_tool_calls(content: str) -> list[str]:
     if matches:
         return matches
 
-    # <tool_call>name<arg_key>key</arg_key><arg_value>val</arg_value></tool_call>
-    tc_pattern = r'<tool_call>(\w+)(.*?)</tool_call>'
-    for tool_name, args_str in re.findall(tc_pattern, content, re.DOTALL):
+    # <tool_call>...</tool_call>
+    for tool_name, args_str in re.findall(r'<tool_call>(\w+)(.*?)</tool_call>', content, re.DOTALL):
         args = {}
         for m in re.finditer(r'<arg_key>(\w+)</arg_key><arg_value>(.*?)</arg_value>', args_str, re.DOTALL):
             args[m.group(1)] = m.group(2)
