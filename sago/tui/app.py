@@ -162,6 +162,8 @@ class SagoApp(App):
             yield Input(placeholder="/, @, # for autocomplete", id="msg-input")
 
     def on_mount(self) -> None:
+        self._spinner = None
+        self._spinner_timer = None
         self._init_session()
         self._add_system_message("Sago v0.1.0 — /help for commands")
         self.query_one("#msg-input").focus()
@@ -348,12 +350,21 @@ class SagoApp(App):
             self.exit()
 
     def _show_spinner(self, text: str = "Thinking") -> None:
+        self._hide_spinner()
         s = Spinner(text, classes="spinner")
         self.query_one("#messages").mount(s)
         self.query_one("#messages").scroll_end()
         self._spinner = s
+        self._spinner_timer = self.set_interval(0.1, self._advance_spinner)
+
+    def _advance_spinner(self) -> None:
+        if self._spinner:
+            self._spinner.advance()
 
     def _hide_spinner(self) -> None:
+        if hasattr(self, "_spinner_timer") and self._spinner_timer:
+            self._spinner_timer.stop()
+            self._spinner_timer = None
         if hasattr(self, "_spinner") and self._spinner:
             try:
                 self._spinner.remove()
@@ -463,22 +474,30 @@ class SagoApp(App):
             n = len(list_agents())
         except Exception:
             n = 0
+        sid = self.current_session_id[:8] if self.current_session_id else "none"
         self._add_system_message(
-            f"Sago v0.1.0 | {n} agents | {self.current_model} | {len(self.messages)} msgs"
+            f"Sago v0.1.0\n"
+            f"  Agent:    {self.current_agent}\n"
+            f"  Model:    {self.current_model}\n"
+            f"  Session:  {sid}\n"
+            f"  Agents:   {n} available\n"
+            f"  Messages: {len(self.messages)}"
         )
 
     def _show_sessions(self) -> None:
         try:
             from sago.database import Session
             s = Session()
-            sessions = s.list_all(limit=10)
+            sessions = s.list_all(limit=15)
             s.close()
             if sessions:
-                lines = "\n".join(
-                    f"  {ses['id'][:8]} — {ses.get('title', 'Untitled')} ({ses.get('created_at', '?')[:10]})"
-                    for ses in sessions
-                )
-                self._add_system_message(f"Sessions:\n{lines}")
+                lines = []
+                for ses in sessions:
+                    sid = ses["id"][:8]
+                    title = ses.get("title", "Untitled")[:30]
+                    date = ses.get("created_at", "?")[:10]
+                    lines.append(f"  {sid}  {title:<30} {date}")
+                self._add_system_message("Sessions (use /session <id> to load):\n" + "\n".join(lines))
             else:
                 self._add_system_message("No sessions")
         except Exception as e:
@@ -490,26 +509,40 @@ class SagoApp(App):
             return
         try:
             from sago.database import Session, MessageStore
-            s = Session(sid)
-            data = s.get()
+            s = Session()
+            sessions = s.list_all(limit=100)
             s.close()
-            if data:
-                self.current_session_id = sid
-                ms = MessageStore(sid)
-                history = ms.get_history(limit=50)
-                ms.close()
-                self.messages.clear()
-                self.query_one("#messages").remove_children()
-                for msg in history:
-                    role = msg.get("role", "?")
-                    content = msg.get("content", "")
-                    if role == "user":
-                        self._add_user_message(content)
-                    elif role == "assistant":
-                        self._add_assistant_message(content)
-                self._add_system_message(f"Session: {sid[:8]}")
-            else:
+            
+            matched = None
+            for ses in sessions:
+                if ses["id"] == sid or ses["id"].startswith(sid):
+                    matched = ses
+                    break
+            
+            if not matched:
                 self._add_system_message(f"Not found: {sid}")
+                return
+            
+            full_id = matched["id"]
+            self.current_session_id = full_id
+            
+            ms = MessageStore(full_id)
+            history = ms.get_history(limit=50)
+            ms.close()
+            
+            self.messages.clear()
+            self.query_one("#messages").remove_children()
+            self._add_system_message(f"Loaded: {matched.get('title', 'Untitled')} [{full_id[:8]}]")
+            for msg in history:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role == "user":
+                    self.messages.append({"role": "user", "content": content})
+                    self.query_one("#messages").mount(Static(f"> {content}", classes="msg-user"))
+                elif role == "assistant":
+                    self.messages.append({"role": "assistant", "content": content})
+                    self.query_one("#messages").mount(Static(content, classes="msg-assistant"))
+            self.query_one("#messages").scroll_end()
         except Exception as e:
             self._add_system_message(f"Error: {e}")
 
