@@ -34,10 +34,11 @@ def execute_agent_task(
     
     Returns dict with 'success', 'output', 'tool_calls', 'iterations'.
     """
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=60.0, max_retries=2)
     
     tools_used = []
     iterations = 0
+    content = ""
     
     messages = [
         {"role": "system", "content": system_prompt or (
