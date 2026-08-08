@@ -178,7 +178,8 @@ class SagoApp(App):
 
     def _init_session(self) -> None:
         try:
-            from sago.database import Session
+            from sago.database import Session, init_db
+            init_db()
             session = Session()
             result = session.create(title="TUI Session")
             self.current_session_id = result["id"]
