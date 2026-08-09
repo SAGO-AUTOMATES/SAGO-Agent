@@ -1,7 +1,8 @@
-"""Sago TUI - Production Terminal Interface with collapsible tool calls."""
+"""Sago TUI - Production Terminal Interface with all features working."""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -29,13 +30,13 @@ COMMANDS = {
     "/history": "Chat history",
     "/model": "Change model (/model <name>)",
     "/provider": "Change provider",
-    "/effort": "Set effort level",
-    "/cost": "Token usage",
-    "/compact": "Summarize session",
+    "/effort": "Set effort: low/medium/high/max",
+    "/cost": "Token usage and costs",
+    "/compact": "Summarize and compress context",
     "/retry": "Retry last message",
     "/reset": "Reset session",
-    "/save": "Save context",
-    "/load": "Load context",
+    "/save": "Save session to file (/save [name])",
+    "/load": "Load session from file (/load <name>)",
     "/git": "Git status",
     "/diff": "Show diff (/diff [file])",
     "/commit": "Commit (/commit <message>)",
@@ -53,7 +54,25 @@ MODELS = [
     "openrouter/google/gemini-2.0-flash-001",
 ]
 
+EFFORT_LEVELS = {
+    "low": {"max_iterations": 2, "max_tokens": 1024, "desc": "Quick answers, minimal tool use"},
+    "medium": {"max_iterations": 5, "max_tokens": 2048, "desc": "Balanced approach"},
+    "high": {"max_iterations": 8, "max_tokens": 4096, "desc": "Thorough analysis, multiple tools"},
+    "max": {"max_iterations": 12, "max_tokens": 8192, "desc": "Maximum effort, deep exploration"},
+}
+
+# Pricing per 1M tokens (approximate)
+MODEL_COSTS = {
+    "openrouter/free": {"input": 0, "output": 0},
+    "openrouter/deepseek/deepseek-chat": {"input": 0.14, "output": 0.28},
+    "openrouter/meta-llama/llama-3.1-70b-instruct": {"input": 0.52, "output": 0.75},
+    "openrouter/qwen/qwen-2.5-72b-instruct": {"input": 0.50, "output": 0.75},
+    "openrouter/google/gemini-2.0-flash-001": {"input": 0.10, "output": 0.40},
+}
+
 SPINNERS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+SAVE_DIR = Path.home() / ".sago" / "sessions"
 
 
 class Spinner(Static):
@@ -81,26 +100,10 @@ class SagoApp(App):
         scrollbar-size: 0 0;
     }
 
-    .msg-user {
-        color: #58a6ff;
-        padding: 0 0 1 0;
-    }
-
-    .msg-assistant {
-        color: #c9d1d9;
-        padding: 0 0 1 0;
-    }
-
-    .msg-system {
-        color: #8b949e;
-        text-style: italic;
-        padding: 0 0 1 0;
-    }
-
-    .msg-meta {
-        color: #484f58;
-        padding: 0 0 0 0;
-    }
+    .msg-user { color: #58a6ff; padding: 0 0 1 0; }
+    .msg-assistant { color: #c9d1d9; padding: 0 0 1 0; }
+    .msg-system { color: #8b949e; text-style: italic; padding: 0 0 1 0; }
+    .msg-meta { color: #484f58; padding: 0 0 0 0; }
 
     Collapsible {
         background: #0d1117;
@@ -108,23 +111,8 @@ class SagoApp(App):
         margin: 0 0 1 0;
         padding: 0;
     }
-
-    Collapsible .collapsible-title {
-        background: #161b22;
-        color: #58a6ff;
-        padding: 0 1;
-    }
-
-    Collapsible .collapsible-title--expanded {
-        background: #161b22;
-        color: #58a6ff;
-    }
-
-    Collapsible .collapsible-body {
-        background: #0d1117;
-        color: #8b949e;
-        padding: 0 1;
-    }
+    Collapsible .collapsible-title { background: #161b22; color: #58a6ff; padding: 0 1; }
+    Collapsible .collapsible-body { background: #0d1117; color: #8b949e; padding: 0 1; }
 
     #input-area {
         height: auto;
@@ -140,7 +128,6 @@ class SagoApp(App):
         color: #c9d1d9;
         margin: 0;
     }
-
     #msg-input:focus { border: tall #58a6ff; }
 
     #suggestions {
@@ -153,7 +140,6 @@ class SagoApp(App):
         padding: 0;
         scrollbar-size: 0 0;
     }
-
     #suggestions.visible { display: block; }
 
     .suggestion-item { color: #c9d1d9; padding: 0 1; }
@@ -188,6 +174,7 @@ class SagoApp(App):
 
     current_agent: reactive[str] = reactive("sago-orchestrator")
     current_model: reactive[str] = reactive("openrouter/free")
+    current_effort: reactive[str] = reactive("medium")
     current_session_id: reactive[str] = reactive("")
     messages: reactive[list[dict]] = reactive(list)
     show_suggestions: reactive[bool] = reactive(False)
@@ -198,6 +185,9 @@ class SagoApp(App):
     pending_action: reactive[dict] = reactive(dict)
     command_history: reactive[list[str]] = reactive(list)
     history_index: reactive[int] = reactive(-1)
+    total_input_tokens: reactive[int] = reactive(0)
+    total_output_tokens: reactive[int] = reactive(0)
+    total_cost: reactive[float] = reactive(0.0)
 
     def compose(self) -> ComposeResult:
         yield ScrollableContainer(id="messages")
@@ -450,8 +440,8 @@ class SagoApp(App):
             "/compact": lambda: self._compact(),
             "/retry": lambda: self._retry_last(),
             "/reset": lambda: self._reset(),
-            "/save": lambda: self._save_context(args),
-            "/load": lambda: self._load_context(args),
+            "/save": lambda: self._save_session(args),
+            "/load": lambda: self._load_session(args),
             "/git": lambda: self._git_status(),
             "/diff": lambda: self._git_diff(args),
             "/commit": lambda: self._git_commit(args),
@@ -479,20 +469,18 @@ class SagoApp(App):
             "  /session <id>     Switch session\n"
             "  /history          Chat history\n"
             "  /model [name]     Change model\n"
-            "  /provider [name]  Change provider\n"
-            "  /effort <level>   Set effort\n"
-            "  /cost             Token usage\n"
-            "  /compact          Summarize\n"
-            "  /retry            Retry last\n"
-            "  /reset            Reset\n"
-            "  /save [name]      Save\n"
-            "  /load <name>      Load\n"
+            "  /effort <level>   Set effort: low/medium/high/max\n"
+            "  /cost             Token usage and costs\n"
+            "  /compact          Summarize context\n"
+            "  /save [name]      Save session to file\n"
+            "  /load <name>      Load session from file\n"
+            "  /retry            Retry last message\n"
+            "  /reset            Reset session\n"
             "  /git              Git status\n"
             "  /diff [file]      Show diff\n"
             "  /commit <msg>     Commit\n"
             "  /approve          Approve action\n"
             "  /deny             Deny action\n"
-            "  /version          Version\n"
             "  /exit             Quit"
         )
 
@@ -517,10 +505,12 @@ class SagoApp(App):
         except Exception:
             n = 0
         sid = self.current_session_id[:8] if self.current_session_id else "none"
+        effort = EFFORT_LEVELS.get(self.current_effort, {})
         self._add_system_message(
             f"Sago v0.1.0\n"
             f"  Agent:    {self.current_agent}\n"
             f"  Model:    {self.current_model}\n"
+            f"  Effort:   {self.current_effort} ({effort.get('desc', '')})\n"
             f"  Session:  {sid}\n"
             f"  Agents:   {n} available\n"
             f"  Messages: {len(self.messages)}"
@@ -564,7 +554,7 @@ class SagoApp(App):
                     break
 
             if not matched:
-                self._add_system_message(f"Not found: {sid}\nAvailable: {[s['id'][:8] for s in sessions[:5]]}")
+                self._add_system_message(f"Not found: {sid}")
                 return
 
             full_id = matched["id"]
@@ -576,7 +566,7 @@ class SagoApp(App):
 
             self.messages.clear()
             self.query_one("#messages").remove_children()
-            self._add_system_message(f"Loaded: {matched.get('title', 'Untitled')} [{full_id[:8]}] ({len(history)} messages)")
+            self._add_system_message(f"Loaded: {matched.get('title', 'Untitled')} [{full_id[:8]}] ({len(history)} msgs)")
             for msg in history:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
@@ -587,10 +577,8 @@ class SagoApp(App):
                     self.messages.append({"role": "assistant", "content": content})
                     self.query_one("#messages").mount(Static(content, classes="msg-assistant"))
             self.query_one("#messages").scroll_end()
-            self.query_one("#messages").refresh()
         except Exception as e:
-            import traceback
-            self._add_system_message(f"Error: {e}\n{traceback.format_exc()}")
+            self._add_system_message(f"Error: {e}")
 
     def _show_history(self) -> None:
         if self.messages:
@@ -614,14 +602,67 @@ class SagoApp(App):
         self.current_model = f"{p}/free" if "/" not in p else p
         self._add_system_message(f"Provider: {self.current_model}")
 
-    def _set_effort(self, l: str) -> None:
-        self._add_system_message(f"Effort: {l or 'medium'}")
+    def _set_effort(self, level: str) -> None:
+        if not level:
+            current = EFFORT_LEVELS.get(self.current_effort, {})
+            lines = [f"Current: {self.current_effort} - {current.get('desc', '')}"]
+            for k, v in EFFORT_LEVELS.items():
+                marker = " *" if k == self.current_effort else ""
+                lines.append(f"  {k:8} {v['desc']}{marker}")
+            self._add_system_message("\n".join(lines))
+            return
+
+        level = level.lower().strip()
+        if level in EFFORT_LEVELS:
+            self.current_effort = level
+            config = EFFORT_LEVELS[level]
+            self._add_system_message(
+                f"Effort: {level}\n"
+                f"  Max iterations: {config['max_iterations']}\n"
+                f"  Max tokens: {config['max_tokens']}\n"
+                f"  {config['desc']}"
+            )
+        else:
+            self._add_system_message(f"Unknown level: {level}\nUse: low, medium, high, max")
 
     def _show_cost(self) -> None:
-        self._add_system_message(f"Messages: {len(self.messages)}")
+        cost_config = MODEL_COSTS.get(self.current_model, {"input": 0, "output": 0})
+        input_cost = (self.total_input_tokens / 1_000_000) * cost_config["input"]
+        output_cost = (self.total_output_tokens / 1_000_000) * cost_config["output"]
+        total = input_cost + output_cost
+
+        self._add_system_message(
+            f"Token Usage:\n"
+            f"  Input:     {self.total_input_tokens:,} tokens (${input_cost:.4f})\n"
+            f"  Output:    {self.total_output_tokens:,} tokens (${output_cost:.4f})\n"
+            f"  Total:     ${total:.4f}\n"
+            f"  Model:     {self.current_model}\n"
+            f"  Messages:  {len(self.messages)}"
+        )
 
     def _compact(self) -> None:
-        self._add_system_message("Context compacted")
+        if not self.messages:
+            self._add_system_message("Nothing to compact")
+            return
+
+        # Build summary of conversation
+        user_msgs = [m for m in self.messages if m.get("role") == "user"]
+        asst_msgs = [m for m in self.messages if m.get("role") == "assistant"]
+
+        summary_parts = []
+        for m in user_msgs[-5:]:
+            summary_parts.append(f"User: {m['content'][:100]}")
+        for m in asst_msgs[-3:]:
+            summary_parts.append(f"Assistant: {m['content'][:200]}")
+
+        summary = "\n".join(summary_parts)
+
+        # Keep only last few messages
+        self.messages = self.messages[-6:]
+
+        self.query_one("#messages").remove_children()
+        self._add_system_message(f"[Context compacted - {len(user_msgs)} messages summarized]")
+        self._add_system_message(f"Recent context:\n{summary}")
 
     def _retry_last(self) -> None:
         user_msgs = [m for m in self.messages if m.get("role") == "user"]
@@ -634,14 +675,74 @@ class SagoApp(App):
     def _reset(self) -> None:
         self.messages.clear()
         self.query_one("#messages").remove_children()
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.total_cost = 0.0
         self._init_session()
         self._add_system_message("Session reset")
 
-    def _save_context(self, name: str) -> None:
-        self._add_system_message(f"Context saved: {name or 'default'}")
+    def _save_session(self, name: str) -> None:
+        name = name.strip() or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        SAVE_DIR.mkdir(parents=True, exist_ok=True)
+        filepath = SAVE_DIR / f"{name}.json"
 
-    def _load_context(self, name: str) -> None:
-        self._add_system_message(f"Context loaded: {name or 'default'}")
+        data = {
+            "name": name,
+            "created_at": datetime.now().isoformat(),
+            "model": self.current_model,
+            "effort": self.current_effort,
+            "agent": self.current_agent,
+            "messages": self.messages,
+            "tokens": {
+                "input": self.total_input_tokens,
+                "output": self.total_output_tokens,
+            },
+        }
+
+        filepath.write_text(json.dumps(data, indent=2))
+        self._add_system_message(f"Saved: {filepath}")
+
+    def _load_session(self, name: str) -> None:
+        if not name:
+            # List saved sessions
+            if SAVE_DIR.exists():
+                files = list(SAVE_DIR.glob("*.json"))
+                if files:
+                    lines = [f"  {f.stem}" for f in sorted(files)[-10:]]
+                    self._add_system_message(f"Saved sessions (use /load <name>):\n" + "\n".join(lines))
+                else:
+                    self._add_system_message("No saved sessions")
+            else:
+                self._add_system_message("No saved sessions")
+            return
+
+        filepath = SAVE_DIR / f"{name}.json"
+        if not filepath.exists():
+            self._add_system_message(f"Not found: {name}")
+            return
+
+        try:
+            data = json.loads(filepath.read_text())
+            self.messages = data.get("messages", [])
+            self.current_model = data.get("model", self.current_model)
+            self.current_effort = data.get("effort", self.current_effort)
+            self.current_agent = data.get("agent", self.current_agent)
+            tokens = data.get("tokens", {})
+            self.total_input_tokens = tokens.get("input", 0)
+            self.total_output_tokens = tokens.get("output", 0)
+
+            self.query_one("#messages").remove_children()
+            self._add_system_message(f"Loaded: {name}")
+            for msg in self.messages:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role == "user":
+                    self.query_one("#messages").mount(Static(f"> {content}", classes="msg-user"))
+                elif role == "assistant":
+                    self.query_one("#messages").mount(Static(content, classes="msg-assistant"))
+            self.query_one("#messages").scroll_end()
+        except Exception as e:
+            self._add_system_message(f"Error loading: {e}")
 
     def _export_session(self) -> None:
         export = "\n".join(f"[{m.get('role','?').upper()}]\n{m.get('content','')}\n" for m in self.messages)
@@ -730,11 +831,9 @@ class SagoApp(App):
         self.query_one("#messages").scroll_end()
 
     def _add_tool_call(self, tool_name: str, args: dict, result: str, success: bool = True) -> None:
-        """Add a collapsible tool call section."""
         args_str = "\n".join(f"  {k}: {str(v)[:200]}" for k, v in args.items())
         status = "OK" if success else "ERROR"
         title = f"[{status}] {tool_name}"
-
         body = f"Input:\n{args_str}\n\nOutput:\n{result[:1000]}"
         if len(result) > 1000:
             body += f"\n... ({len(result)} chars total)"
@@ -748,14 +847,17 @@ class SagoApp(App):
         c.scroll_end()
 
     def _add_summary(self, tool_calls: list[dict], output: str, elapsed: float, tokens: dict) -> None:
-        """Add a summary box after task completion."""
         n_tools = len(tool_calls)
         n_ok = sum(1 for t in tool_calls if t.get("success", True))
         n_fail = n_tools - n_ok
         t_in = tokens.get("input", 0)
         t_out = tokens.get("output", 0)
 
-        lines = [f"Summary: {n_tools} tool calls ({n_ok} ok, {n_fail} failed) | {t_in}+{t_out} tokens | {elapsed:.1f}s"]
+        # Update totals
+        self.total_input_tokens += t_in
+        self.total_output_tokens += t_out
+
+        lines = [f"Summary: {n_tools} calls ({n_ok} ok, {n_fail} fail) | {t_in}+{t_out} tokens | {elapsed:.1f}s"]
 
         files = [t["args"].get("file_path", "") for t in tool_calls if t.get("tool") == "write_file" and t.get("success", True)]
         files = [f for f in files if f]
@@ -787,6 +889,8 @@ class SagoApp(App):
                 self.call_from_thread(self._add_system_message, "No API key.")
                 return
 
+            effort = EFFORT_LEVELS.get(self.current_effort, EFFORT_LEVELS["medium"])
+
             def on_tool(name, args):
                 args_str = ", ".join(f"{k}={str(v)[:20]}" for k, v in list(args.items())[:2])
                 self.call_from_thread(self._update_spinner, f"{name}({args_str})")
@@ -800,15 +904,14 @@ class SagoApp(App):
                 agent_role=self.current_agent.replace("-", " ").title(),
                 api_key=api_key,
                 model=self.current_model,
-                max_tokens=4096,
-                max_iterations=8,
+                max_tokens=effort["max_tokens"],
+                max_iterations=effort["max_iterations"],
                 on_tool_call=on_tool,
                 on_thinking=on_thinking,
             )
 
             self.call_from_thread(self._hide_spinner)
 
-            # Add collapsible tool calls
             for tc in result.get("tool_calls", []):
                 self.call_from_thread(
                     self._add_tool_call,
@@ -818,7 +921,6 @@ class SagoApp(App):
                     tc.get("success", True),
                 )
 
-            # Add summary
             self.call_from_thread(
                 self._add_summary,
                 result.get("tool_calls", []),
@@ -827,7 +929,6 @@ class SagoApp(App):
                 result.get("tokens", {}),
             )
 
-            # Add final response
             output = result.get("output", "No response")
             self.call_from_thread(self._add_assistant_message, output)
 
