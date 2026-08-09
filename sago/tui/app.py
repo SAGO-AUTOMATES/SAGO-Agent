@@ -55,19 +55,23 @@ MODELS = [
 ]
 
 EFFORT_LEVELS = {
-    "low": {"max_iterations": 2, "max_tokens": 1024, "desc": "Quick answers, minimal tool use"},
-    "medium": {"max_iterations": 5, "max_tokens": 2048, "desc": "Balanced approach"},
-    "high": {"max_iterations": 8, "max_tokens": 4096, "desc": "Thorough analysis, multiple tools"},
-    "max": {"max_iterations": 12, "max_tokens": 8192, "desc": "Maximum effort, deep exploration"},
+    "low": {"max_iterations": 3, "max_tokens": 8192, "desc": "Quick answers, minimal tool use"},
+    "medium": {"max_iterations": 6, "max_tokens": 16384, "desc": "Balanced approach"},
+    "high": {"max_iterations": 10, "max_tokens": 32768, "desc": "Thorough analysis, complex tasks"},
+    "max": {"max_iterations": 15, "max_tokens": 65536, "desc": "Maximum depth, full context utilization"},
 }
 
-# Pricing per 1M tokens (approximate)
+# Pricing per 1M tokens (approximate) - with cache pricing
 MODEL_COSTS = {
-    "openrouter/free": {"input": 0, "output": 0},
-    "openrouter/deepseek/deepseek-chat": {"input": 0.14, "output": 0.28},
-    "openrouter/meta-llama/llama-3.1-70b-instruct": {"input": 0.52, "output": 0.75},
-    "openrouter/qwen/qwen-2.5-72b-instruct": {"input": 0.50, "output": 0.75},
-    "openrouter/google/gemini-2.0-flash-001": {"input": 0.10, "output": 0.40},
+    "openrouter/free": {"input": 0, "output": 0, "cache_hit": 0, "cache_miss": 0},
+    "openrouter/deepseek/deepseek-chat": {"input": 0.14, "output": 0.28, "cache_hit": 0.014, "cache_miss": 0.14},
+    "openrouter/meta-llama/llama-3.1-70b-instruct": {"input": 0.52, "output": 0.75, "cache_hit": 0.052, "cache_miss": 0.52},
+    "openrouter/qwen/qwen-2.5-72b-instruct": {"input": 0.50, "output": 0.75, "cache_hit": 0.05, "cache_miss": 0.50},
+    "openrouter/google/gemini-2.0-flash-001": {"input": 0.10, "output": 0.40, "cache_hit": 0.025, "cache_miss": 0.10},
+    "anthropic/claude-sonnet-4-20250514": {"input": 3.00, "output": 15.00, "cache_hit": 0.30, "cache_miss": 3.00},
+    "anthropic/claude-3-5-sonnet-20241022": {"input": 3.00, "output": 15.00, "cache_hit": 0.30, "cache_miss": 3.00},
+    "openai/gpt-4o": {"input": 2.50, "output": 10.00, "cache_hit": 1.25, "cache_miss": 2.50},
+    "openai/gpt-4o-mini": {"input": 0.15, "output": 0.60, "cache_hit": 0.075, "cache_miss": 0.15},
 }
 
 SPINNERS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -187,6 +191,8 @@ class SagoApp(App):
     history_index: reactive[int] = reactive(-1)
     total_input_tokens: reactive[int] = reactive(0)
     total_output_tokens: reactive[int] = reactive(0)
+    total_cache_hit_tokens: reactive[int] = reactive(0)
+    total_cache_miss_tokens: reactive[int] = reactive(0)
     total_cost: reactive[float] = reactive(0.0)
 
     def compose(self) -> ComposeResult:
@@ -626,19 +632,37 @@ class SagoApp(App):
             self._add_system_message(f"Unknown level: {level}\nUse: low, medium, high, max")
 
     def _show_cost(self) -> None:
-        cost_config = MODEL_COSTS.get(self.current_model, {"input": 0, "output": 0})
-        input_cost = (self.total_input_tokens / 1_000_000) * cost_config["input"]
-        output_cost = (self.total_output_tokens / 1_000_000) * cost_config["output"]
-        total = input_cost + output_cost
+        cost_config = MODEL_COSTS.get(self.current_model, {"input": 0, "output": 0, "cache_hit": 0, "cache_miss": 0})
 
-        self._add_system_message(
-            f"Token Usage:\n"
-            f"  Input:     {self.total_input_tokens:,} tokens (${input_cost:.4f})\n"
-            f"  Output:    {self.total_output_tokens:,} tokens (${output_cost:.4f})\n"
-            f"  Total:     ${total:.4f}\n"
-            f"  Model:     {self.current_model}\n"
-            f"  Messages:  {len(self.messages)}"
-        )
+        # Calculate costs with cache pricing
+        cache_hit_cost = (self.total_cache_hit_tokens / 1_000_000) * cost_config.get("cache_hit", 0)
+        cache_miss_cost = (self.total_cache_miss_tokens / 1_000_000) * cost_config.get("cache_miss", cost_config["input"])
+        output_cost = (self.total_output_tokens / 1_000_000) * cost_config["output"]
+        total = cache_hit_cost + cache_miss_cost + output_cost
+
+        # Cache savings
+        full_input_cost = ((self.total_cache_hit_tokens + self.total_cache_miss_tokens) / 1_000_000) * cost_config["input"]
+        savings = full_input_cost - (cache_hit_cost + cache_miss_cost)
+        savings_pct = (savings / full_input_cost * 100) if full_input_cost > 0 else 0
+
+        total_input = self.total_cache_hit_tokens + self.total_cache_miss_tokens
+
+        lines = [
+            f"Token Usage ({self.current_model}):",
+            f"  Input:     {total_input:,} tokens",
+            f"    Cache hit:  {self.total_cache_hit_tokens:,} tokens (${cache_hit_cost:.4f})" if self.total_cache_hit_tokens else "",
+            f"    Cache miss: {self.total_cache_miss_tokens:,} tokens (${cache_miss_cost:.4f})" if self.total_cache_miss_tokens else "",
+            f"  Output:    {self.total_output_tokens:,} tokens (${output_cost:.4f})",
+            f"  ─────────────────────────────",
+            f"  Total:     ${total:.4f}",
+        ]
+
+        if savings > 0:
+            lines.append(f"  Saved:     ${savings:.4f} ({savings_pct:.0f}% via cache)")
+
+        lines.append(f"  Messages:  {len(self.messages)}")
+
+        self._add_system_message("\n".join(l for l in lines if l))
 
     def _compact(self) -> None:
         if not self.messages:
@@ -677,6 +701,8 @@ class SagoApp(App):
         self.query_one("#messages").remove_children()
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        self.total_cache_hit_tokens = 0
+        self.total_cache_miss_tokens = 0
         self.total_cost = 0.0
         self._init_session()
         self._add_system_message("Session reset")
@@ -696,6 +722,8 @@ class SagoApp(App):
             "tokens": {
                 "input": self.total_input_tokens,
                 "output": self.total_output_tokens,
+                "cache_hit": self.total_cache_hit_tokens,
+                "cache_miss": self.total_cache_miss_tokens,
             },
         }
 
@@ -730,6 +758,8 @@ class SagoApp(App):
             tokens = data.get("tokens", {})
             self.total_input_tokens = tokens.get("input", 0)
             self.total_output_tokens = tokens.get("output", 0)
+            self.total_cache_hit_tokens = tokens.get("cache_hit", 0)
+            self.total_cache_miss_tokens = tokens.get("cache_miss", 0)
 
             self.query_one("#messages").remove_children()
             self._add_system_message(f"Loaded: {name}")
@@ -852,12 +882,19 @@ class SagoApp(App):
         n_fail = n_tools - n_ok
         t_in = tokens.get("input", 0)
         t_out = tokens.get("output", 0)
+        cache_hit = tokens.get("cache_hit", 0)
+        cache_miss = tokens.get("cache_miss", 0)
 
         # Update totals
         self.total_input_tokens += t_in
         self.total_output_tokens += t_out
+        self.total_cache_hit_tokens += cache_hit
+        self.total_cache_miss_tokens += cache_miss
 
         lines = [f"Summary: {n_tools} calls ({n_ok} ok, {n_fail} fail) | {t_in}+{t_out} tokens | {elapsed:.1f}s"]
+
+        if cache_hit > 0:
+            lines.append(f"Cache: {cache_hit:,} hit, {cache_miss:,} miss")
 
         files = [t["args"].get("file_path", "") for t in tool_calls if t.get("tool") == "write_file" and t.get("success", True)]
         files = [f for f in files if f]

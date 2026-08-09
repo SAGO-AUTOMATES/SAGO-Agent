@@ -233,6 +233,8 @@ def execute_agent_task(
     failed_calls: set[str] = set()
     total_tokens_in = 0
     total_tokens_out = 0
+    total_cache_hit = 0
+    total_cache_miss = 0
     files_created: list[str] = []
 
     messages = [
@@ -262,7 +264,7 @@ def execute_agent_task(
                 "output": content or f"API error: {e}",
                 "tool_calls": tool_history,
                 "iterations": i + 1,
-                "tokens": {"input": total_tokens_in, "output": total_tokens_out},
+                "tokens": {"input": total_tokens_in, "output": total_tokens_out, "cache_hit": total_cache_hit, "cache_miss": total_cache_miss},
                 "elapsed": time.time() - start_time,
                 "files_created": files_created,
             }
@@ -275,6 +277,12 @@ def execute_agent_task(
         if hasattr(response, "usage") and response.usage:
             total_tokens_in += response.usage.prompt_tokens or 0
             total_tokens_out += response.usage.completion_tokens or 0
+            # Track cache hit/miss (OpenAI/OpenRouter compatible)
+            if hasattr(response.usage, "prompt_tokens_details"):
+                details = response.usage.prompt_tokens_details
+                if hasattr(details, "cached_tokens"):
+                    total_cache_hit += details.cached_tokens or 0
+                    total_cache_miss += (response.usage.prompt_tokens or 0) - (details.cached_tokens or 0)
 
         messages.append({"role": "assistant", "content": content})
 
@@ -286,7 +294,7 @@ def execute_agent_task(
                 "output": content,
                 "tool_calls": tool_history,
                 "iterations": i + 1,
-                "tokens": {"input": total_tokens_in, "output": total_tokens_out},
+                "tokens": {"input": total_tokens_in, "output": total_tokens_out, "cache_hit": total_cache_hit, "cache_miss": total_cache_miss},
                 "elapsed": time.time() - start_time,
                 "files_created": files_created,
             }
@@ -360,7 +368,7 @@ def execute_agent_task(
         "output": content,
         "tool_calls": tool_history,
         "iterations": max_iterations,
-        "tokens": {"input": total_tokens_in, "output": total_tokens_out},
+        "tokens": {"input": total_tokens_in, "output": total_tokens_out, "cache_hit": total_cache_hit, "cache_miss": total_cache_miss},
         "elapsed": time.time() - start_time,
         "files_created": files_created,
     }
