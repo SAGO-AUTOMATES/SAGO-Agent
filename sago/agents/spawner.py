@@ -6,6 +6,7 @@ Handles agent creation, context passing, and multi-agent orchestration.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from sago.agents.registry import (
@@ -220,6 +221,67 @@ class AgentSpawner:
                 break
 
         return result
+
+    def orchestrate_parallel(
+        self,
+        subtasks: list[dict[str, str]],
+        session_id: str | None = None,
+        max_workers: int = 4,
+    ) -> list[dict[str, Any]]:
+        """Execute multiple subtasks in parallel using threads.
+
+        Args:
+            subtasks: List of dicts with 'agent' and 'task' keys.
+            session_id: Optional session ID.
+            max_workers: Maximum parallel workers.
+
+        Returns:
+            List of results with 'agent', 'task', 'result' keys.
+        """
+        import concurrent.futures
+        from sago.engine.simple_executor import execute_agent_task
+
+        session = Session(session_id)
+        if not session_id:
+            session.create(title="Parallel execution")
+
+        results: list[dict[str, Any]] = []
+
+        def execute_subtask(subtask: dict[str, str]) -> dict[str, Any]:
+            agent_name = subtask.get("agent", "sago-orchestrator")
+            task = subtask.get("task", "")
+            try:
+                result = execute_agent_task(
+                    task=task,
+                    agent_role=agent_name.replace("-", " ").title(),
+                    model=self.config.llm.model,
+                    api_key=os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")),
+                )
+                return {
+                    "agent": agent_name,
+                    "task": task,
+                    "result": result.get("output", ""),
+                    "success": result.get("success", False),
+                    "tool_calls": result.get("tool_calls", []),
+                    "files_created": result.get("files_created", []),
+                }
+            except Exception as e:
+                return {
+                    "agent": agent_name,
+                    "task": task,
+                    "result": f"Error: {e}",
+                    "success": False,
+                }
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(execute_subtask, st): st
+                for st in subtasks[:max_workers]
+            }
+            for future in concurrent.futures.as_completed(futures):
+                results.append(future.result())
+
+        return results
 
     def _plan_chain(self, task: str) -> list[str]:
         """Plan an agent chain based on the task.

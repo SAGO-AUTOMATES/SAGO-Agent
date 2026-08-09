@@ -47,6 +47,8 @@ COMMANDS = {
     "/approve": "Approve pending action",
     "/deny": "Deny pending action",
     "/version": "Version info",
+    "/undo": "Undo last file change",
+    "/changes": "Show file changes this session",
     "/exit": "Quit",
 }
 
@@ -475,6 +477,8 @@ class SagoApp(App):
             "/done": lambda: self._mark_todo_done(args),
             "/ask": lambda: self._ask_user(args),
             "/plan": lambda: self._show_plan(args),
+            "/undo": lambda: self._undo_change(),
+            "/changes": lambda: self._show_changes(),
             "/version": lambda: self._add_system_message("Sago v0.1.0"),
             "/exit": lambda: self.exit(),
         }
@@ -1049,6 +1053,23 @@ class SagoApp(App):
                 self.pending_action = {"type": "user_input", "plan_id": plan.id, "todo_id": current.id}
         else:
             self._add_system_message(f"❓ {message}")
+
+    def _undo_change(self) -> None:
+        """Undo the last file change."""
+        from sago.memory.change_tracker import get_change_tracker
+        tracker = get_change_tracker()
+        undone_path = tracker.undo_last()
+        if undone_path:
+            self._add_system_message(f"Undid change to: {undone_path}")
+        else:
+            self._add_system_message("No changes to undo")
+
+    def _show_changes(self) -> None:
+        """Show all file changes this session."""
+        from sago.memory.change_tracker import get_change_tracker
+        tracker = get_change_tracker()
+        summary = tracker.get_diff_summary()
+        self._add_system_message(summary)
 
     def _add_user_message(self, content: str) -> None:
         self.messages.append({"role": "user", "content": content})

@@ -47,7 +47,7 @@ class BaseTool(ABC):
         ...
 
     def run(self, **kwargs: Any) -> str:
-        """Run the tool with validation and error handling.
+        """Run the tool with validation, error handling, and recovery.
 
         Args:
             **kwargs: Tool-specific arguments.
@@ -65,7 +65,27 @@ class BaseTool(ABC):
 
             return self._run(**kwargs)
         except Exception as e:
-            return f"Error in {self.name}: {type(e).__name__}: {e}"
+            error_msg = f"{type(e).__name__}: {e}"
+
+            # Try to find a known fix from learning store
+            try:
+                from sago.learning import get_learning_store
+                ls = get_learning_store()
+                known_fix = ls.get_known_fixes(error_msg)
+                if known_fix:
+                    return f"Error in {self.name}: {error_msg}\nKnown fix: {known_fix}"
+            except Exception:
+                pass
+
+            # Record this error for future learning
+            try:
+                from sago.learning import get_learning_store
+                ls = get_learning_store()
+                ls.record_failure("tool_error", error_msg, f"Tool: {self.name}")
+            except Exception:
+                pass
+
+            return f"Error in {self.name}: {error_msg}"
 
     def _is_windows(self) -> bool:
         """Check if running on Windows."""

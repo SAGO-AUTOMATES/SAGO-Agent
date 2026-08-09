@@ -64,6 +64,18 @@ class WriteFileTool(BaseTool):
             shutil.copy2(path, backup_path)
 
         try:
+            # Track the change
+            try:
+                from sago.memory.change_tracker import get_change_tracker
+                tracker = get_change_tracker()
+                old_content = path.read_text(encoding=encoding) if path.exists() else None
+                if old_content is not None:
+                    tracker.track_modify(str(path), old_content, content)
+                else:
+                    tracker.track_create(str(path), content)
+            except Exception:
+                pass
+
             path.write_text(content, encoding=encoding)
             size = len(content)
             return f"Successfully wrote {size} bytes to {path}"

@@ -629,6 +629,16 @@ def execute_agent_task(
             f"Match the existing style and conventions."
         )
 
+    # Load project instructions (CLAUDE.md / .sago/instructions.md)
+    try:
+        from sago.memory.project_instructions import get_project_instructions
+        pi = get_project_instructions(cwd)
+        instructions_prompt = pi.get_for_prompt()
+        if instructions_prompt:
+            system_prompt += instructions_prompt
+    except Exception:
+        pass
+
     # State tracking
     tool_history: list[dict] = []
     tool_call_counts: dict[str, int] = {}
@@ -1013,6 +1023,15 @@ def execute_agent_task(
     except Exception:
         pass
 
+    # Get change summary
+    change_summary = None
+    try:
+        from sago.memory.change_tracker import get_change_tracker
+        tracker = get_change_tracker()
+        change_summary = tracker.get_summary()
+    except Exception:
+        pass
+
     return {
         "success": True,
         "output": content,
@@ -1023,6 +1042,7 @@ def execute_agent_task(
         "files_created": files_created,
         "task_plan": task_plan.to_dict() if task_plan else None,
         "test_fixes_applied": test_fix_attempts,
+        "change_summary": change_summary,
     }
 
 

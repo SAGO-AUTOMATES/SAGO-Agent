@@ -66,12 +66,27 @@ class EditFileTool(BaseTool):
         if old_string not in content:
             return f"Error: String not found in {path}:\n'{old_string[:100]}...'"
 
-        if replace_all:
-            count = content.count(old_string)
-            content = content.replace(old_string, new_string)
-            path.write_text(content, encoding=encoding)
-            return f"Replaced {count} occurrence(s) in {path}"
-        else:
-            content = content.replace(old_string, new_string, 1)
-            path.write_text(content, encoding=encoding)
-            return f"Successfully edited {path}"
+        try:
+            # Track the change
+            try:
+                from sago.memory.change_tracker import get_change_tracker
+                tracker = get_change_tracker()
+                if replace_all:
+                    new_content = content.replace(old_string, new_string)
+                else:
+                    new_content = content.replace(old_string, new_string, 1)
+                tracker.track_modify(str(path), content, new_content)
+            except Exception:
+                pass
+
+            if replace_all:
+                count = content.count(old_string)
+                content = content.replace(old_string, new_string)
+                path.write_text(content, encoding=encoding)
+                return f"Replaced {count} occurrence(s) in {path}"
+            else:
+                content = content.replace(old_string, new_string, 1)
+                path.write_text(content, encoding=encoding)
+                return f"Successfully edited {path}"
+        except Exception as e:
+            return f"Error editing file: {e}"
