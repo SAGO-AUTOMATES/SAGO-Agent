@@ -90,6 +90,35 @@ List all tools.
 | `/cost` | Token usage and cost |
 | `/chain <agents>` | Chain agents for task |
 
+### Permissions
+
+| Command | Description |
+|---------|-------------|
+| `/permissions` | Show all tool permissions |
+| `/permissions blocked` | Show blocked tools |
+| `/permissions allowed` | Show allowed tools |
+| `/allow <tool>` | Unblock a tool |
+| `/block <tool>` | Block a tool |
+
+### Multi-Agent
+
+| Command | Description |
+|---------|-------------|
+| `/agent <name>` | Set current agent |
+| `/delegate <agent> <task>` | Delegate task to specialist |
+| `/chain <a1,a2> <task>` | Chain agents sequentially |
+| `/orchestrate <task>` | Auto-delegate to specialists |
+
+### Git
+
+| Command | Description |
+|---------|-------------|
+| `/git` | Git status |
+| `/diff [file]` | Show diff |
+| `/commit <msg>` | Commit changes |
+| `/approve` | Approve pending action |
+| `/deny` | Deny pending action |
+
 ### Autocomplete
 
 | Trigger | Shows |

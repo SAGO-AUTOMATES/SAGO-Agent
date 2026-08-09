@@ -1,6 +1,48 @@
 # Sago - Tools Reference
 
-> Complete documentation for all 45+ tools with usage examples and error handling.
+> Complete documentation for all 45 tools with usage examples and error handling.
+
+## Permission System
+
+All tools are protected by a risk-based permission system. Tools are categorized by risk level:
+
+| Risk Level | Tools | Default Behavior |
+|------------|-------|------------------|
+| **Safe** | read_file, glob_files, grep_content, env_info, os_detector | Auto-approved |
+| **Low** | write_file, edit_file, file_operations, archive | Auto-approved |
+| **Medium** | execute_shell, background_process, docker_ops | Requires approval |
+| **High** | ssh_connect, ssh_command, sudo_executor | Requires approval |
+| **Critical** | spawn_agent | Requires approval |
+
+### Managing Permissions
+
+```python
+from sago.permissions import get_permission_manager
+
+pm = get_permission_manager()
+
+# Check if a tool can be executed
+allowed, reason = pm.check_permission("execute_shell")
+# allowed = False, reason = "Tool 'execute_shell' requires approval (risk: medium)"
+
+# Approve a tool for a session
+pm.approve_tool("execute_shell", session_id="my-session")
+
+# Block a tool globally
+pm.config.blocked_tools.append("sudo_executor")
+```
+
+### Risk Level Assignment
+
+```python
+from sago.permissions import TOOL_RISK_LEVELS, RiskLevel
+
+# Check risk level
+risk = TOOL_RISK_LEVELS["execute_shell"]  # RiskLevel.MEDIUM
+risk = TOOL_RISK_LEVELS["sudo_executor"]  # RiskLevel.HIGH
+```
+
+---
 
 ## Tool Categories
 

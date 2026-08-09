@@ -1,6 +1,6 @@
-# Sago - Build & Development Guide
+# SAGO-Agent — Build & Development Guide
 
-> Complete guide for building, testing, and developing Sago locally.
+> Complete guide for building, testing, and developing Sago.
 
 ## Prerequisites
 
@@ -8,7 +8,7 @@
 # Python 3.11+
 python --version  # Should be 3.11+
 
-# uv package manager
+# uv package manager (recommended)
 pip install uv
 # or
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -21,8 +21,8 @@ git --version
 
 ```bash
 # Clone the repo
-git clone <repo-url>
-cd sago
+git clone https://github.com/SAGO-AUTOMATES/SAGO-Agent.git
+cd SAGO-Agent
 
 # Install with uv (recommended)
 uv sync
@@ -31,8 +31,7 @@ uv sync
 pip install -e ".[dev]"
 
 # Set API keys
-export GEMINI_API_KEY="your-key"
-export OPENAI_API_KEY="your-key"  # Optional
+export OPENROUTER_API_KEY="your-key"
 
 # Run
 sago --help
@@ -47,26 +46,13 @@ sago tui
 # Install uv
 pip install uv
 
-# Create virtual environment
-uv venv
-
-# Activate
-source .venv/bin/activate  # Linux/macOS
-# or
-.venv\Scripts\activate     # Windows
-
-# Install dependencies
+# Sync dependencies
 uv sync
-
-# Add dev dependencies
-uv add --dev pytest pytest-asyncio black ruff mypy
 
 # Run commands
 uv run python -m sago --help
 uv run pytest
-uv run black .
 uv run ruff check .
-uv run mypy sago/
 ```
 
 ### Using pip
@@ -78,9 +64,6 @@ source .venv/bin/activate
 
 # Install in development mode
 pip install -e ".[dev]"
-
-# Install dev tools
-pip install pytest pytest-asyncio black ruff mypy
 ```
 
 ## Build Commands
@@ -90,13 +73,9 @@ pip install pytest pytest-asyncio black ruff mypy
 ```bash
 # Build wheel and sdist
 uv build
-# or
-python -m build
 
 # Install locally
 uv pip install -e .
-# or
-pip install -e .
 
 # Uninstall
 pip uninstall sago
@@ -105,79 +84,90 @@ pip uninstall sago
 ### Code Quality
 
 ```bash
-# Format code
-uv run black .
-# or
-black .
-
 # Lint
-uv run ruff check .
-# or
-ruff check .
+uv run ruff check sago/
 
 # Lint with auto-fix
-uv run ruff check --fix .
-# or
-ruff check --fix .
+uv run ruff check --fix sago/
 
-# Type check
-uv run mypy sago/
-# or
-mypy sago/
-
-# All checks
-uv run black . && uv run ruff check . && uv run mypy sago/
+# Format
+uv run ruff format sago/
 ```
 
 ## Testing
+
+Sago includes **122 tests** across unit, integration, and security categories.
 
 ### Run All Tests
 
 ```bash
 # Using uv
-uv run pytest
+uv run pytest tests/ -v
 
 # Using pytest directly
-pytest
+pytest tests/ -v
+```
 
-# With verbose output
-uv run pytest -v
+### Run Specific Test Categories
 
-# With coverage
-uv run pytest --cov=sago --cov-report=html
+```bash
+# Unit tests (tools, permissions, agents)
+uv run pytest tests/unit/ -v
+
+# Integration tests (executor, server, workflow, MCP)
+uv run pytest tests/integration/ -v
+
+# Security tests (path traversal, injection, bypass)
+uv run pytest tests/security/ -v
 ```
 
 ### Run Specific Tests
 
 ```bash
 # Single test file
-uv run pytest tests/test_agents.py
+uv run pytest tests/unit/test_tools.py
 
 # Single test
-uv run pytest tests/test_agents.py::test_load_agents
+uv run pytest tests/unit/test_tools.py::TestReadFileTool::test_read_file
 
 # By pattern
-uv run pytest -k "agent"
+uv run pytest -k "permission"
 
-# By marker
-uv run pytest -m "slow"
+# With coverage
+uv run pytest tests/ --cov=sago --cov-report=html
 ```
 
-### Test Categories
+### Test Structure
 
-```bash
-# Unit tests
-uv run pytest tests/unit/
-
-# Integration tests
-uv run pytest tests/integration/
-
-# CLI tests
-uv run pytest tests/cli/
-
-# TUI tests
-uv run pytest tests/tui/
 ```
+tests/
+├── __init__.py
+├── unit/
+│   ├── test_tools.py          # 30 tests - All 45 tools
+│   ├── test_permissions.py    # 14 tests - Permission system
+│   └── test_agents.py         # 13 tests - Agent registry
+├── integration/
+│   ├── test_executor.py       # 10 tests - Executor engine
+│   ├── test_server.py         # 6 tests  - TCP daemon
+│   ├── test_workflow.py       # 9 tests  - Workflow engine
+│   └── test_mcp.py            # 7 tests  - MCP server
+└── security/
+    └── test_security.py       # 16 tests - Security audit
+```
+
+### Test Coverage
+
+| Category | Tests | What's Tested |
+|----------|-------|---------------|
+| Unit - Tools | 30 | All 45 tools with proper arguments |
+| Unit - Permissions | 14 | Risk levels, blocking, approval workflow |
+| Unit - Agents | 13 | Registry, profiles, lookup, reload |
+| Integration - Executor | 10 | Tool discovery, task detection, extraction |
+| Integration - Server | 6 | Daemon init, client, protocol |
+| Integration - Workflow | 9 | Engine, steps, dependencies, cancellation |
+| Integration - MCP | 7 | Server creation, tools, registration |
+| Security | 16 | Path traversal, injection, bypass, validation |
+| **Total** | **122** | **All passing** |
 
 ## Local Development
 
@@ -209,32 +199,18 @@ print(f'Loaded {len(agents)} agents')
 
 # Test tools
 uv run python -c "
-from sago.tools.file.directory_scanner import DirectoryScanner
-scanner = DirectoryScanner()
-result = scanner.scan('.')
-print(f'Found {result.total_files} files')
-print(f'Languages: {result.languages}')
+from sago.engine.simple_executor import _discover_tools
+tools = _discover_tools()
+print(f'Discovered {len(tools)} tools')
 "
 
-# Test LLM
+# Test permissions
 uv run python -c "
-from sago.llm.factory import LLMFactory
-factory = LLMFactory()
-print('LLM Factory initialized')
+from sago.permissions import get_permission_manager
+pm = get_permission_manager()
+allowed, reason = pm.check_permission('read_file')
+print(f'read_file: {allowed} ({reason})')
 "
-```
-
-### Debug Mode
-
-```bash
-# Enable debug logging
-SAGO_DEBUG=1 sago smart "test task"
-
-# Python debugger
-uv run python -m pdb -m sago --help
-
-# Verbose output
-uv run python -m sago --verbose smart "test"
 ```
 
 ## Database
@@ -250,32 +226,22 @@ rm ~/.sago/data/sago.db
 sago status  # Will recreate
 ```
 
-### Cache Location
-
-```bash
-# Default: ~/.sago/cache.json
-cat ~/.sago/cache.json
-
-# Clear cache
-rm ~/.sago/cache.json
-```
-
 ## Configuration
 
 ### Environment Variables
 
 ```bash
-# Required for Gemini
-export GEMINI_API_KEY="AIza..."
+# Required for OpenRouter (default provider)
+export OPENROUTER_API_KEY="sk-or-..."
 
 # Optional for OpenAI
 export OPENAI_API_KEY="sk-..."
 
+# Optional for Gemini
+export GEMINI_API_KEY="AIza..."
+
 # Optional for Claude
 export ANTHROPIC_API_KEY="sk-ant-..."
-
-# Optional for OpenRouter
-export OPENROUTER_API_KEY="sk-or-..."
 
 # Debug mode
 export SAGO_DEBUG=1
@@ -295,38 +261,6 @@ sago init
 cat config.sago.json
 ```
 
-## Code Style
-
-### Python Style
-
-- **Formatter**: Black (line length 88)
-- **Linter**: Ruff
-- **Type hints**: Required for all functions
-- **Docstrings**: Google style
-
-### Example
-
-```python
-"""Module docstring."""
-
-from __future__ import annotations
-
-from typing import Any
-
-
-def my_function(arg: str, optional: int = 0) -> dict[str, Any]:
-    """Function docstring.
-
-    Args:
-        arg: Description
-        optional: Description
-
-    Returns:
-        Description
-    """
-    return {"key": arg}
-```
-
 ## Git Workflow
 
 ### Branches
@@ -343,11 +277,23 @@ fix/*       # Bug fixes
 ```bash
 feat: add new tool
 fix: resolve agent loading issue
-docs: update PROJECT.md
+docs: update README
 refactor: simplify caching logic
 test: add unit tests for scanner
 chore: update dependencies
 ```
+
+## CI/CD
+
+GitHub Actions runs on every push and PR:
+
+1. **Lint** — Ruff code quality check
+2. **Unit Tests** — Tool, permission, agent tests
+3. **Integration Tests** — Executor, server, workflow, MCP tests
+4. **Security Tests** — Vulnerability checks
+5. **Build** — Package build verification
+
+See `.github/workflows/ci.yml` for the full pipeline.
 
 ## Troubleshooting
 
@@ -366,22 +312,6 @@ pip install -e .  # Reinstall in dev mode
 
 # Database locked
 rm ~/.sago/data/sago.db  # Reset
-
-# Cache issues
-rm ~/.sago/cache.json  # Clear
-```
-
-### Performance
-
-```bash
-# Profile Python
-uv run python -m cProfile -s cumtime -m sago --help
-
-# Memory usage
-uv run python -m tracemalloc -m sago --help
-
-# Cache stats
-sago usage
 ```
 
 ## IDE Setup
@@ -392,16 +322,9 @@ sago usage
 {
   "python.defaultInterpreterPath": ".venv/bin/python",
   "python.terminal.activateEnvironment": true,
-  "editor.formatOnSave": true,
-  "python.formatting.provider": "black"
+  "editor.formatOnSave": true
 }
 ```
-
-### PyCharm
-
-1. Set Python interpreter to `.venv/bin/python`
-2. Enable Black formatter
-3. Configure Ruff as linter
 
 ## Release
 
