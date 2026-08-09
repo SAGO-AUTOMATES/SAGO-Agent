@@ -79,9 +79,48 @@ class ScaffoldTool(BaseTool):
     name = "scaffold_project"
     description = (
         "Create a new project with proper structure, dependencies, and tests. "
-        "Types: python, python-cli, python-web, node, rust, go"
+        "Types: python, python-cli, python-web, node, rust, go. "
+        "Use 'auto' to detect from existing files."
     )
     args_model = ScaffoldArgs
+
+    def _detect_project_type(self, path: str) -> str | None:
+        """Auto-detect project type from existing files in the directory."""
+        import os
+        work_dir = self._expand_path(path)
+
+        indicators = {
+            "python-web": ["flask", "django", "fastapi"],
+            "python-cli": ["typer", "click", "argparse"],
+            "python": ["pyproject.toml", "setup.py", "requirements.txt"],
+            "node": ["package.json"],
+            "rust": ["Cargo.toml"],
+            "go": ["go.mod"],
+        }
+
+        # Check for config files
+        for ptype, files in indicators.items():
+            for f in files:
+                if os.path.exists(os.path.join(work_dir, f)):
+                    return ptype
+
+        # Check for source files
+        ext_map = {
+            ".py": "python",
+            ".js": "node",
+            ".ts": "node",
+            ".rs": "rust",
+            ".go": "go",
+        }
+        for root, dirs, files in os.walk(work_dir):
+            dirs[:] = [d for d in dirs if d not in ("node_modules", ".git", "target", "vendor")]
+            for f in files:
+                ext = os.path.splitext(f)[1]
+                if ext in ext_map:
+                    return ext_map[ext]
+            break  # Only check top level
+
+        return None
 
     def _run(
         self,
@@ -93,13 +132,24 @@ class ScaffoldTool(BaseTool):
         """Create a project from a template.
 
         Args:
-            project_type: Type of project to create.
+            project_type: Type of project to create. Use 'auto' to detect.
             project_name: Name of the project.
             path: Parent directory.
 
         Returns:
             Created project structure.
         """
+        # Auto-detect project type if requested
+        if project_type == "auto":
+            detected = self._detect_project_type(path)
+            if detected:
+                project_type = detected
+            else:
+                return (
+                    "Could not auto-detect project type. Available types: "
+                    + ", ".join(sorted(TEMPLATES.keys()))
+                )
+
         if project_type not in TEMPLATES:
             available = ", ".join(sorted(TEMPLATES.keys()))
             return f"Unknown project type '{project_type}'. Available: {available}"

@@ -1442,16 +1442,17 @@ class SagoApp(App):
                                     results_for_llm.append(f"Permission denied: {reason}")
                                     continue
 
-                            # Tool-specific call limits
+                            # No hard limits - let LLM self-regulate
+                            # But detect circular behavior and warn
                             tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
-                            tool_limits = {
-                                "write_file": 15, "edit_file": 15, "read_file": 20,
-                                "execute_shell": 10, "test_runner": 5, "linter": 5,
-                            }
-                            max_uses = tool_limits.get(name, 6)
-                            if tool_call_counts[name] > max_uses:
-                                results_for_llm.append(f"[STOP] Used {name} {tool_call_counts[name]} times (limit: {max_uses}). Try different approach or finish.")
-                                continue
+                            recent_calls = [f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}" for c in tool_history[-5:]]
+                            if len(recent_calls) >= 3:
+                                unique_recent = set(recent_calls[-3:])
+                                if len(unique_recent) == 1:
+                                    results_for_llm.append(
+                                        f"[HINT] You've called {name} with similar args 3 times in a row. "
+                                        f"If this isn't working, try a completely different approach or finish the task."
+                                    )
 
                             self.call_from_thread(on_tool, name, args)
                             tool_instance = tools[name]()

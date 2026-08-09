@@ -141,6 +141,126 @@ def _run_tests_if_exist(
     return None
 
 
+def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
+    """Detect existing project language, framework, and structure from files.
+
+    Returns a dict with detected info that helps the LLM understand the project.
+    """
+    import subprocess
+
+    context: dict[str, Any] = {
+        "languages": [],
+        "frameworks": [],
+        "package_managers": [],
+        "build_tools": [],
+        "test_frameworks": [],
+        "project_structure": [],
+    }
+
+    work_dir = cwd or os.getcwd()
+
+    # Detect by config files
+    config_indicators = {
+        "pyproject.toml": ("python", ["hatchling", "poetry", "setuptools"]),
+        "setup.py": ("python", ["setuptools"]),
+        "setup.cfg": ("python", ["setuptools"]),
+        "requirements.txt": ("python", ["pip"]),
+        "Pipfile": ("python", ["pipenv"]),
+        "poetry.lock": ("python", ["poetry"]),
+        "package.json": ("javascript", ["npm", "yarn"]),
+        "package-lock.json": ("javascript", ["npm"]),
+        "yarn.lock": ("javascript", ["yarn"]),
+        "tsconfig.json": ("typescript", ["npm"]),
+        "Cargo.toml": ("rust", ["cargo"]),
+        "go.mod": ("go", ["go"]),
+        "go.sum": ("go", ["go"]),
+        "pom.xml": ("java", ["maven"]),
+        "build.gradle": ("java", ["gradle"]),
+        "Gemfile": ("ruby", ["bundler"]),
+        "composer.json": ("php", ["composer"]),
+        "CMakeLists.txt": ("c++", ["cmake"]),
+        "Makefile": ("c", ["make"]),
+        "Dockerfile": ("docker", ["docker"]),
+        "docker-compose.yml": ("docker", ["docker-compose"]),
+        ".github/workflows": ("ci", ["github-actions"]),
+    }
+
+    for filename, (lang, managers) in config_indicators.items():
+        path = os.path.join(work_dir, filename)
+        if os.path.exists(path):
+            if lang not in context["languages"]:
+                context["languages"].append(lang)
+            for m in managers:
+                if m not in context["package_managers"]:
+                    context["package_managers"].append(m)
+
+    # Detect frameworks from package.json dependencies
+    pkg_json = os.path.join(work_dir, "package.json")
+    if os.path.exists(pkg_json):
+        try:
+            with open(pkg_json) as f:
+                pkg = json.load(f)
+            deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
+            framework_map = {
+                "react": "react", "next": "nextjs", "vue": "vue",
+                "angular": "angular", "svelte": "svelte", "express": "express",
+                "fastify": "fastify", "nestjs": "nestjs", "electron": "electron",
+            }
+            for dep in framework_map:
+                if dep in deps:
+                    context["frameworks"].append(framework_map[dep])
+        except Exception:
+            pass
+
+    # Detect Python frameworks from imports in existing files
+    pyproject = os.path.join(work_dir, "pyproject.toml")
+    if os.path.exists(pyproject):
+        try:
+            content = open(pyproject).read()
+            py_frameworks = {
+                "flask": "flask", "django": "django", "fastapi": "fastapi",
+                "starlette": "starlette", "pytest": "pytest",
+            }
+            for keyword, framework in py_frameworks.items():
+                if keyword in content.lower():
+                    context["frameworks"].append(framework)
+        except Exception:
+            pass
+
+    # Detect test frameworks
+    test_indicators = {
+        "pytest": ["pytest.ini", "conftest.py", "pyproject.toml"],
+        "jest": ["jest.config.js", "jest.config.ts"],
+        "vitest": ["vitest.config.ts", "vitest.config.js"],
+        "mocha": [".mocharc.yml", ".mocharc.json"],
+        "cargo-test": ["Cargo.toml"],
+        "go-test": ["go.mod"],
+    }
+    for framework, indicators in test_indicators.items():
+        for indicator in indicators:
+            if os.path.exists(os.path.join(work_dir, indicator)):
+                if framework not in context["test_frameworks"]:
+                    context["test_frameworks"].append(framework)
+
+    # Detect project structure (depth 2)
+    try:
+        result = subprocess.run(
+            ["find", work_dir, "-maxdepth", "2", "-type", "f",
+             "-not", "-path", "*/node_modules/*",
+             "-not", "-path", "*/.git/*",
+             "-not", "-path", "*/target/*",
+             "-not", "-path", "*/vendor/*"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            files = result.stdout.strip().split("\n")[:30]
+            context["project_structure"] = [os.path.relpath(f, work_dir) for f in files if f]
+    except Exception:
+        pass
+
+    return context
+
+
 def _generate_plan_with_llm(
     task: str,
     client: OpenAI,
@@ -412,8 +532,31 @@ def execute_agent_task(
     import threading
     tools = _discover_tools()
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
-    project_ctx = _get_context(cwd)
     start_time = time.time()
+
+    # Detect existing project context (languages, frameworks, structure)
+    project_ctx = _get_context(cwd)
+    project_context = _detect_project_context(cwd)
+
+    # Enrich project context with detected info
+    if project_context["languages"]:
+        project_ctx += f"\nDetected languages: {', '.join(project_context['languages'])}"
+    if project_context["frameworks"]:
+        project_ctx += f"\nDetected frameworks: {', '.join(project_context['frameworks'])}"
+    if project_context["test_frameworks"]:
+        project_ctx += f"\nTest frameworks: {', '.join(project_context['test_frameworks'])}"
+    if project_context["package_managers"]:
+        project_ctx += f"\nPackage managers: {', '.join(project_context['package_managers'])}"
+
+    # Load learning store for smart suggestions
+    learning_suggestion = None
+    try:
+        from sago.learning import get_learning_store
+        ls = get_learning_store()
+        task_type = _detect_task_type(task)
+        learning_suggestion = ls.suggest_approach(task_type, list(tools.keys()))
+    except Exception:
+        pass
 
     # Auto-create todo list for complex tasks
     task_plan = None
@@ -467,6 +610,23 @@ def execute_agent_task(
             project_ctx=project_ctx,
             tool_count=len(tools),
             tool_list=_TOOL_DESCRIPTIONS,
+        )
+
+    # Add learning suggestion if available
+    if learning_suggestion:
+        system_prompt += (
+            f"\n\n=== PAST SUCCESSFUL APPROACH ===\n"
+            f"Based on past similar tasks, this approach worked:\n"
+            f"{learning_suggestion}\n"
+            f"Consider using a similar approach, but adapt to the current context."
+        )
+
+    # Add project context hints
+    if project_context["frameworks"]:
+        system_prompt += (
+            f"\n\n=== EXISTING PROJECT DETECTED ===\n"
+            f"This project uses: {', '.join(project_context['frameworks'])}\n"
+            f"Match the existing style and conventions."
         )
 
     # State tracking
@@ -617,15 +777,16 @@ def execute_agent_task(
                     continue
 
                 tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
-                # Tool-specific limits: file tools need more for multi-file projects
-                tool_limits = {
-                    "write_file": 15, "edit_file": 15, "read_file": 20,
-                    "execute_shell": 10, "test_runner": 5, "linter": 5,
-                }
-                max_uses = tool_limits.get(name, 6)
-                if tool_call_counts[name] > max_uses:
-                    results_for_llm.append(f"[STOP] Used {name} {tool_call_counts[name]} times (limit: {max_uses}). Try different approach or finish.")
-                    continue
+                # No hard limits - let the LLM self-regulate
+                # But detect circular behavior and warn
+                recent_calls = [f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}" for c in tool_history[-5:]]
+                if len(recent_calls) >= 3:
+                    unique_recent = set(recent_calls[-3:])
+                    if len(unique_recent) == 1:
+                        results_for_llm.append(
+                            f"[HINT] You've called {name} with similar args 3 times in a row. "
+                            f"If this isn't working, try a completely different approach or finish the task."
+                        )
 
                 if on_tool_call:
                     on_tool_call(name, args)
@@ -825,6 +986,32 @@ def execute_agent_task(
                         pass
         except Exception:
             break
+
+    # Record learning from this execution
+    try:
+        from sago.learning import get_learning_store
+        ls = get_learning_store()
+        task_type = _detect_task_type(task)
+
+        # Record success
+        successful_tools = [t["tool"] for t in tool_history if t.get("success")]
+        if successful_tools:
+            ls.record_success(task_type, successful_tools, f"Used {', '.join(set(successful_tools[:5]))}")
+
+        # Record tool effectiveness
+        for tool_record in tool_history:
+            ls.record_tool_effectiveness(tool_record["tool"], tool_record.get("success", False))
+
+        # Record language patterns if files were created
+        if files_created and project_context["languages"]:
+            for lang in project_context["languages"]:
+                ls.record_language_pattern(lang, "file_creation", f"Created {len(files_created)} files")
+
+        # Record error fixes if test fixes were applied
+        if test_fix_attempts > 0:
+            ls.record_success("test_fix", ["edit_file", "write_file"], f"Fixed tests in {test_fix_attempts} attempts")
+    except Exception:
+        pass
 
     return {
         "success": True,
