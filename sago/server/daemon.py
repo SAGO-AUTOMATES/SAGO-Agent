@@ -185,20 +185,33 @@ class SagoDaemon:
         return {"error": f"Unknown action: {action}"}
 
     def _execute_task(self, task: str, agent: str | None = None) -> dict[str, Any]:
-        """Execute a task."""
+        """Execute a task using simple executor."""
         try:
-            from sago.agents.spawner import AgentSpawner
-            from sago.database import init
+            import os
+            from sago.engine.simple_executor import execute_agent_task
 
-            init()
-            spawner = AgentSpawner()
+            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            if not api_key:
+                return {"status": "failed", "error": "No API key set"}
 
-            if agent:
-                result = spawner.execute_with_agent(agent, task)
-            else:
-                result = spawner.orchestrate(task)
+            agent_role = agent.replace("-", " ").title() if agent else "Sago Orchestrator"
 
-            return {"status": "completed", "result": str(result)}
+            result = execute_agent_task(
+                task=task,
+                agent_role=agent_role,
+                api_key=api_key,
+                model="openrouter/free",
+                max_tokens=16384,
+                max_iterations=8,
+            )
+
+            return {
+                "status": "completed",
+                "result": result.get("output", "No output"),
+                "tool_calls": len(result.get("tool_calls", [])),
+                "tokens": result.get("tokens", {}),
+                "elapsed": result.get("elapsed", 0),
+            }
         except Exception as e:
             return {"status": "failed", "error": str(e)}
 
