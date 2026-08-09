@@ -109,13 +109,13 @@ class Project extends Model
 ### RESTful API Controller
 ```php
 // app/Http/Controllers/Api/ProjectController.php
-namespace App\Http\Controllers\Api;
+namespace App\\Http\\Controllers\\Api;
 
-use App\Http\Controllers\Controller;
-use App\Http\Resources\ProjectResource;
-use App\Http\Requests\StoreProjectRequest;
-use App\Models\Project;
-use App\Services\ProjectService;
+use App\\Http\\Controllers\\Controller;
+use App\\Http\\Resources\\ProjectResource;
+use App\\Http\\Requests\\StoreProjectRequest;
+use App\\Models\\Project;
+use App\\Services\\ProjectService;
 
 class ProjectController extends Controller
 {

@@ -155,7 +155,7 @@ PROFILE = AgentProfile(
 
 | Methodology | Best For | Key Principle |
 |-------------|----------|---------------|
-| **BEM** | Component libraries | Block\_\_Element--Modifier naming |
+| **BEM** | Component libraries | Block\\_\\_Element--Modifier naming |
 | **ITCSS** | Large codebases | Layered specificity triangle |
 | **CUBE CSS** | Composition-first | Composition, Utility, Block, Exception |
 | **Utility-First** | Rapid prototyping | Single-purpose classes |

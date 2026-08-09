@@ -118,7 +118,7 @@ from uuid import UUID
 
 class UserCreate(BaseModel):
     email: EmailStr
-    username: str = Field(min_length=3, max_length=50, pattern=r"^\w+$")
+    username: str = Field(min_length=3, max_length=50, pattern=r"^\\w+$")
     password: str = Field(min_length=8, exclude=True)
 
 class UserResponse(BaseModel):

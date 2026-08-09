@@ -121,7 +121,7 @@ extension PaymentProcessor {
 
 // Proper Optional handling
 guard let user = await repository.find(id: userId) else {
-    throw AppError.notFound("User \(userId)")
+    throw AppError.notFound("User \\(userId)")
 }
 ```
 

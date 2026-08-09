@@ -78,10 +78,10 @@ Every pre-commit scan checks these categories:
 | AWS Access Key | `AKIA[0-9A-Z]{16}` | Block — suggest environment variable |
 | GitHub Token | `ghp_[0-9a-zA-Z]{36}` | Block — use GitHub CLI or env vars |
 | Private Key | `-----BEGIN (RSA|EC|OPENSSH) PRIVATE KEY-----` | Block — use secrets manager |
-| Generic Password | `password\s*[:=]\s*['\"]?\w+` | Block — use env vars |
-| JWT/Token | `eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+` | Block — verify if test fixture |
-| Database URL | `postgresql://\w+:\w+@` | Block — use env vars |
-| Slack/Webhook URL | `hooks\.slack\.com/services/` | Block — use env vars |
+| Generic Password | `password\\s*[:=]\\s*['\"]?\\w+` | Block — use env vars |
+| JWT/Token | `eyJ[a-zA-Z0-9_-]+\\.eyJ[a-zA-Z0-9_-]+` | Block — verify if test fixture |
+| Database URL | `postgresql://\\w+:\\w+@` | Block — use env vars |
+| Slack/Webhook URL | `hooks\\.slack\\.com/services/` | Block — use env vars |
 
 ### Sensitive Files (BLOCK)
 

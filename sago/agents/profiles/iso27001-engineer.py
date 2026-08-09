@@ -133,7 +133,7 @@ ACT
 ### Risk Scoring Matrix
 
 ```
-Likelihood \ Impact  │  1 (Low) │  2 (Med) │ 3 (High) │ 4 (Critical)
+Likelihood \\ Impact  │  1 (Low) │  2 (Med) │ 3 (High) │ 4 (Critical)
 ─────────────────────┼──────────┼──────────┼──────────┼─────────────
 5 (Almost Certain)   │    5     │    10    │    15    │     20
 4 (Likely)           │    4     │     8    │    12    │     16

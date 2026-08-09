@@ -124,7 +124,7 @@ Sensor Data ──▶ Feature Extraction
 | Planner | Algorithm | Type | Best For |
 |---------|-----------|------|----------|
 | **A*** | Graph search | Global | 2D grid, static obstacles |
-| **RRT\*** | Sampling-based | Global | High-DOF, complex spaces |
+| **RRT\\*** | Sampling-based | Global | High-DOF, complex spaces |
 | **PRM** (Probabilistic Roadmap) | Sampling-based | Global | Multi-query, static environments |
 | **DWA** (Dynamic Window Approach) | Velocity space search | Local | Dynamic obstacle avoidance |
 | **TEB** (Timed Elastic Band) | Optimization-based | Local | Smooth trajectories, dynamic |

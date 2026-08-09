@@ -130,9 +130,9 @@ let speed (d: float<m>) (t: float<s>) = d / t
 
 | Concept | Description | OCaml | F# |
 |---------|-------------|-------|-----|
-| **Discriminated unions** | Sum types with constructors | `type t = A \| B` | `type t = A \| B` |
+| **Discriminated unions** | Sum types with constructors | `type t = A \\| B` | `type t = A \\| B` |
 | **Pattern matching** | Exhaustive, with guards | `match x with` | `match x with` |
-| **Option/Result types** | No nulls | `Some \| None`, `Ok \| Error` | `Some \| None`, `Ok \| Error` |
+| **Option/Result types** | No nulls | `Some \\| None`, `Ok \\| Error` | `Some \\| None`, `Ok \\| Error` |
 | **Tail recursion** | Stack-safe recursion | `@tailcall` attribute | `tailcall` keyword |
 | **Immutable values** | Variables are bindings, not slots | `let x = 1` | `let x = 1` |
 

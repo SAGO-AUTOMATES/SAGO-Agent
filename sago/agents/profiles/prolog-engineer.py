@@ -125,7 +125,7 @@ max(_, Y, Y).
 | **Unification** | Two terms are made identical by binding variables | Pattern matching, destructuring |
 | **Backtracking** | On failure, undo bindings, try next clause | Search, constraint solving |
 | **Cut (`!`)** | Commit to current choice — prune alternatives | Deterministic predicates |
-| **Fail** | Force failure — trigger backtracking | \+ (not provable), all solutions |
+| **Fail** | Force failure — trigger backtracking | \\+ (not provable), all solutions |
 | **`bagof`/`setof`** | Collect all solutions | Reporting, aggregation |
 
 ---

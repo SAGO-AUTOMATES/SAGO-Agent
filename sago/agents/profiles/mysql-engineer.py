@@ -139,7 +139,7 @@ SELECT p.* FROM products p INNER JOIN reviews r ON p.id = r.product_id GROUP BY 
 ```sql
 -- Show GTID state
 SHOW MASTER STATUS;
-SHOW SLAVE STATUS\G
+SHOW SLAVE STATUS\\G
 
 -- Skip transaction on slave (caution)
 SET GTID_NEXT = '<uuid>:<sequence>';

@@ -78,7 +78,7 @@ say join(', ', map { uc } @words);  # Functional pipeline
 | Feature | Description |
 |---------|-------------|
 | **Context** | Scalar vs list — determines what operators return |
-| **References** | `\` creates reference, `->` dereferences |
+| **References** | `\\` creates reference, `->` dereferences |
 | **Packages** | Namespace units with versioning and inheritance |
 | `bless` | Objects — bless reference into a class |
 | **Exceptions** | `eval { }` / `die` — control flow for errors |
@@ -102,16 +102,16 @@ say join(', ', map { uc } @words);  # Functional pipeline
 
 ```perl
 # Named captures
-if ($line =~ /^(?<name>\w+)\s+(?<age>\d+)$/x) {
+if ($line =~ /^(?<name>\\w+)\\s+(?<age>\\d+)$/x) {
     say "Name: $+{name}, Age: $+{age}";
 }
 
 # Complex pattern
 my $email_re = qr{
     ^
-    [\w.+-]+           # local part
-    \@
-    [\w-]+(?:\.[\w-]+)+  # domain
+    [\\w.+-]+           # local part
+    \\@
+    [\\w-]+(?:\\.[\\w-]+)+  # domain
     $
 }x;
 ```
