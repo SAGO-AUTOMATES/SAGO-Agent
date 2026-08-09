@@ -1344,6 +1344,8 @@ class SagoApp(App):
                 total_tokens_in = 0
                 total_tokens_out = 0
                 content = ""
+                tool_call_counts: dict[str, int] = {}
+                failed_calls: set[str] = set()
 
                 for iteration in range(effort["max_iterations"]):
                     # Update spinner with todo progress
@@ -1416,6 +1418,12 @@ class SagoApp(App):
                                 results_for_llm.append(f"Unknown tool: {name}")
                                 continue
 
+                            # Loop protection
+                            call_key = f"{name}:{json.dumps(args, sort_keys=True)}"
+                            if call_key in failed_calls:
+                                results_for_llm.append(f"[SKIP] Already failed: {name} with same args")
+                                continue
+
                             # Check permissions before execution
                             from sago.permissions import get_permission_manager, RiskLevel
                             pm = get_permission_manager()
@@ -1434,12 +1442,25 @@ class SagoApp(App):
                                     results_for_llm.append(f"Permission denied: {reason}")
                                     continue
 
+                            # Tool-specific call limits
+                            tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
+                            tool_limits = {
+                                "write_file": 15, "edit_file": 15, "read_file": 20,
+                                "execute_shell": 10, "test_runner": 5, "linter": 5,
+                            }
+                            max_uses = tool_limits.get(name, 6)
+                            if tool_call_counts[name] > max_uses:
+                                results_for_llm.append(f"[STOP] Used {name} {tool_call_counts[name]} times (limit: {max_uses}). Try different approach or finish.")
+                                continue
+
                             self.call_from_thread(on_tool, name, args)
                             tool_instance = tools[name]()
                             result = tool_instance.run(**args)
                             result_str = str(result)[:4000]
 
                             is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
+                            if is_error:
+                                failed_calls.add(call_key)
 
                             if name == "write_file" and not is_error:
                                 fp = args.get("file_path", "")
@@ -1514,6 +1535,85 @@ class SagoApp(App):
 
                     combined = "\n\n".join(results_for_llm)
                     messages.append({"role": "user", "content": combined})
+
+                # === POST-EXECUTION: Test → Fix → Retry loop ===
+                if files_created:
+                    self.call_from_thread(self._update_spinner, "Running tests...")
+                    from sago.engine.simple_executor import _auto_install_deps, _run_tests_if_exist
+
+                    # Auto-install dependencies
+                    _auto_install_deps(files_created)
+
+                    test_fix_attempts = 0
+                    max_test_fix_attempts = 3
+
+                    while test_fix_attempts < max_test_fix_attempts:
+                        test_result = _run_tests_if_exist(files_created, tools)
+                        if test_result is None:
+                            break  # No tests found
+
+                        test_passed, test_output = test_result
+                        if test_passed:
+                            self.call_from_thread(self._add_system_message, "✅ All tests passed!")
+                            break
+
+                        test_fix_attempts += 1
+                        if test_fix_attempts >= max_test_fix_attempts:
+                            self.call_from_thread(self._add_system_message, f"❌ Tests still failing after {max_test_fix_attempts} attempts")
+                            break
+
+                        self.call_from_thread(self._update_spinner, f"Tests failed (attempt {test_fix_attempts}/{max_test_fix_attempts}), fixing...")
+
+                        # Feed test errors back to LLM for fixing
+                        try:
+                            fix_stream = client.chat.completions.create(
+                                model=self.current_model,
+                                messages=messages + [
+                                    {"role": "user", "content": (
+                                        f"The tests are failing. Fix the failing tests.\n\n"
+                                        f"Test output:\n{test_output[:3000]}\n\n"
+                                        f"Files you created: {', '.join(files_created)}\n"
+                                        f"Fix the issues and make the tests pass. Use edit_file or write_file to fix."
+                                    )},
+                                ],
+                                max_tokens=effort["max_tokens"],
+                                temperature=0.3,
+                                stream=True,
+                                stream_options={"include_usage": True},
+                            )
+                            fix_content = ""
+                            for chunk in fix_stream:
+                                if chunk.choices and chunk.choices[0].delta.content:
+                                    fix_content += chunk.choices[0].delta.content
+
+                            if fix_content:
+                                messages.append({"role": "assistant", "content": fix_content})
+                                fix_tool_calls = _extract_tool_calls(fix_content)
+                                for call_str in fix_tool_calls:
+                                    try:
+                                        call = json.loads(call_str)
+                                        name = call.get("name", "")
+                                        args = call.get("args", {})
+                                        if name in tools:
+                                            tool_instance = tools[name]()
+                                            result = tool_instance.run(**args)
+                                            result_str = str(result)[:4000]
+                                            is_error = result_str.lower().startswith("error")
+                                            tool_history.append({
+                                                "tool": name,
+                                                "args": args,
+                                                "result": result_str[:500],
+                                                "success": not is_error,
+                                            })
+                                            if name == "write_file" and not is_error:
+                                                fp = args.get("file_path", "")
+                                                if fp and fp not in files_created:
+                                                    files_created.append(fp)
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            break
+                # === END TEST → FIX LOOP ===
 
                 # Final todo cleanup
                 if task_plan:

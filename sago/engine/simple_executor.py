@@ -42,6 +42,105 @@ def _is_complex_task(task: str) -> bool:
     return False
 
 
+def _auto_install_deps(files_created: list[str], on_thinking: Callable | None = None) -> None:
+    """Auto-detect and install dependencies based on created files."""
+    from sago.tools.base import BaseTool
+
+    # Check what files were created
+    has_python = any(f.endswith(".py") for f in files_created)
+    has_node = any(f.endswith((".js", ".ts", ".jsx", ".tsx")) for f in files_created)
+    has_rust = any(f.endswith(".rs") for f in files_created)
+    has_go = any(f.endswith(".go") for f in files_created)
+
+    # Check for dependency files
+    deps_files = {
+        "requirements.txt": has_python,
+        "pyproject.toml": has_python,
+        "setup.py": has_python,
+        "package.json": has_node,
+        "Cargo.toml": has_rust,
+        "go.mod": has_go,
+    }
+
+    # Find execute_shell tool
+    shell_tool_class = None
+    for tool_name, tool_class in _discover_tools().items():
+        if tool_name == "execute_shell":
+            shell_tool_class = tool_class
+            break
+
+    if not shell_tool_class:
+        return
+
+    shell_tool = shell_tool_class()
+
+    # Install dependencies for each detected language
+    install_commands = []
+    if has_python:
+        install_commands.append("pip install -r requirements.txt 2>/dev/null || pip install -e . 2>/dev/null || true")
+    if has_node:
+        install_commands.append("npm install 2>/dev/null || yarn install 2>/dev/null || true")
+    if has_rust:
+        install_commands.append("cargo fetch 2>/dev/null || true")
+    if has_go:
+        install_commands.append("go mod download 2>/dev/null || true")
+
+    for cmd in install_commands:
+        if on_thinking:
+            on_thinking(f"Installing dependencies: {cmd[:50]}...")
+        try:
+            shell_tool.run(command=cmd, timeout=60)
+        except Exception:
+            pass
+
+
+def _run_tests_if_exist(
+    files_created: list[str],
+    tools: dict[str, type[BaseTool]],
+) -> tuple[bool, str] | None:
+    """Run tests if test files exist. Returns (passed, output) or None if no tests."""
+    import subprocess
+
+    # Check for test files
+    test_patterns = ["test_*.py", "*_test.py", "*.test.js", "*.test.ts", "*.spec.js", "*.spec.ts"]
+    has_test_files = False
+
+    for pattern in test_patterns:
+        import glob
+        if glob.glob(pattern):
+            has_test_files = True
+            break
+
+    if not has_test_files:
+        return None
+
+    # Try to run tests
+    test_commands = [
+        ["python", "-m", "pytest", "--tb=short", "-q"],
+        ["npm", "test", "--", "--passWithNoTests"],
+        ["cargo", "test"],
+        ["go", "test", "./..."],
+    ]
+
+    for cmd in test_commands:
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            output = result.stdout + "\n" + result.stderr
+            if result.returncode == 0:
+                return True, output
+            else:
+                return False, output
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            continue
+
+    return None
+
+
 def _generate_plan_with_llm(
     task: str,
     client: OpenAI,
@@ -518,8 +617,14 @@ def execute_agent_task(
                     continue
 
                 tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
-                if tool_call_counts[name] > 4:
-                    results_for_llm.append(f"[STOP] Used {name} {tool_call_counts[name]} times. Try different approach or finish.")
+                # Tool-specific limits: file tools need more for multi-file projects
+                tool_limits = {
+                    "write_file": 15, "edit_file": 15, "read_file": 20,
+                    "execute_shell": 10, "test_runner": 5, "linter": 5,
+                }
+                max_uses = tool_limits.get(name, 6)
+                if tool_call_counts[name] > max_uses:
+                    results_for_llm.append(f"[STOP] Used {name} {tool_call_counts[name]} times (limit: {max_uses}). Try different approach or finish.")
                     continue
 
                 if on_tool_call:
@@ -642,15 +747,95 @@ def execute_agent_task(
         except Exception:
             pass
 
+    # === POST-EXECUTION: Test → Fix → Retry loop ===
+    if files_created and on_thinking:
+        on_thinking("Running tests and checking for errors...")
+
+    test_fix_attempts = 0
+    max_test_fix_attempts = 3
+
+    while test_fix_attempts < max_test_fix_attempts:
+        # Auto-detect and install dependencies if needed
+        _auto_install_deps(files_created, on_thinking)
+
+        # Try to run tests if test files exist
+        test_result = _run_tests_if_exist(files_created, tools)
+        if test_result is None:
+            break  # No tests found, skip
+
+        test_passed, test_output = test_result
+        if test_passed:
+            if on_thinking:
+                on_thinking("All tests passed!")
+            break
+
+        # Tests failed - try to fix
+        test_fix_attempts += 1
+        if test_fix_attempts >= max_test_fix_attempts:
+            if on_thinking:
+                on_thinking(f"Tests still failing after {max_test_fix_attempts} attempts")
+            break
+
+        if on_thinking:
+            on_thinking(f"Tests failed (attempt {test_fix_attempts}/{max_test_fix_attempts}), fixing...")
+
+        # Feed test errors back to LLM for fixing
+        try:
+            fix_response = client.chat.completions.create(
+                model=model,
+                messages=messages + [
+                    {"role": "user", "content": (
+                        f"The tests are failing. Fix the failing tests.\n\n"
+                        f"Test output:\n{test_output[:3000]}\n\n"
+                        f"Files you created: {', '.join(files_created)}\n"
+                        f"Fix the issues and make the tests pass. Use edit_file or write_file to fix."
+                    )},
+                ],
+                max_tokens=max_tokens,
+                temperature=0.3,
+            )
+            fix_content = fix_response.choices[0].message.content or ""
+            if not fix_content and hasattr(fix_response.choices[0].message, "reasoning"):
+                fix_content = fix_response.choices[0].message.reasoning or ""
+
+            if fix_content:
+                messages.append({"role": "assistant", "content": fix_content})
+                fix_tool_calls = _extract_tool_calls(fix_content)
+                for call_str in fix_tool_calls:
+                    try:
+                        call = json.loads(call_str)
+                        name = call.get("name", "")
+                        args = call.get("args", {})
+                        if name in tools:
+                            tool_instance = tools[name]()
+                            result = tool_instance.run(**args)
+                            result_str = str(result)[:4000]
+                            is_error = result_str.lower().startswith("error")
+                            tool_history.append({
+                                "tool": name,
+                                "args": args,
+                                "result": result_str[:500],
+                                "success": not is_error,
+                            })
+                            if name == "write_file" and not is_error:
+                                fp = args.get("file_path", "")
+                                if fp and fp not in files_created:
+                                    files_created.append(fp)
+                    except Exception:
+                        pass
+        except Exception:
+            break
+
     return {
         "success": True,
         "output": content,
         "tool_calls": tool_history,
-        "iterations": max_iterations,
+        "iterations": max_iterations + test_fix_attempts,
         "tokens": {"input": total_tokens_in, "output": total_tokens_out, "cache_hit": total_cache_hit, "cache_miss": total_cache_miss},
         "elapsed": time.time() - start_time,
         "files_created": files_created,
         "task_plan": task_plan.to_dict() if task_plan else None,
+        "test_fixes_applied": test_fix_attempts,
     }
 
 
