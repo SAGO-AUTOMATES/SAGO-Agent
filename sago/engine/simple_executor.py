@@ -198,6 +198,29 @@ def _detect_task_type(task: str) -> str:
     return "create"
 
 
+def _load_agent_profile(agent_name: str) -> dict[str, Any] | None:
+    """Load agent profile metadata if available."""
+    try:
+        from sago.agents.registry import get_agent
+        # Try common name formats
+        for name_variant in [agent_name, agent_name.lower(), agent_name.replace(" ", "-"), agent_name.replace(" ", "_")]:
+            agent_def = get_agent(name_variant)
+            if agent_def:
+                return {
+                    "name": agent_def.name,
+                    "role": agent_def.role,
+                    "system_prompt": agent_def.system_prompt,
+                    "tools": agent_def.tools,
+                    "handoff_to": agent_def.handoff_to,
+                    "model_preference": agent_def.model_preference,
+                    "temperature": agent_def.temperature,
+                    "max_iterations": agent_def.max_iterations,
+                }
+    except Exception:
+        pass
+    return None
+
+
 def execute_agent_task(
     task: str,
     agent_role: str = "Sago Orchestrator",
@@ -215,6 +238,25 @@ def execute_agent_task(
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
     project_ctx = _get_context(cwd)
     start_time = time.time()
+
+    # Load agent profile metadata
+    profile = _load_agent_profile(agent_role)
+
+    # Use profile metadata if available
+    if profile:
+        if not system_prompt:
+            system_prompt = profile.get("system_prompt", "")
+        if profile.get("model_preference"):
+            model = profile["model_preference"]
+        if profile.get("temperature"):
+            pass  # temperature is used in API call below
+        if profile.get("max_iterations") and max_iterations == 8:
+            max_iterations = min(profile["max_iterations"], 15)
+        # Filter tools to only those the agent knows about
+        if profile.get("tools"):
+            agent_tools = {t: tools[t] for t in profile["tools"] if t in tools}
+            if agent_tools:
+                tools = agent_tools
 
     # Auto-detect task type and use appropriate prompt
     if not system_prompt:
@@ -251,11 +293,12 @@ def execute_agent_task(
             on_thinking(f"{phase}... (step {i+1}/{max_iterations}{files_info})")
 
         try:
+            temp = profile.get("temperature", 0.3) if profile else 0.3
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,
                 max_tokens=max_tokens,
-                temperature=0.3,
+                temperature=temp,
             )
         except Exception as e:
             return {

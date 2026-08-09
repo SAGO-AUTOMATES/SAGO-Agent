@@ -22,6 +22,10 @@ from textual.widgets import Collapsible, Input, Static
 COMMANDS = {
     "/help": "Show all commands",
     "/agents": "List agents (or /agents <filter>)",
+    "/agent": "Set current agent (/agent <name>)",
+    "/delegate": "Delegate task to specialist (/delegate <agent> <task>)",
+    "/chain": "Chain agents (/chain <agent1,agent2> <task>)",
+    "/orchestrate": "Multi-agent orchestration (auto-delegates to specialists)",
     "/clear": "Clear chat",
     "/status": "System status",
     "/export": "Export to markdown",
@@ -433,6 +437,10 @@ class SagoApp(App):
         h = {
             "/help": lambda: self._show_help(),
             "/agents": lambda: self._show_agents(args),
+            "/agent": lambda: self._set_agent(args),
+            "/delegate": lambda: self._delegate_task(args),
+            "/chain": lambda: self._chain_agents(args),
+            "/orchestrate": lambda: self._orchestrate_task(args),
             "/clear": lambda: self.action_clear_chat(),
             "/status": lambda: self._show_status(),
             "/export": lambda: self._export_session(),
@@ -468,6 +476,10 @@ class SagoApp(App):
             "\n"
             "  /help             Show this help\n"
             "  /agents [filter]  List agents\n"
+            "  /agent <name>     Set current agent\n"
+            "  /delegate <a> <t> Delegate task to specialist\n"
+            "  /chain <a1,a2> <t> Chain agents\n"
+            "  /orchestrate <t>  Auto-delegate to specialists\n"
             "  /clear            Clear chat\n"
             "  /status           System status\n"
             "  /export           Export to markdown\n"
@@ -503,6 +515,44 @@ class SagoApp(App):
                 self._add_system_message(f"Agents ({len(agents)} total, use /agents <filter>):\n{lines}")
         except Exception as e:
             self._add_system_message(f"Error: {e}")
+
+    def _set_agent(self, name: str) -> None:
+        if not name:
+            self._add_system_message(f"Current: {self.current_agent}\nUse /agents to see available")
+            return
+        from sago.agents.registry import get_agent
+        agent = get_agent(name)
+        if agent:
+            self.current_agent = name
+            self._add_system_message(f"Agent: {name} ({agent.role})")
+        else:
+            self._add_system_message(f"Unknown agent: {name}")
+
+    def _delegate_task(self, args: str) -> None:
+        parts = args.split(maxsplit=1)
+        if len(parts) < 2:
+            self._add_system_message("Usage: /delegate <agent-name> <task>")
+            return
+        agent_name, task = parts[0], parts[1]
+        self._add_user_message(f"/delegate {args}")
+        self._process_delegation(agent_name, task)
+
+    def _chain_agents(self, args: str) -> None:
+        parts = args.split(maxsplit=1)
+        if len(parts) < 2:
+            self._add_system_message("Usage: /chain <agent1,agent2,...> <task>")
+            return
+        agent_chain, task = parts[0], parts[1]
+        agents = [a.strip() for a in agent_chain.split(",")]
+        self._add_user_message(f"/chain {args}")
+        self._process_chain(agents, task)
+
+    def _orchestrate_task(self, task: str) -> None:
+        if not task:
+            self._add_system_message("Usage: /orchestrate <task>")
+            return
+        self._add_user_message(f"/orchestrate {task}")
+        self._process_orchestration(task)
 
     def _show_status(self) -> None:
         try:
@@ -916,6 +966,125 @@ class SagoApp(App):
                 pass
 
     @work(thread=True)
+    def _process_delegation(self, agent_name: str, task: str) -> None:
+        self.is_thinking = True
+        self.call_from_thread(self._show_spinner, f"Delegating to {agent_name}...")
+        try:
+            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            if not api_key:
+                self.call_from_thread(self._hide_spinner)
+                self.call_from_thread(self._add_system_message, "No API key.")
+                return
+
+            from sago.tools.file.spawn_agent import SpawnAgentTool
+            tool = SpawnAgentTool()
+            result = tool.run(task=task, agent_name=agent_name)
+
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(self._add_assistant_message, result)
+        except Exception as e:
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(self._add_system_message, f"Delegation error: {e}")
+        finally:
+            self.is_thinking = False
+
+    @work(thread=True)
+    def _process_chain(self, agents: list[str], task: str) -> None:
+        self.is_thinking = True
+        self.call_from_thread(self._show_spinner, f"Chain: {' → '.join(agents)}")
+        try:
+            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            if not api_key:
+                self.call_from_thread(self._hide_spinner)
+                self.call_from_thread(self._add_system_message, "No API key.")
+                return
+
+            from sago.tools.file.spawn_agent import SpawnAgentTool
+            tool = SpawnAgentTool()
+            current_input = task
+
+            for i, agent in enumerate(agents):
+                self.call_from_thread(self._update_spinner, f"Step {i+1}/{len(agents)}: {agent}")
+                result = tool.run(task=current_input, agent_name=agent)
+                current_input = f"Previous agent ({agent}) said:\n\n{result}\n\nNow continue with the next step."
+
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(self._add_assistant_message, current_input)
+        except Exception as e:
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(self._add_system_message, f"Chain error: {e}")
+        finally:
+            self.is_thinking = False
+
+    @work(thread=True)
+    def _process_orchestration(self, task: str) -> None:
+        self.is_thinking = True
+        self.call_from_thread(self._show_spinner, "Analyzing task for delegation...")
+        try:
+            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            if not api_key:
+                self.call_from_thread(self._hide_spinner)
+                self.call_from_thread(self._add_system_message, "No API key.")
+                return
+
+            from openai import OpenAI
+            from sago.agents.registry import list_agents
+
+            client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+            agents = list_agents()
+            agent_list_str = "\n".join([
+                f"- {a['name']}: {a.get('role', '')} | Skills: {', '.join(a.get('skills', [])[:3])}"
+                for a in agents[:50]
+            ])
+
+            response = client.chat.completions.create(
+                model=self.current_model,
+                messages=[
+                    {"role": "system", "content": (
+                        "You are a task orchestrator. Analyze the task and break it into steps.\n"
+                        "For each step, specify which agent should handle it.\n"
+                        "Reply with a JSON list of steps: [{\"agent\": \"agent-name\", \"task\": \"what to do\"}]\n\n"
+                        f"Available agents:\n{agent_list_str}"
+                    )},
+                    {"role": "user", "content": task},
+                ],
+                max_tokens=1024,
+            )
+
+            plan_text = response.choices[0].message.content or "[]"
+            import json
+            try:
+                # Try to extract JSON from the response
+                json_match = re.search(r'\[.*\]', plan_text, re.DOTALL)
+                if json_match:
+                    plan = json.loads(json_match.group())
+                else:
+                    plan = [{"agent": "python-engineer", "task": task}]
+            except json.JSONDecodeError:
+                plan = [{"agent": "python-engineer", "task": task}]
+
+            self.call_from_thread(self._update_spinner, f"Executing {len(plan)} steps...")
+            from sago.tools.file.spawn_agent import SpawnAgentTool
+            tool = SpawnAgentTool()
+            results = []
+
+            for i, step in enumerate(plan):
+                agent = step.get("agent", "python-engineer")
+                step_task = step.get("task", "")
+                self.call_from_thread(self._update_spinner, f"Step {i+1}/{len(plan)}: {agent}")
+                result = tool.run(task=step_task, agent_name=agent)
+                results.append(f"**{agent}**: {result[:500]}")
+
+            self.call_from_thread(self._hide_spinner)
+            final = f"Orchestration complete ({len(plan)} steps):\n\n" + "\n\n".join(results)
+            self.call_from_thread(self._add_assistant_message, final)
+        except Exception as e:
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(self._add_system_message, f"Orchestration error: {e}")
+        finally:
+            self.is_thinking = False
+
+    @work(thread=True)
     def _process_message(self, message: str) -> None:
         self.is_thinking = True
         self.call_from_thread(self._show_spinner)
@@ -935,39 +1104,172 @@ class SagoApp(App):
             def on_thinking(text):
                 self.call_from_thread(self._update_spinner, text)
 
-            from sago.engine.simple_executor import execute_agent_task
-            result = execute_agent_task(
-                task=message,
-                agent_role=self.current_agent.replace("-", " ").title(),
-                api_key=api_key,
-                model=self.current_model,
-                max_tokens=effort["max_tokens"],
-                max_iterations=effort["max_iterations"],
-                on_tool_call=on_tool,
-                on_thinking=on_thinking,
-            )
+            # Try streaming first
+            try:
+                from openai import OpenAI
+                from sago.engine.simple_executor import _discover_tools, _get_context, _detect_task_type, PROMPTS, _TOOL_DESCRIPTIONS
+                from sago.engine.simple_executor import _extract_tool_calls, _load_agent_profile
+                import json
+                import time as _time
 
-            self.call_from_thread(self._hide_spinner)
+                tools = _discover_tools()
+                client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=90.0)
+                project_ctx = _get_context()
+                start_time = _time.time()
 
-            for tc in result.get("tool_calls", []):
-                self.call_from_thread(
-                    self._add_tool_call,
-                    tc.get("tool", ""),
-                    tc.get("args", {}),
-                    tc.get("result", ""),
-                    tc.get("success", True),
+                # Load profile and build prompt
+                profile = _load_agent_profile(self.current_agent.replace("-", " ").title())
+                task_type = _detect_task_type(message)
+                template = PROMPTS.get(task_type, PROMPTS["create"])
+                system_prompt = template.format(
+                    agent_role=self.current_agent.replace("-", " ").title(),
+                    project_ctx=project_ctx,
+                    tool_count=len(tools),
+                    tool_list=_TOOL_DESCRIPTIONS,
                 )
 
-            self.call_from_thread(
-                self._add_summary,
-                result.get("tool_calls", []),
-                result.get("output", ""),
-                result.get("elapsed", 0),
-                result.get("tokens", {}),
-            )
+                if profile and profile.get("system_prompt"):
+                    system_prompt = profile["system_prompt"]
 
-            output = result.get("output", "No response")
-            self.call_from_thread(self._add_assistant_message, output)
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": message},
+                ]
+
+                tool_history = []
+                files_created = []
+                total_tokens_in = 0
+                total_tokens_out = 0
+                content = ""
+
+                for iteration in range(effort["max_iterations"]):
+                    self.call_from_thread(self._update_spinner, f"Step {iteration+1}/{effort['max_iterations']}...")
+
+                    stream = client.chat.completions.create(
+                        model=self.current_model,
+                        messages=messages,
+                        max_tokens=effort["max_tokens"],
+                        temperature=0.3,
+                        stream=True,
+                    )
+
+                    content = ""
+                    for chunk in stream:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            token = chunk.choices[0].delta.content
+                            content += token
+
+                    if not content and hasattr(stream, 'choices') and stream.choices:
+                        if hasattr(stream.choices[0].message, 'reasoning'):
+                            content = stream.choices[0].message.reasoning or ""
+
+                    messages.append({"role": "assistant", "content": content})
+
+                    # Check for tool calls
+                    tool_calls = _extract_tool_calls(content)
+                    if not tool_calls:
+                        break
+
+                    # Execute tools
+                    results_for_llm = []
+                    for call_str in tool_calls:
+                        try:
+                            call = json.loads(call_str)
+                            name = call.get("name", "")
+                            args = call.get("args", {})
+
+                            if name not in tools:
+                                results_for_llm.append(f"Unknown tool: {name}")
+                                continue
+
+                            self.call_from_thread(on_tool, name, args)
+                            tool_instance = tools[name]()
+                            result = tool_instance.run(**args)
+                            result_str = str(result)[:4000]
+
+                            is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
+
+                            if name == "write_file" and not is_error:
+                                fp = args.get("file_path", "")
+                                if fp and fp not in files_created:
+                                    files_created.append(fp)
+
+                            tool_history.append({
+                                "tool": name,
+                                "args": args,
+                                "result": result_str[:500],
+                                "success": not is_error,
+                            })
+
+                            display = result_str[:1500] + "..." if len(result_str) > 1500 else result_str
+                            results_for_llm.append(f"[{'ERROR' if is_error else 'OK'}] {name}:\n{display}")
+
+                        except json.JSONDecodeError:
+                            results_for_llm.append("Invalid JSON format")
+                        except Exception as e:
+                            results_for_llm.append(f"Tool error: {e}")
+
+                    combined = "\n\n".join(results_for_llm)
+                    messages.append({"role": "user", "content": combined})
+
+                elapsed = _time.time() - start_time
+
+                self.call_from_thread(self._hide_spinner)
+
+                for tc in tool_history:
+                    self.call_from_thread(
+                        self._add_tool_call,
+                        tc.get("tool", ""),
+                        tc.get("args", {}),
+                        tc.get("result", ""),
+                        tc.get("success", True),
+                    )
+
+                self.call_from_thread(
+                    self._add_summary,
+                    tool_history,
+                    content,
+                    elapsed,
+                    {"input": total_tokens_in, "output": total_tokens_out},
+                )
+
+                self.call_from_thread(self._add_assistant_message, content)
+
+            except ImportError:
+                # Fallback to non-streaming
+                from sago.engine.simple_executor import execute_agent_task
+                result = execute_agent_task(
+                    task=message,
+                    agent_role=self.current_agent.replace("-", " ").title(),
+                    api_key=api_key,
+                    model=self.current_model,
+                    max_tokens=effort["max_tokens"],
+                    max_iterations=effort["max_iterations"],
+                    on_tool_call=on_tool,
+                    on_thinking=on_thinking,
+                )
+
+                self.call_from_thread(self._hide_spinner)
+
+                for tc in result.get("tool_calls", []):
+                    self.call_from_thread(
+                        self._add_tool_call,
+                        tc.get("tool", ""),
+                        tc.get("args", {}),
+                        tc.get("result", ""),
+                        tc.get("success", True),
+                    )
+
+                self.call_from_thread(
+                    self._add_summary,
+                    result.get("tool_calls", []),
+                    result.get("output", ""),
+                    result.get("elapsed", 0),
+                    result.get("tokens", {}),
+                )
+
+                output = result.get("output", "No response")
+                self.call_from_thread(self._add_assistant_message, output)
 
         except Exception as e:
             self.call_from_thread(self._hide_spinner)

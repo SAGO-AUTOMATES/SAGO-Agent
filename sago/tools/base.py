@@ -156,11 +156,14 @@ class BaseTool(ABC):
             tool = cls()
             return tool.run(**kwargs)
 
+        async def _aexecute(**kwargs: Any) -> str:
+            return _execute(**kwargs)
+
         args_schema = cls.args_model if cls.args_model else None
 
         return StructuredTool.from_function(
             func=_execute,
-            coroutine=_execute,
+            coroutine=_aexecute,
             name=cls.name,
             description=cls.description,
             args_schema=args_schema,
