@@ -12,6 +12,7 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from typing import Any
 
 console = Console()
 
@@ -880,6 +881,69 @@ def remote(task: str, agent: str | None, host: str, port: int) -> None:
         ))
     else:
         console.print(f"[red]Error: {result.get('error', 'Unknown error')}[/]")
+
+
+@cli.command()
+@click.argument("task")
+@click.option("--agent", "-a", default="Sago Orchestrator", help="Agent name")
+@click.option("--iterations", "-i", default=8, help="Max iterations")
+@click.option("--stream", "-s", is_flag=True, help="Stream updates")
+def workflow(task: str, agent: str, iterations: int, stream: bool) -> None:
+    """Execute complex task using LangGraph stateful workflow.
+
+    Uses stateful graph execution with planning, tool calling,
+    and adaptive iteration for complex multi-step tasks.
+
+    Examples:
+        sago workflow "Build a REST API with auth and tests"
+        sago workflow "Refactor this codebase" --iterations 12
+        sago workflow "Debug the memory leak" --stream
+    """
+    import os
+    import sys
+
+    api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+    if not api_key:
+        console.print("[red]Error: No API key. Set OPENROUTER_API_KEY[/]")
+        return
+
+    from sago.workflow.langgraph_engine import SagoWorkflowEngine
+
+    engine = SagoWorkflowEngine(api_key=api_key, model="openrouter/free")
+
+    console.print(Panel.fit(
+        f"[bold green]LangGraph Workflow[/]\n"
+        f"[dim]Task: {task[:60]}{'...' if len(task) > 60 else ''}[/]\n"
+        f"[dim]Agent: {agent} | Max Iterations: {iterations}[/]",
+        border_style="green",
+    ))
+
+    def on_update(event: str, data: Any) -> None:
+        if event == "thinking":
+            console.print(f"  [dim]{data}[/]")
+
+    if stream:
+        result = engine.run_streaming(task, agent, iterations, on_update=on_update)
+    else:
+        with console.status("[bold green]Executing workflow...[/]"):
+            result = engine.run(task, agent, iterations)
+
+    if result.tool_calls:
+        console.print("\n[bold]Tool calls:[/]")
+        for tc in result.tool_calls:
+            status = "[green]✓[/]" if tc.get("success", True) else "[red]✗[/]"
+            console.print(f"  {status} [cyan]{tc['tool']}[/]: {tc.get('result', '')[:100]}")
+
+    if result.files_created:
+        console.print(f"\n[green]Files created:[/] {', '.join(result.files_created)}")
+
+    console.print(Panel(
+        result.output,
+        title="[bold]Result[/]",
+        border_style="blue",
+    ))
+
+    console.print(f"[dim]Iterations: {result.iterations} | Tokens: {result.tokens['input']} in / {result.tokens['output']} out | Time: {result.elapsed:.1f}s[/]")
 
 
 def main() -> None:

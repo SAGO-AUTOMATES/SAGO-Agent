@@ -1,131 +1,100 @@
-"""CrewAI Tool Wrappers - Convert Sago tools to CrewAI format."""
+"""CrewAI Tool Wrappers - Auto-discover ALL Sago tools for CrewAI."""
 
 from __future__ import annotations
 
+import importlib
+import sys
+from pathlib import Path
 from typing import Any
 
 from crewai.tools import tool as crewai_tool
-from pydantic import Field
 
 
 def create_crewai_tool(sago_tool_class: type) -> Any:
     """Create a CrewAI tool from a Sago tool class.
-    
+
     Args:
         sago_tool_class: A Sago tool class that inherits from BaseTool.
-        
+
     Returns:
         A CrewAI-compatible tool instance.
     """
     tool_instance = sago_tool_class()
-    
+
     @crewai_tool(tool_instance.name)
     def wrapped_tool(**kwargs: Any) -> str:
         """Wrapped Sago tool."""
         return tool_instance.run(**kwargs)
-    
-    # Update metadata
+
     wrapped_tool.description = tool_instance.description
     return wrapped_tool
 
 
-# Pre-built CrewAI tools for common operations
-@crewai_tool("write_file")
-def write_file_tool(file_path: str, content: str) -> str:
-    """Write content to a file. Creates the file if it doesn't exist, overwrites if it does.
-    
-    Args:
-        file_path: Path to the file to write.
-        content: Content to write to the file.
-    
-    Returns:
-        Success or error message.
-    """
-    from sago.tools.file.write_file import WriteFileTool
-    tool = WriteFileTool()
-    return tool.run(file_path=file_path, content=content)
+def _discover_all_tools() -> dict[str, Any]:
+    """Auto-discover ALL BaseTool subclasses and wrap them for CrewAI."""
+    tools_dir = Path(__file__).parent.parent / "tools"
+    crewai_tools: dict[str, Any] = {}
+
+    for py_file in tools_dir.rglob("*.py"):
+        if py_file.name.startswith("_") or py_file.name == "base.py":
+            continue
+        if py_file.name == "crewai_wrappers.py":
+            continue
+
+        rel = py_file.relative_to(tools_dir)
+        parts = list(rel.with_suffix("").parts)
+        module_name = ".".join(["sago", "tools"] + list(parts))
+
+        try:
+            mod = importlib.import_module(module_name)
+        except Exception:
+            continue
+
+        for attr_name in dir(mod):
+            obj = getattr(mod, attr_name)
+            if (
+                isinstance(obj, type)
+                and hasattr(obj, "name")
+                and obj.__name__ != "BaseTool"
+                and obj is not getattr(sys.modules.get("sago.tools.base", None), "BaseTool", None)
+            ):
+                try:
+                    from sago.tools.base import BaseTool
+                    if issubclass(obj, BaseTool) and obj.name:
+                        crewai_tools[obj.name] = create_crewai_tool(obj)
+                except Exception:
+                    pass
+
+    return crewai_tools
 
 
-@crewai_tool("read_file")
-def read_file_tool(file_path: str) -> str:
-    """Read the contents of a file.
-    
-    Args:
-        file_path: Path to the file to read.
-    
-    Returns:
-        File contents or error message.
-    """
-    from sago.tools.file.read_file import ReadFileTool
-    tool = ReadFileTool()
-    return tool.run(file_path=file_path)
+# Lazy-loaded registry
+_CREWAI_TOOLS: dict[str, Any] | None = None
 
 
-@crewai_tool("execute_shell")
-def execute_shell_tool(command: str) -> str:
-    """Execute a shell command and return the output.
-    
-    Args:
-        command: Shell command to execute.
-    
-    Returns:
-        Command output or error message.
-    """
-    from sago.tools.shell.execute import ExecuteShellTool
-    tool = ExecuteShellTool()
-    return tool.run(command=command)
-
-
-@crewai_tool("edit_file")
-def edit_file_tool(file_path: str, old_text: str, new_text: str) -> str:
-    """Edit a file by replacing text.
-    
-    Args:
-        file_path: Path to the file to edit.
-        old_text: Text to find and replace.
-        new_text: Text to replace with.
-    
-    Returns:
-        Success or error message.
-    """
-    from sago.tools.file.edit_file import EditFileTool
-    tool = EditFileTool()
-    return tool.run(file_path=file_path, old_text=old_text, new_text=new_text)
-
-
-@crewai_tool("directory_scanner")
-def directory_scanner_tool(directory_path: str) -> str:
-    """Scan a directory and return information about files and structure.
-    
-    Args:
-        directory_path: Path to the directory to scan.
-    
-    Returns:
-        Directory information as JSON.
-    """
-    from sago.tools.file.directory_scanner import DirectoryScanner
-    tool = DirectoryScanner()
-    result = tool.run(directory_path=directory_path)
-    return str(result)
-
-
-# Tool registry for easy access
-CREWAI_TOOLS = {
-    "write_file": write_file_tool,
-    "read_file": read_file_tool,
-    "execute_shell": execute_shell_tool,
-    "edit_file": edit_file_tool,
-    "directory_scanner": directory_scanner_tool,
-}
+def _get_registry() -> dict[str, Any]:
+    global _CREWAI_TOOLS
+    if _CREWAI_TOOLS is None:
+        _CREWAI_TOOLS = _discover_all_tools()
+    return _CREWAI_TOOLS
 
 
 def get_crewai_tool(tool_name: str) -> Any | None:
     """Get a CrewAI tool by name.
-    
+
     Args:
         tool_name: Name of the tool.
-        
+
     Returns:
         CrewAI tool or None if not found.
     """
-    return CREWAI_TOOLS.get(tool_name)
+    return _get_registry().get(tool_name)
+
+
+def list_crewai_tools() -> list[str]:
+    """List all available CrewAI tool names."""
+    return sorted(_get_registry().keys())
+
+
+# Also export the full registry for direct access
+CREWAI_TOOLS = property(lambda self: _get_registry())
