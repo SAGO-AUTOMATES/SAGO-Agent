@@ -95,19 +95,19 @@ class UnifiedExecutor:
         try:
             from sago.agents.spawner import AgentSpawner
             spawner = AgentSpawner()
-            result = spawner.spawn(
+            result_str = spawner.execute_with_agent(
+                agent_name=agent_name,
                 task=task,
-                agent_names=[agent_name],
-                model=self.model,
+                model_override=self.model,
             )
             return {
-                "success": True,
-                "output": result.get("output", ""),
-                "tool_calls": result.get("tool_calls", []),
-                "iterations": result.get("iterations", 1),
-                "tokens": result.get("tokens", {"input": 0, "output": 0}),
-                "elapsed": result.get("elapsed", 0),
-                "files_created": result.get("files_created", []),
+                "success": not result_str.startswith("Error:"),
+                "output": result_str,
+                "tool_calls": [],
+                "iterations": 1,
+                "tokens": {"input": 0, "output": 0},
+                "elapsed": 0,
+                "files_created": [],
             }
         except Exception as e:
             return {
@@ -216,10 +216,15 @@ class UnifiedExecutor:
                 max_tokens=max_tokens,
                 temperature=0.3,
                 stream=True,
+                stream_options={"include_usage": True},
             )
 
             content = ""
             for chunk in stream:
+                # Get usage from final chunk
+                if hasattr(chunk, 'usage') and chunk.usage:
+                    total_tokens_in = chunk.usage.prompt_tokens or 0
+                    total_tokens_out = chunk.usage.completion_tokens or 0
                 if chunk.choices and chunk.choices[0].delta.content:
                     token = chunk.choices[0].delta.content
                     content += token

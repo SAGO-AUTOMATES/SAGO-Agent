@@ -223,8 +223,38 @@ class RecoveryManager:
         # All retries failed, try fallback
         if last_error and tool_name in self._fallback_tools:
             for fallback_name in self._fallback_tools[tool_name]:
-                # TODO: Look up and execute fallback tool
-                pass
+                try:
+                    # Try to find and execute the fallback tool
+                    from sago.tools.base import BaseTool
+                    import importlib
+                    from pathlib import Path
+
+                    tools_dir = Path(__file__).parent.parent / "tools"
+                    for py_file in tools_dir.rglob("*.py"):
+                        if py_file.name.startswith("_") or py_file.name == "base.py":
+                            continue
+                        parts = py_file.relative_to(tools_dir).with_suffix("").as_posix().split("/")
+                        module_name = ".".join(["sago", "tools"] + parts)
+                        try:
+                            mod = importlib.import_module(module_name)
+                            for attr_name in dir(mod):
+                                obj = getattr(mod, attr_name)
+                                if isinstance(obj, type) and hasattr(obj, "name") and obj.name == fallback_name:
+                                    if issubclass(obj, BaseTool):
+                                        fallback_instance = obj()
+                                        result = fallback_instance.run(**kwargs)
+                                        duration = (time.time() - start_time) * 1000
+                                        return RecoveryResult(
+                                            success=True,
+                                            strategy_used=RecoveryStrategy.FALLBACK,
+                                            result=result,
+                                            attempts_made=self.max_retries,
+                                            duration_ms=duration,
+                                        )
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
 
         duration = (time.time() - start_time) * 1000
         return RecoveryResult(
@@ -250,8 +280,36 @@ class RecoveryManager:
 
         # Try fallbacks
         for fallback_name in self._fallback_tools.get(primary_tool, []):
-            # TODO: Look up fallback tool and execute
-            pass
+            try:
+                from sago.tools.base import BaseTool
+                import importlib
+                from pathlib import Path
+
+                tools_dir = Path(__file__).parent.parent / "tools"
+                for py_file in tools_dir.rglob("*.py"):
+                    if py_file.name.startswith("_") or py_file.name == "base.py":
+                        continue
+                    parts = py_file.relative_to(tools_dir).with_suffix("").as_posix().split("/")
+                    module_name = ".".join(["sago", "tools"] + parts)
+                    try:
+                        mod = importlib.import_module(module_name)
+                        for attr_name in dir(mod):
+                            obj = getattr(mod, attr_name)
+                            if isinstance(obj, type) and hasattr(obj, "name") and obj.name == fallback_name:
+                                if issubclass(obj, BaseTool):
+                                    fallback_instance = obj()
+                                    result = fallback_instance.run(*args, **kwargs)
+                                    return RecoveryResult(
+                                        success=True,
+                                        strategy_used=RecoveryStrategy.FALLBACK,
+                                        result=result,
+                                        attempts_made=1,
+                                        duration_ms=0,
+                                    )
+                    except Exception:
+                        continue
+            except Exception:
+                continue
 
         return result
 

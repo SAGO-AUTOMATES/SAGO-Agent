@@ -304,7 +304,7 @@ class DebuggerTool(BaseTool):
         # Check for print statements (debugging leftover)
         for i, line in enumerate(lines):
             stripped = line.strip()
-            if stripped.startswith("print(") and not stripped.startswith("print("):
+            if stripped.startswith("print("):
                 issues.append(f"  Line {i+1}: Print statement (debugging leftover?)")
 
         return issues

@@ -1151,10 +1151,15 @@ class SagoApp(App):
                         max_tokens=effort["max_tokens"],
                         temperature=0.3,
                         stream=True,
+                        stream_options={"include_usage": True},
                     )
 
                     content = ""
                     for chunk in stream:
+                        # Get usage from final chunk
+                        if hasattr(chunk, 'usage') and chunk.usage:
+                            total_tokens_in = chunk.usage.prompt_tokens or 0
+                            total_tokens_out = chunk.usage.completion_tokens or 0
                         if chunk.choices and chunk.choices[0].delta.content:
                             token = chunk.choices[0].delta.content
                             content += token

@@ -64,8 +64,7 @@ class AgentSpawner:
             logger.error(f"Agent not found: {agent_name}")
             return None
 
-        # Load tools
-        self._load_tool_classes()
+        # Resolve tools via crewai_wrappers
         tools = self._resolve_tools(definition.tools)
 
         # Build system prompt with context
@@ -275,51 +274,6 @@ class AgentSpawner:
                 chain = ["python-pro"] + chain
 
         return chain
-
-    def _load_tool_classes(self) -> None:
-        """Load tool classes for conversion to CrewAI tools."""
-        import importlib
-
-        if self._tool_classes:
-            return
-
-        tool_modules = {
-            "read_file": "sago.tools.file.read_file",
-            "write_file": "sago.tools.file.write_file",
-            "edit_file": "sago.tools.file.edit_file",
-            "glob_files": "sago.tools.file.glob_files",
-            "grep_content": "sago.tools.file.grep_content",
-            "execute_shell": "sago.tools.shell.execute",
-            "code_analyzer": "sago.tools.coding.code_analyzer",
-            "linter": "sago.tools.coding.linter",
-            "formatter": "sago.tools.coding.formatter",
-            "test_runner": "sago.tools.coding.test_runner",
-            "debugger": "sago.tools.coding.debugger",
-            "log_analyzer": "sago.tools.coding.log_analyzer",
-            "http_client": "sago.tools.network.http_client",
-            "dns_lookup": "sago.tools.network.dns_lookup",
-            "ssh_connect": "sago.tools.ssh.ssh_connect",
-            "ssh_command": "sago.tools.ssh.ssh_command",
-            "software_install": "sago.tools.admin.software_install",
-            "process_manager": "sago.tools.system.process_manager",
-            "network_config": "sago.tools.network.config_manager",
-        }
-
-        for tool_name, module_path in tool_modules.items():
-            try:
-                module = importlib.import_module(module_path)
-                for attr_name in dir(module):
-                    attr = getattr(module, attr_name)
-                    if (
-                        isinstance(attr, type)
-                        and hasattr(attr, "name")
-                        and hasattr(attr, "_run")
-                        and attr_name != "BaseTool"
-                    ):
-                        self._tool_classes[tool_name] = attr
-                        break
-            except ImportError as e:
-                logger.warning(f"Could not load tool {tool_name}: {e}")
 
     def _resolve_tools(self, tool_names: list[str]) -> list[Any]:
         """Convert tool names to CrewAI tool instances."""
