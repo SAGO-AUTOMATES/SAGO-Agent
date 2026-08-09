@@ -20,6 +20,69 @@ _TOOL_CLASSES: dict[str, type[BaseTool]] = {}
 _TOOL_DESCRIPTIONS = ""
 
 
+def _is_complex_task(task: str) -> bool:
+    """Detect if a task is complex and needs a todo list."""
+    complex_indicators = [
+        r"\b(and then|after that|next step|first.*then|step \d)\b",
+        r"\b(build.*project|create.*project|set up|setup)\b",
+        r"\b(refactor|migrate|upgrade|deploy)\b",
+        r"\b(implement.*feature|add.*feature|create.*feature)\b",
+        r"\b(restructure|reorganize|rewrite)\b",
+        r"\b(test.*and|fix.*and|update.*and)\b",
+        r"\b(multiple|several|various|many)\b",
+        r"\b(full|complete|entire|whole)\b",
+    ]
+    task_lower = task.lower()
+    for pattern in complex_indicators:
+        if re.search(pattern, task_lower):
+            return True
+    # Also complex if task is very long
+    if len(task.split()) > 30:
+        return True
+    return False
+
+
+def _generate_plan_with_llm(
+    task: str,
+    client: OpenAI,
+    model: str,
+    tools_desc: str,
+) -> list[str]:
+    """Use LLM to break down a complex task into steps."""
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": (
+                    "You are a task planner. Break down the user's task into clear, actionable steps.\n"
+                    "Reply with ONLY a JSON array of step descriptions. No explanation.\n"
+                    "Each step should be a single clear action.\n"
+                    "Example: [\"Step 1 description\", \"Step 2 description\"]\n"
+                    "Keep it to 3-8 steps. Be specific and actionable."
+                )},
+                {"role": "user", "content": f"Break down this task into steps:\n\n{task}"},
+            ],
+            max_tokens=1024,
+            temperature=0.3,
+        )
+        content = response.choices[0].message.content or ""
+        # Extract JSON array from response
+        match = re.search(r"\[.*\]", content, re.DOTALL)
+        if match:
+            steps = json.loads(match.group())
+            if isinstance(steps, list) and all(isinstance(s, str) for s in steps):
+                return steps
+    except Exception:
+        pass
+    # Fallback: create generic steps
+    return [
+        "Analyze the task and understand requirements",
+        "Explore existing code/structure",
+        "Implement the changes",
+        "Verify and test",
+    ]
+
+
 def _discover_tools() -> dict[str, type[BaseTool]]:
     global _TOOL_CLASSES, _TOOL_DESCRIPTIONS
     if _TOOL_CLASSES:
@@ -236,11 +299,26 @@ def execute_agent_task(
     cwd: str | None = None,
     on_tool_call: Callable | None = None,
     on_thinking: Callable | None = None,
+    on_todo_created: Callable | None = None,
+    on_todo_update: Callable | None = None,
 ) -> dict[str, Any]:
     tools = _discover_tools()
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
     project_ctx = _get_context(cwd)
     start_time = time.time()
+
+    # Auto-create todo list for complex tasks
+    task_plan = None
+    if _is_complex_task(task) and api_key:
+        try:
+            from sago.tasks import get_task_manager
+            tm = get_task_manager()
+            steps = _generate_plan_with_llm(task, client, model, _TOOL_DESCRIPTIONS)
+            task_plan = tm.create_plan(goal=task, todos=steps)
+            if on_todo_created:
+                on_todo_created(task_plan)
+        except Exception:
+            task_plan = None
 
     # Load agent profile metadata
     profile = _load_agent_profile(agent_role)
@@ -417,10 +495,43 @@ def execute_agent_task(
             except Exception as e:
                 results_for_llm.append(f"Tool error: {type(e).__name__}: {e}")
 
+        # Update task plan progress
+        if task_plan and on_todo_update:
+            try:
+                from sago.tasks import get_task_manager
+                tm = get_task_manager()
+                # Mark current todo as in progress if not already
+                current = task_plan.current_todo
+                if current and current.status.value == "pending":
+                    tm.start_todo(task_plan.id, current.id)
+                    on_todo_update(task_plan)
+                # Mark completed todos based on tool calls
+                successful_tools = [t["tool"] for t in tool_history if t.get("success")]
+                if successful_tools and current:
+                    # Check if we've made significant progress
+                    if len(tool_history) >= 2 and len(successful_tools) >= 1:
+                        tm.complete_todo(task_plan.id, current.id, result=f"Completed: {', '.join(successful_tools[:3])}")
+                        on_todo_update(task_plan)
+            except Exception:
+                pass
+
         # Add context about progress
         progress = f"\n[Progress: {len(tool_history)} tools used, {len(files_created)} files created]"
         combined = "\n\n".join(results_for_llm) + progress
         messages.append({"role": "user", "content": combined})
+
+    # Mark final todo as complete if plan exists
+    if task_plan:
+        try:
+            from sago.tasks import get_task_manager
+            tm = get_task_manager()
+            current = task_plan.current_todo
+            if current:
+                tm.complete_todo(task_plan.id, current.id, result="Task completed")
+            if on_todo_update:
+                on_todo_update(task_plan)
+        except Exception:
+            pass
 
     return {
         "success": True,
@@ -430,6 +541,7 @@ def execute_agent_task(
         "tokens": {"input": total_tokens_in, "output": total_tokens_out, "cache_hit": total_cache_hit, "cache_miss": total_cache_miss},
         "elapsed": time.time() - start_time,
         "files_created": files_created,
+        "task_plan": task_plan.to_dict() if task_plan else None,
     }
 
 

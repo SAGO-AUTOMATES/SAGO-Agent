@@ -467,6 +467,11 @@ class SagoApp(App):
             "/permissions": lambda: self._show_permissions(args),
             "/allow": lambda: self._allow_tool(args),
             "/block": lambda: self._block_tool(args),
+            "/todo": lambda: self._show_todo(args),
+            "/todos": lambda: self._show_all_todos(),
+            "/done": lambda: self._mark_todo_done(args),
+            "/ask": lambda: self._ask_user(args),
+            "/plan": lambda: self._show_plan(args),
             "/version": lambda: self._add_system_message("Sago v0.1.0"),
             "/exit": lambda: self.exit(),
         }
@@ -508,6 +513,11 @@ class SagoApp(App):
             "  /permissions      Show tool permissions\n"
             "  /allow <tool>     Allow a tool\n"
             "  /block <tool>     Block a tool\n"
+            "  /plan             Show active task plan\n"
+            "  /todo             Show current todo\n"
+            "  /todos            Show all todos in plan\n"
+            "  /done [id]        Mark todo as done\n"
+            "  /ask <msg>        Ask for user input\n"
             "  /exit             Quit"
         )
 
@@ -882,6 +892,18 @@ class SagoApp(App):
                 self._add_system_message(f"Committed: {r.stdout.strip()[:100]}")
             except Exception as e:
                 self._add_system_message(f"Failed: {e}")
+        elif action["type"] == "user_input":
+            # Handle user input for todo
+            plan_id = action.get("plan_id")
+            todo_id = action.get("todo_id")
+            if plan_id and todo_id:
+                from sago.tasks import get_task_manager
+                tm = get_task_manager()
+                # The input should be in the action
+                user_input = action.get("input", "")
+                if user_input:
+                    tm.provide_input(plan_id, todo_id, user_input)
+                    self._add_system_message(f"Input provided for todo {todo_id}")
         self.pending_action = {}
 
     def _deny_action(self) -> None:
@@ -936,6 +958,83 @@ class SagoApp(App):
             self._add_system_message(f"Blocked: {tool_name}")
         else:
             self._add_system_message(f"Already blocked: {tool_name}")
+
+    def _show_plan(self, args: str) -> None:
+        from sago.tasks import get_task_manager
+        tm = get_task_manager()
+        plan = tm.get_active_plan()
+        if plan:
+            self._add_system_message(tm.format_plan(plan))
+        else:
+            self._add_system_message("No active plan. Complex tasks auto-create plans.")
+
+    def _show_todo(self, args: str) -> None:
+        from sago.tasks import get_task_manager
+        tm = get_task_manager()
+        plan = tm.get_active_plan()
+        if not plan:
+            self._add_system_message("No active plan")
+            return
+        current = plan.current_todo
+        if current:
+            self._add_system_message(
+                f"Current todo [{current.id}]: {current.description}\n"
+                f"Status: {current.status.value}\n"
+                f"Use /done {current.id} when complete"
+            )
+        else:
+            self._add_system_message("All todos completed! ✅")
+
+    def _show_all_todos(self) -> None:
+        from sago.tasks import get_task_manager
+        tm = get_task_manager()
+        plan = tm.get_active_plan()
+        if not plan:
+            self._add_system_message("No active plan")
+            return
+        self._add_system_message(tm.format_plan(plan))
+
+    def _mark_todo_done(self, todo_id: str) -> None:
+        from sago.tasks import get_task_manager
+        tm = get_task_manager()
+        plan = tm.get_active_plan()
+        if not plan:
+            self._add_system_message("No active plan")
+            return
+        if not todo_id:
+            # Mark current todo as done
+            current = plan.current_todo
+            if current:
+                todo_id = current.id
+            else:
+                self._add_system_message("No pending todo to mark as done")
+                return
+        if tm.complete_todo(plan.id, todo_id, result="Completed by user"):
+            self._add_system_message(f"Todo {todo_id} marked as done ✅")
+            # Show next todo
+            next_todo = plan.current_todo
+            if next_todo:
+                self._add_system_message(f"Next: [{next_todo.id}] {next_todo.description}")
+            else:
+                self._add_system_message("All todos completed! 🎉")
+        else:
+            self._add_system_message(f"Todo {todo_id} not found")
+
+    def _ask_user(self, message: str) -> None:
+        if not message:
+            self._add_system_message("Usage: /ask <question for user>")
+            return
+        from sago.tasks import get_task_manager
+        tm = get_task_manager()
+        plan = tm.get_active_plan()
+        if plan:
+            current = plan.current_todo
+            if current:
+                tm.wait_for_input(plan.id, current.id, message)
+                self._add_system_message(f"⏳ Waiting for input: {message}")
+                self.pending_action = {"type": "user_input", "plan_id": plan.id, "todo_id": current.id}
+        else:
+            self._add_system_message(f"❓ {message}")
 
     def _add_user_message(self, content: str) -> None:
         self.messages.append({"role": "user", "content": content})
@@ -1319,6 +1418,18 @@ class SagoApp(App):
             except ImportError:
                 # Fallback to non-streaming
                 from sago.engine.simple_executor import execute_agent_task
+
+                def on_todo_created(plan):
+                    self.call_from_thread(self._add_system_message, f"📋 Created plan with {len(plan.todos)} steps:")
+                    from sago.tasks import get_task_manager
+                    tm = get_task_manager()
+                    self.call_from_thread(self._add_system_message, tm.format_plan(plan))
+
+                def on_todo_update(plan):
+                    current = plan.current_todo
+                    if current:
+                        self.call_from_thread(self._update_spinner, f"Step: {current.description[:50]}")
+
                 result = execute_agent_task(
                     task=message,
                     agent_role=self.current_agent.replace("-", " ").title(),
@@ -1328,7 +1439,17 @@ class SagoApp(App):
                     max_iterations=effort["max_iterations"],
                     on_tool_call=on_tool,
                     on_thinking=on_thinking,
+                    on_todo_created=on_todo_created,
+                    on_todo_update=on_todo_update,
                 )
+
+                # Show task plan if created
+                if result.get("task_plan"):
+                    from sago.tasks import get_task_manager
+                    tm = get_task_manager()
+                    plan = tm.get_active_plan()
+                    if plan:
+                        self.call_from_thread(self._add_system_message, tm.format_plan(plan))
 
                 self.call_from_thread(self._hide_spinner)
 
