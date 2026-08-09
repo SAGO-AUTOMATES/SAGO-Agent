@@ -56,6 +56,13 @@ class BaseTool(ABC):
             String result of the tool execution.
         """
         try:
+            # Check permissions before execution
+            from sago.permissions import get_permission_manager
+            pm = get_permission_manager()
+            allowed, reason = pm.check_permission(self.name, kwargs)
+            if not allowed:
+                return f"Permission denied for {self.name}: {reason}"
+
             return self._run(**kwargs)
         except Exception as e:
             return f"Error in {self.name}: {type(e).__name__}: {e}"

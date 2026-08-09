@@ -217,8 +217,9 @@ class SagoApp(App):
         try:
             from sago.database import init_db
             init_db()
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger("sago.tui").debug(f"DB init failed: {e}")
 
     def _init_session(self) -> None:
         try:
@@ -228,7 +229,9 @@ class SagoApp(App):
             result = session.create(title="TUI Session")
             self.current_session_id = result["id"]
             session.close()
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.getLogger("sago.tui").debug(f"Session init failed: {e}")
             self.current_session_id = "local"
 
     @on(Input.Changed, "#msg-input")
@@ -461,6 +464,9 @@ class SagoApp(App):
             "/commit": lambda: self._git_commit(args),
             "/approve": lambda: self._approve_action(),
             "/deny": lambda: self._deny_action(),
+            "/permissions": lambda: self._show_permissions(args),
+            "/allow": lambda: self._allow_tool(args),
+            "/block": lambda: self._block_tool(args),
             "/version": lambda: self._add_system_message("Sago v0.1.0"),
             "/exit": lambda: self.exit(),
         }
@@ -499,6 +505,9 @@ class SagoApp(App):
             "  /commit <msg>     Commit\n"
             "  /approve          Approve action\n"
             "  /deny             Deny action\n"
+            "  /permissions      Show tool permissions\n"
+            "  /allow <tool>     Allow a tool\n"
+            "  /block <tool>     Block a tool\n"
             "  /exit             Quit"
         )
 
@@ -879,6 +888,55 @@ class SagoApp(App):
         self.pending_action = {}
         self._add_system_message("Denied")
 
+    def _show_permissions(self, args: str) -> None:
+        from sago.permissions import get_permission_manager, TOOL_RISK_LEVELS, RiskLevel
+        pm = get_permission_manager()
+
+        if args == "blocked":
+            if pm.config.blocked_tools:
+                lines = "\n".join(f"  - {t}" for t in pm.config.blocked_tools)
+                self._add_system_message(f"Blocked tools:\n{lines}")
+            else:
+                self._add_system_message("No blocked tools")
+        elif args == "allowed":
+            if pm.config.allowed_tools:
+                lines = "\n".join(f"  - {t}" for t in pm.config.allowed_tools)
+                self._add_system_message(f"Allowed tools:\n{lines}")
+            else:
+                self._add_system_message("No explicit allowed list (all tools available)")
+        else:
+            lines = []
+            for name, risk in sorted(TOOL_RISK_LEVELS.items()):
+                blocked = "BLOCKED" if pm.is_blocked(name) else "ok"
+                lines.append(f"  {name:<25} {risk.value:<10} {blocked}")
+            self._add_system_message("Tool permissions:\n" + "\n".join(lines))
+
+    def _allow_tool(self, tool_name: str) -> None:
+        if not tool_name:
+            self._add_system_message("Usage: /allow <tool_name>")
+            return
+        from sago.permissions import get_permission_manager
+        pm = get_permission_manager()
+        if tool_name in pm.config.blocked_tools:
+            pm.config.blocked_tools.remove(tool_name)
+            pm._save_config()
+            self._add_system_message(f"Unblocked: {tool_name}")
+        else:
+            self._add_system_message(f"Not blocked: {tool_name}")
+
+    def _block_tool(self, tool_name: str) -> None:
+        if not tool_name:
+            self._add_system_message("Usage: /block <tool_name>")
+            return
+        from sago.permissions import get_permission_manager
+        pm = get_permission_manager()
+        if tool_name not in pm.config.blocked_tools:
+            pm.config.blocked_tools.append(tool_name)
+            pm._save_config()
+            self._add_system_message(f"Blocked: {tool_name}")
+        else:
+            self._add_system_message(f"Already blocked: {tool_name}")
+
     def _add_user_message(self, content: str) -> None:
         self.messages.append({"role": "user", "content": content})
         self.query_one("#messages").mount(Static(f"> {content}", classes="msg-user"))
@@ -1186,6 +1244,24 @@ class SagoApp(App):
                             if name not in tools:
                                 results_for_llm.append(f"Unknown tool: {name}")
                                 continue
+
+                            # Check permissions before execution
+                            from sago.permissions import get_permission_manager, RiskLevel
+                            pm = get_permission_manager()
+                            risk = pm.get_risk_level(name)
+                            allowed, reason = pm.check_permission(name, args, self.current_session_id)
+
+                            if not allowed:
+                                if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+                                    # For high/critical risk, ask user in TUI
+                                    self.call_from_thread(self._add_system_message,
+                                        f"Tool '{name}' requires approval (risk: {risk.value})")
+                                    # Auto-deny for now - can add interactive prompt later
+                                    results_for_llm.append(f"Permission denied: {name} requires approval")
+                                    continue
+                                else:
+                                    results_for_llm.append(f"Permission denied: {reason}")
+                                    continue
 
                             self.call_from_thread(on_tool, name, args)
                             tool_instance = tools[name]()

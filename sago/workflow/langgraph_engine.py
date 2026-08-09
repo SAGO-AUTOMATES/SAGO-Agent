@@ -25,8 +25,10 @@ from langgraph.checkpoint.memory import MemorySaver
 def _discover_tools() -> dict[str, Any]:
     """Discover all available tools."""
     import importlib
+    import logging
     from sago.tools.base import BaseTool
 
+    _log = logging.getLogger("sago.langgraph")
     tools: dict[str, Any] = {}
     tools_dir = Path(__file__).parent.parent / "tools"
 
@@ -41,7 +43,8 @@ def _discover_tools() -> dict[str, Any]:
 
         try:
             mod = importlib.import_module(module_name)
-        except Exception:
+        except Exception as e:
+            _log.debug(f"Failed to import {module_name}: {e}")
             continue
 
         for attr_name in dir(mod):
@@ -54,8 +57,8 @@ def _discover_tools() -> dict[str, Any]:
                 try:
                     if issubclass(obj, BaseTool) and obj.name:
                         tools[obj.name] = obj
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.debug(f"Failed to register tool {obj.__name__}: {e}")
 
     return tools
 

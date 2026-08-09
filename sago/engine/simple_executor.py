@@ -25,6 +25,9 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
     if _TOOL_CLASSES:
         return _TOOL_CLASSES
 
+    import logging
+    _log = logging.getLogger("sago.tools")
+
     tools_dir = Path(__file__).parent.parent / "tools"
     for py_file in tools_dir.rglob("*.py"):
         if py_file.name.startswith("_") or py_file.name == "base.py":
@@ -36,8 +39,8 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
                 obj = getattr(mod, attr)
                 if isinstance(obj, type) and issubclass(obj, BaseTool) and obj is not BaseTool and getattr(obj, "name", None):
                     _TOOL_CLASSES[obj.name] = obj
-        except Exception:
-            pass
+        except Exception as e:
+            _log.debug(f"Failed to load tool from {py_file.name}: {e}")
 
     lines = []
     for name, cls in sorted(_TOOL_CLASSES.items()):
@@ -358,6 +361,19 @@ def execute_agent_task(
                 if name not in tools:
                     avail = ", ".join(sorted(tools.keys()))
                     results_for_llm.append(f"Unknown tool '{name}'. Available: {avail}")
+                    continue
+
+                # Check permissions before execution
+                from sago.permissions import get_permission_manager, RiskLevel
+                pm = get_permission_manager()
+                risk = pm.get_risk_level(name)
+                allowed, reason = pm.check_permission(name, args)
+
+                if not allowed:
+                    if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+                        results_for_llm.append(f"Permission denied: {name} requires approval (risk: {risk.value})")
+                    else:
+                        results_for_llm.append(f"Permission denied: {reason}")
                     continue
 
                 tool_call_counts[name] = tool_call_counts.get(name, 0) + 1

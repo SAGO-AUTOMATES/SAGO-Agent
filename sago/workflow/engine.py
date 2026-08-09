@@ -464,13 +464,22 @@ class WorkflowEngine:
         if not self.persist_dir:
             return
 
+        import logging
+        _log = logging.getLogger("sago.workflow")
+
         path = self.persist_dir / f"{workflow.id}.json"
-        path.write_text(json.dumps(workflow.to_dict(), default=str))
+        try:
+            path.write_text(json.dumps(workflow.to_dict(), default=str))
+        except Exception as e:
+            _log.debug(f"Failed to save workflow {workflow.id}: {e}")
 
     def _load_all(self) -> None:
         """Load all workflows from disk."""
         if not self.persist_dir:
             return
+
+        import logging
+        _log = logging.getLogger("sago.workflow")
 
         for path in self.persist_dir.glob("*.json"):
             try:
@@ -496,8 +505,8 @@ class WorkflowEngine:
                 workflow.state.variables = state_data.get("variables", {})
                 workflow.state.context = state_data.get("context", {})
                 self.workflows[workflow.id] = workflow
-            except Exception:
-                pass
+            except Exception as e:
+                _log.debug(f"Failed to load workflow from {path.name}: {e}")
 
     def _notify(self, event: str, data: dict[str, Any]) -> None:
         """Notify callbacks of workflow events."""

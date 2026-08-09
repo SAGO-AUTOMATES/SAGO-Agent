@@ -32,6 +32,9 @@ def create_crewai_tool(sago_tool_class: type) -> Any:
 
 def _discover_all_tools() -> dict[str, Any]:
     """Auto-discover ALL BaseTool subclasses and wrap them for CrewAI."""
+    import logging
+    _log = logging.getLogger("sago.tools")
+
     tools_dir = Path(__file__).parent.parent / "tools"
     crewai_tools: dict[str, Any] = {}
 
@@ -47,7 +50,8 @@ def _discover_all_tools() -> dict[str, Any]:
 
         try:
             mod = importlib.import_module(module_name)
-        except Exception:
+        except Exception as e:
+            _log.debug(f"Failed to import {module_name}: {e}")
             continue
 
         for attr_name in dir(mod):
@@ -62,8 +66,8 @@ def _discover_all_tools() -> dict[str, Any]:
                     from sago.tools.base import BaseTool
                     if issubclass(obj, BaseTool) and obj.name:
                         crewai_tools[obj.name] = create_crewai_tool(obj)
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.debug(f"Failed to wrap tool {obj.__name__}: {e}")
 
     return crewai_tools
 

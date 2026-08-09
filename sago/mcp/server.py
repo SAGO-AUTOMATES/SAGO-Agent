@@ -246,6 +246,9 @@ class MCPClient:
 
 def create_sago_mcp_server() -> MCPServer:
     """Create an MCP server with all Sago tools."""
+    import logging
+    _log = logging.getLogger("sago.mcp")
+
     server = MCPServer(name="sago", version="0.1.0")
 
     # Auto-discover and register all Sago tools
@@ -264,7 +267,8 @@ def create_sago_mcp_server() -> MCPServer:
 
         try:
             mod = importlib.import_module(module_name)
-        except Exception:
+        except Exception as e:
+            _log.debug(f"Failed to import {module_name}: {e}")
             continue
 
         for attr_name in dir(mod):
@@ -277,7 +281,7 @@ def create_sago_mcp_server() -> MCPServer:
                 try:
                     if issubclass(obj, BaseTool) and obj.name:
                         server.register_sago_tool(obj)
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.debug(f"Failed to register MCP tool {obj.__name__}: {e}")
 
     return server
