@@ -301,7 +301,16 @@ def execute_agent_task(
     on_thinking: Callable | None = None,
     on_todo_created: Callable | None = None,
     on_todo_update: Callable | None = None,
+    on_request_input: Callable | None = None,
+    pause_event: Any = None,
 ) -> dict[str, Any]:
+    """Execute a task with LLM, tools, and todo tracking.
+
+    Args:
+        on_request_input: Called when a todo needs user input. Signature: (question: str) -> str
+        pause_event: threading.Event to pause/resume execution. If provided and set, executor pauses.
+    """
+    import threading
     tools = _discover_tools()
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
     project_ctx = _get_context(cwd)
@@ -311,10 +320,21 @@ def execute_agent_task(
     task_plan = None
     if _is_complex_task(task) and api_key:
         try:
-            from sago.tasks import get_task_manager
+            from sago.tasks import get_task_manager, TaskStatus
             tm = get_task_manager()
             steps = _generate_plan_with_llm(task, client, model, _TOOL_DESCRIPTIONS)
-            task_plan = tm.create_plan(goal=task, todos=steps)
+            # Mark steps that sound like they need confirmation
+            confirm_keywords = ["confirm", "approve", "review", "check", "verify", "validate"]
+            todos_with_flags = []
+            for step in steps:
+                needs_confirm = any(kw in step.lower() for kw in confirm_keywords)
+                todos_with_flags.append((step, needs_confirm))
+            task_plan = tm.create_plan(goal=task, todos=[s for s, _ in todos_with_flags])
+            # Mark todos that need confirmation
+            for i, (_, needs_confirm) in enumerate(todos_with_flags):
+                if needs_confirm and i < len(task_plan.todos):
+                    task_plan.todos[i].requires_confirmation = True
+                    task_plan.todos[i].confirmation_message = f"Please confirm: {task_plan.todos[i].description}"
             if on_todo_created:
                 on_todo_created(task_plan)
         except Exception:
@@ -359,6 +379,8 @@ def execute_agent_task(
     total_cache_hit = 0
     total_cache_miss = 0
     files_created: list[str] = []
+    current_todo_index = 0
+    todo_tool_counts: dict[str, int] = {}  # track tools per todo
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -368,10 +390,26 @@ def execute_agent_task(
     content = ""
 
     for i in range(max_iterations):
+        # Check if execution is paused (user input needed)
+        if pause_event and pause_event.is_set():
+            if on_thinking:
+                on_thinking("Paused - waiting for user input...")
+            pause_event.wait()  # Block until user provides input
+
+        # Get current todo info for LLM context
+        todo_context = ""
+        if task_plan and current_todo_index < len(task_plan.todos):
+            current_todo = task_plan.todos[current_todo_index]
+            todo_context = (
+                f"\n\n[CURRENT TASK STEP {current_todo_index + 1}/{len(task_plan.todos)}: {current_todo.description}]\n"
+                f"Complete this specific step, then use finish_step tool or indicate you're done with this step."
+            )
+
         if on_thinking:
             phase = "Planning" if i == 0 else "Working"
+            todo_info = f" | Step {current_todo_index + 1}/{len(task_plan.todos)}" if task_plan else ""
             files_info = f" ({len(files_created)} files created)" if files_created else ""
-            on_thinking(f"{phase}... (step {i+1}/{max_iterations}{files_info})")
+            on_thinking(f"{phase}... (step {i+1}/{max_iterations}{todo_info}{files_info})")
 
         try:
             temp = profile.get("temperature", 0.3) if profile else 0.3
@@ -391,6 +429,7 @@ def execute_agent_task(
                 "tokens": {"input": total_tokens_in, "output": total_tokens_out, "cache_hit": total_cache_hit, "cache_miss": total_cache_miss},
                 "elapsed": time.time() - start_time,
                 "files_created": files_created,
+                "task_plan": task_plan.to_dict() if task_plan else None,
             }
 
         choice = response.choices[0]
@@ -413,6 +452,27 @@ def execute_agent_task(
         tool_calls = _extract_tool_calls(content)
 
         if not tool_calls:
+            # No tool calls - LLM is done with current step
+            if task_plan and current_todo_index < len(task_plan.todos):
+                from sago.tasks import get_task_manager, TaskStatus
+                tm = get_task_manager()
+                current_todo = task_plan.todos[current_todo_index]
+                if current_todo.status == TaskStatus.IN_PROGRESS:
+                    tm.complete_todo(task_plan.id, current_todo.id, result=content[:200])
+                    if on_todo_update:
+                        on_todo_update(task_plan, current_todo_index, "completed")
+                    current_todo_index += 1
+                    # Continue to next todo if there are more
+                    if current_todo_index < len(task_plan.todos):
+                        next_todo = task_plan.todos[current_todo_index]
+                        tm.start_todo(task_plan.id, next_todo.id)
+                        if on_todo_update:
+                            on_todo_update(task_plan, current_todo_index, "started")
+                        messages.append({"role": "user", "content": (
+                            f"Moving to next step: {next_todo.description}\n"
+                            f"Execute this step now. Use the appropriate tools."
+                        )})
+                        continue
             return {
                 "success": True,
                 "output": content,
@@ -421,9 +481,12 @@ def execute_agent_task(
                 "tokens": {"input": total_tokens_in, "output": total_tokens_out, "cache_hit": total_cache_hit, "cache_miss": total_cache_miss},
                 "elapsed": time.time() - start_time,
                 "files_created": files_created,
+                "task_plan": task_plan.to_dict() if task_plan else None,
             }
 
         results_for_llm = []
+        tools_used_in_iteration = []
+
         for call_str in tool_calls:
             try:
                 call = json.loads(call_str) if isinstance(call_str, str) else call_str
@@ -483,6 +546,8 @@ def execute_agent_task(
                     "success": not is_error,
                 })
 
+                tools_used_in_iteration.append(name)
+
                 if is_error:
                     results_for_llm.append(f"[ERROR] {name}:\n{result_str}\nTry a different approach.")
                 else:
@@ -495,41 +560,85 @@ def execute_agent_task(
             except Exception as e:
                 results_for_llm.append(f"Tool error: {type(e).__name__}: {e}")
 
-        # Update task plan progress
-        if task_plan and on_todo_update:
+        # Update task plan progress based on actual work done
+        if task_plan:
             try:
-                from sago.tasks import get_task_manager
+                from sago.tasks import get_task_manager, TaskStatus
                 tm = get_task_manager()
-                # Mark current todo as in progress if not already
-                current = task_plan.current_todo
-                if current and current.status.value == "pending":
-                    tm.start_todo(task_plan.id, current.id)
-                    on_todo_update(task_plan)
-                # Mark completed todos based on tool calls
-                successful_tools = [t["tool"] for t in tool_history if t.get("success")]
-                if successful_tools and current:
-                    # Check if we've made significant progress
-                    if len(tool_history) >= 2 and len(successful_tools) >= 1:
-                        tm.complete_todo(task_plan.id, current.id, result=f"Completed: {', '.join(successful_tools[:3])}")
-                        on_todo_update(task_plan)
+
+                if current_todo_index < len(task_plan.todos):
+                    current_todo = task_plan.todos[current_todo_index]
+
+                    # Mark as in_progress if pending
+                    if current_todo.status == TaskStatus.PENDING:
+                        tm.start_todo(task_plan.id, current_todo.id)
+                        if on_todo_update:
+                            on_todo_update(task_plan, current_todo_index, "started")
+
+                    # Track tools used for this todo
+                    if current_todo.id not in todo_tool_counts:
+                        todo_tool_counts[current_todo.id] = 0
+                    todo_tool_counts[current_todo.id] += len(tools_used_in_iteration)
+
+                    # Check if todo needs confirmation before proceeding
+                    if current_todo.requires_confirmation and current_todo.status == TaskStatus.IN_PROGRESS:
+                        # Ask user for confirmation
+                        if on_request_input:
+                            question = current_todo.confirmation_message or f"Confirm step: {current_todo.description}"
+                            user_response = on_request_input(question)
+                            if user_response and user_response.lower() in ("no", "deny", "skip", "n"):
+                                tm.skip_todo(task_plan.id, current_todo.id)
+                                if on_todo_update:
+                                    on_todo_update(task_plan, current_todo_index, "skipped")
+                                current_todo_index += 1
+                                continue
+                            else:
+                                tm.provide_input(plan_id=task_plan.id, todo_id=current_todo.id, user_input=user_response)
+
+                    # Auto-complete todo after sufficient work (3+ successful tools or 2+ iterations on same todo)
+                    successful_tools = [t["tool"] for t in tool_history if t.get("success") and t["tool"] in tools_used_in_iteration]
+                    tools_for_this_todo = todo_tool_counts.get(current_todo.id, 0)
+                    if (tools_for_this_todo >= 3 and len(successful_tools) >= 2) or (i > 0 and tools_for_this_todo >= 2):
+                        tm.complete_todo(task_plan.id, current_todo.id, result=f"Completed: {', '.join(successful_tools[:3])}")
+                        if on_todo_update:
+                            on_todo_update(task_plan, current_todo_index, "completed")
+                        current_todo_index += 1
+
+                        # If more todos, tell LLM about next step
+                        if current_todo_index < len(task_plan.todos):
+                            next_todo = task_plan.todos[current_todo_index]
+                            tm.start_todo(task_plan.id, next_todo.id)
+                            if on_todo_update:
+                                on_todo_update(task_plan, current_todo_index, "started")
+                            results_for_llm.append(
+                                f"\n[PROGRESS] Step completed. Next step: {next_todo.description}\n"
+                                f"Execute this step now."
+                            )
+                        else:
+                            results_for_llm.append("\n[PROGRESS] All steps completed. Provide final summary.")
             except Exception:
                 pass
 
         # Add context about progress
-        progress = f"\n[Progress: {len(tool_history)} tools used, {len(files_created)} files created]"
+        progress_parts = [f"{len(tool_history)} tools used", f"{len(files_created)} files created"]
+        if task_plan:
+            progress_parts.append(f"Step {current_todo_index + 1}/{len(task_plan.todos)}")
+        progress = f"\n[Progress: {', '.join(progress_parts)}]" + todo_context
         combined = "\n\n".join(results_for_llm) + progress
         messages.append({"role": "user", "content": combined})
 
     # Mark final todo as complete if plan exists
     if task_plan:
         try:
-            from sago.tasks import get_task_manager
+            from sago.tasks import get_task_manager, TaskStatus
             tm = get_task_manager()
-            current = task_plan.current_todo
-            if current:
-                tm.complete_todo(task_plan.id, current.id, result="Task completed")
+            # Complete any remaining todos
+            for idx in range(current_todo_index, len(task_plan.todos)):
+                todo = task_plan.todos[idx]
+                if todo.status in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS):
+                    tm.complete_todo(task_plan.id, todo.id, result="Task completed")
             if on_todo_update:
-                on_todo_update(task_plan)
+                on_todo_update(task_plan, current_todo_index, "completed")
         except Exception:
             pass
 

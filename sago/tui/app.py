@@ -198,6 +198,9 @@ class SagoApp(App):
     total_cache_hit_tokens: reactive[int] = reactive(0)
     total_cache_miss_tokens: reactive[int] = reactive(0)
     total_cost: reactive[float] = reactive(0.0)
+    # Pause/resume mechanism for todo confirmations
+    _executor_pause_event: object = None  # threading.Event
+    _executor_thread: object = None  # running thread reference
 
     def compose(self) -> ComposeResult:
         yield ScrollableContainer(id="messages")
@@ -881,8 +884,14 @@ class SagoApp(App):
         self._add_system_message(f"Commit: \"{msg}\"?\nType /approve or /deny")
 
     def _approve_action(self) -> None:
+        import threading
         action = self.pending_action
         if not action:
+            # Check if executor is paused (waiting for user confirmation)
+            if self._executor_pause_event and isinstance(self._executor_pause_event, threading.Event):
+                self._executor_pause_event.clear()  # Resume executor
+                self._add_system_message("Approved - continuing execution")
+                return
             self._add_system_message("Nothing to approve")
             return
         if action["type"] == "git_commit":
@@ -899,7 +908,6 @@ class SagoApp(App):
             if plan_id and todo_id:
                 from sago.tasks import get_task_manager
                 tm = get_task_manager()
-                # The input should be in the action
                 user_input = action.get("input", "")
                 if user_input:
                     tm.provide_input(plan_id, todo_id, user_input)
@@ -907,6 +915,12 @@ class SagoApp(App):
         self.pending_action = {}
 
     def _deny_action(self) -> None:
+        import threading
+        # Check if executor is paused - resume with skip
+        if self._executor_pause_event and isinstance(self._executor_pause_event, threading.Event):
+            self._executor_pause_event.clear()  # Resume executor (it will skip the current step)
+            self._add_system_message("Skipped - continuing execution")
+            return
         self.pending_action = {}
         self._add_system_message("Denied")
 
@@ -1264,10 +1278,14 @@ class SagoApp(App):
             # Try streaming first
             try:
                 from openai import OpenAI
-                from sago.engine.simple_executor import _discover_tools, _get_context, _detect_task_type, PROMPTS, _TOOL_DESCRIPTIONS
-                from sago.engine.simple_executor import _extract_tool_calls, _load_agent_profile
+                from sago.engine.simple_executor import (
+                    _discover_tools, _get_context, _detect_task_type,
+                    PROMPTS, _TOOL_DESCRIPTIONS, _extract_tool_calls,
+                    _load_agent_profile, _is_complex_task, _generate_plan_with_llm,
+                )
                 import json
                 import time as _time
+                import threading
 
                 tools = _discover_tools()
                 client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=90.0)
@@ -1288,6 +1306,34 @@ class SagoApp(App):
                 if profile and profile.get("system_prompt"):
                     system_prompt = profile["system_prompt"]
 
+                # === TODO SYSTEM: Auto-create plan for complex tasks ===
+                task_plan = None
+                current_todo_index = 0
+                todo_tool_counts: dict[str, int] = {}
+
+                if _is_complex_task(message) and api_key:
+                    try:
+                        from sago.tasks import get_task_manager, TaskStatus
+                        tm = get_task_manager()
+                        steps = _generate_plan_with_llm(message, client, self.current_model, _TOOL_DESCRIPTIONS)
+                        task_plan = tm.create_plan(goal=message, todos=steps)
+                        # Mark todos that need confirmation
+                        confirm_keywords = ["confirm", "approve", "review", "check", "verify", "validate"]
+                        for todo in task_plan.todos:
+                            if any(kw in todo.description.lower() for kw in confirm_keywords):
+                                todo.requires_confirmation = True
+                                todo.confirmation_message = f"Please confirm: {todo.description}"
+                        # Show plan in TUI
+                        self.call_from_thread(self._add_system_message, f"📋 Created plan with {len(task_plan.todos)} steps:")
+                        self.call_from_thread(self._add_system_message, tm.format_plan(task_plan))
+                        # Start first todo
+                        if task_plan.todos:
+                            tm.start_todo(task_plan.id, task_plan.todos[0].id)
+                            self.call_from_thread(self._update_spinner, f"Step 1/{len(task_plan.todos)}: {task_plan.todos[0].description[:50]}")
+                    except Exception:
+                        task_plan = None
+                # === END TODO SYSTEM ===
+
                 messages = [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": message},
@@ -1300,7 +1346,12 @@ class SagoApp(App):
                 content = ""
 
                 for iteration in range(effort["max_iterations"]):
-                    self.call_from_thread(self._update_spinner, f"Step {iteration+1}/{effort['max_iterations']}...")
+                    # Update spinner with todo progress
+                    todo_info = ""
+                    if task_plan and current_todo_index < len(task_plan.todos):
+                        todo = task_plan.todos[current_todo_index]
+                        todo_info = f" | Step {current_todo_index + 1}/{len(task_plan.todos)}: {todo.description[:40]}"
+                    self.call_from_thread(self._update_spinner, f"Step {iteration+1}/{effort['max_iterations']}{todo_info}...")
 
                     stream = client.chat.completions.create(
                         model=self.current_model,
@@ -1330,10 +1381,31 @@ class SagoApp(App):
                     # Check for tool calls
                     tool_calls = _extract_tool_calls(content)
                     if not tool_calls:
+                        # No tool calls - mark current todo as complete
+                        if task_plan and current_todo_index < len(task_plan.todos):
+                            from sago.tasks import get_task_manager, TaskStatus
+                            tm = get_task_manager()
+                            todo = task_plan.todos[current_todo_index]
+                            if todo.status == TaskStatus.IN_PROGRESS:
+                                tm.complete_todo(task_plan.id, todo.id, result=content[:200])
+                                self.call_from_thread(self._add_system_message, f"✅ Step {current_todo_index + 1} completed: {todo.description[:60]}")
+                                current_todo_index += 1
+                                # Continue to next todo
+                                if current_todo_index < len(task_plan.todos):
+                                    next_todo = task_plan.todos[current_todo_index]
+                                    tm.start_todo(task_plan.id, next_todo.id)
+                                    self.call_from_thread(self._update_spinner, f"Step {current_todo_index + 1}/{len(task_plan.todos)}: {next_todo.description[:50]}")
+                                    messages.append({"role": "user", "content": (
+                                        f"Moving to next step: {next_todo.description}\n"
+                                        f"Execute this step now. Use the appropriate tools."
+                                    )})
+                                    continue
                         break
 
                     # Execute tools
                     results_for_llm = []
+                    tools_used_in_iteration = []
+
                     for call_str in tool_calls:
                         try:
                             call = json.loads(call_str)
@@ -1381,6 +1453,8 @@ class SagoApp(App):
                                 "success": not is_error,
                             })
 
+                            tools_used_in_iteration.append(name)
+
                             display = result_str[:1500] + "..." if len(result_str) > 1500 else result_str
                             results_for_llm.append(f"[{'ERROR' if is_error else 'OK'}] {name}:\n{display}")
 
@@ -1389,8 +1463,70 @@ class SagoApp(App):
                         except Exception as e:
                             results_for_llm.append(f"Tool error: {e}")
 
+                    # === TODO SYSTEM: Update progress ===
+                    if task_plan:
+                        try:
+                            from sago.tasks import get_task_manager, TaskStatus
+                            tm = get_task_manager()
+
+                            if current_todo_index < len(task_plan.todos):
+                                todo = task_plan.todos[current_todo_index]
+
+                                # Track tools for this todo
+                                if todo.id not in todo_tool_counts:
+                                    todo_tool_counts[todo.id] = 0
+                                todo_tool_counts[todo.id] += len(tools_used_in_iteration)
+
+                                # Check if todo needs confirmation before proceeding
+                                if todo.requires_confirmation and todo.status == TaskStatus.IN_PROGRESS:
+                                    self.call_from_thread(self._add_system_message, f"⏳ Waiting for confirmation: {todo.confirmation_message or todo.description}")
+                                    # Set up pause event and wait
+                                    pause_event = threading.Event()
+                                    pause_event.set()  # Start paused
+                                    self._executor_pause_event = pause_event
+                                    self.call_from_thread(self._hide_spinner)
+                                    self.call_from_thread(self._add_system_message, "Type /approve to continue or /deny to skip this step")
+                                    pause_event.wait()  # Block until user responds
+                                    self._executor_pause_event = None
+                                    self.call_from_thread(self._show_spinner)
+
+                                # Auto-complete todo after sufficient work
+                                successful_tools = [t["tool"] for t in tool_history if t.get("success") and t["tool"] in tools_used_in_iteration]
+                                tools_for_todo = todo_tool_counts.get(todo.id, 0)
+                                if (tools_for_todo >= 3 and len(successful_tools) >= 2) or (tools_for_todo >= 2 and len(tools_used_in_iteration) >= 1):
+                                    tm.complete_todo(task_plan.id, todo.id, result=f"Completed: {', '.join(successful_tools[:3])}")
+                                    self.call_from_thread(self._add_system_message, f"✅ Step {current_todo_index + 1} completed: {todo.description[:60]}")
+                                    current_todo_index += 1
+
+                                    if current_todo_index < len(task_plan.todos):
+                                        next_todo = task_plan.todos[current_todo_index]
+                                        tm.start_todo(task_plan.id, next_todo.id)
+                                        self.call_from_thread(self._update_spinner, f"Step {current_todo_index + 1}/{len(task_plan.todos)}: {next_todo.description[:50]}")
+                                        results_for_llm.append(
+                                            f"\n[PROGRESS] Step completed. Next step: {next_todo.description}\n"
+                                            f"Execute this step now."
+                                        )
+                                    else:
+                                        results_for_llm.append("\n[PROGRESS] All steps completed. Provide final summary.")
+                        except Exception:
+                            pass
+                    # === END TODO SYSTEM ===
+
                     combined = "\n\n".join(results_for_llm)
                     messages.append({"role": "user", "content": combined})
+
+                # Final todo cleanup
+                if task_plan:
+                    try:
+                        from sago.tasks import get_task_manager, TaskStatus
+                        tm = get_task_manager()
+                        for idx in range(current_todo_index, len(task_plan.todos)):
+                            todo = task_plan.todos[idx]
+                            if todo.status in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS):
+                                tm.complete_todo(task_plan.id, todo.id, result="Task completed")
+                        self.call_from_thread(self._add_system_message, tm.format_plan(task_plan))
+                    except Exception:
+                        pass
 
                 elapsed = _time.time() - start_time
 
@@ -1425,10 +1561,13 @@ class SagoApp(App):
                     tm = get_task_manager()
                     self.call_from_thread(self._add_system_message, tm.format_plan(plan))
 
-                def on_todo_update(plan):
-                    current = plan.current_todo
-                    if current:
-                        self.call_from_thread(self._update_spinner, f"Step: {current.description[:50]}")
+                def on_todo_update(plan, todo_index, status):
+                    if todo_index < len(plan.todos):
+                        todo = plan.todos[todo_index]
+                        if status == "started":
+                            self.call_from_thread(self._update_spinner, f"Step {todo_index + 1}/{len(plan.todos)}: {todo.description[:50]}")
+                        elif status == "completed":
+                            self.call_from_thread(self._add_system_message, f"✅ Step {todo_index + 1} completed: {todo.description[:60]}")
 
                 result = execute_agent_task(
                     task=message,
