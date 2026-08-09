@@ -185,9 +185,68 @@ class WorkflowEngine:
         self._executors: dict[str, Callable[..., Any]] = {}
         self._callbacks: list[Callable[..., None]] = []
 
+        # Register default executors
+        self._register_default_executors()
+
         if persist_dir:
             persist_dir.mkdir(parents=True, exist_ok=True)
             self._load_all()
+
+    def _register_default_executors(self) -> None:
+        """Register default executors for common step types."""
+        import os
+
+        def _agent_call_executor(context: dict, config: dict) -> dict[str, Any]:
+            """Execute an agent call step."""
+            task = config.get("task", "")
+            agent = config.get("agent", "sago-orchestrator")
+            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+
+            if not api_key:
+                return {"error": "No API key", "success": False}
+
+            from sago.engine.simple_executor import execute_agent_task
+            result = execute_agent_task(
+                task=task,
+                agent_role=agent.replace("-", " ").title(),
+                api_key=api_key,
+                model="openrouter/free",
+                max_tokens=4096,
+                max_iterations=5,
+            )
+            return result
+
+        def _tool_call_executor(context: dict, config: dict) -> dict[str, Any]:
+            """Execute a tool call step."""
+            import importlib
+            from sago.tools.base import BaseTool
+
+            tool_name = config.get("tool", "")
+            tool_args = config.get("args", {})
+
+            # Discover tool
+            tools_dir = Path(__file__).parent.parent / "tools"
+            for py_file in tools_dir.rglob("*.py"):
+                if py_file.name.startswith("_") or py_file.name == "base.py":
+                    continue
+                parts = py_file.relative_to(tools_dir).with_suffix("").as_posix().split("/")
+                module_name = ".".join(["sago", "tools"] + parts)
+                try:
+                    mod = importlib.import_module(module_name)
+                    for attr_name in dir(mod):
+                        obj = getattr(mod, attr_name)
+                        if isinstance(obj, type) and hasattr(obj, "name") and obj.name == tool_name:
+                            if issubclass(obj, BaseTool):
+                                tool_instance = obj()
+                                result = tool_instance.run(**tool_args)
+                                return {"result": str(result), "success": True}
+                except Exception:
+                    continue
+
+            return {"error": f"Tool not found: {tool_name}", "success": False}
+
+        self._executors["agent_call"] = _agent_call_executor
+        self._executors["tool_call"] = _tool_call_executor
 
     def register_executor(
         self,
@@ -422,6 +481,20 @@ class WorkflowEngine:
                     description=data.get("description", ""),
                     status=WorkflowStatus(data.get("status", "draft")),
                 )
+                # Restore steps
+                for step_data in data.get("steps", []):
+                    step = WorkflowStep(
+                        id=step_data["id"],
+                        name=step_data["name"],
+                        type=step_data["type"],
+                        config=step_data.get("config", {}),
+                        status=StepStatus(step_data.get("status", "pending")),
+                    )
+                    workflow.steps.append(step)
+                # Restore state
+                state_data = data.get("state", {})
+                workflow.state.variables = state_data.get("variables", {})
+                workflow.state.context = state_data.get("context", {})
                 self.workflows[workflow.id] = workflow
             except Exception:
                 pass
