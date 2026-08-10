@@ -1395,6 +1395,13 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             pass
 
                     combined = "\n\n".join(results_for_llm)
+                    # Tell LLM to read results and answer, not call more tools
+                    if not task_plan:
+                        combined += (
+                            "\n\nThe tool has been executed. Read the output above and "
+                            "respond with a natural language answer to the user. "
+                            "Do NOT call any more tools. Just answer."
+                        )
                     messages.append({"role": "user", "content": combined})
                     continue  # Loop back for next LLM call with tool results
 
@@ -1587,11 +1594,21 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 except Exception:
                     pass
 
-                # Always show response
-                if content and content.strip():
-                    self.call_from_thread(
-                        self._add_assistant_message, content
-                    )
+                # Show response — if tools were executed, show results not raw JSON
+                if tool_history:
+                    # Tools were executed — show a summary of what happened
+                    last_results = []
+                    for t in tool_history[-3:]:
+                        status = "✓" if t.get("success") else "✗"
+                        last_results.append(f"{status} {t['tool']}: {t.get('result', '')[:200]}")
+                    summary = "\n".join(last_results)
+                    if content and content.strip() and not content.strip().startswith("{"):
+                        # LLM also produced text output (not just tool calls)
+                        self.call_from_thread(self._add_assistant_message, content)
+                    else:
+                        self.call_from_thread(self._add_assistant_message, summary)
+                elif content and content.strip():
+                    self.call_from_thread(self._add_assistant_message, content)
                 elif tool_history:
                     tools_done = [t["tool"] for t in tool_history]
                     self.call_from_thread(
