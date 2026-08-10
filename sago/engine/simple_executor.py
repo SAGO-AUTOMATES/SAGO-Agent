@@ -468,7 +468,12 @@ IMPORTANT: When writing files, put the ACTUAL CODE in the content field. No mark
 - NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
 - NEVER claim to have done something you haven't actually done.
 - ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
-- If a tool call fails, report the error honestly. Do not pretend it succeeded.""",
+- If a tool call fails, report the error honestly. Do not pretend it succeeded.
+- DO NOT output explanatory text before tool calls. Output ONLY the JSON tool call.
+- Tools are NOT blocked by the TUI. They work immediately. Do not claim otherwise.
+- NEVER say "I cannot" or "I am unable" — you have tools, USE THEM.
+- When the user asks you to read a file, IMMEDIATELY output: {{"name": "read_file", "args": {{"file_path": "the_file"}}}}
+- Do NOT explain what you will do. Just DO it by outputting the tool call JSON.""",
     "fix": """You are {agent_role}. The user wants you to FIX something (bug, error, issue).
 
 {project_ctx}
@@ -497,7 +502,10 @@ One JSON per tool call on its own line:
 - NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
 - NEVER claim to have done something you haven't actually done.
 - ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
-- If a tool call fails, report the error honestly. Do not pretend it succeeded.""",
+- If a tool call fails, report the error honestly. Do not pretend it succeeded.
+- DO NOT output explanatory text before tool calls. Output ONLY the JSON tool call.
+- Tools are NOT blocked by the TUI. They work immediately. Do not claim otherwise.
+- NEVER say "I cannot" or "I am unable" — you have tools, USE THEM.""",
     "analyze": """You are {agent_role}. The user wants you to ANALYZE something (code, project, issue).
 
 {project_ctx}
@@ -525,7 +533,12 @@ One JSON per tool call on its own line:
 - NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
 - NEVER claim to have done something you haven't actually done.
 - ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
-- If a tool call fails, report the error honestly. Do not pretend it succeeded.""",
+- If a tool call fails, report the error honestly. Do not pretend it succeeded.
+- DO NOT output explanatory text before tool calls. Output ONLY the JSON tool call.
+- Tools are NOT blocked by the TUI. They work immediately. Do not claim otherwise.
+- NEVER say "I cannot" or "I am unable" — you have tools, USE THEM.
+- When the user asks you to read a file, IMMEDIATELY output: {{"name": "read_file", "args": {{"file_path": "the_file"}}}}
+- Do NOT explain what you will do. Just DO it by outputting the tool call JSON.""",
 }
 
 
@@ -614,7 +627,7 @@ def execute_agent_task(
     system_prompt: str = "",
     model: str = "openrouter/free",
     api_key: str = "",
-    base_url: str = "https://openrouter.ai/api/v1",
+    base_url: str | None = None,
     max_tokens: int = 4096,
     max_iterations: int = 8,
     cwd: str | None = None,
@@ -633,6 +646,16 @@ def execute_agent_task(
         pause_event: threading.Event to pause/resume execution. If provided and set, executor pauses.
     """
     tools = _discover_tools()
+
+    # Auto-detect base_url from model/provider if not provided
+    if base_url is None:
+        if model.startswith("gemini"):
+            base_url = None  # Will be handled by google-genai SDK
+        elif model.startswith("gpt") or model.startswith("o1") or model.startswith("o3"):
+            base_url = "https://api.openai.com/v1"
+        else:
+            base_url = "https://openrouter.ai/api/v1"
+
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
     start_time = time.time()
 
@@ -810,21 +833,66 @@ def execute_agent_task(
 
         try:
             temp = profile.get("temperature", 0.3) if profile else 0.3
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temp,
-            )
+
+            # Use Google native SDK for gemini models
+            if model.startswith("gemini"):
+                try:
+                    from google import genai as google_genai
+                    from google.genai import types as google_types
+
+                    google_client = google_genai.Client(api_key=api_key)
+                    sys_msg = ""
+                    contents = []
+                    for msg in messages:
+                        if msg["role"] == "system":
+                            sys_msg = msg["content"]
+                        elif msg["role"] in ("user", "assistant"):
+                            contents.append(msg["content"])
+                    if not contents:
+                        contents = ["Hello"]
+                    response = google_client.models.generate_content(
+                        model=model,
+                        contents=contents,
+                        config=google_types.GenerateContentConfig(
+                            system_instruction=sys_msg or None,
+                            max_output_tokens=max_tokens,
+                            temperature=temp,
+                        ),
+                    )
+                    content = response.text or ""
+                except ImportError:
+                    return {
+                        "success": False,
+                        "error": "google-genai not installed. Run: pip install google-genai",
+                        "output": content or "Google SDK not available",
+                        "tool_calls": tool_history,
+                        "iterations": i + 1,
+                        "tokens": {"input": 0, "output": 0},
+                    }
+            else:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temp,
+                )
+
         except Exception as e:
             error_msg = str(e)
             # Provide helpful error messages for common failures
             if "429" in error_msg or "rate" in error_msg.lower():
-                error_msg = (
-                    f"Rate limit exceeded for model '{model}'.\n"
-                    f"Try: 1) Wait a moment and retry, 2) Use a different model, "
-                    f"3) Add credits at https://openrouter.ai/settings/credits"
-                )
+                if model.startswith("gemini"):
+                    error_msg = (
+                        f"Rate limit exceeded for model '{model}'.\n"
+                        f"Try: 1) Wait a moment and retry, 2) Use a different model, "
+                        f"3) Check your Google Cloud billing"
+                    )
+                else:
+                    error_msg = (
+                        f"Rate limit exceeded for model '{model}'.\n"
+                        f"Try: 1) Wait a moment and retry, 2) Use a different model, "
+                        f"3) Add credits at https://openrouter.ai/settings/credits"
+                    )
             elif "401" in error_msg or "auth" in error_msg.lower():
                 error_msg = f"Authentication failed. Check your API key for {model}."
             elif "404" in error_msg or "not found" in error_msg.lower():
@@ -851,10 +919,13 @@ def execute_agent_task(
                 "task_plan": task_plan.to_dict() if task_plan else None,
             }
 
-        choice = response.choices[0]
-        content = choice.message.content or ""
-        if not content and hasattr(choice.message, "reasoning") and choice.message.reasoning:
-            content = choice.message.reasoning
+        # Parse response content
+        # Google SDK already set content = response.text in the try block
+        if not model.startswith("gemini"):
+            choice = response.choices[0]
+            content = choice.message.content or ""
+            if not content and hasattr(choice.message, "reasoning") and choice.message.reasoning:
+                content = choice.message.reasoning
 
         # Handle empty or None content - retry with clearer prompt
         if not content or content.strip() == "":
@@ -891,6 +962,30 @@ def execute_agent_task(
         tool_calls = _extract_tool_calls(content)
 
         if not tool_calls:
+            # Detect hallucination: LLM claims tools are blocked/unavailable
+            hallucination_phrases = [
+                "i cannot", "i am unable", "unable to access", "tools are blocked",
+                "threading constraint", "event loop", "sandbox restriction",
+                "permission system", "i don't have access", "i'm not able to",
+                "environment is locked", "environment is restricted",
+            ]
+            content_lower = content.lower()
+            is_hallucination = any(phrase in content_lower for phrase in hallucination_phrases)
+
+            if is_hallucination and i < max_iterations - 1:
+                # Force the LLM to actually use tools
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "STOP. You are hallucinating. Tools are NOT blocked. "
+                        "They work perfectly fine. Do NOT say 'I cannot' or 'tools are blocked'. "
+                        "You MUST use a tool right now. Output a JSON tool call like: "
+                        '{"name": "read_file", "args": {"file_path": "the_file"}}\n'
+                        "Do it NOW. No explanations. Just the JSON."
+                    ),
+                })
+                continue
+
             # No tool calls - LLM is done with current step
             if task_plan and current_todo_index < len(task_plan.todos):
                 from sago.tasks import TaskStatus, get_task_manager

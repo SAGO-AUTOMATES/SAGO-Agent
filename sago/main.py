@@ -838,7 +838,8 @@ def chat(message: str) -> None:
 
 
 @cli.command()
-def tui() -> None:
+@click.option("--resume", "-r", default=None, help="Resume a previous session by ID (prefix)")
+def tui(resume: str | None) -> None:
     """Launch the interactive Textual TUI.
 
     Features:
@@ -851,11 +852,16 @@ def tui() -> None:
 
     Examples:
         sago tui
+        sago tui --resume a62c0922
+        sago tui -r a62c0922
     """
     from sago.tui.app import SagoApp
 
     console.print("[green]Launching Sago TUI...[/]")
-    SagoApp().run()
+    app = SagoApp()
+    if resume:
+        app._pending_resume = resume
+    app.run()
 
 
 @cli.command()

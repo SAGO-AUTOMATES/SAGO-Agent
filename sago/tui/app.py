@@ -6,8 +6,9 @@ import json
 import os
 import re
 import subprocess
-from datetime import datetime
-from pathlib import Path
+import threading
+import time as _time
+from typing import Any
 
 from rich.syntax import Syntax
 from textual import on, work
@@ -17,151 +18,13 @@ from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.reactive import reactive
 from textual.widgets import Button, Collapsible, Footer, Input, Static
 
-COMMANDS = {
-    "/help": "Show all commands",
-    "/agents": "List agents (or /agents <filter>)",
-    "/agent": "Set current agent (/agent <name>)",
-    "/delegate": "Delegate task to specialist (/delegate <agent> <task>)",
-    "/chain": "Chain agents (/chain <agent1,agent2> <task>)",
-    "/orchestrate": "Multi-agent orchestration (auto-delegates to specialists)",
-    "/clear": "Clear chat",
-    "/status": "System status",
-    "/export": "Export to markdown",
-    "/sessions": "List sessions",
-    "/session": "Switch session (/session <id>)",
-    "/history": "Chat history",
-    "/model": "Change model (/model <name>)",
-    "/provider": "Change provider",
-    "/effort": "Set effort: low/medium/high/max",
-    "/cost": "Token usage and costs",
-    "/compact": "Summarize and compress context",
-    "/retry": "Retry last message",
-    "/reset": "Reset session",
-    "/save": "Save session to file (/save [name])",
-    "/load": "Load session from file (/load <name>)",
-    "/git": "Git status",
-    "/diff": "Show diff (/diff [file])",
-    "/commit": "Commit (/commit <message>)",
-    "/approve": "Approve pending action",
-    "/deny": "Deny pending action",
-    "/yolo": "Toggle YOLO mode (auto-approve all tools)",
-    "/version": "Version info",
-    "/undo": "Undo last file change",
-    "/changes": "Show file changes this session",
-    "/exit": "Quit",
-}
-
-MODELS = [
-    # Free models
-    "openrouter/free",
-    # OpenAI
-    "openai/gpt-4o",
-    "openai/gpt-4o-mini",
-    "openai/gpt-4-turbo",
-    "openai/o1-preview",
-    "openai/o1-mini",
-    # Anthropic
-    "anthropic/claude-3-5-sonnet",
-    "anthropic/claude-3-haiku",
-    "anthropic/claude-3-opus",
-    # Google
-    "google/gemini-2.0-flash-001",
-    "google/gemini-2.0-flash-lite",
-    "google/gemini-pro",
-    # Meta
-    "meta-llama/llama-3.1-70b-instruct",
-    "meta-llama/llama-3.1-405b-instruct",
-    "meta-llama/llama-3.2-90b-vision",
-    # DeepSeek
-    "deepseek/deepseek-chat",
-    "deepseek/deepseek-coder",
-    "deepseek/deepseek-r1",
-    # Mistral
-    "mistralai/mistral-large-latest",
-    "mistralai/mixtral-8x7b-instruct",
-    # Qwen
-    "qwen/qwen-2.5-72b-instruct",
-    "qwen/qwen-2.5-coder-32b-instruct",
-    # Cohere
-    "cohere/command-r-plus",
-    # Perplexity
-    "perplexity/sonar-pro",
-]
-
-EFFORT_LEVELS = {
-    "low": {"max_iterations": 3, "max_tokens": 8192, "desc": "Quick answers, minimal tool use"},
-    "medium": {"max_iterations": 6, "max_tokens": 16384, "desc": "Balanced approach"},
-    "high": {"max_iterations": 10, "max_tokens": 32768, "desc": "Thorough analysis, complex tasks"},
-    "max": {
-        "max_iterations": 15,
-        "max_tokens": 65536,
-        "desc": "Maximum depth, full context utilization",
-    },
-}
-
-# Pricing per 1M tokens (approximate) - with cache pricing
-MODEL_COSTS = {
-    "openrouter/free": {"input": 0, "output": 0, "cache_hit": 0, "cache_miss": 0},
-    "openrouter/deepseek/deepseek-chat": {
-        "input": 0.14,
-        "output": 0.28,
-        "cache_hit": 0.014,
-        "cache_miss": 0.14,
-    },
-    "openrouter/meta-llama/llama-3.1-70b-instruct": {
-        "input": 0.52,
-        "output": 0.75,
-        "cache_hit": 0.052,
-        "cache_miss": 0.52,
-    },
-    "openrouter/qwen/qwen-2.5-72b-instruct": {
-        "input": 0.50,
-        "output": 0.75,
-        "cache_hit": 0.05,
-        "cache_miss": 0.50,
-    },
-    "openrouter/google/gemini-2.0-flash-001": {
-        "input": 0.10,
-        "output": 0.40,
-        "cache_hit": 0.025,
-        "cache_miss": 0.10,
-    },
-    "anthropic/claude-sonnet-4-20250514": {
-        "input": 3.00,
-        "output": 15.00,
-        "cache_hit": 0.30,
-        "cache_miss": 3.00,
-    },
-    "anthropic/claude-3-5-sonnet-20241022": {
-        "input": 3.00,
-        "output": 15.00,
-        "cache_hit": 0.30,
-        "cache_miss": 3.00,
-    },
-    "openai/gpt-4o": {"input": 2.50, "output": 10.00, "cache_hit": 1.25, "cache_miss": 2.50},
-    "openai/gpt-4o-mini": {"input": 0.15, "output": 0.60, "cache_hit": 0.075, "cache_miss": 0.15},
-}
-
-SPINNERS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-
-SAVE_DIR = Path.home() / ".sago" / "sessions"
+from sago.tui.commands import CommandHandlers
+from sago.tui.helpers import UIHelpers
+from sago.tui.models import COMMANDS, EFFORT_LEVELS, MODEL_COSTS
+from sago.tui.widgets import Spinner
 
 
-class Spinner(Static):
-    def __init__(self, text: str = "Thinking", **kwargs) -> None:
-        self.frame = 0
-        self.spin_text = text
-        super().__init__(**kwargs)
-
-    def render(self) -> str:
-        return f" {SPINNERS[self.frame % len(SPINNERS)]} {self.spin_text}..."
-
-    def advance(self) -> None:
-        self.frame += 1
-        self.refresh()
-
-
-class SagoApp(App):
+class SagoApp(App, CommandHandlers, UIHelpers):
     CSS = """
     Screen { background: #0d1117; }
 
@@ -284,6 +147,7 @@ class SagoApp(App):
 
     current_agent: reactive[str] = reactive("sago-orchestrator")
     current_model: reactive[str] = reactive("openrouter/free")
+    current_provider: reactive[str] = reactive("openrouter")
     current_effort: reactive[str] = reactive("medium")
     current_session_id: reactive[str] = reactive("")
     messages: reactive[list[dict]] = reactive(list)
@@ -296,38 +160,121 @@ class SagoApp(App):
     pending_orchestration: dict | None = None
     approval_message: reactive[str] = reactive("")
     yolo_mode: reactive[bool] = reactive(False)
-    command_history: reactive[list[str]] = reactive(list)
-    history_index: reactive[int] = reactive(-1)
-    total_input_tokens: reactive[int] = reactive(0)
-    total_output_tokens: reactive[int] = reactive(0)
-    total_cache_hit_tokens: reactive[int] = reactive(0)
-    total_cache_miss_tokens: reactive[int] = reactive(0)
-    total_cost: reactive[float] = reactive(0.0)
     # Pause/resume mechanism for todo confirmations
     _executor_pause_event: object = None  # threading.Event
     _executor_thread: object = None  # running thread reference
+    _tool_approved: bool = False
+    command_history: list[str] = []
+    history_index: int = -1
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_cache_hit_tokens: int = 0
+    total_cache_miss_tokens: int = 0
 
     def compose(self) -> ComposeResult:
         yield ScrollableContainer(id="messages")
         yield Vertical(id="suggestions")
         with Vertical(id="approval-bar"):
-            yield Static("Pending action", id="approval-label", classes="approval-label")
+            yield Static(
+                "Pending action", id="approval-label", classes="approval-label"
+            )
             with Horizontal(id="approval-buttons"):
                 yield Button(
-                    "Approve [Y]", id="btn-approve", variant="success", classes="approve-btn"
+                    "Approve [Y]",
+                    id="btn-approve",
+                    variant="success",
+                    classes="approve-btn",
                 )
-                yield Button("Deny [N]", id="btn-deny", variant="error", classes="deny-btn")
+                yield Button(
+                    "Deny [N]", id="btn-deny", variant="error", classes="deny-btn"
+                )
         with Vertical(id="input-area"):
-            yield Input(placeholder="/, @, # for autocomplete", id="msg-input")
+            yield Input(
+                placeholder="/, @, # for autocomplete", id="msg-input"
+            )
         yield Footer()
 
     def on_mount(self) -> None:
         self._spinner = None
         self._spinner_timer = None
+        self._pending_resume = getattr(self, "_pending_resume", None)
         self._init_db()
         self._init_session()
+        self._load_settings()
         self._add_system_message("Sago v0.1.0 — /help for commands")
+        # Auto-resume if --resume flag was passed
+        if self._pending_resume:
+            self._load_session(self._pending_resume)
+            self._pending_resume = None
+        # Auto-refresh models if stale
+        self._auto_refresh_models()
         self.query_one("#msg-input").focus()
+
+    def _load_settings(self) -> None:
+        """Load persisted settings (model, provider, effort, yolo, agent)."""
+        try:
+            from sago.settings import load_setting
+            self.current_model = load_setting("model", self.current_model)
+            self.current_provider = load_setting("provider", self.current_provider)
+            self.current_effort = load_setting("effort", self.current_effort)
+            self.current_agent = load_setting("agent", self.current_agent)
+            self.yolo_mode = load_setting("yolo", self.yolo_mode)
+        except Exception:
+            pass
+
+    def _save_settings(self) -> None:
+        """Persist current settings."""
+        try:
+            from sago.settings import save_setting
+            save_setting("model", self.current_model)
+            save_setting("provider", self.current_provider)
+            save_setting("effort", self.current_effort)
+            save_setting("agent", self.current_agent)
+            save_setting("yolo", self.yolo_mode)
+        except Exception:
+            pass
+
+    def _auto_refresh_models(self) -> None:
+        """Refresh model list from OpenRouter if cache is stale."""
+        import os
+        try:
+            from sago.tui.models import auto_refresh_if_stale
+            api_key = os.environ.get("OPENROUTER_API_KEY", "")
+            msg = auto_refresh_if_stale(api_key)
+            if msg:
+                self._add_system_message(f"[auto-refresh] {msg}")
+        except Exception:
+            pass
+
+    def _resolve_api_model(self) -> str:
+        """Strip provider prefix for API calls. google/gemini-2.0-flash -> gemini-2.0-flash."""
+        m = self.current_model
+        p = self.current_provider
+        if p == "google" and m.startswith("google/"):
+            return m[len("google/"):]
+        if p == "openai" and m.startswith("openai/"):
+            return m[len("openai/"):]
+        return m
+
+    def watch_current_model(self, value: str) -> None:
+        """Auto-save model when changed."""
+        self._save_settings()
+
+    def watch_current_provider(self, value: str) -> None:
+        """Auto-save provider when changed."""
+        self._save_settings()
+
+    def watch_current_effort(self, value: str) -> None:
+        """Auto-save effort when changed."""
+        self._save_settings()
+
+    def watch_current_agent(self, value: str) -> None:
+        """Auto-save agent when changed."""
+        self._save_settings()
+
+    def watch_yolo_mode(self, value: bool) -> None:
+        """Auto-save yolo mode when changed."""
+        self._save_settings()
 
     def _init_db(self) -> None:
         try:
@@ -374,8 +321,21 @@ class SagoApp(App):
 
         if self.show_suggestions and self.suggestion_values:
             val = self.suggestion_values[self.suggestion_index]
+            # If exact match on a command, submit it directly
+            if val in COMMANDS and msg.strip() == val:
+                self._hide_suggestions()
+                event.input.value = ""
+                self._handle_command(val)
+                return
+            # Otherwise just autocomplete
             event.input.value = val + " "
             event.input.cursor_position = len(event.input.value)
+            # If selecting a model suggestion, set provider too
+            if val.startswith("/model ") and not val.startswith("/model add") and not val.startswith("/model remove") and not val.startswith("/model refresh"):
+                model_id = val[7:].strip()
+                provider = model_id.split("/")[0]
+                self.current_provider = provider
+                self.current_model = model_id
             self._hide_suggestions()
             return
 
@@ -400,56 +360,66 @@ class SagoApp(App):
             elif event.key == "up":
                 event.prevent_default()
                 self._move_sel(-1)
-            elif event.key in ("right", "tab"):
-                event.prevent_default()
-                self._select_current()
-        elif event.key in ("up", "down"):
-            event.prevent_default()
-            self._navigate_history(event.key)
+            elif event.key == "escape":
+                self._hide_suggestions()
+        else:
+            # Command history navigation when no suggestions visible
+            inp = self.query_one("#msg-input")
+            if inp.cursor_position == 0 and not inp.value:
+                if event.key == "up":
+                    self._navigate_history("up")
+                elif event.key == "down":
+                    self._navigate_history("down")
 
     def _move_sel(self, d: int) -> None:
-        if self.suggestion_items:
-            self.suggestion_index = (self.suggestion_index + d) % len(self.suggestion_items)
-            self._update_highlight()
+        n = len(self.suggestion_values)
+        if n == 0:
+            return
+        self.suggestion_index = (self.suggestion_index + d) % n
+        self._update_highlight()
 
     def _select_current(self) -> None:
         if self.suggestion_values:
-            v = self.suggestion_values[self.suggestion_index]
+            val = self.suggestion_values[self.suggestion_index]
             inp = self.query_one("#msg-input")
-            inp.value = v + " "
+            inp.value = val + " "
             inp.cursor_position = len(inp.value)
+            # If selecting a model suggestion, set provider too
+            if val.startswith("/model ") and not val.startswith("/model add") and not val.startswith("/model remove") and not val.startswith("/model refresh"):
+                model_id = val[7:].strip()
+                provider = model_id.split("/")[0]
+                self.current_provider = provider
+                self.current_model = model_id
             self._hide_suggestions()
 
     def _update_highlight(self) -> None:
-        for i, child in enumerate(self.query_one("#suggestions").children):
-            child.set_class(i == self.suggestion_index, "highlighted")
+        items = self.query(".suggestion-item")
+        container = self.query_one("#suggestions")
+        for i, item in enumerate(items):
+            is_highlighted = i == self.suggestion_index
+            item.set_class(is_highlighted, "highlighted")
+            # Auto-scroll highlighted item into view
+            if is_highlighted:
+                item.scroll_visible()
 
     def _add_to_history(self, cmd: str) -> None:
-        if self.command_history and self.command_history[-1] == cmd:
-            return
-        self.command_history.append(cmd)
-        if len(self.command_history) > 50:
-            self.command_history = self.command_history[-50:]
+        if cmd and (not self.command_history or self.command_history[-1] != cmd):
+            self.command_history.append(cmd)
+        self.history_index = len(self.command_history)
 
     def _navigate_history(self, key: str) -> None:
         if not self.command_history:
             return
-        inp = self.query_one("#msg-input")
         if key == "up":
-            idx = self.history_index + 1
-            if idx < len(self.command_history):
-                self.history_index = idx
-                inp.value = self.command_history[-1 - idx]
-                inp.cursor_position = len(inp.value)
-        elif key == "down":
-            if self.history_index > 0:
-                self.history_index -= 1
-                inp.value = self.command_history[-1 - self.history_index]
-                inp.cursor_position = len(inp.value)
-            else:
-                self.history_index = -1
-                inp.value = ""
-                inp.cursor_position = 0
+            self.history_index = max(0, self.history_index - 1)
+        else:
+            self.history_index = min(
+                len(self.command_history) - 1, self.history_index + 1
+            )
+        if 0 <= self.history_index < len(self.command_history):
+            self.query_one("#msg-input").value = self.command_history[
+                self.history_index
+            ]
 
     def on_mouse_scroll_down(self, event) -> None:
         self.query_one("#messages").scroll_down()
@@ -458,62 +428,74 @@ class SagoApp(App):
         self.query_one("#messages").scroll_up()
 
     def on_click(self, event) -> None:
-        if self.show_suggestions:
-            for i, child in enumerate(self.query_one("#suggestions").children):
-                if child.hovered:
-                    self.suggestion_index = i
-                    self._select_current()
-                    break
+        self.query_one("#msg-input").focus()
 
     def _show_cmd_suggestions(self, prefix: str) -> None:
-        full_commands = {k: v for k, v in COMMANDS.items() if len(k) > 2}
-        matches = [(c, d) for c, d in full_commands.items() if c.startswith(prefix.lower())]
-        if matches:
-            self._show_suggestions([f"{c} — {d}" for c, d in matches], [c for c, _ in matches])
-        else:
-            self._hide_suggestions()
+        # "/model provider query" — show filtered models for that provider
+        if prefix.startswith("/model "):
+            parts = prefix[7:].split(None, 1)
+            if len(parts) == 2:
+                # "/model google gemini" → filter google models by "gemini"
+                provider_filter, query = parts
+                self._show_model_suggestions(query, provider_filter)
+            elif len(parts) == 1:
+                # "/model google" → show all google models
+                self._show_model_suggestions("", parts[0])
+            else:
+                # "/model " → show all models
+                self._show_model_suggestions("", "")
+            return
+        # "/model" with no space yet — show command
+        if prefix == "/model":
+            matches = ["/model"]
+            items = ["/model - Change model"]
+            self._show_suggestions(items, matches)
+            return
+        # Other commands
+        matches = [cmd for cmd in COMMANDS if cmd.startswith(prefix)]
+        values = matches
+        items = [f"{cmd} - {COMMANDS[cmd]}" for cmd in matches]
+        self._show_suggestions(items, values)
+
+    def _show_model_suggestions(self, query: str, provider_filter: str = "") -> None:
+        from sago.tui.models import get_all_models
+
+        models = get_all_models()
+        if provider_filter:
+            # Filter by provider prefix
+            models = [m for m in models if m.startswith(f"{provider_filter}/")]
+        if query:
+            models = [m for m in models if query.lower() in m.lower()]
+
+        items = [f"  {m}" for m in models[:30]]
+        values = [f"/model {m}" for m in models[:30]]
+        self._show_suggestions(items, values)
 
     def _show_agent_suggestions(self, prefix: str) -> None:
         try:
             from sago.agents.registry import list_agents
 
-            search = prefix[1:].lower()
-            matches = [a["name"] for a in list_agents() if search in a["name"].lower()][:15]
-            if matches:
-                self._show_suggestions([f"@{n}" for n in matches], matches)
-            else:
-                self._hide_suggestions()
-        except Exception:
-            self._hide_suggestions()
-
-    def _show_file_suggestions(self, prefix: str) -> None:
-        search = prefix[1:].lower()
-        items, vals = [], []
-        try:
-            for p in Path(".").iterdir():
-                if p.name.startswith(".") or p.name.startswith("_"):
-                    continue
-                if search in p.name.lower():
-                    items.append(f"#  {p.name}")
-                    vals.append(p.name)
-                    if len(items) >= 10:
-                        break
+            agents = list_agents()
+            matches = [a["name"] for a in agents if a["name"].startswith(prefix[1:])]
+            self._show_suggestions(matches, [f"@{m}" for m in matches])
         except Exception:
             pass
-        if items:
-            self._show_suggestions(items, vals)
-        else:
-            self._hide_suggestions()
+
+    def _show_file_suggestions(self, prefix: str) -> None:
+        from pathlib import Path
+
+        files = [f.name for f in Path(".").glob("*") if f.is_file()][:10]
+        self._show_suggestions(files, [f"#{f}" for f in files])
 
     def _show_suggestions(self, items: list[str], values: list[str]) -> None:
-        container = self.query_one("#suggestions")
-        container.remove_children()
-        for item in items:
-            container.mount(Static(item, classes="suggestion-item"))
         self.suggestion_items = items
         self.suggestion_values = values
         self.suggestion_index = 0
         self.show_suggestions = True
+        container = self.query_one("#suggestions")
+        container.remove_children()
+        for i, item in enumerate(items):
+            container.mount(Static(item, classes="suggestion-item"))
         container.add_class("visible")
         self._update_highlight()
 
@@ -558,6 +540,20 @@ class SagoApp(App):
         self.approval_message = ""
         self.query_one("#approval-bar").remove_class("visible")
 
+    def _approve_action(self) -> None:
+        """Handle Y key or Approve button click."""
+        self._tool_approved = True
+        self._hide_approval_bar()
+        if self._executor_pause_event:
+            self._executor_pause_event.set()
+
+    def _deny_action(self) -> None:
+        """Handle N key or Deny button click."""
+        self._tool_approved = False
+        self._hide_approval_bar()
+        if self._executor_pause_event:
+            self._executor_pause_event.set()
+
     def _show_spinner(self, text: str = "Thinking") -> None:
         self._hide_spinner()
         s = Spinner(text, classes="spinner")
@@ -572,14 +568,14 @@ class SagoApp(App):
 
     def _update_spinner(self, text: str) -> None:
         if self._spinner:
-            self._spinner.spin_text = text
+            self._spinner.text = text
             self._spinner.refresh()
 
     def _hide_spinner(self) -> None:
-        if hasattr(self, "_spinner_timer") and self._spinner_timer:
+        if self._spinner_timer:
             self._spinner_timer.stop()
             self._spinner_timer = None
-        if hasattr(self, "_spinner") and self._spinner:
+        if self._spinner:
             try:
                 self._spinner.remove()
             except Exception:
@@ -587,10 +583,11 @@ class SagoApp(App):
             self._spinner = None
 
     def _handle_command(self, command: str) -> None:
-        parts = command.strip().split(maxsplit=1)
-        cmd, args = parts[0].lower(), parts[1] if len(parts) > 1 else ""
+        parts = command.strip().split(None, 1)
+        cmd = parts[0].lower()
+        args = parts[1] if len(parts) > 1 else ""
 
-        h = {
+        handlers = {
             "/help": lambda: self._show_help(),
             "/agents": lambda: self._show_agents(args),
             "/agent": lambda: self._set_agent(args),
@@ -617,6 +614,7 @@ class SagoApp(App):
             "/commit": lambda: self._git_commit(args),
             "/approve": lambda: self._approve_action(),
             "/deny": lambda: self._deny_action(),
+            "/version": lambda: self._show_version(),
             "/yolo": lambda: self._toggle_yolo(),
             "/permissions": lambda: self._show_permissions(args),
             "/allow": lambda: self._allow_tool(args),
@@ -628,813 +626,37 @@ class SagoApp(App):
             "/plan": lambda: self._show_plan(args),
             "/undo": lambda: self._undo_change(),
             "/changes": lambda: self._show_changes(),
-            "/version": lambda: self._add_system_message("Sago v0.1.0"),
-            "/exit": lambda: self.exit(),
+            "/exit": lambda: self._exit_session(),
+            "/resume": lambda: self._list_sessions(),
         }
-        fn = h.get(cmd)
-        if fn:
-            fn()
+
+        if cmd in handlers:
+            handlers[cmd]()
         else:
-            self._add_system_message(f"Unknown: {cmd}")
+            self._add_system_message(f"Unknown: {cmd}\nType /help for commands")
 
-    def _show_help(self) -> None:
-        self._add_system_message(
-            "Commands:\n"
-            "\n"
-            "  /help             Show this help\n"
-            "  /agents [filter]  List agents\n"
-            "  /agent <name>     Set current agent\n"
-            "  /delegate <a> <t> Delegate task to specialist\n"
-            "  /chain <a1,a2> <t> Chain agents\n"
-            "  /orchestrate <t>  Auto-delegate to specialists\n"
-            "  /clear            Clear chat\n"
-            "  /status           System status\n"
-            "  /export           Export to markdown\n"
-            "  /sessions         List sessions\n"
-            "  /session <id>     Switch session\n"
-            "  /history          Chat history\n"
-            "  /model [name]     Change model\n"
-            "  /effort <level>   Set effort: low/medium/high/max\n"
-            "  /cost             Token usage and costs\n"
-            "  /compact          Summarize context\n"
-            "  /save [name]      Save session to file\n"
-            "  /load <name>      Load session from file\n"
-            "  /retry            Retry last message\n"
-            "  /reset            Reset session\n"
-            "  /git              Git status\n"
-            "  /diff [file]      Show diff\n"
-            "  /commit <msg>     Commit\n"
-            "  /approve          Approve action\n"
-            "  /deny             Deny action\n"
-            "  /permissions      Show tool permissions\n"
-            "  /allow <tool>     Allow a tool\n"
-            "  /block <tool>     Block a tool\n"
-            "  /plan             Show active task plan\n"
-            "  /todo             Show current todo\n"
-            "  /todos            Show all todos in plan\n"
-            "  /done [id]        Mark todo as done\n"
-            "  /ask <msg>        Ask for user input\n"
-            "  /exit             Quit"
-        )
+    def action_quit(self) -> None:
+        """Save session and exit."""
+        self._exit_session()
 
-    def _show_agents(self, f: str = "") -> None:
-        try:
-            from sago.agents.registry import list_agents
-
-            agents = list_agents()
-            if f:
-                filtered = [a for a in agents if f.lower() in a["name"].lower()]
-                lines = "\n".join(f"  {a['name']}" for a in filtered[:30])
-                self._add_system_message(f"Agents matching '{f}' ({len(filtered)}):\n{lines}")
-            else:
-                lines = "\n".join(f"  {a['name']}" for a in agents[:30])
-                self._add_system_message(
-                    f"Agents ({len(agents)} total, use /agents <filter>):\n{lines}"
-                )
-        except Exception as e:
-            self._add_system_message(f"Error: {e}")
-
-    def _set_agent(self, name: str) -> None:
-        if not name:
-            self._add_system_message(f"Current: {self.current_agent}\nUse /agents to see available")
-            return
-        from sago.agents.registry import get_agent
-
-        agent = get_agent(name)
-        if agent:
-            self.current_agent = name
-            self._add_system_message(f"Agent: {name} ({agent.role})")
-        else:
-            self._add_system_message(f"Unknown agent: {name}")
-
-    def _delegate_task(self, args: str) -> None:
-        parts = args.split(maxsplit=1)
-        if len(parts) < 2:
-            self._add_system_message("Usage: /delegate <agent-name> <task>")
-            return
-        agent_name, task = parts[0], parts[1]
-        self._add_user_message(f"/delegate {args}")
-        self._process_delegation(agent_name, task)
-
-    def _chain_agents(self, args: str) -> None:
-        parts = args.split(maxsplit=1)
-        if len(parts) < 2:
-            self._add_system_message("Usage: /chain <agent1,agent2,...> <task>")
-            return
-        agent_chain, task = parts[0], parts[1]
-        agents = [a.strip() for a in agent_chain.split(",")]
-        self._add_user_message(f"/chain {args}")
-        self._process_chain(agents, task)
-
-    def _orchestrate_task(self, task: str) -> None:
-        if not task:
-            self._add_system_message("Usage: /orchestrate <task>")
-            return
-        self._add_user_message(f"/orchestrate {task}")
-        self._process_orchestration(task)
-
-    def _show_status(self) -> None:
-        try:
-            from sago.agents.registry import list_agents
-
-            n = len(list_agents())
-        except Exception:
-            n = 0
-        sid = self.current_session_id[:8] if self.current_session_id else "none"
-        effort = EFFORT_LEVELS.get(self.current_effort, {})
-        yolo_status = "ON ⚠️" if self.yolo_mode else "off"
-        self._add_system_message(
-            f"Sago v0.1.0\n"
-            f"  Agent:    {self.current_agent}\n"
-            f"  Model:    {self.current_model}\n"
-            f"  Effort:   {self.current_effort} ({effort.get('desc', '')})\n"
-            f"  YOLO:     {yolo_status}\n"
-            f"  Session:  {sid}\n"
-            f"  Agents:   {n} available\n"
-            f"  Messages: {len(self.messages)}"
-        )
-
-    def _show_sessions(self) -> None:
-        try:
-            from sago.database import Session, init_db
-
-            init_db()
-            s = Session()
-            sessions = s.list_all(limit=15)
-            s.close()
-            if sessions:
-                lines = []
-                for ses in sessions:
-                    sid = ses["id"][:8]
-                    title = ses.get("title", "Untitled")[:30]
-                    date = ses.get("created_at", "?")[:10]
-                    lines.append(f"  {sid}  {title:<30} {date}")
-                self._add_system_message(
-                    "Sessions (use /session <id> to load):\n" + "\n".join(lines)
-                )
-            else:
-                self._add_system_message("No sessions")
-        except Exception as e:
-            self._add_system_message(f"Sessions: {e}")
-
-    def _switch_session(self, sid: str) -> None:
-        if not sid:
-            self._add_system_message("Usage: /session <id>")
-            return
-        try:
-            from sago.database import MessageStore, Session, init_db
-
-            init_db()
-            s = Session()
-            sessions = s.list_all(limit=100)
-            s.close()
-
-            matched = None
-            for ses in sessions:
-                if ses["id"] == sid or ses["id"].startswith(sid):
-                    matched = ses
-                    break
-
-            if not matched:
-                self._add_system_message(f"Not found: {sid}")
-                return
-
-            full_id = matched["id"]
-            self.current_session_id = full_id
-
-            ms = MessageStore(full_id)
-            history = ms.get_history(limit=100)
-            ms.close()
-
-            self.messages.clear()
-            self.query_one("#messages").remove_children()
-            self._add_system_message(
-                f"Loaded: {matched.get('title', 'Untitled')} [{full_id[:8]}] ({len(history)} msgs)"
-            )
-            for msg in history:
-                role = msg.get("role", "")
-                content = msg.get("content", "")
-                if role == "user":
-                    self.messages.append({"role": "user", "content": content})
-                    self.query_one("#messages").mount(Static(f"> {content}", classes="msg-user"))
-                elif role == "assistant":
-                    self.messages.append({"role": "assistant", "content": content})
-                    self.query_one("#messages").mount(Static(content, classes="msg-assistant"))
-            self.query_one("#messages").scroll_end()
-        except Exception as e:
-            self._add_system_message(f"Error: {e}")
-
-    def _show_history(self) -> None:
-        if self.messages:
-            lines = [
-                f"  [{m.get('role', '?')}] {m.get('content', '')[:50]}" for m in self.messages[-10:]
-            ]
-            self._add_system_message("History:\n" + "\n".join(lines))
-        else:
-            self._add_system_message("No history")
-
-    def _change_model(self, m: str) -> None:
-        if not m:
-            # Group models by provider
-            providers: dict[str, list[str]] = {}
-            for model in MODELS:
-                provider = model.split("/")[0]
-                if provider not in providers:
-                    providers[provider] = []
-                providers[provider].append(model)
-            
-            lines = [f"Current: {self.current_model}\n"]
-            for provider, models in providers.items():
-                lines.append(f"  [{provider}]")
-                for model in models:
-                    marker = " *" if model == self.current_model else "  "
-                    lines.append(f"    {marker} {model}")
-                lines.append("")
-            
-            self._add_system_message("\n".join(lines))
-            return
-        for model in MODELS:
-            if m.lower() in model.lower():
-                self.current_model = model
-                self._add_system_message(f"Model: {model}")
-                return
-        self._add_system_message(f"Unknown: {m}\nType /model to see all available models")
-
-    def _change_provider(self, p: str) -> None:
-        self.current_model = f"{p}/free" if "/" not in p else p
-        self._add_system_message(f"Provider: {self.current_model}")
-
-    def _set_effort(self, level: str) -> None:
-        if not level:
-            current = EFFORT_LEVELS.get(self.current_effort, {})
-            lines = [f"Current: {self.current_effort} - {current.get('desc', '')}"]
-            for k, v in EFFORT_LEVELS.items():
-                marker = " *" if k == self.current_effort else ""
-                lines.append(f"  {k:8} {v['desc']}{marker}")
-            self._add_system_message("\n".join(lines))
-            return
-
-        level = level.lower().strip()
-        if level in EFFORT_LEVELS:
-            self.current_effort = level
-            config = EFFORT_LEVELS[level]
-            self._add_system_message(
-                f"Effort: {level}\n"
-                f"  Max iterations: {config['max_iterations']}\n"
-                f"  Max tokens: {config['max_tokens']}\n"
-                f"  {config['desc']}"
-            )
-        else:
-            self._add_system_message(f"Unknown level: {level}\nUse: low, medium, high, max")
-
-    def _show_cost(self) -> None:
-        cost_config = MODEL_COSTS.get(
-            self.current_model, {"input": 0, "output": 0, "cache_hit": 0, "cache_miss": 0}
-        )
-
-        # Calculate costs with cache pricing
-        cache_hit_cost = (self.total_cache_hit_tokens / 1_000_000) * cost_config.get("cache_hit", 0)
-        cache_miss_cost = (self.total_cache_miss_tokens / 1_000_000) * cost_config.get(
-            "cache_miss", cost_config["input"]
-        )
-        output_cost = (self.total_output_tokens / 1_000_000) * cost_config["output"]
-        total = cache_hit_cost + cache_miss_cost + output_cost
-
-        # Cache savings
-        full_input_cost = (
-            (self.total_cache_hit_tokens + self.total_cache_miss_tokens) / 1_000_000
-        ) * cost_config["input"]
-        savings = full_input_cost - (cache_hit_cost + cache_miss_cost)
-        savings_pct = (savings / full_input_cost * 100) if full_input_cost > 0 else 0
-
-        total_input = self.total_cache_hit_tokens + self.total_cache_miss_tokens
-
-        lines = [
-            f"Token Usage ({self.current_model}):",
-            f"  Input:     {total_input:,} tokens",
-            f"    Cache hit:  {self.total_cache_hit_tokens:,} tokens (${cache_hit_cost:.4f})"
-            if self.total_cache_hit_tokens
-            else "",
-            f"    Cache miss: {self.total_cache_miss_tokens:,} tokens (${cache_miss_cost:.4f})"
-            if self.total_cache_miss_tokens
-            else "",
-            f"  Output:    {self.total_output_tokens:,} tokens (${output_cost:.4f})",
-            "  ─────────────────────────────",
-            f"  Total:     ${total:.4f}",
-        ]
-
-        if savings > 0:
-            lines.append(f"  Saved:     ${savings:.4f} ({savings_pct:.0f}% via cache)")
-
-        lines.append(f"  Messages:  {len(self.messages)}")
-
-        self._add_system_message("\n".join(line for line in lines if line))
-
-    def _compact(self) -> None:
-        if not self.messages:
-            self._add_system_message("Nothing to compact")
-            return
-
-        # Build summary of conversation
-        user_msgs = [m for m in self.messages if m.get("role") == "user"]
-        asst_msgs = [m for m in self.messages if m.get("role") == "assistant"]
-
-        summary_parts = []
-        for m in user_msgs[-5:]:
-            summary_parts.append(f"User: {m['content'][:100]}")
-        for m in asst_msgs[-3:]:
-            summary_parts.append(f"Assistant: {m['content'][:200]}")
-
-        summary = "\n".join(summary_parts)
-
-        # Keep only last few messages
-        self.messages = self.messages[-6:]
-
+    def action_clear_chat(self) -> None:
         self.query_one("#messages").remove_children()
-        self._add_system_message(f"[Context compacted - {len(user_msgs)} messages summarized]")
-        self._add_system_message(f"Recent context:\n{summary}")
-
-    def _retry_last(self) -> None:
-        user_msgs = [m for m in self.messages if m.get("role") == "user"]
-        if user_msgs:
-            last = user_msgs[-1]["content"]
-            self._process_message(last)
-        else:
-            self._add_system_message("Nothing to retry")
-
-    def _reset(self) -> None:
         self.messages.clear()
-        self.query_one("#messages").remove_children()
-        self.total_input_tokens = 0
-        self.total_output_tokens = 0
-        self.total_cache_hit_tokens = 0
-        self.total_cache_miss_tokens = 0
-        self.total_cost = 0.0
-        self._init_session()
-        self._add_system_message("Session reset")
-
-    def _save_session(self, name: str) -> None:
-        name = name.strip() or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        SAVE_DIR.mkdir(parents=True, exist_ok=True)
-        filepath = SAVE_DIR / f"{name}.json"
-
-        data = {
-            "name": name,
-            "created_at": datetime.now().isoformat(),
-            "model": self.current_model,
-            "effort": self.current_effort,
-            "agent": self.current_agent,
-            "messages": self.messages,
-            "tokens": {
-                "input": self.total_input_tokens,
-                "output": self.total_output_tokens,
-                "cache_hit": self.total_cache_hit_tokens,
-                "cache_miss": self.total_cache_miss_tokens,
-            },
-        }
-
-        filepath.write_text(json.dumps(data, indent=2))
-        self._add_system_message(f"Saved: {filepath}")
-
-    def _load_session(self, name: str) -> None:
-        if not name:
-            # List saved sessions
-            if SAVE_DIR.exists():
-                files = list(SAVE_DIR.glob("*.json"))
-                if files:
-                    lines = [f"  {f.stem}" for f in sorted(files)[-10:]]
-                    self._add_system_message(
-                        "Saved sessions (use /load <name>):\n" + "\n".join(lines)
-                    )
-                else:
-                    self._add_system_message("No saved sessions")
-            else:
-                self._add_system_message("No saved sessions")
-            return
-
-        filepath = SAVE_DIR / f"{name}.json"
-        if not filepath.exists():
-            self._add_system_message(f"Not found: {name}")
-            return
-
-        try:
-            data = json.loads(filepath.read_text())
-            self.messages = data.get("messages", [])
-            self.current_model = data.get("model", self.current_model)
-            self.current_effort = data.get("effort", self.current_effort)
-            self.current_agent = data.get("agent", self.current_agent)
-            tokens = data.get("tokens", {})
-            self.total_input_tokens = tokens.get("input", 0)
-            self.total_output_tokens = tokens.get("output", 0)
-            self.total_cache_hit_tokens = tokens.get("cache_hit", 0)
-            self.total_cache_miss_tokens = tokens.get("cache_miss", 0)
-
-            self.query_one("#messages").remove_children()
-            self._add_system_message(f"Loaded: {name}")
-            for msg in self.messages:
-                role = msg.get("role", "")
-                content = msg.get("content", "")
-                if role == "user":
-                    self.query_one("#messages").mount(Static(f"> {content}", classes="msg-user"))
-                elif role == "assistant":
-                    self.query_one("#messages").mount(Static(content, classes="msg-assistant"))
-            self.query_one("#messages").scroll_end()
-        except Exception as e:
-            self._add_system_message(f"Error loading: {e}")
-
-    def _export_session(self) -> None:
-        export = "\n".join(
-            f"[{m.get('role', '?').upper()}]\n{m.get('content', '')}\n" for m in self.messages
-        )
-        fn = f"sago_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
-        Path(fn).write_text(f"# Sago Session\n\n{export}")
-        self._add_system_message(f"Exported: {fn}")
-
-    def _git_status(self) -> None:
-        try:
-            r = subprocess.run(
-                ["git", "status", "--short"], capture_output=True, text=True, timeout=5
-            )
-            if r.returncode == 0:
-                files = r.stdout.strip()
-                self._add_system_message(f"Git changes:\n{files}" if files else "Git: clean")
-            else:
-                self._add_system_message("Not a git repo")
-        except Exception:
-            self._add_system_message("Git unavailable")
-
-    def _git_diff(self, file: str) -> None:
-        try:
-            args = ["git", "diff"]
-            if file:
-                args.extend(["--", file])
-            r = subprocess.run(args, capture_output=True, text=True, timeout=5)
-            if r.stdout:
-                self._add_assistant_message(f"```diff\n{r.stdout[:2000]}\n```")
-            else:
-                self._add_system_message("No changes")
-        except Exception:
-            self._add_system_message("Diff failed")
-
-    def _git_commit(self, msg: str) -> None:
-        if not msg:
-            self._add_system_message("Usage: /commit <message>")
-            return
-        self.pending_action = {"type": "git_commit", "message": msg}
-        self._show_approval_bar(f'Commit: "{msg}"?  Press [Y] Approve or [N] Deny')
-
-    def _approve_action(self) -> None:
-        import threading
-
-        self._hide_approval_bar()
-        action = self.pending_action
-        if not action:
-            # Check for pending orchestration plan
-            if hasattr(self, "pending_orchestration") and self.pending_orchestration:
-                plan = self.pending_orchestration.get("plan")
-                if plan:
-                    self.pending_orchestration = None
-                    self._execute_orchestration_plan(plan)
-                    return
-            # Check if executor is paused (waiting for user confirmation)
-            if self._executor_pause_event and isinstance(
-                self._executor_pause_event, threading.Event
-            ):
-                self._tool_approved = True  # Mark tool as approved
-                self._executor_pause_event.clear()  # Resume executor
-                self._add_system_message("Approved - continuing execution")
-                return
-            self._add_system_message("Nothing to approve")
-            return
-        if action["type"] == "git_commit":
-            try:
-                subprocess.run(["git", "add", "-A"], capture_output=True, timeout=5)
-                r = subprocess.run(
-                    ["git", "commit", "-m", action["message"]],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                self._add_system_message(f"Committed: {r.stdout.strip()[:100]}")
-            except Exception as e:
-                self._add_system_message(f"Failed: {e}")
-        elif action["type"] == "user_input":
-            plan_id = action.get("plan_id")
-            todo_id = action.get("todo_id")
-            if plan_id and todo_id:
-                from sago.tasks import get_task_manager
-
-                tm = get_task_manager()
-                user_input = action.get("input", "")
-                if user_input:
-                    tm.provide_input(plan_id, todo_id, user_input)
-                    self._add_system_message(f"Input provided for todo {todo_id}")
-        self.pending_action = {}
-
-    def _deny_action(self) -> None:
-        import threading
-
-        self._hide_approval_bar()
-        # Check for pending orchestration plan
-        if hasattr(self, "pending_orchestration") and self.pending_orchestration:
-            self.pending_orchestration = None
-            self._add_system_message("Orchestration plan denied")
-            return
-        # Check if executor is paused - resume with skip
-        if self._executor_pause_event and isinstance(self._executor_pause_event, threading.Event):
-            self._executor_pause_event.clear()  # Resume executor (it will skip the current step)
-            self._add_system_message("Skipped - continuing execution")
-            return
-        self.pending_action = {}
-        self._add_system_message("Denied")
-
-    def _toggle_yolo(self) -> None:
-        """Toggle YOLO mode - auto-approve all tool calls."""
-        self.yolo_mode = not self.yolo_mode
-        if self.yolo_mode:
-            self._add_system_message(
-                "YOLO MODE ON - All tools will be auto-approved without asking\n"
-                "⚠️  Use with caution! Type /yolo again to disable"
-            )
-        else:
-            self._add_system_message("YOLO MODE OFF - Permissions restored")
-
-    def _show_permissions(self, args: str) -> None:
-        from sago.permissions import TOOL_RISK_LEVELS, get_permission_manager
-
-        pm = get_permission_manager()
-
-        if args == "blocked":
-            if pm.config.blocked_tools:
-                lines = "\n".join(f"  - {t}" for t in pm.config.blocked_tools)
-                self._add_system_message(f"Blocked tools:\n{lines}")
-            else:
-                self._add_system_message("No blocked tools")
-        elif args == "allowed":
-            if pm.config.allowed_tools:
-                lines = "\n".join(f"  - {t}" for t in pm.config.allowed_tools)
-                self._add_system_message(f"Allowed tools:\n{lines}")
-            else:
-                self._add_system_message("No explicit allowed list (all tools available)")
-        else:
-            lines = []
-            for name, risk in sorted(TOOL_RISK_LEVELS.items()):
-                blocked = "BLOCKED" if pm.is_blocked(name) else "ok"
-                lines.append(f"  {name:<25} {risk.value:<10} {blocked}")
-            self._add_system_message("Tool permissions:\n" + "\n".join(lines))
-
-    def _allow_tool(self, tool_name: str) -> None:
-        if not tool_name:
-            self._add_system_message("Usage: /allow <tool_name>")
-            return
-        from sago.permissions import get_permission_manager
-
-        pm = get_permission_manager()
-        if tool_name in pm.config.blocked_tools:
-            pm.config.blocked_tools.remove(tool_name)
-            pm._save_config()
-            self._add_system_message(f"Unblocked: {tool_name}")
-        else:
-            self._add_system_message(f"Not blocked: {tool_name}")
-
-    def _block_tool(self, tool_name: str) -> None:
-        if not tool_name:
-            self._add_system_message("Usage: /block <tool_name>")
-            return
-        from sago.permissions import get_permission_manager
-
-        pm = get_permission_manager()
-        if tool_name not in pm.config.blocked_tools:
-            pm.config.blocked_tools.append(tool_name)
-            pm._save_config()
-            self._add_system_message(f"Blocked: {tool_name}")
-        else:
-            self._add_system_message(f"Already blocked: {tool_name}")
-
-    def _show_plan(self, args: str) -> None:
-        from sago.tasks import get_task_manager
-
-        tm = get_task_manager()
-        plan = tm.get_active_plan()
-        if plan:
-            self._add_system_message(tm.format_plan(plan))
-        else:
-            self._add_system_message("No active plan. Complex tasks auto-create plans.")
-
-    def _show_todo(self, args: str) -> None:
-        from sago.tasks import get_task_manager
-
-        tm = get_task_manager()
-        plan = tm.get_active_plan()
-        if not plan:
-            self._add_system_message("No active plan")
-            return
-        current = plan.current_todo
-        if current:
-            self._add_system_message(
-                f"Current todo [{current.id}]: {current.description}\n"
-                f"Status: {current.status.value}\n"
-                f"Use /done {current.id} when complete"
-            )
-        else:
-            self._add_system_message("All todos completed! ✅")
-
-    def _show_all_todos(self) -> None:
-        from sago.tasks import get_task_manager
-
-        tm = get_task_manager()
-        plan = tm.get_active_plan()
-        if not plan:
-            self._add_system_message("No active plan")
-            return
-        self._add_system_message(tm.format_plan(plan))
-
-    def _mark_todo_done(self, todo_id: str) -> None:
-        from sago.tasks import get_task_manager
-
-        tm = get_task_manager()
-        plan = tm.get_active_plan()
-        if not plan:
-            self._add_system_message("No active plan")
-            return
-        if not todo_id:
-            # Mark current todo as done
-            current = plan.current_todo
-            if current:
-                todo_id = current.id
-            else:
-                self._add_system_message("No pending todo to mark as done")
-                return
-        if tm.complete_todo(plan.id, todo_id, result="Completed by user"):
-            self._add_system_message(f"Todo {todo_id} marked as done ✅")
-            # Show next todo
-            next_todo = plan.current_todo
-            if next_todo:
-                self._add_system_message(f"Next: [{next_todo.id}] {next_todo.description}")
-            else:
-                self._add_system_message("All todos completed! 🎉")
-        else:
-            self._add_system_message(f"Todo {todo_id} not found")
-
-    def _ask_user(self, message: str) -> None:
-        if not message:
-            self._add_system_message("Usage: /ask <question for user>")
-            return
-        from sago.tasks import get_task_manager
-
-        tm = get_task_manager()
-        plan = tm.get_active_plan()
-        if plan:
-            current = plan.current_todo
-            if current:
-                tm.wait_for_input(plan.id, current.id, message)
-                self.pending_action = {
-                    "type": "user_input",
-                    "plan_id": plan.id,
-                    "todo_id": current.id,
-                }
-                self._show_approval_bar(f"Input needed: {message}")
-        else:
-            self._add_system_message(f"❓ {message}")
-
-    def _undo_change(self) -> None:
-        """Undo the last file change."""
-        from sago.memory.change_tracker import get_change_tracker
-
-        tracker = get_change_tracker()
-        undone_path = tracker.undo_last()
-        if undone_path:
-            self._add_system_message(f"Undid change to: {undone_path}")
-        else:
-            self._add_system_message("No changes to undo")
-
-    def _show_changes(self) -> None:
-        """Show all file changes this session."""
-        from sago.memory.change_tracker import get_change_tracker
-
-        tracker = get_change_tracker()
-        summary = tracker.get_diff_summary()
-        self._add_system_message(summary)
-
-    def _add_user_message(self, content: str) -> None:
-        self.messages.append({"role": "user", "content": content})
-        self.query_one("#messages").mount(Static(f"> {content}", classes="msg-user"))
-        self.query_one("#messages").scroll_end()
-        self._save_message("user", content)
-
-    def _add_assistant_message(self, content: str, meta: str = "") -> None:
-        self.messages.append({"role": "assistant", "content": content})
-        c = self.query_one("#messages")
-        if meta:
-            c.mount(Static(meta, classes="msg-meta"))
-        code_blocks = re.findall(r"```(\w+)?\n(.*?)```", content, re.DOTALL)
-        parts = re.split(r"```\w*\n.*?```", content, flags=re.DOTALL)
-        for i, part in enumerate(parts):
-            part = part.strip()
-            if part:
-                c.mount(Static(part, classes="msg-assistant"))
-            if i < len(code_blocks):
-                lang, code = code_blocks[i]
-                try:
-                    syntax = Syntax(code.strip(), lang or "text", theme="monokai", word_wrap=True)
-                    c.mount(Static(syntax, classes="code-block"))
-                except Exception:
-                    c.mount(Static(code.strip(), classes="code-block"))
-        c.scroll_end()
-        self._save_message("assistant", content)
-
-    def _add_system_message(self, content: str) -> None:
-        self.query_one("#messages").mount(Static(content, classes="msg-system"))
-        self.query_one("#messages").scroll_end()
-
-    def _add_tool_call(self, tool_name: str, args: dict, result: str, success: bool = True) -> None:
-        args_str = "\n".join(f"  {k}: {str(v)[:200]}" for k, v in args.items())
-        status = "OK" if success else "ERROR"
-        title = f"[{status}] {tool_name}"
-        body = f"Input:\n{args_str}\n\nOutput:\n{result[:1000]}"
-        if len(result) > 1000:
-            body += f"\n... ({len(result)} chars total)"
-
-        c = self.query_one("#messages")
-        c.mount(
-            Collapsible(
-                Static(body, classes="msg-system"),
-                title=title,
-                collapsed=True,
-            )
-        )
-        c.scroll_end()
-
-    def _add_summary(
-        self, tool_calls: list[dict], output: str, elapsed: float, tokens: dict
-    ) -> None:
-        n_tools = len(tool_calls)
-        n_ok = sum(1 for t in tool_calls if t.get("success", False))
-        n_fail = n_tools - n_ok
-        t_in = tokens.get("input", 0)
-        t_out = tokens.get("output", 0)
-        cache_hit = tokens.get("cache_hit", 0)
-        cache_miss = tokens.get("cache_miss", 0)
-
-        # Update totals
-        self.total_input_tokens += t_in
-        self.total_output_tokens += t_out
-        self.total_cache_hit_tokens += cache_hit
-        self.total_cache_miss_tokens += cache_miss
-
-        # Build summary line
-        parts = []
-        if n_tools > 0:
-            parts.append(f"{n_tools} tool{'s' if n_tools != 1 else ''} ({n_ok} ok, {n_fail} fail)")
-        if t_in > 0 or t_out > 0:
-            parts.append(f"{t_in:,}+{t_out:,} tokens")
-        if elapsed > 0:
-            parts.append(f"{elapsed:.1f}s")
-        
-        if not parts:
-            parts.append("Done")
-
-        lines = ["Summary: " + " | ".join(parts)]
-
-        if cache_hit > 0:
-            lines.append(f"Cache: {cache_hit:,} hit, {cache_miss:,} miss")
-
-        files = [
-            t["args"].get("file_path", "")
-            for t in tool_calls
-            if t.get("tool") == "write_file" and t.get("success", False)
-        ]
-        files = [f for f in files if f]
-        if files:
-            lines.append(f"Files: {', '.join(files)}")
-
-        box = Static("\n".join(lines), classes="summary-box")
-        self.query_one("#messages").mount(box)
-        self.query_one("#messages").scroll_end()
-
-    def _save_message(self, role: str, content: str) -> None:
-        if self.current_session_id and self.current_session_id != "local":
-            try:
-                from sago.database import MessageStore
-
-                ms = MessageStore(self.current_session_id)
-                ms.add(role=role, content=content, agent_name=self.current_agent)
-                ms.close()
-            except Exception:
-                pass
+        self._add_system_message("Cleared.")
 
     @work(thread=True)
     def _process_delegation(self, agent_name: str, task: str) -> None:
         self.is_thinking = True
         self.call_from_thread(self._show_spinner, f"Delegating to {agent_name}...")
         try:
-            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            api_key = os.environ.get(
+                "OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")
+            )
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
                 self.call_from_thread(
                     self._add_system_message,
-                    "No API key. Set OPENROUTER_API_KEY or OPENAI_API_KEY.\n"
-                    "You can still use Sago without agent delegation.",
+                    "No API key. Set OPENROUTER_API_KEY or OPENAI_API_KEY.",
                 )
                 return
 
@@ -1444,23 +666,17 @@ class SagoApp(App):
             result = tool.run(task=task, agent_name=agent_name)
 
             self.call_from_thread(self._hide_spinner)
-
-            # If agent spawning failed, offer fallback
             if "could not be spawned" in result or "Error:" in result:
                 self.call_from_thread(
                     self._add_system_message,
-                    f"{result}\n\n"
-                    f"Would you like to:\n"
-                    f"  1. Run the task directly (type the task again without /delegate)\n"
-                    f"  2. Try a different agent",
+                    f"{result}\n\nTry running the task directly.",
                 )
             else:
                 self.call_from_thread(self._add_assistant_message, result)
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(
-                self._add_system_message,
-                f"Delegation error: {e}\nTry running the task directly instead.",
+                self._add_system_message, f"Delegation error: {e}"
             )
         finally:
             self.is_thinking = False
@@ -1468,51 +684,67 @@ class SagoApp(App):
     @work(thread=True)
     def _process_chain(self, agents: list[str], task: str) -> None:
         self.is_thinking = True
-        self.call_from_thread(self._show_spinner, f"Chain: {' → '.join(agents)}")
+        self.call_from_thread(
+            self._show_spinner, f"Chain: {' → '.join(agents)}"
+        )
         try:
-            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            api_key = os.environ.get(
+                "OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")
+            )
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
-                self.call_from_thread(self._add_system_message, "No API key.")
+                self.call_from_thread(
+                    self._add_system_message, "No API key."
+                )
                 return
 
             from sago.tools.file.spawn_agent import SpawnAgentTool
 
             tool = SpawnAgentTool()
             current_input = task
-
             for i, agent in enumerate(agents):
-                self.call_from_thread(self._update_spinner, f"Step {i + 1}/{len(agents)}: {agent}")
+                self.call_from_thread(
+                    self._update_spinner, f"Step {i+1}/{len(agents)}: {agent}"
+                )
                 result = tool.run(task=current_input, agent_name=agent)
-                current_input = f"Previous agent ({agent}) said:\n\n{result}\n\nNow continue with the next step."
-
+                current_input = (
+                    f"Previous agent ({agent}) said:\n\n{result}\n\nNow continue."
+                )
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_assistant_message, current_input)
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_system_message, f"Chain error: {e}")
+            self.call_from_thread(
+                self._add_system_message, f"Chain error: {e}"
+            )
         finally:
             self.is_thinking = False
 
     @work(thread=True)
     def _process_orchestration(self, task: str) -> None:
         self.is_thinking = True
-        self.call_from_thread(self._show_spinner, "Analyzing task for delegation...")
+        self.call_from_thread(
+            self._show_spinner, "Analyzing task for delegation..."
+        )
         try:
-            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            api_key = os.environ.get(
+                "OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")
+            )
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
                 self.call_from_thread(
-                    self._add_system_message,
-                    "No API key. Set OPENROUTER_API_KEY or OPENAI_API_KEY.",
+                    self._add_system_message, "No API key."
                 )
                 return
 
             from openai import OpenAI
-
             from sago.agents.registry import list_agents
 
-            client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=30.0)
+            client = OpenAI(
+                api_key=api_key,
+                base_url="https://openrouter.ai/api/v1",
+                timeout=30.0,
+            )
             agents = list_agents()
             agent_list_str = "\n".join(
                 [
@@ -1542,14 +774,11 @@ class SagoApp(App):
                 self.call_from_thread(self._hide_spinner)
                 self.call_from_thread(
                     self._add_system_message,
-                    f"Failed to create orchestration plan: {api_err}\n"
-                    f"Try running the task directly instead of using /orchestrate.",
+                    f"Failed to create plan: {api_err}",
                 )
                 return
 
             plan_text = response.choices[0].message.content or "[]"
-            import json
-
             try:
                 json_match = re.search(r"\[.*\]", plan_text, re.DOTALL)
                 if json_match:
@@ -1564,8 +793,10 @@ class SagoApp(App):
             for i, step in enumerate(plan):
                 agent = step.get("agent", "python-engineer")
                 step_task = step.get("task", "")[:80]
-                plan_lines.append(f"  {i + 1}. {agent}: {step_task}")
-            plan_summary = f"Orchestration plan ({len(plan)} steps):\n" + "\n".join(plan_lines)
+                plan_lines.append(f"  {i+1}. {agent}: {step_task}")
+            plan_summary = (
+                f"Orchestration plan ({len(plan)} steps):\n" + "\n".join(plan_lines)
+            )
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_system_message, plan_summary)
 
@@ -1578,44 +809,43 @@ class SagoApp(App):
 
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_system_message, f"Orchestration error: {e}")
+            self.call_from_thread(
+                self._add_system_message, f"Orchestration error: {e}"
+            )
         finally:
             self.is_thinking = False
 
     def _execute_orchestration_plan(self, plan: list[dict]) -> None:
         """Execute an approved orchestration plan."""
         self.is_thinking = True
-        self.call_from_thread(self._show_spinner, f"Executing {len(plan)} steps...")
+        self.call_from_thread(
+            self._show_spinner, f"Executing {len(plan)} steps..."
+        )
         try:
             from sago.tools.file.spawn_agent import SpawnAgentTool
 
             tool = SpawnAgentTool()
             results = []
-            failed_steps = []
-
             for i, step in enumerate(plan):
                 agent = step.get("agent", "python-engineer")
                 step_task = step.get("task", "")
-                self.call_from_thread(self._update_spinner, f"Step {i + 1}/{len(plan)}: {agent}")
+                self.call_from_thread(
+                    self._update_spinner, f"Step {i+1}/{len(plan)}: {agent}"
+                )
                 result = tool.run(task=step_task, agent_name=agent)
-
-                # Check if step failed
-                if result.startswith("Agent '") and "could not be spawned" in result:
-                    failed_steps.append((i + 1, agent, result))
-                    results.append(f"**{agent}** (FAILED): {result[:300]}")
-                else:
-                    results.append(f"**{agent}**: {result[:500]}")
+                results.append(f"**{agent}**: {result[:500]}")
 
             self.call_from_thread(self._hide_spinner)
-
-            # Show results with failure summary
-            final = f"Orchestration complete ({len(plan)} steps):\n\n" + "\n\n".join(results)
-            if failed_steps:
-                final += f"\n\n**{len(failed_steps)} step(s) failed** — you can retry those steps or run the task directly."
+            final = (
+                f"Orchestration complete ({len(plan)} steps):\n\n"
+                + "\n\n".join(results)
+            )
             self.call_from_thread(self._add_assistant_message, final)
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_system_message, f"Execution error: {e}")
+            self.call_from_thread(
+                self._add_system_message, f"Execution error: {e}"
+            )
         finally:
             self.is_thinking = False
 
@@ -1624,35 +854,34 @@ class SagoApp(App):
         self.is_thinking = True
         self.call_from_thread(self._show_spinner)
         try:
-            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
-            if not api_key:
-                self.call_from_thread(self._hide_spinner)
-                self.call_from_thread(self._add_system_message, "No API key.")
-                return
-
-            effort = EFFORT_LEVELS.get(self.current_effort, EFFORT_LEVELS["medium"])
+            effort = EFFORT_LEVELS.get(
+                self.current_effort, EFFORT_LEVELS["medium"]
+            )
 
             def on_tool(name, args):
-                args_str = ", ".join(f"{k}={str(v)[:30]}" for k, v in list(args.items())[:3])
-                self.call_from_thread(self._update_spinner, f"Running: {name}({args_str})")
+                args_str = ", ".join(
+                    f"{k}={str(v)[:30]}" for k, v in list(args.items())[:3]
+                )
+                self.call_from_thread(
+                    self._update_spinner, f"Running: {name}({args_str})"
+                )
 
             def on_tool_result(name, args, result, success):
-                self.call_from_thread(self._add_tool_call, name, args, result, success)
+                self.call_from_thread(
+                    self._add_tool_call, name, args, result, success
+                )
 
             def on_thinking(text):
                 self.call_from_thread(self._update_spinner, text)
 
             # Try streaming first
             try:
-                import json
-                import threading
-                import time as _time
-
-                from openai import OpenAI
+                from sago.llm.tui_providers import get_tui_client
 
                 from sago.engine.simple_executor import (
-                    _TOOL_DESCRIPTIONS,
                     PROMPTS,
+                    _TOOL_DESCRIPTIONS,
+                    _detect_project_context,
                     _detect_task_type,
                     _discover_tools,
                     _extract_tool_calls,
@@ -1663,18 +892,25 @@ class SagoApp(App):
                 )
 
                 tools = _discover_tools()
-                client = OpenAI(
-                    api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=90.0
-                )
+
+                # Get provider client (handles google, openai, openrouter, etc.)
+                try:
+                    client, api_model = get_tui_client(
+                        self.current_provider, self.current_model
+                    )
+                    use_native_gemini = self.current_provider == "google"
+                    gemini_client = client if use_native_gemini else None
+                except ValueError as e:
+                    self.call_from_thread(self._hide_spinner)
+                    self.call_from_thread(self._add_system_message, str(e))
+                    return
+
                 start_time = _time.time()
 
-                # Detect project context (languages, frameworks)
-                from sago.engine.simple_executor import _detect_project_context
-
+                # Detect project context
                 project_context = _detect_project_context()
                 project_ctx = _get_context()
 
-                # Enrich context with detected info
                 if project_context["languages"]:
                     project_ctx += (
                         f"\nDetected languages: {', '.join(project_context['languages'])}"
@@ -1690,12 +926,16 @@ class SagoApp(App):
                     from sago.learning import get_learning_store
 
                     ls = get_learning_store()
-                    learning_suggestion = ls.suggest_approach("general", list(tools.keys()))
+                    learning_suggestion = ls.suggest_approach(
+                        "general", list(tools.keys())
+                    )
                 except Exception:
                     pass
 
                 # Load profile and build prompt
-                profile = _load_agent_profile(self.current_agent.replace("-", " ").title())
+                profile = _load_agent_profile(
+                    self.current_agent.replace("-", " ").title()
+                )
                 task_type = _detect_task_type(message)
                 template = PROMPTS.get(task_type, PROMPTS["create"])
                 system_prompt = template.format(
@@ -1717,9 +957,11 @@ class SagoApp(App):
                         f"Consider using a similar approach, but adapt to the current context."
                     )
 
-                # Inject project instructions (CLAUDE.md / .sago/instructions.md)
+                # Inject project instructions
                 try:
-                    from sago.memory.project_instructions import get_project_instructions
+                    from sago.memory.project_instructions import (
+                        get_project_instructions,
+                    )
 
                     pi = get_project_instructions()
                     instructions_prompt = pi.get_for_prompt()
@@ -1728,20 +970,12 @@ class SagoApp(App):
                 except Exception:
                     pass
 
-                # Inject framework context
-                if project_context["frameworks"]:
-                    system_prompt += (
-                        f"\n\n=== EXISTING PROJECT DETECTED ===\n"
-                        f"This project uses: {', '.join(project_context['frameworks'])}\n"
-                        f"Match the existing style and conventions."
-                    )
-
-                # === TODO SYSTEM: Auto-create plan for complex tasks ===
+                # TODO system
                 task_plan = None
                 current_todo_index = 0
                 todo_tool_counts: dict[str, int] = {}
 
-                if _is_complex_task(message) and api_key:
+                if _is_complex_task(message):
                     try:
                         from sago.tasks import TaskStatus, get_task_manager
 
@@ -1750,7 +984,6 @@ class SagoApp(App):
                             message, client, self.current_model, _TOOL_DESCRIPTIONS
                         )
                         task_plan = tm.create_plan(goal=message, todos=steps)
-                        # Mark todos that need confirmation
                         confirm_keywords = [
                             "confirm",
                             "approve",
@@ -1760,16 +993,21 @@ class SagoApp(App):
                             "validate",
                         ]
                         for todo in task_plan.todos:
-                            if any(kw in todo.description.lower() for kw in confirm_keywords):
+                            if any(
+                                kw in todo.description.lower()
+                                for kw in confirm_keywords
+                            ):
                                 todo.requires_confirmation = True
-                                todo.confirmation_message = f"Please confirm: {todo.description}"
-                        # Show plan in TUI
+                                todo.confirmation_message = (
+                                    f"Please confirm: {todo.description}"
+                                )
                         self.call_from_thread(
                             self._add_system_message,
                             f"📋 Created plan with {len(task_plan.todos)} steps:",
                         )
-                        self.call_from_thread(self._add_system_message, tm.format_plan(task_plan))
-                        # Start first todo
+                        self.call_from_thread(
+                            self._add_system_message, tm.format_plan(task_plan)
+                        )
                         if task_plan.todos:
                             tm.start_todo(task_plan.id, task_plan.todos[0].id)
                             self.call_from_thread(
@@ -1778,7 +1016,6 @@ class SagoApp(App):
                             )
                     except Exception:
                         task_plan = None
-                # === END TODO SYSTEM ===
 
                 messages = [
                     {"role": "system", "content": system_prompt},
@@ -1794,7 +1031,7 @@ class SagoApp(App):
                 failed_calls: set[str] = set()
 
                 for iteration in range(effort["max_iterations"]):
-                    # Update spinner with todo progress
+                    # Update spinner
                     todo_info = ""
                     if task_plan and current_todo_index < len(task_plan.todos):
                         todo = task_plan.todos[current_todo_index]
@@ -1804,49 +1041,97 @@ class SagoApp(App):
                         f"Step {iteration + 1}/{effort['max_iterations']}{todo_info}...",
                     )
 
-                    stream = client.chat.completions.create(
-                        model=self.current_model,
-                        messages=messages,
-                        max_tokens=effort["max_tokens"],
-                        temperature=0.3,
-                        stream=True,
-                        stream_options={"include_usage": True},
-                    )
-
-                    content = ""
-                    for chunk in stream:
-                        # Get usage from final chunk
-                        if hasattr(chunk, "usage") and chunk.usage:
-                            total_tokens_in = chunk.usage.prompt_tokens or 0
-                            total_tokens_out = chunk.usage.completion_tokens or 0
-                        if chunk.choices and chunk.choices[0].delta.content:
-                            token = chunk.choices[0].delta.content
-                            content += token
-
-                    # Handle empty content from streaming
-                    if not content:
-                        # Try non-streaming fallback for this iteration
-                        try:
-                            fallback = client.chat.completions.create(
-                                model=self.current_model,
-                                messages=messages,
-                                max_tokens=effort["max_tokens"],
+                    # Call LLM — native Gemini or OpenAI-compatible
+                    if use_native_gemini:
+                        # Convert messages to Google format
+                        sys_msg = ""
+                        contents = []
+                        for msg in messages:
+                            if msg["role"] == "system":
+                                sys_msg = msg["content"]
+                            elif msg["role"] in ("user", "assistant"):
+                                contents.append(msg["content"])
+                        if not contents:
+                            contents = ["Hello"]
+                        from google.genai import types as google_types
+                        response = gemini_client.models.generate_content(
+                            model=api_model,
+                            contents=contents,
+                            config=google_types.GenerateContentConfig(
+                                system_instruction=sys_msg or None,
+                                max_output_tokens=effort["max_tokens"],
                                 temperature=0.3,
-                            )
-                            content = fallback.choices[0].message.content or ""
-                            if not content and hasattr(fallback.choices[0].message, "reasoning"):
-                                content = fallback.choices[0].message.reasoning or ""
-                        except Exception:
-                            pass
+                            ),
+                        )
+                        content = response.text or ""
+                    else:
+                        stream = client.chat.completions.create(
+                            model=api_model,
+                            messages=messages,
+                            max_tokens=effort["max_tokens"],
+                            temperature=0.3,
+                            stream=True,
+                            stream_options={"include_usage": True},
+                        )
 
-                    # Final fallback - show error instead of empty
+                        content = ""
+                        for chunk in stream:
+                            if hasattr(chunk, "usage") and chunk.usage:
+                                total_tokens_in = chunk.usage.prompt_tokens or 0
+                                total_tokens_out = chunk.usage.completion_tokens or 0
+                            if chunk.choices and chunk.choices[0].delta.content:
+                                token = chunk.choices[0].delta.content
+                                content += token
+
+                    # Handle empty content
+                    if not content:
+                        if use_native_gemini:
+                            try:
+                                sys_msg = ""
+                                contents = []
+                                for msg in messages:
+                                    if msg["role"] == "system":
+                                        sys_msg = msg["content"]
+                                    elif msg["role"] in ("user", "assistant"):
+                                        contents.append(msg["content"])
+                                if not contents:
+                                    contents = ["Hello"]
+                                from google.genai import types as google_types
+                                response = gemini_client.models.generate_content(
+                                    model=api_model,
+                                    contents=contents,
+                                    config=google_types.GenerateContentConfig(
+                                        system_instruction=sys_msg or None,
+                                        max_output_tokens=effort["max_tokens"],
+                                        temperature=0.3,
+                                    ),
+                                )
+                                content = response.text or ""
+                            except Exception:
+                                pass
+                        else:
+                            try:
+                                fallback = client.chat.completions.create(
+                                    model=api_model,
+                                    messages=messages,
+                                    max_tokens=effort["max_tokens"],
+                                    temperature=0.3,
+                                )
+                                content = fallback.choices[0].message.content or ""
+                            except Exception:
+                                pass
+
                     if not content or content.strip() == "":
                         if iteration < effort["max_iterations"] - 1:
-                            messages.append({"role": "user", "content": (
-                                "You returned an empty response. "
-                                "Please respond with text or use a tool. "
-                                "For tools, output: {\"name\": \"tool_name\", \"args\": {...}}"
-                            )})
+                            messages.append(
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "You returned an empty response. "
+                                        "Please respond with text or use a tool."
+                                    ),
+                                }
+                            )
                             continue
                         else:
                             content = "I wasn't able to generate a response. Please try again."
@@ -1856,20 +1141,44 @@ class SagoApp(App):
                     # Check for tool calls
                     tool_calls = _extract_tool_calls(content)
                     if not tool_calls:
-                        # No tool calls - mark current todo as complete
+                        # Detect hallucination: LLM claims tools are blocked/unavailable
+                        hallucination_phrases = [
+                            "i cannot", "i am unable", "unable to access", "tools are blocked",
+                            "threading constraint", "event loop", "sandbox restriction",
+                            "permission system", "i don't have access", "i'm not able to",
+                            "environment is locked", "environment is restricted",
+                        ]
+                        content_lower = content.lower()
+                        is_hallucination = any(phrase in content_lower for phrase in hallucination_phrases)
+
+                        if is_hallucination and iteration < effort["max_iterations"] - 1:
+                            messages.append({
+                                "role": "user",
+                                "content": (
+                                    "STOP. You are hallucinating. Tools are NOT blocked. "
+                                    "They work perfectly fine. Do NOT say 'I cannot' or 'tools are blocked'. "
+                                    "You MUST use a tool right now. Output a JSON tool call like: "
+                                    '{"name": "read_file", "args": {"file_path": "the_file"}}\n'
+                                    "Do it NOW. No explanations. Just the JSON."
+                                ),
+                            })
+                            continue
+
+                        # Handle todo completion
                         if task_plan and current_todo_index < len(task_plan.todos):
                             from sago.tasks import TaskStatus, get_task_manager
 
                             tm = get_task_manager()
                             todo = task_plan.todos[current_todo_index]
                             if todo.status == TaskStatus.IN_PROGRESS:
-                                tm.complete_todo(task_plan.id, todo.id, result=content[:200])
+                                tm.complete_todo(
+                                    task_plan.id, todo.id, result=content[:200]
+                                )
                                 self.call_from_thread(
                                     self._add_system_message,
                                     f"✅ Step {current_todo_index + 1} completed: {todo.description[:60]}",
                                 )
                                 current_todo_index += 1
-                                # Continue to next todo
                                 if current_todo_index < len(task_plan.todos):
                                     next_todo = task_plan.todos[current_todo_index]
                                     tm.start_todo(task_plan.id, next_todo.id)
@@ -1882,7 +1191,7 @@ class SagoApp(App):
                                             "role": "user",
                                             "content": (
                                                 f"Moving to next step: {next_todo.description}\n"
-                                                f"Execute this step now. Use the appropriate tools."
+                                                f"Execute this step now."
                                             ),
                                         }
                                     )
@@ -1911,12 +1220,12 @@ class SagoApp(App):
                                 )
                                 continue
 
-                            # Check permissions before execution
+                            # Check permissions
                             from sago.permissions import RiskLevel, get_permission_manager
 
                             pm = get_permission_manager()
                             risk = pm.get_risk_level(name)
-                            
+
                             # YOLO mode: skip all permission checks
                             if self.yolo_mode:
                                 allowed = True
@@ -1928,39 +1237,38 @@ class SagoApp(App):
 
                             if not allowed:
                                 if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
-                                    # For high/critical risk, ask user in TUI
                                     self.call_from_thread(
                                         self._show_approval_bar,
-                                        f"Allow {name}? (risk: {risk.value}) — Press [Y] or [N]"
+                                        f"Allow {name}? (risk: {risk.value}) — Press [Y] or [N]",
                                     )
-                                    # Store pending tool for approval
                                     pause_event = threading.Event()
-                                    pause_event.set()  # Start paused
+                                    # DO NOT set() here — wait for user to press Y/N
                                     self._executor_pause_event = pause_event
                                     self._pending_tool_approval = {
                                         "name": name,
                                         "args": args,
                                         "results_for_llm": results_for_llm,
                                     }
-                                    pause_event.wait()  # Block until user responds
+                                    pause_event.wait()  # Blocks until user approves/denies
                                     self._executor_pause_event = None
                                     self._pending_tool_approval = None
-                                    # Check if approved (resume with allow flag)
-                                    if hasattr(self, '_tool_approved') and self._tool_approved:
+                                    if self._tool_approved:
                                         self._tool_approved = False
-                                        # Continue to execute
                                     else:
                                         results_for_llm.append(
                                             f"Permission denied: {name} requires approval"
                                         )
                                         continue
                                 else:
-                                    results_for_llm.append(f"Permission denied: {reason}")
+                                    results_for_llm.append(
+                                        f"Permission denied: {reason}"
+                                    )
                                     continue
 
-                            # No hard limits - let LLM self-regulate
-                            # But detect circular behavior and warn
-                            tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
+                            # Detect circular behavior
+                            tool_call_counts[name] = (
+                                tool_call_counts.get(name, 0) + 1
+                            )
                             recent_calls = [
                                 f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}"
                                 for c in tool_history[-5:]
@@ -1969,8 +1277,7 @@ class SagoApp(App):
                                 unique_recent = set(recent_calls[-3:])
                                 if len(unique_recent) == 1:
                                     results_for_llm.append(
-                                        f"[HINT] You've called {name} with similar args 3 times in a row. "
-                                        f"If this isn't working, try a completely different approach or finish the task."
+                                        f"[HINT] You've called {name} with similar args 3 times. Try a different approach."
                                     )
 
                             self.call_from_thread(on_tool, name, args)
@@ -1978,10 +1285,7 @@ class SagoApp(App):
                             result = tool_instance.run(**args)
                             result_str = str(result)[:4000]
 
-                            is_error = (
-                                result_str.lower().startswith("error")
-                                or "traceback" in result_str.lower()
-                            )
+                            is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
                             if is_error:
                                 failed_calls.add(call_key)
 
@@ -1998,16 +1302,20 @@ class SagoApp(App):
                                     "success": not is_error,
                                 }
                             )
-
                             tools_used_in_iteration.append(name)
 
-                            # Show tool call immediately in UI
                             self.call_from_thread(
-                                on_tool_result, name, args, result_str[:1000], not is_error
+                                on_tool_result,
+                                name,
+                                args,
+                                result_str[:1000],
+                                not is_error,
                             )
 
                             display = (
-                                result_str[:1500] + "..." if len(result_str) > 1500 else result_str
+                                result_str[:1500] + "..."
+                                if len(result_str) > 1500
+                                else result_str
                             )
                             results_for_llm.append(
                                 f"[{'ERROR' if is_error else 'OK'}] {name}:\n{display}"
@@ -2018,52 +1326,44 @@ class SagoApp(App):
                         except Exception as e:
                             results_for_llm.append(f"Tool error: {e}")
 
-                    # === TODO SYSTEM: Update progress ===
+                    # TODO progress
                     if task_plan:
                         try:
                             from sago.tasks import TaskStatus, get_task_manager
 
                             tm = get_task_manager()
-
                             if current_todo_index < len(task_plan.todos):
                                 todo = task_plan.todos[current_todo_index]
-
-                                # Track tools for this todo
                                 if todo.id not in todo_tool_counts:
                                     todo_tool_counts[todo.id] = 0
-                                todo_tool_counts[todo.id] += len(tools_used_in_iteration)
+                                todo_tool_counts[todo.id] += len(
+                                    tools_used_in_iteration
+                                )
 
-                                # Check if todo needs confirmation before proceeding
                                 if (
                                     todo.requires_confirmation
                                     and todo.status == TaskStatus.IN_PROGRESS
                                 ):
                                     self.call_from_thread(
-                                        self._add_system_message,
-                                        f"⏳ Waiting for confirmation: {todo.confirmation_message or todo.description}",
+                                        self._show_approval_bar,
+                                        f"Confirm: {todo.confirmation_message or todo.description}",
                                     )
-                                    # Set up pause event and wait
                                     pause_event = threading.Event()
-                                    pause_event.set()  # Start paused
+                                    # DO NOT set() here — wait for user
                                     self._executor_pause_event = pause_event
-                                    self.call_from_thread(self._hide_spinner)
-                                    self.call_from_thread(
-                                        self._add_system_message,
-                                        "Type /approve to continue or /deny to skip this step",
-                                    )
-                                    pause_event.wait()  # Block until user responds
+                                    pause_event.wait()  # Blocks until user approves/denies
                                     self._executor_pause_event = None
-                                    self.call_from_thread(self._show_spinner)
 
-                                # Auto-complete todo after sufficient work
                                 successful_tools = [
                                     t["tool"]
                                     for t in tool_history
-                                    if t.get("success") and t["tool"] in tools_used_in_iteration
+                                    if t.get("success")
+                                    and t["tool"] in tools_used_in_iteration
                                 ]
                                 tools_for_todo = todo_tool_counts.get(todo.id, 0)
                                 if (tools_for_todo >= 3 and len(successful_tools) >= 2) or (
-                                    tools_for_todo >= 2 and len(tools_used_in_iteration) >= 1
+                                    tools_for_todo >= 2
+                                    and len(tools_used_in_iteration) >= 1
                                 ):
                                     tm.complete_todo(
                                         task_plan.id,
@@ -2075,17 +1375,17 @@ class SagoApp(App):
                                         f"✅ Step {current_todo_index + 1} completed: {todo.description[:60]}",
                                     )
                                     current_todo_index += 1
-
                                     if current_todo_index < len(task_plan.todos):
-                                        next_todo = task_plan.todos[current_todo_index]
+                                        next_todo = task_plan.todos[
+                                            current_todo_index
+                                        ]
                                         tm.start_todo(task_plan.id, next_todo.id)
                                         self.call_from_thread(
                                             self._update_spinner,
                                             f"Step {current_todo_index + 1}/{len(task_plan.todos)}: {next_todo.description[:50]}",
                                         )
                                         results_for_llm.append(
-                                            f"\n[PROGRESS] Step completed. Next step: {next_todo.description}\n"
-                                            f"Execute this step now."
+                                            f"\n[PROGRESS] Step completed. Next step: {next_todo.description}\nExecute this step now."
                                         )
                                     else:
                                         results_for_llm.append(
@@ -2093,30 +1393,35 @@ class SagoApp(App):
                                         )
                         except Exception:
                             pass
-                    # === END TODO SYSTEM ===
 
                     combined = "\n\n".join(results_for_llm)
                     messages.append({"role": "user", "content": combined})
+                    continue  # Loop back for next LLM call with tool results
 
-                # === POST-EXECUTION: Test → Fix → Retry loop ===
+                # Post-execution: test → fix → retry
                 if files_created:
-                    self.call_from_thread(self._update_spinner, "Running tests...")
-                    from sago.engine.simple_executor import _auto_install_deps, _run_tests_if_exist
+                    self.call_from_thread(
+                        self._update_spinner, "Running tests..."
+                    )
+                    from sago.engine.simple_executor import (
+                        _auto_install_deps,
+                        _run_tests_if_exist,
+                    )
 
-                    # Auto-install dependencies
                     _auto_install_deps(files_created)
-
                     test_fix_attempts = 0
                     max_test_fix_attempts = 3
 
                     while test_fix_attempts < max_test_fix_attempts:
                         test_result = _run_tests_if_exist(files_created, tools)
                         if test_result is None:
-                            break  # No tests found
+                            break
 
                         test_passed, test_output = test_result
                         if test_passed:
-                            self.call_from_thread(self._add_system_message, "✅ All tests passed!")
+                            self.call_from_thread(
+                                self._add_system_message, "✅ All tests passed!"
+                            )
                             break
 
                         test_fix_attempts += 1
@@ -2132,34 +1437,55 @@ class SagoApp(App):
                             f"Tests failed (attempt {test_fix_attempts}/{max_test_fix_attempts}), fixing...",
                         )
 
-                        # Feed test errors back to LLM for fixing
                         try:
-                            fix_stream = client.chat.completions.create(
-                                model=self.current_model,
-                                messages=messages
-                                + [
-                                    {
-                                        "role": "user",
-                                        "content": (
-                                            f"The tests are failing. Fix the failing tests.\n\n"
-                                            f"Test output:\n{test_output[:3000]}\n\n"
-                                            f"Files you created: {', '.join(files_created)}\n"
-                                            f"Fix the issues and make the tests pass. Use edit_file or write_file to fix."
-                                        ),
-                                    },
-                                ],
-                                max_tokens=effort["max_tokens"],
-                                temperature=0.3,
-                                stream=True,
-                                stream_options={"include_usage": True},
-                            )
-                            fix_content = ""
-                            for chunk in fix_stream:
-                                if chunk.choices and chunk.choices[0].delta.content:
-                                    fix_content += chunk.choices[0].delta.content
+                            fix_msgs = messages + [
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"The tests are failing. Fix them.\n\n"
+                                        f"Test output:\n{test_output[:3000]}\n\n"
+                                        f"Files: {', '.join(files_created)}\n"
+                                        f"Fix the issues. Use edit_file or write_file."
+                                    ),
+                                },
+                            ]
+                            if use_native_gemini:
+                                sys_msg = ""
+                                contents = []
+                                for msg in fix_msgs:
+                                    if msg["role"] == "system":
+                                        sys_msg = msg["content"]
+                                    elif msg["role"] in ("user", "assistant"):
+                                        contents.append(msg["content"])
+                                from google.genai import types as google_types
+                                fix_response = gemini_client.models.generate_content(
+                                    model=api_model,
+                                    contents=contents,
+                                    config=google_types.GenerateContentConfig(
+                                        system_instruction=sys_msg or None,
+                                        max_output_tokens=effort["max_tokens"],
+                                        temperature=0.3,
+                                    ),
+                                )
+                                fix_content = fix_response.text or ""
+                            else:
+                                fix_stream = client.chat.completions.create(
+                                    model=api_model,
+                                    messages=fix_msgs,
+                                    max_tokens=effort["max_tokens"],
+                                    temperature=0.3,
+                                    stream=True,
+                                    stream_options={"include_usage": True},
+                                )
+                                fix_content = ""
+                                for chunk in fix_stream:
+                                    if chunk.choices and chunk.choices[0].delta.content:
+                                        fix_content += chunk.choices[0].delta.content
 
                             if fix_content:
-                                messages.append({"role": "assistant", "content": fix_content})
+                                messages.append(
+                                    {"role": "assistant", "content": fix_content}
+                                )
                                 fix_tool_calls = _extract_tool_calls(fix_content)
                                 for call_str in fix_tool_calls:
                                     try:
@@ -2187,7 +1513,6 @@ class SagoApp(App):
                                         pass
                         except Exception:
                             break
-                # === END TEST → FIX LOOP ===
 
                 # Final todo cleanup
                 if task_plan:
@@ -2195,20 +1520,29 @@ class SagoApp(App):
                         from sago.tasks import TaskStatus, get_task_manager
 
                         tm = get_task_manager()
-                        for idx in range(current_todo_index, len(task_plan.todos)):
+                        for idx in range(
+                            current_todo_index, len(task_plan.todos)
+                        ):
                             todo = task_plan.todos[idx]
-                            if todo.status in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS):
-                                tm.complete_todo(task_plan.id, todo.id, result="Task completed")
-                        self.call_from_thread(self._add_system_message, tm.format_plan(task_plan))
+                            if todo.status in (
+                                TaskStatus.PENDING,
+                                TaskStatus.IN_PROGRESS,
+                            ):
+                                tm.complete_todo(
+                                    task_plan.id,
+                                    todo.id,
+                                    result="Task completed",
+                                )
+                        self.call_from_thread(
+                            self._add_system_message, tm.format_plan(task_plan)
+                        )
                     except Exception:
                         pass
 
                 elapsed = _time.time() - start_time
-
                 self.call_from_thread(self._hide_spinner)
 
-                # Tool calls already shown live via on_tool_result callback
-                # Just show the summary
+                # Show summary
                 self.call_from_thread(
                     self._add_summary,
                     tool_history,
@@ -2217,7 +1551,7 @@ class SagoApp(App):
                     {"input": total_tokens_in, "output": total_tokens_out},
                 )
 
-                # Show change summary if files were modified
+                # Show change summary
                 if files_created:
                     try:
                         from sago.memory.change_tracker import get_change_tracker
@@ -2225,7 +1559,10 @@ class SagoApp(App):
                         tracker = get_change_tracker()
                         change_summary = tracker.get_diff_summary()
                         if change_summary and "No changes" not in change_summary:
-                            self.call_from_thread(self._add_system_message, f"📝 {change_summary}")
+                            self.call_from_thread(
+                                self._add_system_message,
+                                f"📝 {change_summary}",
+                            )
                     except Exception:
                         pass
 
@@ -2234,7 +1571,9 @@ class SagoApp(App):
                     from sago.learning import get_learning_store
 
                     ls = get_learning_store()
-                    successful_tools = [t["tool"] for t in tool_history if t.get("success")]
+                    successful_tools = [
+                        t["tool"] for t in tool_history if t.get("success")
+                    ]
                     if successful_tools:
                         ls.record_success(
                             task_type,
@@ -2248,20 +1587,21 @@ class SagoApp(App):
                 except Exception:
                     pass
 
-                # Always show the response - handle empty content
+                # Always show response
                 if content and content.strip():
-                    self.call_from_thread(self._add_assistant_message, content)
+                    self.call_from_thread(
+                        self._add_assistant_message, content
+                    )
                 elif tool_history:
-                    # Had tool calls but no final text - show summary of what was done
                     tools_done = [t["tool"] for t in tool_history]
                     self.call_from_thread(
                         self._add_assistant_message,
-                        f"Completed using: {', '.join(tools_done)}"
+                        f"Completed using: {', '.join(tools_done)}",
                     )
                 else:
                     self.call_from_thread(
                         self._add_assistant_message,
-                        "I wasn't able to process your request. Please try rephrasing."
+                        "I wasn't able to process your request. Please try rephrasing.",
                     )
 
             except ImportError:
@@ -2270,12 +1610,15 @@ class SagoApp(App):
 
                 def on_todo_created(plan):
                     self.call_from_thread(
-                        self._add_system_message, f"📋 Created plan with {len(plan.todos)} steps:"
+                        self._add_system_message,
+                        f"📋 Created plan with {len(plan.todos)} steps:",
                     )
                     from sago.tasks import get_task_manager
 
                     tm = get_task_manager()
-                    self.call_from_thread(self._add_system_message, tm.format_plan(plan))
+                    self.call_from_thread(
+                        self._add_system_message, tm.format_plan(plan)
+                    )
 
                 def on_todo_update(plan, todo_index, status):
                     if todo_index < len(plan.todos):
@@ -2291,11 +1634,25 @@ class SagoApp(App):
                                 f"✅ Step {todo_index + 1} completed: {todo.description[:60]}",
                             )
 
+                # Get API key for the current provider
+                provider_key = os.environ.get(
+                    {"google": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY"}.get(
+                        self.current_provider, "OPENROUTER_API_KEY"
+                    ),
+                    "",
+                )
+                provider_base_url = {
+                    "google": None,
+                    "openai": "https://api.openai.com/v1",
+                    "openrouter": "https://openrouter.ai/api/v1",
+                }.get(self.current_provider, "https://openrouter.ai/api/v1")
+
                 result = execute_agent_task(
                     task=message,
                     agent_role=self.current_agent.replace("-", " ").title(),
-                    api_key=api_key,
+                    api_key=provider_key,
                     model=self.current_model,
+                    base_url=provider_base_url,
                     max_tokens=effort["max_tokens"],
                     max_iterations=effort["max_iterations"],
                     on_tool_call=on_tool,
@@ -2305,25 +1662,17 @@ class SagoApp(App):
                     on_todo_update=on_todo_update,
                 )
 
-                # Show task plan if created
                 if result.get("task_plan"):
                     from sago.tasks import get_task_manager
 
                     tm = get_task_manager()
                     plan = tm.get_active_plan()
                     if plan:
-                        self.call_from_thread(self._add_system_message, tm.format_plan(plan))
+                        self.call_from_thread(
+                            self._add_system_message, tm.format_plan(plan)
+                        )
 
                 self.call_from_thread(self._hide_spinner)
-
-                # Tool calls already shown live via on_tool_result callback
-                self.call_from_thread(
-                    self._add_summary,
-                    result.get("tool_calls", []),
-                    result.get("output", ""),
-                    result.get("elapsed", 0),
-                    result.get("tokens", {}),
-                )
 
                 output = result.get("output", "")
                 tool_calls = result.get("tool_calls", [])
@@ -2333,31 +1682,34 @@ class SagoApp(App):
                     tools_done = [t.get("tool", "unknown") for t in tool_calls]
                     self.call_from_thread(
                         self._add_assistant_message,
-                        f"Completed using: {', '.join(tools_done)}"
+                        f"Completed using: {', '.join(tools_done)}",
                     )
                 else:
                     self.call_from_thread(
                         self._add_assistant_message,
-                        "I wasn't able to process your request. Please try rephrasing."
+                        "I wasn't able to process your request. Please try rephrasing.",
                     )
 
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
             error_msg = str(e)
             if "429" in error_msg or "rate" in error_msg.lower():
-                error_msg = "Rate limited. Wait a moment or add credits at https://openrouter.ai/settings/credits"
+                provider_urls = {
+                    "google": "https://console.cloud.google.com/billing",
+                    "openai": "https://platform.openai.com/settings/organization/billing",
+                    "openrouter": "https://openrouter.ai/settings/credits",
+                }
+                url = provider_urls.get(self.current_provider, "your provider's dashboard")
+                error_msg = f"Rate limited. Wait or check credits at {url}"
             elif "401" in error_msg or "auth" in error_msg.lower():
-                error_msg = "Authentication failed. Check your API key."
+                error_msg = f"Authentication failed. Check your {self.current_provider} API key."
             elif "404" in error_msg:
-                error_msg = "Model not found. Try a different model."
-            self.call_from_thread(self._add_system_message, f"Error: {error_msg}")
+                error_msg = f"Model '{self.current_model}' not found. Try a different model."
+            self.call_from_thread(
+                self._add_system_message, f"Error: {error_msg}"
+            )
         finally:
             self.is_thinking = False
-
-    def action_clear_chat(self) -> None:
-        self.query_one("#messages").remove_children()
-        self.messages.clear()
-        self._add_system_message("Cleared.")
 
 
 def main():
