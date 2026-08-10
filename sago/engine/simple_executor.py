@@ -462,7 +462,13 @@ You have {tool_count} tools. For creation tasks, you'll typically:
 One JSON per tool call on its own line:
 {{"name": "write_file", "args": {{"file_path": "src/app.py", "content": "import os\\n\\nclass App:\\n    def run(self):\\n        print('Hello')"}}}}
 
-IMPORTANT: When writing files, put the ACTUAL CODE in the content field. No markdown, no backticks, just the raw code.""",
+IMPORTANT: When writing files, put the ACTUAL CODE in the content field. No markdown, no backticks, just the raw code.
+
+=== CRITICAL RULES ===
+- NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
+- NEVER claim to have done something you haven't actually done.
+- ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
+- If a tool call fails, report the error honestly. Do not pretend it succeeded.""",
     "fix": """You are {agent_role}. The user wants you to FIX something (bug, error, issue).
 
 {project_ctx}
@@ -485,7 +491,13 @@ You have {tool_count} tools. For fixing tasks:
 
 === FORMAT ===
 One JSON per tool call on its own line:
-{{"name": "edit_file", "args": {{"file_path": "app.py", "old_string": "broken code", "new_string": "fixed code"}}}}""",
+{{"name": "edit_file", "args": {{"file_path": "app.py", "old_string": "broken code", "new_string": "fixed code"}}}}
+
+=== CRITICAL RULES ===
+- NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
+- NEVER claim to have done something you haven't actually done.
+- ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
+- If a tool call fails, report the error honestly. Do not pretend it succeeded.""",
     "analyze": """You are {agent_role}. The user wants you to ANALYZE something (code, project, issue).
 
 {project_ctx}
@@ -507,7 +519,13 @@ You have {tool_count} tools. For analysis tasks:
 
 === FORMAT ===
 One JSON per tool call on its own line:
-{{"name": "grep_content", "args": {{"pattern": "def ", "include": "*.py"}}}}""",
+{{"name": "grep_content", "args": {{"pattern": "def ", "include": "*.py"}}}}
+
+=== CRITICAL RULES ===
+- NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
+- NEVER claim to have done something you haven't actually done.
+- ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
+- If a tool call fails, report the error honestly. Do not pretend it succeeded.""",
 }
 
 
@@ -1336,6 +1354,38 @@ def _extract_tool_calls(content: str) -> list[str]:
         except json.JSONDecodeError:
             pass
 
-    return matches
+    if matches:
+        return matches
+
+    # Format 5: Free model format — <|tool_call>call:tool_name{arg: val, ...}<tool_call|>
+    # e.g. <|tool_call>call:read_file{file_path: "/path/to/file"}<tool_call|>
+    for m in re.finditer(
+        r"<\|tool_call\>call:(\w+)\{(.*?)\}<tool_call\>", content, re.DOTALL
+    ):
+        tool_name = m.group(1)
+        kwargs_str = m.group(2)
+        args = {}
+        # Parse key: value pairs (handles strings, numbers, booleans)
+        for kv in re.finditer(r"(\w+):\s*\"([^\"]*)\"", kwargs_str):
+            args[kv.group(1)] = kv.group(2)
+        # Also handle unquoted values
+        for kv in re.finditer(r"(\w+):\s*([^,\}]+)", kwargs_str):
+            if kv.group(1) not in args:
+                val = kv.group(2).strip()
+                # Convert to appropriate type
+                if val.lower() == "true":
+                    args[kv.group(1)] = True
+                elif val.lower() == "false":
+                    args[kv.group(1)] = False
+                else:
+                    try:
+                        args[kv.group(1)] = int(val)
+                    except ValueError:
+                        try:
+                            args[kv.group(1)] = float(val)
+                        except ValueError:
+                            args[kv.group(1)] = val
+        if args:
+            matches.append(json.dumps({"name": tool_name, "args": args}))
 
     return matches
