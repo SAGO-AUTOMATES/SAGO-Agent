@@ -108,14 +108,14 @@ estimates:
     pessimistic: 300 person-days
     expected: 190 person-days
     confidence_95pct: "150-250 person-days"
-    
+
   timeline:
     optimistic: 6 weeks
     most_likely: 10 weeks
     pessimistic: 16 weeks
     expected: 10.3 weeks
     team_size: 3-4 engineers
-    
+
   cost:
     development: "$95,000 - $160,000"
     infrastructure: "$5,000 - $10,000"
@@ -169,9 +169,9 @@ risks:
 ---
 
 """,
-    skills=['cost', 'estimator'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["cost", "estimator"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

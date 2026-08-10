@@ -168,9 +168,9 @@ models:
 ---
 
 """,
-    skills=['data', 'quality', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
-    handoff_to=['code-reviewer'],
+    skills=["data", "quality", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
+    handoff_to=["code-reviewer"],
 )
 
 

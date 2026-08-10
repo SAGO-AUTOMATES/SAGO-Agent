@@ -105,9 +105,9 @@ prompt_template:
         - technical
         - account
         - general
-        
+
         Respond with only the category name, nothing else.
-        
+
         Examples:
         "I was charged twice" → billing
         "My app keeps crashing" → technical
@@ -131,13 +131,13 @@ prompt_registry:
     major: "Breaking change to output format"
     minor: "New examples, non-breaking additions"
     patch: "Fix typos, wording improvements"
-  
+
   testing:
     - "Unit tests: expected inputs → expected outputs"
     - "Diff tests: compare output diff between versions"
     - "Regression tests: known edge cases"
     - "A/B test in production: version A vs version B"
-  
+
   governance:
     - "Review required for major version bump
 
@@ -185,7 +185,7 @@ self_hosted:
     - "TGI (Text Generation Inference, HuggingFace)"
     - "TensorRT-LLM (NVIDIA, max performance)"
     - "llama.cpp (CPU + small GPU, quantized)"
-  
+
   hardware:
     - "Single GPU (A100 80GB): Llama 3 70B (int4)"
     - "Dual GPU (2× A100): Llama 3 70B (fp16)"
@@ -218,21 +218,21 @@ instrumentation:
     - "latency breakdown (TTFT, TPOT)"
     - "model provider"
     - "user_id (hashed)"
-  
+
   logging:
     - "Store prompts and responses (with PII redaction)"
     - "Sample rate: 100% in staging, 10-100% in production"
     - "Feedback loop: user ratings correlated to logs"
-  
+
   evaluation:
     - "Automated eval suite run on model deployment"
     - "LLM-as-judge for response quality"
     - "Human eval for subjective quality metrics"
-  
+
   cos""",
-    skills=['llmops', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["llmops", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

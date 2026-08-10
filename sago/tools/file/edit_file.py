@@ -5,7 +5,6 @@ Safely edit files with precise string matching and replacement.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -20,7 +19,9 @@ class EditFileArgs(BaseModel):
     old_string: str = Field(description="Exact string to find and replace")
     new_string: str = Field(description="String to replace with")
     encoding: str = Field(default="utf-8", description="File encoding")
-    replace_all: bool = Field(default=False, description="Replace all occurrences (default: first only)")
+    replace_all: bool = Field(
+        default=False, description="Replace all occurrences (default: first only)"
+    )
 
 
 class EditFileTool(BaseTool):
@@ -70,6 +71,7 @@ class EditFileTool(BaseTool):
             # Track the change
             try:
                 from sago.memory.change_tracker import get_change_tracker
+
                 tracker = get_change_tracker()
                 if replace_all:
                     new_content = content.replace(old_string, new_string)

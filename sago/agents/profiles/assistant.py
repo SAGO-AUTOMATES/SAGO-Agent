@@ -145,9 +145,17 @@ DELIVER
 ---
 
 """,
-    skills=['user-interface', 'goal-interpretation', 'agent-delegation', 'result-verification', 'context-management', 'quality-control', 'communication'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "user-interface",
+        "goal-interpretation",
+        "agent-delegation",
+        "result-verification",
+        "context-management",
+        "quality-control",
+        "communication",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
+    handoff_to=["code-reviewer"],
 )
 
 

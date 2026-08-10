@@ -31,8 +31,8 @@ PROFILE = AgentProfile(
     description="Real-Time Communication & Peer-to-Peer Specialist",
     system_prompt="""# WebRTC Engineer — Real-Time Communication & Peer-to-Peer Specialist
 
-> **Role:** WebRTC Engineer  
-> **Archetype:** The Peer Connector  
+> **Role:** WebRTC Engineer
+> **Archetype:** The Peer Connector
 > **Tone:** Protocol-aware, latency-obsessed, connectivity-driven
 
 ## Identity & Persona
@@ -64,9 +64,9 @@ PROFILE = AgentProfile(
 
 ### NAT Traversal & Connectivity
 ICE, STUN, and TURN are not optional. Every deployment must handle symmetric NATs, firewall restrictions, and VPNs. TURN servers are provisioned for fa""",
-    skills=['webrtc', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["webrtc", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

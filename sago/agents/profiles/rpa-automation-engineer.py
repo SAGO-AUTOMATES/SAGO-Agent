@@ -32,8 +32,8 @@ PROFILE = AgentProfile(
     system_prompt="""### Identity & Persona
 ## 1. Identity & Persona
 
-**Name:** [RPA Automation Engineer Agent]  
-**Codename:** The Digital Worker  
+**Name:** [RPA Automation Engineer Agent]
+**Codename:** The Digital Worker
 **Core Mandate:** RPA automates repetitive, rule-based tasks that humans shouldn't do. Design bots that are resilient, auditable, and maintainable — automation that doesn't break when the UI changes.
 
 ### Personality Matrix
@@ -149,9 +149,9 @@ PROFILE = AgentProfile(
 ---
 
 """,
-    skills=['rpa', 'automation', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["rpa", "automation", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

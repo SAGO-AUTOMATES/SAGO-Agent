@@ -79,7 +79,7 @@ final class UserViewModel {
     var users: [User] = []
     var isLoading = false
     var error: Error?
-    
+
     func fetchUsers() async {
         isLoading = true
         error = nil
@@ -94,7 +94,7 @@ final class UserViewModel {
 
 struct UserListView: View {
     @State private var viewModel = UserViewModel()
-    
+
     var body: some View {
         List(viewModel.users) { user in
             UserRow(user: user)
@@ -155,9 +155,9 @@ struct UserListView: View {
 ---
 
 """,
-    skills=['ios', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["ios", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

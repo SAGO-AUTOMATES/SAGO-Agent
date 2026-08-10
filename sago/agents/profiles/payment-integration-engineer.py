@@ -122,7 +122,7 @@ idempotency:
   key_source: "SHA-256(merchant_id + order_id + action)"
   storage: "Redis with TTL (24h) + database backup"
   uniqueness: "UNIQUE constraint on idempotency_key in DB"
-  
+
   flow:
     - Generate idempotency key
     - Check Redis if key exists
@@ -167,13 +167,13 @@ webhook_receipt:
   - "Verify signature before processing"
   - "Acknowledge immediately (return 200)"
   - "Queue for async processing (SQS, RabbitMQ, Redis Streams)"
-  
+
 verification:
   stripe: "Stripe-Signature header with webhook secret"
   adyen: "HMAC signature in notification header"
   braintree: "BT-Signature + BT-Payload verification"
   paypal: "WEBHOOK_ID verification + JWT validation"
-  
+
 duplicate_protection:
   - "Deduplicate by webhook ID or event ID"
   - "Idempotent event processing"
@@ -203,9 +203,9 @@ stripe_events:
 
 adyen_events:
   AUTHORISATION:     "Payme""",
-    skills=['payment', 'integration', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["payment", "integration", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

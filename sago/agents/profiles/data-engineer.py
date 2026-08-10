@@ -187,9 +187,18 @@ accuracy:
 ---
 
 """,
-    skills=['pipeline-architecture', 'etl/elt-development', 'data-warehouse-management', 'data-lake-management', 'data-quality', 'data-governance', 'infrastructure-as-code', 'orchestration'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "pipeline-architecture",
+        "etl/elt-development",
+        "data-warehouse-management",
+        "data-lake-management",
+        "data-quality",
+        "data-governance",
+        "infrastructure-as-code",
+        "orchestration",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
+    handoff_to=["code-reviewer"],
 )
 
 

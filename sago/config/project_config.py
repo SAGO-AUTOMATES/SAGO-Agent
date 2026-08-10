@@ -4,10 +4,9 @@ Defines the config.sago.json schema for per-project customization.
 Users can enable/disable agents, tools, modify prompts, and configure settings.
 """
 
+import json
 from pathlib import Path
 from typing import Any
-import json
-
 
 # Default configuration template
 DEFAULT_CONFIG: dict[str, Any] = {

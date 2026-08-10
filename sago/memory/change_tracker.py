@@ -20,6 +20,7 @@ from sago.paths import get_sago_home
 @dataclass
 class FileChange:
     """A single file change."""
+
     path: str
     action: str  # "create", "modify", "delete"
     timestamp: float = field(default_factory=time.time)

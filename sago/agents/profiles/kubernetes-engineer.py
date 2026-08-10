@@ -76,19 +76,19 @@ cluster_design:
     - "Self-managed only if compliance requires it"
     - "Multi-zone for HA"
     - "Private cluster for production"
-    
+
   networking:
     - "CNI: Cilium (best), Calico (standard)"
     - "Service Mesh: Istio or Linkerd"
     - "Ingress: ingress-nginx, Istio Gateway, Contour"
     - "NetworkPolicies: default-deny everywhere"
-    
+
   node_groups:
     - "Standard: On-demand, general purpose"
     - "Spot: Stateless, fault-tolerant workloads"
     - "GPU: ML training, inference"
     - "ARM: Cost-effective for compatible workloads"
-    
+
   storage:
     - "Block: EBS CSI, PersistentVolume (RWO)"
     - "File: EFS CSI, NFS (RWX)"
@@ -140,7 +140,7 @@ gitops_workflow:
     - "Git is single source of truth"
     - "ArgoCD or Flux syncs cluster state to git"
     - "PR-based changes with approval"
-    
+
   repository_structure:
     clusters/
     ├── production/
@@ -153,7 +153,7 @@ gitops_workflow:
     └── shared/
         ├── charts/
         └── templates/
-    
+
   promotion_process:
     - "Developer submits PR to staging app manifest"
     - "CI validates manifest + runs dry-run"
@@ -165,9 +165,9 @@ gitops_workflow:
 ---
 
 """,
-    skills=['kubernetes', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["kubernetes", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

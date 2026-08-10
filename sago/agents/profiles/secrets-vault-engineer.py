@@ -185,9 +185,9 @@ path "sys/namespaces/*" {
 ---
 
 """,
-    skills=['secrets', 'vault', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["secrets", "vault", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

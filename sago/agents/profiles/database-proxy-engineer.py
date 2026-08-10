@@ -128,9 +128,9 @@ query_timeout = 30
 | Wrong pool sizing | Too small → queue buildup; too large → DB connection bloat | Start with `default_pool_size = 2× cores`; watch pool saturation |
 | Ignoring prepared statements | Transaction pooling doesn't support prepared stmts; silent failures | Use session pooling or switch to PgBouncer with prepared statement support |
 | No timeout settings | Hung querie""",
-    skills=['database', 'proxy', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["database", "proxy", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

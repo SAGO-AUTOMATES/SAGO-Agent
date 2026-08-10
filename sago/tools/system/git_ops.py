@@ -30,9 +30,25 @@ class GitOps(BaseTool):
     args_model: type[BaseModel] = GitOpsArgs
 
     VALID_OPERATIONS = {
-        "status", "log", "diff", "add", "commit", "push", "pull",
-        "branch", "checkout", "stash", "blame", "remote", "tag",
-        "merge", "rebase", "reset", "revert", "show", "diff-index",
+        "status",
+        "log",
+        "diff",
+        "add",
+        "commit",
+        "push",
+        "pull",
+        "branch",
+        "checkout",
+        "stash",
+        "blame",
+        "remote",
+        "tag",
+        "merge",
+        "rebase",
+        "reset",
+        "revert",
+        "show",
+        "diff-index",
     }
 
     def _run(

@@ -9,7 +9,6 @@ from typing import Any
 
 from sago.llm.base import BaseLLMProvider
 
-
 _PROVIDER_MAP: dict[str, type[BaseLLMProvider]] = {}
 
 
@@ -33,6 +32,7 @@ def _register_providers() -> None:
 
     try:
         from sago.llm.gemini import GeminiProvider
+
         _PROVIDER_MAP["gemini"] = GeminiProvider
     except ImportError:
         pass
@@ -60,8 +60,7 @@ def create_provider(
     if provider_class is None:
         available = ", ".join(_PROVIDER_MAP.keys())
         raise ValueError(
-            f"Unknown LLM provider: {provider_name!r}. "
-            f"Available providers: {available}"
+            f"Unknown LLM provider: {provider_name!r}. Available providers: {available}"
         )
 
     return provider_class(config)

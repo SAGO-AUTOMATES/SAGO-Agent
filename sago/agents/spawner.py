@@ -10,14 +10,10 @@ import os
 from typing import Any
 
 from sago.agents.registry import (
-    AgentDefinition,
-    AGENTS,
     get_agent,
-    get_handoff_targets,
-    list_agents,
 )
 from sago.config.loader import SagoConfig, get_config
-from sago.database import MessageStore, Session, TaskStore, ToolUsageStore
+from sago.database import MessageStore, Session
 
 logger = logging.getLogger("sago.spawner")
 
@@ -122,7 +118,13 @@ class AgentSpawner:
             session.create(title=task[:100])
 
         # Spawn the agent
-        agent = self.spawn(agent_name, session=session, context=parent_context, provider=provider, model_override=model_override)
+        agent = self.spawn(
+            agent_name,
+            session=session,
+            context=parent_context,
+            provider=provider,
+            model_override=model_override,
+        )
         if agent is None:
             return f"Error: Could not spawn agent '{agent_name}'"
 
@@ -194,7 +196,7 @@ class AgentSpawner:
             chain = self._plan_chain(task)
 
         result = ""
-        for i, agent_name in enumerate(chain[:max_handoffs + 1]):
+        for i, agent_name in enumerate(chain[: max_handoffs + 1]):
             logger.info(f"Agent {i + 1}/{len(chain)}: {agent_name}")
 
             # Build context from previous steps
@@ -206,7 +208,11 @@ class AgentSpawner:
                 step_context["previous_result"] = str(result)
 
             # Execute
-            step_task = task if i == 0 else f"Based on the previous work:\n\n{result}\n\nContinue with: {task}"
+            step_task = (
+                task
+                if i == 0
+                else f"Based on the previous work:\n\n{result}\n\nContinue with: {task}"
+            )
             result = self.execute_with_agent(
                 agent_name=agent_name,
                 task=step_task,
@@ -239,6 +245,7 @@ class AgentSpawner:
             List of results with 'agent', 'task', 'result' keys.
         """
         import concurrent.futures
+
         from sago.engine.simple_executor import execute_agent_task
 
         session = Session(session_id)
@@ -255,7 +262,9 @@ class AgentSpawner:
                     task=task,
                     agent_role=agent_name.replace("-", " ").title(),
                     model=self.config.llm.model,
-                    api_key=os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")),
+                    api_key=os.environ.get(
+                        "OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")
+                    ),
                 )
                 return {
                     "agent": agent_name,
@@ -274,10 +283,7 @@ class AgentSpawner:
                 }
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(execute_subtask, st): st
-                for st in subtasks[:max_workers]
-            }
+            futures = {executor.submit(execute_subtask, st): st for st in subtasks[:max_workers]}
             for future in concurrent.futures.as_completed(futures):
                 results.append(future.result())
 
@@ -340,6 +346,7 @@ class AgentSpawner:
     def _resolve_tools(self, tool_names: list[str]) -> list[Any]:
         """Convert tool names to CrewAI tool instances."""
         from sago.tools.crewai_wrappers import get_crewai_tool
+
         resolved = []
         for name in tool_names:
             crewai_tool = get_crewai_tool(name)
@@ -349,9 +356,12 @@ class AgentSpawner:
                 logger.warning(f"No CrewAI wrapper for tool: {name}")
         return resolved
 
-    def _get_llm(self, model_override: str | None = None, provider_override: str | None = None) -> Any:
+    def _get_llm(
+        self, model_override: str | None = None, provider_override: str | None = None
+    ) -> Any:
         """Get a CrewAI LLM for the configured provider."""
         import os
+
         from crewai import LLM
 
         provider_name = provider_override or self.config.llm_providers.default
@@ -363,11 +373,11 @@ class AgentSpawner:
         # Get API key from environment
         api_key_env = provider_config.api_key_env or f"{provider_name.upper()}_API_KEY"
         api_key = os.environ.get(api_key_env, "")
-        
+
         # For OpenRouter, also check OPENAI_API_KEY as fallback
         if not api_key and provider_name == "openrouter":
             api_key = os.environ.get("OPENAI_API_KEY", "")
-        
+
         if not api_key:
             logger.warning(f"No API key found for {provider_name} (env: {api_key_env})")
             return None

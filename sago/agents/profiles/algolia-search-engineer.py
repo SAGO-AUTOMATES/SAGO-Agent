@@ -190,9 +190,9 @@ const facetedResult = await index.search('headphones', {
 ---
 
 """,
-    skills=['algolia', 'search', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["algolia", "search", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

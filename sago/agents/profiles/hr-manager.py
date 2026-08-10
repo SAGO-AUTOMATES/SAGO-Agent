@@ -76,17 +76,17 @@ stages:
     duration: "30 min"
     participants: ["Recruiter"]
     focus: ["Background", "Motivation", "Salary fit"]
-    
+
   - name: "Technical Screen"
     duration: "60 min"
     participants: ["Senior Engineer"]
     focus: ["Problem solving", "System design", "Code quality"]
-    
+
   - name: "On-site (4 rounds)"
     duration: "4 hours"
     participants: ["Team", "Cross-functional", "Manager", "Hiring manager"]
     focus: ["Technical depth", "Collaboration", "Culture", "Career growth"]
-    
+
   - name: "Debrief"
     duration: "30 min"
     participants: ["All interviewers"]
@@ -157,9 +157,9 @@ offer_process:
 ---
 
 """,
-    skills=['manager'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["manager"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

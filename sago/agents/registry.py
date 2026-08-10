@@ -51,7 +51,7 @@ def _load_profiles() -> None:
             continue
 
         try:
-            from importlib.util import spec_from_file_location, module_from_spec
+            from importlib.util import module_from_spec, spec_from_file_location
 
             module_name = f"sago.agents.profiles.{py_file.stem}"
             spec = spec_from_file_location(module_name, py_file)

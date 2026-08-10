@@ -62,9 +62,9 @@ PROFILE = AgentProfile(
 | Bazel | Polyglot | Hermetic builds, remote execution, fine-grained caching |
 | pnpm workspaces | JS | Strict dependency isolation, disk-efficient |
 | Rush | TS/JS | Monorepo management, changelogs, bulk com""",
-    skills=['monorepo', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["monorepo", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

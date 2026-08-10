@@ -14,10 +14,11 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 
 class StepStatus(Enum):
@@ -102,23 +103,27 @@ class WorkflowState:
 
     def set(self, key: str, value: Any) -> None:
         self.variables[key] = value
-        self.history.append({
-            "action": "set",
-            "key": key,
-            "value": str(value)[:200],
-            "timestamp": time.time(),
-        })
+        self.history.append(
+            {
+                "action": "set",
+                "key": key,
+                "value": str(value)[:200],
+                "timestamp": time.time(),
+            }
+        )
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.variables.get(key, default)
 
     def update_context(self, data: dict[str, Any]) -> None:
         self.context.update(data)
-        self.history.append({
-            "action": "context_update",
-            "keys": list(data.keys()),
-            "timestamp": time.time(),
-        })
+        self.history.append(
+            {
+                "action": "context_update",
+                "keys": list(data.keys()),
+                "timestamp": time.time(),
+            }
+        )
 
 
 @dataclass
@@ -152,9 +157,9 @@ class Workflow:
         """Get steps ready to execute (pending with deps met)."""
         completed_ids = {s.id for s in self.completed_steps()}
         return [
-            s for s in self.steps
-            if s.status == StepStatus.PENDING
-            and all(dep in completed_ids for dep in s.depends_on)
+            s
+            for s in self.steps
+            if s.status == StepStatus.PENDING and all(dep in completed_ids for dep in s.depends_on)
         ]
 
     def to_dict(self) -> dict[str, Any]:
@@ -206,8 +211,10 @@ class WorkflowEngine:
                 return {"error": "No API key", "success": False}
 
             from sago.engine.simple_executor import execute_agent_task
+
             try:
                 from sago.config.loader import get_config
+
                 model = get_config().llm.model or "openrouter/free"
             except Exception:
                 model = "openrouter/free"
@@ -225,6 +232,7 @@ class WorkflowEngine:
         def _tool_call_executor(context: dict, config: dict) -> dict[str, Any]:
             """Execute a tool call step."""
             import importlib
+
             from sago.tools.base import BaseTool
 
             tool_name = config.get("tool", "")
@@ -363,8 +371,7 @@ class WorkflowEngine:
 
                 # Check if workflow is complete
                 if all(
-                    s.status in (StepStatus.COMPLETED, StepStatus.SKIPPED)
-                    for s in workflow.steps
+                    s.status in (StepStatus.COMPLETED, StepStatus.SKIPPED) for s in workflow.steps
                 ):
                     workflow.status = WorkflowStatus.COMPLETED
                     break
@@ -439,11 +446,14 @@ class WorkflowEngine:
         """Execute a single workflow step."""
         step.status = StepStatus.RUNNING
         step.started_at = time.time()
-        self._notify("step_started", {
-            "workflow_id": workflow.id,
-            "step_id": step.id,
-            "step_name": step.name,
-        })
+        self._notify(
+            "step_started",
+            {
+                "workflow_id": workflow.id,
+                "step_id": step.id,
+                "step_name": step.name,
+            },
+        )
 
         executor = self._executors.get(step.type)
         if not executor:
@@ -489,6 +499,7 @@ class WorkflowEngine:
             return
 
         import logging
+
         _log = logging.getLogger("sago.workflow")
 
         path = self.persist_dir / f"{workflow.id}.json"
@@ -503,6 +514,7 @@ class WorkflowEngine:
             return
 
         import logging
+
         _log = logging.getLogger("sago.workflow")
 
         for path in self.persist_dir.glob("*.json"):
@@ -556,9 +568,7 @@ class WorkflowBuilder:
         trigger: TriggerType = TriggerType.MANUAL,
     ) -> WorkflowBuilder:
         """Create a new workflow."""
-        self._workflow = self.engine.create_workflow(
-            name, description, trigger
-        )
+        self._workflow = self.engine.create_workflow(name, description, trigger)
         return self
 
     def step(

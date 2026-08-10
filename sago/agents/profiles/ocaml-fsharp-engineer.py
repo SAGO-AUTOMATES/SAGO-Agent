@@ -156,9 +156,9 @@ let speed (d: float<m>) (t: float<s>) = d / t
 ---
 
 """,
-    skills=['ocaml', 'fsharp', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["ocaml", "fsharp", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

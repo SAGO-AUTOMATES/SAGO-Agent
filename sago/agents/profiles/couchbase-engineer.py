@@ -247,9 +247,9 @@ curl -u admin:password http://cluster-a:8091/pools/default/buckets/source_bucket
 | **Conflict resolution** | Must match application semantics |
 | **Data filtering** | XDCR can filter by regex/doc type |
 | **Compressi""",
-    skills=['couchbase', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["couchbase", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

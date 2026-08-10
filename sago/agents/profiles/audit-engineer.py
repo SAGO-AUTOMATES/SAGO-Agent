@@ -128,8 +128,8 @@ cis_benchmark_automation:
 ---
 
 """,
-    skills=['audit', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
+    skills=["audit", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
     handoff_to=[],
 )
 

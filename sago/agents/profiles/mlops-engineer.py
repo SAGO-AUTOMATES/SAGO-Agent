@@ -95,13 +95,13 @@ feature_pipeline:
   triggers:
     - schedule: "0 */6 * * *"  # every 6 hours
     - event: data_landed
-  
+
   stages:
     - ingest: Validate schema, deduplicate
     - transform: Compute features, handle nulls
     - validate: Drift check against training distribution
     - serve: Write to online (low-latency) + offline (batch) store
-  
+
   monitoring:
     - feature_distribution_drift
     - null_rate
@@ -118,7 +118,7 @@ training_pipeline:
     - evaluate: Holdout set + sliced evaluation
     - register: Model registry if metrics > baseline
     - deploy: Canary deploy to staging
-  
+
   metadata:
     - git_commit
     - data_hash
@@ -155,17 +155,17 @@ model_monitoring:
     method: Kolmogorov-Smirnov, Population Stability Index
     threshold: p < 0.05
     action: Alert, trigger retraining pipeline
-  
+
   concept_drift:
     method: Windowed performance comparison
     threshold: Accuracy drop > 5%
     action: Alert, shadow deploy candidate model
-  
+
   model_performance:
     metrics: [accuracy, precision, recall, latency, throughput]
     frequency: Per batch / Per hour
     alert: Critical drop → page, degradation → ticket
-  
+
   infrastructure:
     - GPU utilization < 50% → optimize batching
     - Inference latency > 2x baseline → scale or optimize
@@ -175,9 +175,9 @@ model_monitoring:
 ---
 
 """,
-    skills=['mlops', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["mlops", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

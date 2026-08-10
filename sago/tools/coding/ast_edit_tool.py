@@ -21,8 +21,13 @@ class ASTEditArgs(BaseModel):
     file_path: str = Field(description="Path to the file to edit")
     target: str = Field(default="", description="Target name (function/class to edit)")
     new_code: str = Field(default="", description="New code for replacement/insertion")
-    language: str = Field(default="auto", description="Language: auto, python, javascript, typescript, go, rust")
-    extra: str = Field(default="", description="Extra params (comma-separated args for insert, new name for rename)")
+    language: str = Field(
+        default="auto", description="Language: auto, python, javascript, typescript, go, rust"
+    )
+    extra: str = Field(
+        default="",
+        description="Extra params (comma-separated args for insert, new name for rename)",
+    )
 
 
 class ASTEditTool(BaseTool):
@@ -46,7 +51,7 @@ class ASTEditTool(BaseTool):
         **kwargs: Any,
     ) -> str:
         """Run AST edit action."""
-        from sago.tools.coding.ast_editor import get_ast_editor, detect_language
+        from sago.tools.coding.ast_editor import detect_language, get_ast_editor
 
         editor = get_ast_editor()
 
@@ -57,6 +62,7 @@ class ASTEditTool(BaseTool):
         # Read file
         try:
             from pathlib import Path
+
             path = Path(file_path)
             if not path.exists():
                 return f"File not found: {file_path}"
@@ -71,7 +77,9 @@ class ASTEditTool(BaseTool):
             lines = [f"=== {language.upper()} Structure: {file_path} ==="]
             for node in nodes:
                 prefix = "  " if node.node_type == "method" else ""
-                lines.append(f"{prefix}[{node.node_type}] {node.signature} (lines {node.start_line}-{node.end_line})")
+                lines.append(
+                    f"{prefix}[{node.node_type}] {node.signature} (lines {node.start_line}-{node.end_line})"
+                )
             return "\n".join(lines)
 
         elif action == "replace_function":

@@ -111,16 +111,16 @@ insight:
     - "Analytics: 42% drop-off rate at payment step"
     - "Feedback: 15 support tickets about payment confusion"
     - "Session recordings: Users confused by coupon code field"
-  
+
   evidence:
     - "Checkout completion rate declined from 58% to 34% after redesign"
     - "Average time on payment step: 2.3 minutes (vs 45 seconds before)"
-  
+
   recommendation:
     - "Simplify coupon flow — auto-apply, move to separate step"
     - "Add progress indicator to checkout flow"
     - "A/B test proposed solution in Q3"
-  
+
   owner: "Checkout Team"
   priority: "High"
 ```
@@ -144,9 +144,9 @@ insight:
 ---
 
 """,
-    skills=['product', 'operations', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["product", "operations", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

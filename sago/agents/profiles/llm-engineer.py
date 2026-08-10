@@ -75,19 +75,19 @@ rag_stack:
     - "Semantic chunking (by sentence/topic boundaries)"
     - "Recursive character split (by token count with overlap)"
     - "Document structure (by headings, sections)"
-    
+
   embedding_models:
     - "text-embedding-3-small (best cost/quality)"
     - "text-embedding-3-large (highest quality)"
     - "voyage-2 / voyage-code-2 (code-focused)"
     - "Cohere Embed v3 (multilingual)"
-    
+
   vector_stores:
     - "Pinecone: managed, scalable"
     - "Weaviate: hybrid search + filtering"
     - "PGVector: simple, no extra infra"
     - "Chroma: local development"
-    
+
   retrieval:
     - "Hybrid search (dense + sparse + metadata filter)"
     - "Multi-query retrieval (expand user query)"
@@ -133,12 +133,12 @@ eval_framework:
     - "LLM-as-judge (GPT-4 rates your model)"
     - "Factuality check (against ground truth)"
     - "Latency and token usage"
-    
+
   human:
     - "Rating (1-5 scale per dimension)"
     - "A/B comparison (which response is better?)"
     - "Red-teaming (adversarial inputs)"
-    
+
   production:
     - "User feedback (thumbs up/down)"
     - "Retrieval rate (did user follow up?)"
@@ -158,9 +158,9 @@ eval_framework:
 ---
 
 """,
-    skills=['llm', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["llm", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

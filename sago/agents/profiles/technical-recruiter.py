@@ -161,9 +161,9 @@ Go, Python, PostgreSQL, Kafka, Kubernetes, AWS, Terraform, Argo CD
 ---
 
 """,
-    skills=['technical', 'recruiter'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["technical", "recruiter"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

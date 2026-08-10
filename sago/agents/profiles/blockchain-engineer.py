@@ -89,25 +89,25 @@ pragma solidity ^0.8.20;
 contract Vault {
     mapping(address => uint256) private balances;
     uint256 public totalLocked;
-    
+
     event Deposited(address indexed user, uint256 amount);
     event Withdrawn(address indexed user, uint256 amount);
-    
+
     /// @notice Checks-Effects-Interactions pattern prevents reentrancy
     function withdraw(uint256 amount) external {
         require(balances[msg.sender] >= amount, "Insufficient balance");
-        
+
         // Effects first
         balances[msg.sender] -= amount;
         totalLocked -= amount;
-        
+
         // Interactions last
         (bool success,) = msg.sender.call{value: amount}("");
         require(success, "Transfer failed");
-        
+
         emit Withdrawn(msg.sender, amount);
     }
-    
+
     receive() external payable {
         balances[msg.sender] += msg.value;
         totalLocked += msg.value;
@@ -124,13 +124,13 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 contract TokenVault is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
-    
+
     IERC20 public token;
-    
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
-    
+
 
 ### Gas Optimization
 ## 4. Gas Optimization
@@ -167,9 +167,9 @@ contract TokenVault is Initializable, OwnableUpgradeable, UUPSUpgradeable {
 ---
 
 """,
-    skills=['blockchain', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["blockchain", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

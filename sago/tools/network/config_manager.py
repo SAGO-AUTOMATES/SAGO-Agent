@@ -15,7 +15,9 @@ from sago.tools.base import BaseTool
 class NetworkConfigArgs(BaseModel):
     """Arguments for NetworkConfigTool."""
 
-    operation: Literal["interfaces", "connections", "dns", "routes"] = Field(description="What to query")
+    operation: Literal["interfaces", "connections", "dns", "routes"] = Field(
+        description="What to query"
+    )
     interface: str | None = Field(default=None, description="Specific interface name")
 
 
@@ -60,7 +62,11 @@ class NetworkConfigTool(BaseTool):
         else:
             result = self._run_command("ip addr show")
 
-        return f"=== Network Interfaces ===\n{result.stdout}" if result.stdout else "No interface information available"
+        return (
+            f"=== Network Interfaces ===\n{result.stdout}"
+            if result.stdout
+            else "No interface information available"
+        )
 
     def _get_connections(self) -> str:
         """Get active network connections."""
@@ -69,7 +75,11 @@ class NetworkConfigTool(BaseTool):
         else:
             result = self._run_command("ss -tuln")
 
-        return f"=== Active Connections ===\n{result.stdout}" if result.stdout else "No connection information available"
+        return (
+            f"=== Active Connections ===\n{result.stdout}"
+            if result.stdout
+            else "No connection information available"
+        )
 
     def _get_dns(self) -> str:
         """Get DNS configuration."""
@@ -80,7 +90,11 @@ class NetworkConfigTool(BaseTool):
         else:
             result = self._run_command("cat /etc/resolv.conf")
 
-        return f"=== DNS Configuration ===\n{result.stdout}" if result.stdout else "No DNS information available"
+        return (
+            f"=== DNS Configuration ===\n{result.stdout}"
+            if result.stdout
+            else "No DNS information available"
+        )
 
     def _get_routes(self) -> str:
         """Get routing table."""
@@ -89,4 +103,8 @@ class NetworkConfigTool(BaseTool):
         else:
             result = self._run_command("ip route show")
 
-        return f"=== Routing Table ===\n{result.stdout}" if result.stdout else "No routing information available"
+        return (
+            f"=== Routing Table ===\n{result.stdout}"
+            if result.stdout
+            else "No routing information available"
+        )

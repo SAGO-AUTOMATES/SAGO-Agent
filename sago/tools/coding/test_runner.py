@@ -86,9 +86,7 @@ class TestRunnerTool(BaseTool):
 
         return "\n".join(output_parts)
 
-    def _auto_detect_framework(
-        self, path: Path, pattern: str | None
-    ) -> list[str] | None:
+    def _auto_detect_framework(self, path: Path, pattern: str | None) -> list[str] | None:
         """Auto-detect test framework from project files."""
         import shutil
 
@@ -127,9 +125,7 @@ class TestRunnerTool(BaseTool):
 
         return None
 
-    def _get_framework_cmd(
-        self, framework: str, path: Path, pattern: str | None
-    ) -> list[str]:
+    def _get_framework_cmd(self, framework: str, path: Path, pattern: str | None) -> list[str]:
         """Get command for a specific framework."""
         cmds = self._FRAMEWORK_MAP.get(framework.lower(), [])
         if cmds:

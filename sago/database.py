@@ -9,8 +9,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 from typing import Any
 
 from sago.paths import get_db_path
@@ -111,7 +110,7 @@ class Session:
 
     def create(self, title: str = "", agent_chain: list[str] | None = None) -> dict[str, Any]:
         """Create a new session."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         chain = json.dumps(agent_chain or ["sago"])
         self.conn.execute(
             "INSERT INTO sessions (id, created_at, updated_at, title, agent_chain) VALUES (?, ?, ?, ?, ?)",
@@ -127,7 +126,7 @@ class Session:
 
     def update(self, **kwargs: Any) -> None:
         """Update session fields."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         sets = ["updated_at = ?"]
         values: list[Any] = [now]
         for key, val in kwargs.items():
@@ -166,20 +165,29 @@ class TaskStore:
     ) -> dict[str, Any]:
         """Create a new task."""
         task_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         self.conn.execute(
             """INSERT INTO tasks (id, session_id, parent_task_id, created_at, updated_at,
                assigned_agent, description, context, priority)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (task_id, self.session_id, parent_task_id, now, now,
-             assigned_agent, description, json.dumps(context or {}), priority),
+            (
+                task_id,
+                self.session_id,
+                parent_task_id,
+                now,
+                now,
+                assigned_agent,
+                description,
+                json.dumps(context or {}),
+                priority,
+            ),
         )
         self.conn.commit()
         return {"id": task_id, "assigned_agent": assigned_agent, "description": description}
 
     def update(self, task_id: str, **kwargs: Any) -> None:
         """Update a task."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         sets = ["updated_at = ?"]
         values: list[Any] = [now]
         for key, val in kwargs.items():
@@ -235,12 +243,20 @@ class MessageStore:
     ) -> dict[str, Any]:
         """Add a message."""
         msg_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         self.conn.execute(
             """INSERT INTO messages (id, session_id, task_id, created_at, role, agent_name, content, metadata)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (msg_id, self.session_id, task_id, now, role, agent_name, content,
-             json.dumps(metadata or {})),
+            (
+                msg_id,
+                self.session_id,
+                task_id,
+                now,
+                role,
+                agent_name,
+                content,
+                json.dumps(metadata or {}),
+            ),
         )
         self.conn.commit()
         return {"id": msg_id, "role": role, "content": content}
@@ -283,13 +299,22 @@ class ToolUsageStore:
     ) -> None:
         """Log a tool usage."""
         usage_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         self.conn.execute(
             """INSERT INTO tool_usage (id, session_id, task_id, created_at, tool_name,
                arguments, result, duration_ms, success)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (usage_id, self.session_id, task_id, now, tool_name,
-             json.dumps(arguments or {}), result, duration_ms, 1 if success else 0),
+            (
+                usage_id,
+                self.session_id,
+                task_id,
+                now,
+                tool_name,
+                json.dumps(arguments or {}),
+                result,
+                duration_ms,
+                1 if success else 0,
+            ),
         )
         self.conn.commit()
 

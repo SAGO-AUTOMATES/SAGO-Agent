@@ -16,7 +16,9 @@ from sago.tools.base import BaseTool
 class PermissionManagerArgs(BaseModel):
     """Arguments for PermissionManagerTool."""
 
-    operation: Literal["check", "chmod", "chown", "info"] = Field(description="Permission operation")
+    operation: Literal["check", "chmod", "chown", "info"] = Field(
+        description="Permission operation"
+    )
     path: str = Field(description="File or directory path")
     mode: str | None = Field(default=None, description="Permission mode (e.g., '755', 'u+x')")
     owner: str | None = Field(default=None, description="New owner (for chown)")
@@ -97,7 +99,6 @@ class PermissionManagerTool(BaseTool):
     def _get_info(self, path: Path) -> str:
         """Get detailed file info."""
         import os
-        import stat
 
         st = os.stat(path)
 

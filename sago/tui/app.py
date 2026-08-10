@@ -8,16 +8,14 @@ import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from rich.syntax import Syntax
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import ScrollableContainer, Vertical, Horizontal
+from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.reactive import reactive
-from textual.widgets import Collapsible, Input, Static, Button, Footer
-
+from textual.widgets import Button, Collapsible, Footer, Input, Static
 
 COMMANDS = {
     "/help": "Show all commands",
@@ -64,18 +62,52 @@ EFFORT_LEVELS = {
     "low": {"max_iterations": 3, "max_tokens": 8192, "desc": "Quick answers, minimal tool use"},
     "medium": {"max_iterations": 6, "max_tokens": 16384, "desc": "Balanced approach"},
     "high": {"max_iterations": 10, "max_tokens": 32768, "desc": "Thorough analysis, complex tasks"},
-    "max": {"max_iterations": 15, "max_tokens": 65536, "desc": "Maximum depth, full context utilization"},
+    "max": {
+        "max_iterations": 15,
+        "max_tokens": 65536,
+        "desc": "Maximum depth, full context utilization",
+    },
 }
 
 # Pricing per 1M tokens (approximate) - with cache pricing
 MODEL_COSTS = {
     "openrouter/free": {"input": 0, "output": 0, "cache_hit": 0, "cache_miss": 0},
-    "openrouter/deepseek/deepseek-chat": {"input": 0.14, "output": 0.28, "cache_hit": 0.014, "cache_miss": 0.14},
-    "openrouter/meta-llama/llama-3.1-70b-instruct": {"input": 0.52, "output": 0.75, "cache_hit": 0.052, "cache_miss": 0.52},
-    "openrouter/qwen/qwen-2.5-72b-instruct": {"input": 0.50, "output": 0.75, "cache_hit": 0.05, "cache_miss": 0.50},
-    "openrouter/google/gemini-2.0-flash-001": {"input": 0.10, "output": 0.40, "cache_hit": 0.025, "cache_miss": 0.10},
-    "anthropic/claude-sonnet-4-20250514": {"input": 3.00, "output": 15.00, "cache_hit": 0.30, "cache_miss": 3.00},
-    "anthropic/claude-3-5-sonnet-20241022": {"input": 3.00, "output": 15.00, "cache_hit": 0.30, "cache_miss": 3.00},
+    "openrouter/deepseek/deepseek-chat": {
+        "input": 0.14,
+        "output": 0.28,
+        "cache_hit": 0.014,
+        "cache_miss": 0.14,
+    },
+    "openrouter/meta-llama/llama-3.1-70b-instruct": {
+        "input": 0.52,
+        "output": 0.75,
+        "cache_hit": 0.052,
+        "cache_miss": 0.52,
+    },
+    "openrouter/qwen/qwen-2.5-72b-instruct": {
+        "input": 0.50,
+        "output": 0.75,
+        "cache_hit": 0.05,
+        "cache_miss": 0.50,
+    },
+    "openrouter/google/gemini-2.0-flash-001": {
+        "input": 0.10,
+        "output": 0.40,
+        "cache_hit": 0.025,
+        "cache_miss": 0.10,
+    },
+    "anthropic/claude-sonnet-4-20250514": {
+        "input": 3.00,
+        "output": 15.00,
+        "cache_hit": 0.30,
+        "cache_miss": 3.00,
+    },
+    "anthropic/claude-3-5-sonnet-20241022": {
+        "input": 3.00,
+        "output": 15.00,
+        "cache_hit": 0.30,
+        "cache_miss": 3.00,
+    },
     "openai/gpt-4o": {"input": 2.50, "output": 10.00, "cache_hit": 1.25, "cache_miss": 2.50},
     "openai/gpt-4o-mini": {"input": 0.15, "output": 0.60, "cache_hit": 0.075, "cache_miss": 0.15},
 }
@@ -250,7 +282,9 @@ class SagoApp(App):
         with Vertical(id="approval-bar"):
             yield Static("Pending action", id="approval-label", classes="approval-label")
             with Horizontal(id="approval-buttons"):
-                yield Button("Approve [Y]", id="btn-approve", variant="success", classes="approve-btn")
+                yield Button(
+                    "Approve [Y]", id="btn-approve", variant="success", classes="approve-btn"
+                )
                 yield Button("Deny [N]", id="btn-deny", variant="error", classes="deny-btn")
         with Vertical(id="input-area"):
             yield Input(placeholder="/, @, # for autocomplete", id="msg-input")
@@ -267,14 +301,17 @@ class SagoApp(App):
     def _init_db(self) -> None:
         try:
             from sago.database import init_db
+
             init_db()
         except Exception as e:
             import logging
+
             logging.getLogger("sago.tui").debug(f"DB init failed: {e}")
 
     def _init_session(self) -> None:
         try:
             from sago.database import Session, init_db
+
             init_db()
             session = Session()
             result = session.create(title="TUI Session")
@@ -282,6 +319,7 @@ class SagoApp(App):
             session.close()
         except Exception as e:
             import logging
+
             logging.getLogger("sago.tui").debug(f"Session init failed: {e}")
             self.current_session_id = "local"
 
@@ -407,6 +445,7 @@ class SagoApp(App):
     def _show_agent_suggestions(self, prefix: str) -> None:
         try:
             from sago.agents.registry import list_agents
+
             search = prefix[1:].lower()
             matches = [a["name"] for a in list_agents() if search in a["name"].lower()][:15]
             if matches:
@@ -609,6 +648,7 @@ class SagoApp(App):
     def _show_agents(self, f: str = "") -> None:
         try:
             from sago.agents.registry import list_agents
+
             agents = list_agents()
             if f:
                 filtered = [a for a in agents if f.lower() in a["name"].lower()]
@@ -616,7 +656,9 @@ class SagoApp(App):
                 self._add_system_message(f"Agents matching '{f}' ({len(filtered)}):\n{lines}")
             else:
                 lines = "\n".join(f"  {a['name']}" for a in agents[:30])
-                self._add_system_message(f"Agents ({len(agents)} total, use /agents <filter>):\n{lines}")
+                self._add_system_message(
+                    f"Agents ({len(agents)} total, use /agents <filter>):\n{lines}"
+                )
         except Exception as e:
             self._add_system_message(f"Error: {e}")
 
@@ -625,6 +667,7 @@ class SagoApp(App):
             self._add_system_message(f"Current: {self.current_agent}\nUse /agents to see available")
             return
         from sago.agents.registry import get_agent
+
         agent = get_agent(name)
         if agent:
             self.current_agent = name
@@ -661,6 +704,7 @@ class SagoApp(App):
     def _show_status(self) -> None:
         try:
             from sago.agents.registry import list_agents
+
             n = len(list_agents())
         except Exception:
             n = 0
@@ -679,6 +723,7 @@ class SagoApp(App):
     def _show_sessions(self) -> None:
         try:
             from sago.database import Session, init_db
+
             init_db()
             s = Session()
             sessions = s.list_all(limit=15)
@@ -690,7 +735,9 @@ class SagoApp(App):
                     title = ses.get("title", "Untitled")[:30]
                     date = ses.get("created_at", "?")[:10]
                     lines.append(f"  {sid}  {title:<30} {date}")
-                self._add_system_message("Sessions (use /session <id> to load):\n" + "\n".join(lines))
+                self._add_system_message(
+                    "Sessions (use /session <id> to load):\n" + "\n".join(lines)
+                )
             else:
                 self._add_system_message("No sessions")
         except Exception as e:
@@ -701,7 +748,8 @@ class SagoApp(App):
             self._add_system_message("Usage: /session <id>")
             return
         try:
-            from sago.database import Session, MessageStore, init_db
+            from sago.database import MessageStore, Session, init_db
+
             init_db()
             s = Session()
             sessions = s.list_all(limit=100)
@@ -726,7 +774,9 @@ class SagoApp(App):
 
             self.messages.clear()
             self.query_one("#messages").remove_children()
-            self._add_system_message(f"Loaded: {matched.get('title', 'Untitled')} [{full_id[:8]}] ({len(history)} msgs)")
+            self._add_system_message(
+                f"Loaded: {matched.get('title', 'Untitled')} [{full_id[:8]}] ({len(history)} msgs)"
+            )
             for msg in history:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
@@ -742,14 +792,18 @@ class SagoApp(App):
 
     def _show_history(self) -> None:
         if self.messages:
-            lines = [f"  [{m.get('role','?')}] {m.get('content','')[:50]}" for m in self.messages[-10:]]
+            lines = [
+                f"  [{m.get('role', '?')}] {m.get('content', '')[:50]}" for m in self.messages[-10:]
+            ]
             self._add_system_message("History:\n" + "\n".join(lines))
         else:
             self._add_system_message("No history")
 
     def _change_model(self, m: str) -> None:
         if not m:
-            self._add_system_message(f"Current: {self.current_model}\n" + "\n".join(f"  {x}" for x in MODELS))
+            self._add_system_message(
+                f"Current: {self.current_model}\n" + "\n".join(f"  {x}" for x in MODELS)
+            )
             return
         for model in MODELS:
             if m.lower() in model.lower():
@@ -786,16 +840,22 @@ class SagoApp(App):
             self._add_system_message(f"Unknown level: {level}\nUse: low, medium, high, max")
 
     def _show_cost(self) -> None:
-        cost_config = MODEL_COSTS.get(self.current_model, {"input": 0, "output": 0, "cache_hit": 0, "cache_miss": 0})
+        cost_config = MODEL_COSTS.get(
+            self.current_model, {"input": 0, "output": 0, "cache_hit": 0, "cache_miss": 0}
+        )
 
         # Calculate costs with cache pricing
         cache_hit_cost = (self.total_cache_hit_tokens / 1_000_000) * cost_config.get("cache_hit", 0)
-        cache_miss_cost = (self.total_cache_miss_tokens / 1_000_000) * cost_config.get("cache_miss", cost_config["input"])
+        cache_miss_cost = (self.total_cache_miss_tokens / 1_000_000) * cost_config.get(
+            "cache_miss", cost_config["input"]
+        )
         output_cost = (self.total_output_tokens / 1_000_000) * cost_config["output"]
         total = cache_hit_cost + cache_miss_cost + output_cost
 
         # Cache savings
-        full_input_cost = ((self.total_cache_hit_tokens + self.total_cache_miss_tokens) / 1_000_000) * cost_config["input"]
+        full_input_cost = (
+            (self.total_cache_hit_tokens + self.total_cache_miss_tokens) / 1_000_000
+        ) * cost_config["input"]
         savings = full_input_cost - (cache_hit_cost + cache_miss_cost)
         savings_pct = (savings / full_input_cost * 100) if full_input_cost > 0 else 0
 
@@ -804,10 +864,14 @@ class SagoApp(App):
         lines = [
             f"Token Usage ({self.current_model}):",
             f"  Input:     {total_input:,} tokens",
-            f"    Cache hit:  {self.total_cache_hit_tokens:,} tokens (${cache_hit_cost:.4f})" if self.total_cache_hit_tokens else "",
-            f"    Cache miss: {self.total_cache_miss_tokens:,} tokens (${cache_miss_cost:.4f})" if self.total_cache_miss_tokens else "",
+            f"    Cache hit:  {self.total_cache_hit_tokens:,} tokens (${cache_hit_cost:.4f})"
+            if self.total_cache_hit_tokens
+            else "",
+            f"    Cache miss: {self.total_cache_miss_tokens:,} tokens (${cache_miss_cost:.4f})"
+            if self.total_cache_miss_tokens
+            else "",
             f"  Output:    {self.total_output_tokens:,} tokens (${output_cost:.4f})",
-            f"  ─────────────────────────────",
+            "  ─────────────────────────────",
             f"  Total:     ${total:.4f}",
         ]
 
@@ -816,7 +880,7 @@ class SagoApp(App):
 
         lines.append(f"  Messages:  {len(self.messages)}")
 
-        self._add_system_message("\n".join(l for l in lines if l))
+        self._add_system_message("\n".join(line for line in lines if line))
 
     def _compact(self) -> None:
         if not self.messages:
@@ -891,7 +955,9 @@ class SagoApp(App):
                 files = list(SAVE_DIR.glob("*.json"))
                 if files:
                     lines = [f"  {f.stem}" for f in sorted(files)[-10:]]
-                    self._add_system_message(f"Saved sessions (use /load <name>):\n" + "\n".join(lines))
+                    self._add_system_message(
+                        "Saved sessions (use /load <name>):\n" + "\n".join(lines)
+                    )
                 else:
                     self._add_system_message("No saved sessions")
             else:
@@ -929,14 +995,18 @@ class SagoApp(App):
             self._add_system_message(f"Error loading: {e}")
 
     def _export_session(self) -> None:
-        export = "\n".join(f"[{m.get('role','?').upper()}]\n{m.get('content','')}\n" for m in self.messages)
+        export = "\n".join(
+            f"[{m.get('role', '?').upper()}]\n{m.get('content', '')}\n" for m in self.messages
+        )
         fn = f"sago_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
         Path(fn).write_text(f"# Sago Session\n\n{export}")
         self._add_system_message(f"Exported: {fn}")
 
     def _git_status(self) -> None:
         try:
-            r = subprocess.run(["git", "status", "--short"], capture_output=True, text=True, timeout=5)
+            r = subprocess.run(
+                ["git", "status", "--short"], capture_output=True, text=True, timeout=5
+            )
             if r.returncode == 0:
                 files = r.stdout.strip()
                 self._add_system_message(f"Git changes:\n{files}" if files else "Git: clean")
@@ -963,22 +1033,25 @@ class SagoApp(App):
             self._add_system_message("Usage: /commit <message>")
             return
         self.pending_action = {"type": "git_commit", "message": msg}
-        self._show_approval_bar(f"Commit: \"{msg}\"?  Press [Y] Approve or [N] Deny")
+        self._show_approval_bar(f'Commit: "{msg}"?  Press [Y] Approve or [N] Deny')
 
     def _approve_action(self) -> None:
         import threading
+
         self._hide_approval_bar()
         action = self.pending_action
         if not action:
             # Check for pending orchestration plan
-            if hasattr(self, 'pending_orchestration') and self.pending_orchestration:
+            if hasattr(self, "pending_orchestration") and self.pending_orchestration:
                 plan = self.pending_orchestration.get("plan")
                 if plan:
                     self.pending_orchestration = None
                     self._execute_orchestration_plan(plan)
                     return
             # Check if executor is paused (waiting for user confirmation)
-            if self._executor_pause_event and isinstance(self._executor_pause_event, threading.Event):
+            if self._executor_pause_event and isinstance(
+                self._executor_pause_event, threading.Event
+            ):
                 self._executor_pause_event.clear()  # Resume executor
                 self._add_system_message("Approved - continuing execution")
                 return
@@ -987,7 +1060,12 @@ class SagoApp(App):
         if action["type"] == "git_commit":
             try:
                 subprocess.run(["git", "add", "-A"], capture_output=True, timeout=5)
-                r = subprocess.run(["git", "commit", "-m", action["message"]], capture_output=True, text=True, timeout=5)
+                r = subprocess.run(
+                    ["git", "commit", "-m", action["message"]],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
                 self._add_system_message(f"Committed: {r.stdout.strip()[:100]}")
             except Exception as e:
                 self._add_system_message(f"Failed: {e}")
@@ -996,6 +1074,7 @@ class SagoApp(App):
             todo_id = action.get("todo_id")
             if plan_id and todo_id:
                 from sago.tasks import get_task_manager
+
                 tm = get_task_manager()
                 user_input = action.get("input", "")
                 if user_input:
@@ -1005,9 +1084,10 @@ class SagoApp(App):
 
     def _deny_action(self) -> None:
         import threading
+
         self._hide_approval_bar()
         # Check for pending orchestration plan
-        if hasattr(self, 'pending_orchestration') and self.pending_orchestration:
+        if hasattr(self, "pending_orchestration") and self.pending_orchestration:
             self.pending_orchestration = None
             self._add_system_message("Orchestration plan denied")
             return
@@ -1020,7 +1100,8 @@ class SagoApp(App):
         self._add_system_message("Denied")
 
     def _show_permissions(self, args: str) -> None:
-        from sago.permissions import get_permission_manager, TOOL_RISK_LEVELS, RiskLevel
+        from sago.permissions import TOOL_RISK_LEVELS, get_permission_manager
+
         pm = get_permission_manager()
 
         if args == "blocked":
@@ -1047,6 +1128,7 @@ class SagoApp(App):
             self._add_system_message("Usage: /allow <tool_name>")
             return
         from sago.permissions import get_permission_manager
+
         pm = get_permission_manager()
         if tool_name in pm.config.blocked_tools:
             pm.config.blocked_tools.remove(tool_name)
@@ -1060,6 +1142,7 @@ class SagoApp(App):
             self._add_system_message("Usage: /block <tool_name>")
             return
         from sago.permissions import get_permission_manager
+
         pm = get_permission_manager()
         if tool_name not in pm.config.blocked_tools:
             pm.config.blocked_tools.append(tool_name)
@@ -1070,6 +1153,7 @@ class SagoApp(App):
 
     def _show_plan(self, args: str) -> None:
         from sago.tasks import get_task_manager
+
         tm = get_task_manager()
         plan = tm.get_active_plan()
         if plan:
@@ -1079,6 +1163,7 @@ class SagoApp(App):
 
     def _show_todo(self, args: str) -> None:
         from sago.tasks import get_task_manager
+
         tm = get_task_manager()
         plan = tm.get_active_plan()
         if not plan:
@@ -1096,6 +1181,7 @@ class SagoApp(App):
 
     def _show_all_todos(self) -> None:
         from sago.tasks import get_task_manager
+
         tm = get_task_manager()
         plan = tm.get_active_plan()
         if not plan:
@@ -1105,6 +1191,7 @@ class SagoApp(App):
 
     def _mark_todo_done(self, todo_id: str) -> None:
         from sago.tasks import get_task_manager
+
         tm = get_task_manager()
         plan = tm.get_active_plan()
         if not plan:
@@ -1134,13 +1221,18 @@ class SagoApp(App):
             self._add_system_message("Usage: /ask <question for user>")
             return
         from sago.tasks import get_task_manager
+
         tm = get_task_manager()
         plan = tm.get_active_plan()
         if plan:
             current = plan.current_todo
             if current:
                 tm.wait_for_input(plan.id, current.id, message)
-                self.pending_action = {"type": "user_input", "plan_id": plan.id, "todo_id": current.id}
+                self.pending_action = {
+                    "type": "user_input",
+                    "plan_id": plan.id,
+                    "todo_id": current.id,
+                }
                 self._show_approval_bar(f"Input needed: {message}")
         else:
             self._add_system_message(f"❓ {message}")
@@ -1148,6 +1240,7 @@ class SagoApp(App):
     def _undo_change(self) -> None:
         """Undo the last file change."""
         from sago.memory.change_tracker import get_change_tracker
+
         tracker = get_change_tracker()
         undone_path = tracker.undo_last()
         if undone_path:
@@ -1158,6 +1251,7 @@ class SagoApp(App):
     def _show_changes(self) -> None:
         """Show all file changes this session."""
         from sago.memory.change_tracker import get_change_tracker
+
         tracker = get_change_tracker()
         summary = tracker.get_diff_summary()
         self._add_system_message(summary)
@@ -1202,14 +1296,18 @@ class SagoApp(App):
             body += f"\n... ({len(result)} chars total)"
 
         c = self.query_one("#messages")
-        c.mount(Collapsible(
-            Static(body, classes="msg-system"),
-            title=title,
-            collapsed=True,
-        ))
+        c.mount(
+            Collapsible(
+                Static(body, classes="msg-system"),
+                title=title,
+                collapsed=True,
+            )
+        )
         c.scroll_end()
 
-    def _add_summary(self, tool_calls: list[dict], output: str, elapsed: float, tokens: dict) -> None:
+    def _add_summary(
+        self, tool_calls: list[dict], output: str, elapsed: float, tokens: dict
+    ) -> None:
         n_tools = len(tool_calls)
         n_ok = sum(1 for t in tool_calls if t.get("success", True))
         n_fail = n_tools - n_ok
@@ -1224,12 +1322,18 @@ class SagoApp(App):
         self.total_cache_hit_tokens += cache_hit
         self.total_cache_miss_tokens += cache_miss
 
-        lines = [f"Summary: {n_tools} calls ({n_ok} ok, {n_fail} fail) | {t_in}+{t_out} tokens | {elapsed:.1f}s"]
+        lines = [
+            f"Summary: {n_tools} calls ({n_ok} ok, {n_fail} fail) | {t_in}+{t_out} tokens | {elapsed:.1f}s"
+        ]
 
         if cache_hit > 0:
             lines.append(f"Cache: {cache_hit:,} hit, {cache_miss:,} miss")
 
-        files = [t["args"].get("file_path", "") for t in tool_calls if t.get("tool") == "write_file" and t.get("success", True)]
+        files = [
+            t["args"].get("file_path", "")
+            for t in tool_calls
+            if t.get("tool") == "write_file" and t.get("success", True)
+        ]
         files = [f for f in files if f]
         if files:
             lines.append(f"Files: {', '.join(files)}")
@@ -1242,6 +1346,7 @@ class SagoApp(App):
         if self.current_session_id and self.current_session_id != "local":
             try:
                 from sago.database import MessageStore
+
                 ms = MessageStore(self.current_session_id)
                 ms.add(role=role, content=content, agent_name=self.current_agent)
                 ms.close()
@@ -1256,12 +1361,15 @@ class SagoApp(App):
             api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
-                self.call_from_thread(self._add_system_message,
+                self.call_from_thread(
+                    self._add_system_message,
                     "No API key. Set OPENROUTER_API_KEY or OPENAI_API_KEY.\n"
-                    "You can still use Sago without agent delegation.")
+                    "You can still use Sago without agent delegation.",
+                )
                 return
 
             from sago.tools.file.spawn_agent import SpawnAgentTool
+
             tool = SpawnAgentTool()
             result = tool.run(task=task, agent_name=agent_name)
 
@@ -1269,19 +1377,21 @@ class SagoApp(App):
 
             # If agent spawning failed, offer fallback
             if "could not be spawned" in result or "Error:" in result:
-                self.call_from_thread(self._add_system_message,
+                self.call_from_thread(
+                    self._add_system_message,
                     f"{result}\n\n"
                     f"Would you like to:\n"
                     f"  1. Run the task directly (type the task again without /delegate)\n"
-                    f"  2. Try a different agent"
+                    f"  2. Try a different agent",
                 )
             else:
                 self.call_from_thread(self._add_assistant_message, result)
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_system_message,
-                f"Delegation error: {e}\n"
-                f"Try running the task directly instead.")
+            self.call_from_thread(
+                self._add_system_message,
+                f"Delegation error: {e}\nTry running the task directly instead.",
+            )
         finally:
             self.is_thinking = False
 
@@ -1297,11 +1407,12 @@ class SagoApp(App):
                 return
 
             from sago.tools.file.spawn_agent import SpawnAgentTool
+
             tool = SpawnAgentTool()
             current_input = task
 
             for i, agent in enumerate(agents):
-                self.call_from_thread(self._update_spinner, f"Step {i+1}/{len(agents)}: {agent}")
+                self.call_from_thread(self._update_spinner, f"Step {i + 1}/{len(agents)}: {agent}")
                 result = tool.run(task=current_input, agent_name=agent)
                 current_input = f"Previous agent ({agent}) said:\n\n{result}\n\nNow continue with the next step."
 
@@ -1321,45 +1432,56 @@ class SagoApp(App):
             api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
-                self.call_from_thread(self._add_system_message, "No API key. Set OPENROUTER_API_KEY or OPENAI_API_KEY.")
+                self.call_from_thread(
+                    self._add_system_message,
+                    "No API key. Set OPENROUTER_API_KEY or OPENAI_API_KEY.",
+                )
                 return
 
             from openai import OpenAI
+
             from sago.agents.registry import list_agents
 
             client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=30.0)
             agents = list_agents()
-            agent_list_str = "\n".join([
-                f"- {a['name']}: {a.get('role', '')} | Skills: {', '.join(a.get('skills', [])[:3])}"
-                for a in agents[:50]
-            ])
+            agent_list_str = "\n".join(
+                [
+                    f"- {a['name']}: {a.get('role', '')} | Skills: {', '.join(a.get('skills', [])[:3])}"
+                    for a in agents[:50]
+                ]
+            )
 
             try:
                 response = client.chat.completions.create(
                     model=self.current_model,
                     messages=[
-                        {"role": "system", "content": (
-                            "You are a task orchestrator. Analyze the task and break it into steps.\n"
-                            "For each step, specify which agent should handle it.\n"
-                            "Reply with a JSON list of steps: [{\"agent\": \"agent-name\", \"task\": \"what to do\"}]\n\n"
-                            f"Available agents:\n{agent_list_str}"
-                        )},
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a task orchestrator. Analyze the task and break it into steps.\n"
+                                "For each step, specify which agent should handle it.\n"
+                                'Reply with a JSON list of steps: [{"agent": "agent-name", "task": "what to do"}]\n\n'
+                                f"Available agents:\n{agent_list_str}"
+                            ),
+                        },
                         {"role": "user", "content": task},
                     ],
                     max_tokens=1024,
                 )
             except Exception as api_err:
                 self.call_from_thread(self._hide_spinner)
-                self.call_from_thread(self._add_system_message,
+                self.call_from_thread(
+                    self._add_system_message,
                     f"Failed to create orchestration plan: {api_err}\n"
-                    f"Try running the task directly instead of using /orchestrate."
+                    f"Try running the task directly instead of using /orchestrate.",
                 )
                 return
 
             plan_text = response.choices[0].message.content or "[]"
             import json
+
             try:
-                json_match = re.search(r'\[.*\]', plan_text, re.DOTALL)
+                json_match = re.search(r"\[.*\]", plan_text, re.DOTALL)
                 if json_match:
                     plan = json.loads(json_match.group())
                 else:
@@ -1372,7 +1494,7 @@ class SagoApp(App):
             for i, step in enumerate(plan):
                 agent = step.get("agent", "python-engineer")
                 step_task = step.get("task", "")[:80]
-                plan_lines.append(f"  {i+1}. {agent}: {step_task}")
+                plan_lines.append(f"  {i + 1}. {agent}: {step_task}")
             plan_summary = f"Orchestration plan ({len(plan)} steps):\n" + "\n".join(plan_lines)
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_system_message, plan_summary)
@@ -1396,6 +1518,7 @@ class SagoApp(App):
         self.call_from_thread(self._show_spinner, f"Executing {len(plan)} steps...")
         try:
             from sago.tools.file.spawn_agent import SpawnAgentTool
+
             tool = SpawnAgentTool()
             results = []
             failed_steps = []
@@ -1403,12 +1526,12 @@ class SagoApp(App):
             for i, step in enumerate(plan):
                 agent = step.get("agent", "python-engineer")
                 step_task = step.get("task", "")
-                self.call_from_thread(self._update_spinner, f"Step {i+1}/{len(plan)}: {agent}")
+                self.call_from_thread(self._update_spinner, f"Step {i + 1}/{len(plan)}: {agent}")
                 result = tool.run(task=step_task, agent_name=agent)
 
                 # Check if step failed
                 if result.startswith("Agent '") and "could not be spawned" in result:
-                    failed_steps.append((i+1, agent, result))
+                    failed_steps.append((i + 1, agent, result))
                     results.append(f"**{agent}** (FAILED): {result[:300]}")
                 else:
                     results.append(f"**{agent}**: {result[:500]}")
@@ -1451,35 +1574,51 @@ class SagoApp(App):
 
             # Try streaming first
             try:
-                from openai import OpenAI
-                from sago.engine.simple_executor import (
-                    _discover_tools, _get_context, _detect_task_type,
-                    PROMPTS, _TOOL_DESCRIPTIONS, _extract_tool_calls,
-                    _load_agent_profile, _is_complex_task, _generate_plan_with_llm,
-                )
                 import json
-                import time as _time
                 import threading
+                import time as _time
+
+                from openai import OpenAI
+
+                from sago.engine.simple_executor import (
+                    _TOOL_DESCRIPTIONS,
+                    PROMPTS,
+                    _detect_task_type,
+                    _discover_tools,
+                    _extract_tool_calls,
+                    _generate_plan_with_llm,
+                    _get_context,
+                    _is_complex_task,
+                    _load_agent_profile,
+                )
 
                 tools = _discover_tools()
-                client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=90.0)
+                client = OpenAI(
+                    api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=90.0
+                )
                 start_time = _time.time()
 
                 # Detect project context (languages, frameworks)
                 from sago.engine.simple_executor import _detect_project_context
+
                 project_context = _detect_project_context()
                 project_ctx = _get_context()
 
                 # Enrich context with detected info
                 if project_context["languages"]:
-                    project_ctx += f"\nDetected languages: {', '.join(project_context['languages'])}"
+                    project_ctx += (
+                        f"\nDetected languages: {', '.join(project_context['languages'])}"
+                    )
                 if project_context["frameworks"]:
-                    project_ctx += f"\nDetected frameworks: {', '.join(project_context['frameworks'])}"
+                    project_ctx += (
+                        f"\nDetected frameworks: {', '.join(project_context['frameworks'])}"
+                    )
 
                 # Load learning suggestions
                 learning_suggestion = None
                 try:
                     from sago.learning import get_learning_store
+
                     ls = get_learning_store()
                     learning_suggestion = ls.suggest_approach("general", list(tools.keys()))
                 except Exception:
@@ -1511,6 +1650,7 @@ class SagoApp(App):
                 # Inject project instructions (CLAUDE.md / .sago/instructions.md)
                 try:
                     from sago.memory.project_instructions import get_project_instructions
+
                     pi = get_project_instructions()
                     instructions_prompt = pi.get_for_prompt()
                     if instructions_prompt:
@@ -1533,23 +1673,39 @@ class SagoApp(App):
 
                 if _is_complex_task(message) and api_key:
                     try:
-                        from sago.tasks import get_task_manager, TaskStatus
+                        from sago.tasks import TaskStatus, get_task_manager
+
                         tm = get_task_manager()
-                        steps = _generate_plan_with_llm(message, client, self.current_model, _TOOL_DESCRIPTIONS)
+                        steps = _generate_plan_with_llm(
+                            message, client, self.current_model, _TOOL_DESCRIPTIONS
+                        )
                         task_plan = tm.create_plan(goal=message, todos=steps)
                         # Mark todos that need confirmation
-                        confirm_keywords = ["confirm", "approve", "review", "check", "verify", "validate"]
+                        confirm_keywords = [
+                            "confirm",
+                            "approve",
+                            "review",
+                            "check",
+                            "verify",
+                            "validate",
+                        ]
                         for todo in task_plan.todos:
                             if any(kw in todo.description.lower() for kw in confirm_keywords):
                                 todo.requires_confirmation = True
                                 todo.confirmation_message = f"Please confirm: {todo.description}"
                         # Show plan in TUI
-                        self.call_from_thread(self._add_system_message, f"📋 Created plan with {len(task_plan.todos)} steps:")
+                        self.call_from_thread(
+                            self._add_system_message,
+                            f"📋 Created plan with {len(task_plan.todos)} steps:",
+                        )
                         self.call_from_thread(self._add_system_message, tm.format_plan(task_plan))
                         # Start first todo
                         if task_plan.todos:
                             tm.start_todo(task_plan.id, task_plan.todos[0].id)
-                            self.call_from_thread(self._update_spinner, f"Step 1/{len(task_plan.todos)}: {task_plan.todos[0].description[:50]}")
+                            self.call_from_thread(
+                                self._update_spinner,
+                                f"Step 1/{len(task_plan.todos)}: {task_plan.todos[0].description[:50]}",
+                            )
                     except Exception:
                         task_plan = None
                 # === END TODO SYSTEM ===
@@ -1573,7 +1729,10 @@ class SagoApp(App):
                     if task_plan and current_todo_index < len(task_plan.todos):
                         todo = task_plan.todos[current_todo_index]
                         todo_info = f" | Step {current_todo_index + 1}/{len(task_plan.todos)}: {todo.description[:40]}"
-                    self.call_from_thread(self._update_spinner, f"Step {iteration+1}/{effort['max_iterations']}{todo_info}...")
+                    self.call_from_thread(
+                        self._update_spinner,
+                        f"Step {iteration + 1}/{effort['max_iterations']}{todo_info}...",
+                    )
 
                     stream = client.chat.completions.create(
                         model=self.current_model,
@@ -1587,15 +1746,15 @@ class SagoApp(App):
                     content = ""
                     for chunk in stream:
                         # Get usage from final chunk
-                        if hasattr(chunk, 'usage') and chunk.usage:
+                        if hasattr(chunk, "usage") and chunk.usage:
                             total_tokens_in = chunk.usage.prompt_tokens or 0
                             total_tokens_out = chunk.usage.completion_tokens or 0
                         if chunk.choices and chunk.choices[0].delta.content:
                             token = chunk.choices[0].delta.content
                             content += token
 
-                    if not content and hasattr(stream, 'choices') and stream.choices:
-                        if hasattr(stream.choices[0].message, 'reasoning'):
+                    if not content and hasattr(stream, "choices") and stream.choices:
+                        if hasattr(stream.choices[0].message, "reasoning"):
                             content = stream.choices[0].message.reasoning or ""
 
                     messages.append({"role": "assistant", "content": content})
@@ -1605,22 +1764,34 @@ class SagoApp(App):
                     if not tool_calls:
                         # No tool calls - mark current todo as complete
                         if task_plan and current_todo_index < len(task_plan.todos):
-                            from sago.tasks import get_task_manager, TaskStatus
+                            from sago.tasks import TaskStatus, get_task_manager
+
                             tm = get_task_manager()
                             todo = task_plan.todos[current_todo_index]
                             if todo.status == TaskStatus.IN_PROGRESS:
                                 tm.complete_todo(task_plan.id, todo.id, result=content[:200])
-                                self.call_from_thread(self._add_system_message, f"✅ Step {current_todo_index + 1} completed: {todo.description[:60]}")
+                                self.call_from_thread(
+                                    self._add_system_message,
+                                    f"✅ Step {current_todo_index + 1} completed: {todo.description[:60]}",
+                                )
                                 current_todo_index += 1
                                 # Continue to next todo
                                 if current_todo_index < len(task_plan.todos):
                                     next_todo = task_plan.todos[current_todo_index]
                                     tm.start_todo(task_plan.id, next_todo.id)
-                                    self.call_from_thread(self._update_spinner, f"Step {current_todo_index + 1}/{len(task_plan.todos)}: {next_todo.description[:50]}")
-                                    messages.append({"role": "user", "content": (
-                                        f"Moving to next step: {next_todo.description}\n"
-                                        f"Execute this step now. Use the appropriate tools."
-                                    )})
+                                    self.call_from_thread(
+                                        self._update_spinner,
+                                        f"Step {current_todo_index + 1}/{len(task_plan.todos)}: {next_todo.description[:50]}",
+                                    )
+                                    messages.append(
+                                        {
+                                            "role": "user",
+                                            "content": (
+                                                f"Moving to next step: {next_todo.description}\n"
+                                                f"Execute this step now. Use the appropriate tools."
+                                            ),
+                                        }
+                                    )
                                     continue
                         break
 
@@ -1641,22 +1812,31 @@ class SagoApp(App):
                             # Loop protection
                             call_key = f"{name}:{json.dumps(args, sort_keys=True)}"
                             if call_key in failed_calls:
-                                results_for_llm.append(f"[SKIP] Already failed: {name} with same args")
+                                results_for_llm.append(
+                                    f"[SKIP] Already failed: {name} with same args"
+                                )
                                 continue
 
                             # Check permissions before execution
-                            from sago.permissions import get_permission_manager, RiskLevel
+                            from sago.permissions import RiskLevel, get_permission_manager
+
                             pm = get_permission_manager()
                             risk = pm.get_risk_level(name)
-                            allowed, reason = pm.check_permission(name, args, self.current_session_id)
+                            allowed, reason = pm.check_permission(
+                                name, args, self.current_session_id
+                            )
 
                             if not allowed:
                                 if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
                                     # For high/critical risk, ask user in TUI
-                                    self.call_from_thread(self._add_system_message,
-                                        f"Tool '{name}' requires approval (risk: {risk.value})")
+                                    self.call_from_thread(
+                                        self._add_system_message,
+                                        f"Tool '{name}' requires approval (risk: {risk.value})",
+                                    )
                                     # Auto-deny for now - can add interactive prompt later
-                                    results_for_llm.append(f"Permission denied: {name} requires approval")
+                                    results_for_llm.append(
+                                        f"Permission denied: {name} requires approval"
+                                    )
                                     continue
                                 else:
                                     results_for_llm.append(f"Permission denied: {reason}")
@@ -1665,7 +1845,10 @@ class SagoApp(App):
                             # No hard limits - let LLM self-regulate
                             # But detect circular behavior and warn
                             tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
-                            recent_calls = [f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}" for c in tool_history[-5:]]
+                            recent_calls = [
+                                f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}"
+                                for c in tool_history[-5:]
+                            ]
                             if len(recent_calls) >= 3:
                                 unique_recent = set(recent_calls[-3:])
                                 if len(unique_recent) == 1:
@@ -1679,7 +1862,10 @@ class SagoApp(App):
                             result = tool_instance.run(**args)
                             result_str = str(result)[:4000]
 
-                            is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
+                            is_error = (
+                                result_str.lower().startswith("error")
+                                or "traceback" in result_str.lower()
+                            )
                             if is_error:
                                 failed_calls.add(call_key)
 
@@ -1688,20 +1874,28 @@ class SagoApp(App):
                                 if fp and fp not in files_created:
                                     files_created.append(fp)
 
-                            tool_history.append({
-                                "tool": name,
-                                "args": args,
-                                "result": result_str[:500],
-                                "success": not is_error,
-                            })
+                            tool_history.append(
+                                {
+                                    "tool": name,
+                                    "args": args,
+                                    "result": result_str[:500],
+                                    "success": not is_error,
+                                }
+                            )
 
                             tools_used_in_iteration.append(name)
 
                             # Show tool call immediately in UI
-                            self.call_from_thread(on_tool_result, name, args, result_str[:1000], not is_error)
+                            self.call_from_thread(
+                                on_tool_result, name, args, result_str[:1000], not is_error
+                            )
 
-                            display = result_str[:1500] + "..." if len(result_str) > 1500 else result_str
-                            results_for_llm.append(f"[{'ERROR' if is_error else 'OK'}] {name}:\n{display}")
+                            display = (
+                                result_str[:1500] + "..." if len(result_str) > 1500 else result_str
+                            )
+                            results_for_llm.append(
+                                f"[{'ERROR' if is_error else 'OK'}] {name}:\n{display}"
+                            )
 
                         except json.JSONDecodeError:
                             results_for_llm.append("Invalid JSON format")
@@ -1711,7 +1905,8 @@ class SagoApp(App):
                     # === TODO SYSTEM: Update progress ===
                     if task_plan:
                         try:
-                            from sago.tasks import get_task_manager, TaskStatus
+                            from sago.tasks import TaskStatus, get_task_manager
+
                             tm = get_task_manager()
 
                             if current_todo_index < len(task_plan.todos):
@@ -1723,36 +1918,63 @@ class SagoApp(App):
                                 todo_tool_counts[todo.id] += len(tools_used_in_iteration)
 
                                 # Check if todo needs confirmation before proceeding
-                                if todo.requires_confirmation and todo.status == TaskStatus.IN_PROGRESS:
-                                    self.call_from_thread(self._add_system_message, f"⏳ Waiting for confirmation: {todo.confirmation_message or todo.description}")
+                                if (
+                                    todo.requires_confirmation
+                                    and todo.status == TaskStatus.IN_PROGRESS
+                                ):
+                                    self.call_from_thread(
+                                        self._add_system_message,
+                                        f"⏳ Waiting for confirmation: {todo.confirmation_message or todo.description}",
+                                    )
                                     # Set up pause event and wait
                                     pause_event = threading.Event()
                                     pause_event.set()  # Start paused
                                     self._executor_pause_event = pause_event
                                     self.call_from_thread(self._hide_spinner)
-                                    self.call_from_thread(self._add_system_message, "Type /approve to continue or /deny to skip this step")
+                                    self.call_from_thread(
+                                        self._add_system_message,
+                                        "Type /approve to continue or /deny to skip this step",
+                                    )
                                     pause_event.wait()  # Block until user responds
                                     self._executor_pause_event = None
                                     self.call_from_thread(self._show_spinner)
 
                                 # Auto-complete todo after sufficient work
-                                successful_tools = [t["tool"] for t in tool_history if t.get("success") and t["tool"] in tools_used_in_iteration]
+                                successful_tools = [
+                                    t["tool"]
+                                    for t in tool_history
+                                    if t.get("success") and t["tool"] in tools_used_in_iteration
+                                ]
                                 tools_for_todo = todo_tool_counts.get(todo.id, 0)
-                                if (tools_for_todo >= 3 and len(successful_tools) >= 2) or (tools_for_todo >= 2 and len(tools_used_in_iteration) >= 1):
-                                    tm.complete_todo(task_plan.id, todo.id, result=f"Completed: {', '.join(successful_tools[:3])}")
-                                    self.call_from_thread(self._add_system_message, f"✅ Step {current_todo_index + 1} completed: {todo.description[:60]}")
+                                if (tools_for_todo >= 3 and len(successful_tools) >= 2) or (
+                                    tools_for_todo >= 2 and len(tools_used_in_iteration) >= 1
+                                ):
+                                    tm.complete_todo(
+                                        task_plan.id,
+                                        todo.id,
+                                        result=f"Completed: {', '.join(successful_tools[:3])}",
+                                    )
+                                    self.call_from_thread(
+                                        self._add_system_message,
+                                        f"✅ Step {current_todo_index + 1} completed: {todo.description[:60]}",
+                                    )
                                     current_todo_index += 1
 
                                     if current_todo_index < len(task_plan.todos):
                                         next_todo = task_plan.todos[current_todo_index]
                                         tm.start_todo(task_plan.id, next_todo.id)
-                                        self.call_from_thread(self._update_spinner, f"Step {current_todo_index + 1}/{len(task_plan.todos)}: {next_todo.description[:50]}")
+                                        self.call_from_thread(
+                                            self._update_spinner,
+                                            f"Step {current_todo_index + 1}/{len(task_plan.todos)}: {next_todo.description[:50]}",
+                                        )
                                         results_for_llm.append(
                                             f"\n[PROGRESS] Step completed. Next step: {next_todo.description}\n"
                                             f"Execute this step now."
                                         )
                                     else:
-                                        results_for_llm.append("\n[PROGRESS] All steps completed. Provide final summary.")
+                                        results_for_llm.append(
+                                            "\n[PROGRESS] All steps completed. Provide final summary."
+                                        )
                         except Exception:
                             pass
                     # === END TODO SYSTEM ===
@@ -1783,22 +2005,32 @@ class SagoApp(App):
 
                         test_fix_attempts += 1
                         if test_fix_attempts >= max_test_fix_attempts:
-                            self.call_from_thread(self._add_system_message, f"❌ Tests still failing after {max_test_fix_attempts} attempts")
+                            self.call_from_thread(
+                                self._add_system_message,
+                                f"❌ Tests still failing after {max_test_fix_attempts} attempts",
+                            )
                             break
 
-                        self.call_from_thread(self._update_spinner, f"Tests failed (attempt {test_fix_attempts}/{max_test_fix_attempts}), fixing...")
+                        self.call_from_thread(
+                            self._update_spinner,
+                            f"Tests failed (attempt {test_fix_attempts}/{max_test_fix_attempts}), fixing...",
+                        )
 
                         # Feed test errors back to LLM for fixing
                         try:
                             fix_stream = client.chat.completions.create(
                                 model=self.current_model,
-                                messages=messages + [
-                                    {"role": "user", "content": (
-                                        f"The tests are failing. Fix the failing tests.\n\n"
-                                        f"Test output:\n{test_output[:3000]}\n\n"
-                                        f"Files you created: {', '.join(files_created)}\n"
-                                        f"Fix the issues and make the tests pass. Use edit_file or write_file to fix."
-                                    )},
+                                messages=messages
+                                + [
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            f"The tests are failing. Fix the failing tests.\n\n"
+                                            f"Test output:\n{test_output[:3000]}\n\n"
+                                            f"Files you created: {', '.join(files_created)}\n"
+                                            f"Fix the issues and make the tests pass. Use edit_file or write_file to fix."
+                                        ),
+                                    },
                                 ],
                                 max_tokens=effort["max_tokens"],
                                 temperature=0.3,
@@ -1823,12 +2055,14 @@ class SagoApp(App):
                                             result = tool_instance.run(**args)
                                             result_str = str(result)[:4000]
                                             is_error = result_str.lower().startswith("error")
-                                            tool_history.append({
-                                                "tool": name,
-                                                "args": args,
-                                                "result": result_str[:500],
-                                                "success": not is_error,
-                                            })
+                                            tool_history.append(
+                                                {
+                                                    "tool": name,
+                                                    "args": args,
+                                                    "result": result_str[:500],
+                                                    "success": not is_error,
+                                                }
+                                            )
                                             if name == "write_file" and not is_error:
                                                 fp = args.get("file_path", "")
                                                 if fp and fp not in files_created:
@@ -1842,7 +2076,8 @@ class SagoApp(App):
                 # Final todo cleanup
                 if task_plan:
                     try:
-                        from sago.tasks import get_task_manager, TaskStatus
+                        from sago.tasks import TaskStatus, get_task_manager
+
                         tm = get_task_manager()
                         for idx in range(current_todo_index, len(task_plan.todos)):
                             todo = task_plan.todos[idx]
@@ -1870,6 +2105,7 @@ class SagoApp(App):
                 if files_created:
                     try:
                         from sago.memory.change_tracker import get_change_tracker
+
                         tracker = get_change_tracker()
                         change_summary = tracker.get_diff_summary()
                         if change_summary and "No changes" not in change_summary:
@@ -1880,12 +2116,19 @@ class SagoApp(App):
                 # Record learning
                 try:
                     from sago.learning import get_learning_store
+
                     ls = get_learning_store()
                     successful_tools = [t["tool"] for t in tool_history if t.get("success")]
                     if successful_tools:
-                        ls.record_success(task_type, successful_tools, f"Used {', '.join(set(successful_tools[:5]))}")
+                        ls.record_success(
+                            task_type,
+                            successful_tools,
+                            f"Used {', '.join(set(successful_tools[:5]))}",
+                        )
                     for tool_record in tool_history:
-                        ls.record_tool_effectiveness(tool_record["tool"], tool_record.get("success", False))
+                        ls.record_tool_effectiveness(
+                            tool_record["tool"], tool_record.get("success", False)
+                        )
                 except Exception:
                     pass
 
@@ -1896,8 +2139,11 @@ class SagoApp(App):
                 from sago.engine.simple_executor import execute_agent_task
 
                 def on_todo_created(plan):
-                    self.call_from_thread(self._add_system_message, f"📋 Created plan with {len(plan.todos)} steps:")
+                    self.call_from_thread(
+                        self._add_system_message, f"📋 Created plan with {len(plan.todos)} steps:"
+                    )
                     from sago.tasks import get_task_manager
+
                     tm = get_task_manager()
                     self.call_from_thread(self._add_system_message, tm.format_plan(plan))
 
@@ -1905,9 +2151,15 @@ class SagoApp(App):
                     if todo_index < len(plan.todos):
                         todo = plan.todos[todo_index]
                         if status == "started":
-                            self.call_from_thread(self._update_spinner, f"Step {todo_index + 1}/{len(plan.todos)}: {todo.description[:50]}")
+                            self.call_from_thread(
+                                self._update_spinner,
+                                f"Step {todo_index + 1}/{len(plan.todos)}: {todo.description[:50]}",
+                            )
                         elif status == "completed":
-                            self.call_from_thread(self._add_system_message, f"✅ Step {todo_index + 1} completed: {todo.description[:60]}")
+                            self.call_from_thread(
+                                self._add_system_message,
+                                f"✅ Step {todo_index + 1} completed: {todo.description[:60]}",
+                            )
 
                 result = execute_agent_task(
                     task=message,
@@ -1926,6 +2178,7 @@ class SagoApp(App):
                 # Show task plan if created
                 if result.get("task_plan"):
                     from sago.tasks import get_task_manager
+
                     tm = get_task_manager()
                     plan = tm.get_active_plan()
                     if plan:

@@ -65,9 +65,9 @@ PROFILE = AgentProfile(
 
 - **Discoverability:** Every command supports `--help` with examples. Subcommands surface their own help.
 - **Composability:** Tools read from stdin, write to stdout, and communicate via exit codes. No""",
-    skills=['cli', 'tool', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["cli", "tool", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

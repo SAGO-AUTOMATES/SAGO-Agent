@@ -12,7 +12,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-
 MESH_PORT = 7654
 MESH_BROADCAST = "255.255.255.255"
 DISCOVERY_TIMEOUT = 5
@@ -21,6 +20,7 @@ DISCOVERY_TIMEOUT = 5
 @dataclass
 class MeshNode:
     """A node in the Sago mesh network."""
+
     id: str
     hostname: str
     ip_address: str
@@ -49,6 +49,7 @@ class MeshNode:
 @dataclass
 class MeshMessage:
     """Message between mesh nodes."""
+
     type: str  # heartbeat, task_request, task_result, discovery
     sender: str
     receiver: str | None = None
@@ -56,13 +57,15 @@ class MeshMessage:
     timestamp: float = field(default_factory=time.time)
 
     def to_json(self) -> str:
-        return json.dumps({
-            "type": self.type,
-            "sender": self.sender,
-            "receiver": self.receiver,
-            "payload": self.payload,
-            "timestamp": self.timestamp,
-        })
+        return json.dumps(
+            {
+                "type": self.type,
+                "sender": self.sender,
+                "receiver": self.receiver,
+                "payload": self.payload,
+                "timestamp": self.timestamp,
+            }
+        )
 
     @classmethod
     def from_json(cls, data: str) -> MeshMessage:
@@ -191,6 +194,7 @@ class MeshNetwork:
         """Get current node load."""
         try:
             import psutil
+
             return psutil.cpu_percent()
         except ImportError:
             return 0.0
@@ -226,7 +230,7 @@ class MeshNetwork:
 
                 messages.append(msg)
 
-        except socket.timeout:
+        except TimeoutError:
             pass
         except Exception:
             pass

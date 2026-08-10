@@ -167,9 +167,9 @@ __global__ void tiled_matmul(const float* A, const float* B, float* C,
         __syncthreads();
     }
 """,
-    skills=['gpu', 'cuda', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["gpu", "cuda", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

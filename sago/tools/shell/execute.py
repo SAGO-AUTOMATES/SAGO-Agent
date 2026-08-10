@@ -5,7 +5,6 @@ Supports Windows (PowerShell), macOS/Linux (bash/zsh).
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -25,7 +24,9 @@ class ExecuteShellTool(BaseTool):
     """Tool for executing shell commands across platforms."""
 
     name = "execute_shell"
-    description = "Execute a shell command and return its output. Works on Windows, macOS, and Linux."
+    description = (
+        "Execute a shell command and return its output. Works on Windows, macOS, and Linux."
+    )
     args_model = ExecuteShellArgs
 
     def _run(

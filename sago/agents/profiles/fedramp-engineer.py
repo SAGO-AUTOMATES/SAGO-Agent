@@ -112,8 +112,8 @@ PROFILE = AgentProfile(
 ---
 
 """,
-    skills=['fedramp', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
+    skills=["fedramp", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
     handoff_to=[],
 )
 

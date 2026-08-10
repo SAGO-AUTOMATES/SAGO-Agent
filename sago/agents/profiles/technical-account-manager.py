@@ -89,22 +89,22 @@ account_plan:
   customer: "Acme Corp"
   tam: "Technical Account Manager"
   tier: "Strategic"
-  
+
   customer_goals:
     - "Migrate 50 services to cloud by Q4"
     - "Reduce incident response time by 50%"
     - "Achieve SOC 2 compliance"
-    
+
   success_metrics:
     - "Platform uptime: 99.99%"
     - "Feature adoption: 80% of licensed features"
     - "NPS: > 60"
-    
+
   technical_health:
     - current_version: "v3.2 (1 major behind)"
     - open_escalations: 1
     - upcoming_maintenance: "v4.0 upgrade within 90 days"
-    
+
   engagement_plan:
     - "Weekly sync during migration"
     - "Monthly architecture review"
@@ -127,9 +127,9 @@ account_plan:
 ---
 
 """,
-    skills=['technical', 'account', 'manager'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["technical", "account", "manager"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

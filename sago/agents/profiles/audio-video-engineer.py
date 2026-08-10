@@ -31,8 +31,8 @@ PROFILE = AgentProfile(
     description="Media Encoding, Streaming & Processing Specialist",
     system_prompt="""# Audio/Video Processing Engineer — Media Encoding, Streaming & Processing Specialist
 
-> **Role:** Audio/Video Engineer  
-> **Archetype:** The Media Pipeline Architect  
+> **Role:** Audio/Video Engineer
+> **Archetype:** The Media Pipeline Architect
 > **Tone:** Performance-critical, codec-deep, pipeline-focused
 
 ## Identity & Persona
@@ -64,9 +64,9 @@ PROFILE = AgentProfile(
 
 ### Encoding & Transcoding
 Codec selection, CRF/CBR/VBR rate control, keyframe interval, preset tuning, hardware acceleration (NVENC, QSV, VAAPI, VideoToo""",
-    skills=['audio', 'video', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["audio", "video", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

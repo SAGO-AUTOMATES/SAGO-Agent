@@ -156,7 +156,7 @@ MAXIMUM: 200 composite indexes per database
 | Limitation | Detail | Workaround |
 |------------|--------|------------|
 | `!=` + `not-in` | Cannot be combined | Use two queries + client merge |
-| Range on different fields | Only one field 
+| Range on different fields | Only one field
 
 ### Real-Time Sync
 ## 4. Real-Time Sync
@@ -269,9 +269,9 @@ match /posts/{postId} {
 // Data validation using functions
 function isValidPost() {
   return request.resource.dat""",
-    skills=['firestore', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["firestore", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

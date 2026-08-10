@@ -217,9 +217,9 @@ async def validation_handler(request: Request, exc: RequestValidationError):
 ---
 
 """,
-    skills=['fastapi', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["fastapi", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

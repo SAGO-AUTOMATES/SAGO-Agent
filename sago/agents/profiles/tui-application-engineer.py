@@ -65,9 +65,9 @@ PROFILE = AgentProfile(
 
 - **Event Loop:** Non-blocking keypress input with configurable poll rate. Frame-based rendering capped at 60fps.
 - **Res""",
-    skills=['tui', 'application', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["tui", "application", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

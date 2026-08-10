@@ -228,9 +228,9 @@ source = "target/wasm32-wasi/release/hello_spin.wasm"
 ---
 
 """,
-    skills=['wasm', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["wasm", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

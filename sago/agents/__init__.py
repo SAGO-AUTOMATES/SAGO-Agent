@@ -4,8 +4,8 @@ Provides specialist agent definitions, spawning, and orchestration.
 """
 
 from sago.agents.registry import (
-    AgentDefinition,
     AGENTS,
+    AgentDefinition,
     get_agent,
     get_agents_by_skill,
     get_handoff_targets,

@@ -109,7 +109,7 @@ PROFILE = AgentProfile(
 tool:
   name: search_documents
   description: "Search documents by query string"
-  
+
   inputSchema:
     type: object
     properties:
@@ -125,7 +125,7 @@ tool:
         minimum: 1
         maximum: 100
     required: [query]
-    
+
   # Best practices:
   # - Name is verb_noun (action + subject)
   # - Description is clear, no jargon
@@ -151,9 +151,26 @@ tool:
 ---
 
 """,
-    skills=['mcp-server-development', 'tool-design', 'resource-exposure', 'security-hardening', 'error-handling', 'testing', 'documentation', 'registry-management'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner', 'code_analyzer'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "mcp-server-development",
+        "tool-design",
+        "resource-exposure",
+        "security-hardening",
+        "error-handling",
+        "testing",
+        "documentation",
+        "registry-management",
+    ],
+    tools=[
+        "read_file",
+        "write_file",
+        "edit_file",
+        "execute_shell",
+        "linter",
+        "test_runner",
+        "code_analyzer",
+    ],
+    handoff_to=["code-reviewer"],
 )
 
 

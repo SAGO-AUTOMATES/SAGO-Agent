@@ -143,8 +143,8 @@ Create ──▶ Classify ──▶ Store ──▶ Maintain ──▶ Dispose
 ---
 
 """,
-    skills=['records', 'management', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
+    skills=["records", "management", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
     handoff_to=[],
 )
 

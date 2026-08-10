@@ -16,10 +16,14 @@ from sago.tools.base import BaseTool
 class PromptGeneratorArgs(BaseModel):
     """Arguments for PromptGeneratorTool."""
 
-    operation: Literal["generate", "list", "save", "load", "template"] = Field(description="Operation to perform")
+    operation: Literal["generate", "list", "save", "load", "template"] = Field(
+        description="Operation to perform"
+    )
     name: str | None = Field(default=None, description="Prompt name")
     content: str | None = Field(default=None, description="Prompt content")
-    template_type: str | None = Field(default=None, description="Template type (coding, debug, review, etc.)")
+    template_type: str | None = Field(
+        default=None, description="Template type (coding, debug, review, etc.)"
+    )
 
 
 class PromptGeneratorTool(BaseTool):
@@ -106,9 +110,7 @@ class PromptGeneratorTool(BaseTool):
 
         return f"Error: Unknown operation: {operation}"
 
-    def _generate_prompt(
-        self, template_type: str | None, custom_content: str | None
-    ) -> str:
+    def _generate_prompt(self, template_type: str | None, custom_content: str | None) -> str:
         """Generate a prompt from template or custom content."""
         if custom_content:
             return f"Generated prompt:\n\n{custom_content}"
@@ -148,7 +150,7 @@ class PromptGeneratorTool(BaseTool):
     def _get_template(self, template_type: str | None) -> str:
         """Get a prompt template."""
         if template_type is None:
-            return f"Available templates:\n" + "\n".join(
+            return "Available templates:\n" + "\n".join(
                 f"  {k}: {v[:50]}..." for k, v in self._TEMPLATES.items()
             )
 

@@ -149,9 +149,18 @@ metrics:
 ---
 
 """,
-    skills=['system-prompt-design', 'instruction-engineering', 'few-shot-design', 'output-formatting', 'chain-of-thought-design', 'guardrail-implementation', 'prompt-testing', 'template-library'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "system-prompt-design",
+        "instruction-engineering",
+        "few-shot-design",
+        "output-formatting",
+        "chain-of-thought-design",
+        "guardrail-implementation",
+        "prompt-testing",
+        "template-library",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
+    handoff_to=["code-reviewer"],
 )
 
 

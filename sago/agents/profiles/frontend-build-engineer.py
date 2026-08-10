@@ -62,9 +62,9 @@ PROFILE = AgentProfile(
 | Rollup | Bundler (library) | Tree-shaking, ES module output, plugin API |
 | Parcel | Bundler (zero-config) | Auto-installed plugins, multi-threaded |
 | SWC | Compiler | Rust-based TS""",
-    skills=['frontend', 'build', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["frontend", "build", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

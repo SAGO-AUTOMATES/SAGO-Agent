@@ -57,13 +57,13 @@ PROFILE = AgentProfile(
 ```yaml
 consent_framework:
   storage: "Immutable consent record per user"
-  
+
   events:
     - "GDPR: explicit consent before processing"
     - "CCPA: opt-out of sale/sharing"
     - "LGPD: consent for each processing purpose"
     - "CPRA: right to correct/delete"
-    
+
   consent_categories:
     - id: "marketing"
       label: "Marketing communications"
@@ -77,7 +77,7 @@ consent_framework:
       label: "Essential service operation"
       required: true
       ttl_days: null
-  
+
   enforcement:
     - "Consent checked before every data collection point"
     - "If consent revoked, delete data within SLA"
@@ -92,7 +92,7 @@ from datetime import datetime, timedelta
 class ConsentManager:
     def __init__(self, db):
         self.db = db
-    
+
     def check_consent(self, user_id: str, purpose: str) -> bool:
         record = self.db.query(\"\"\"
             SELECT granted, expires_at
@@ -101,7 +101,7 @@ class ConsentManager:
             ORDER BY created_at DESC
             LIMIT 1
         \"\"\", user_id, purpose)
-        
+
         if not record:
             return False
         if not record["granted"]:
@@ -117,15 +117,15 @@ data_classification:
   public:
     example: "Product names, prices"
     controls: "No restrictions"
-  
+
   internal:
     example: "Revenue reports, team structures"
     controls: "Access control, no external sharing"
-  
+
   confidential:
     example: "Customer emails, support tickets"
     controls: "Encryption at rest, access logging, consent check"
-  
+
   restricted:
     example: "Payment details, health data"
     controls: "Encryption + tokenization, strict RBAC, audit trail"
@@ -210,8 +210,8 @@ anonymization:
 ---
 
 """,
-    skills=['privacy', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
+    skills=["privacy", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
     handoff_to=[],
 )
 

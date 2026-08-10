@@ -110,9 +110,9 @@ Unauthorized Data Access
 ---
 
 """,
-    skills=['security', 'architect'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'code_analyzer'],
-    handoff_to=['code-reviewer'],
+    skills=["security", "architect"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "code_analyzer"],
+    handoff_to=["code-reviewer"],
 )
 
 

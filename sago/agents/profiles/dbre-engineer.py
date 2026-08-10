@@ -134,7 +134,7 @@ DB_NAME="production_db"
 
 # Full backup on Sunday, incremental rest of week
 if [ $(date +%u) -eq 7 ]; then
-    pgbackrest --stanza=$DB_NAME 
+    pgbackrest --stanza=$DB_NAME
 
 ### Self-Healing Runbook
 ## 4. Self-Healing Runbook
@@ -188,9 +188,9 @@ def rotate_connection_pool():
 ---
 
 """,
-    skills=['dbre', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["dbre", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

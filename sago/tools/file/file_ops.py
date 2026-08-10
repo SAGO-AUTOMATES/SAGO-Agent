@@ -17,9 +17,13 @@ from sago.tools.base import BaseTool
 class FileOperationsArgs(BaseModel):
     """Arguments for FileOperationsTool."""
 
-    operation: Literal["move", "copy", "delete", "rename", "mkdir", "list"] = Field(description="Operation to perform")
+    operation: Literal["move", "copy", "delete", "rename", "mkdir", "list"] = Field(
+        description="Operation to perform"
+    )
     source: str = Field(description="Source file or directory path")
-    destination: str | None = Field(default=None, description="Destination path (for move/copy/rename)")
+    destination: str | None = Field(
+        default=None, description="Destination path (for move/copy/rename)"
+    )
     recursive: bool = Field(default=False, description="Operate recursively on directories")
     force: bool = Field(default=False, description="Force overwrite existing files")
 
@@ -28,7 +32,9 @@ class FileOperationsTool(BaseTool):
     """Tool for file system operations (move, copy, delete, rename, mkdir, list)."""
 
     name = "file_operations"
-    description = "Perform file operations: move, copy, delete, rename, mkdir, or list directory contents."
+    description = (
+        "Perform file operations: move, copy, delete, rename, mkdir, or list directory contents."
+    )
     args_model = FileOperationsArgs
 
     def _run(

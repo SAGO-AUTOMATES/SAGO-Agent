@@ -75,7 +75,7 @@ PROFILE = AgentProfile(
 │  ┌──────────┐  ┌──────────┐  ┌──────┴───────┐  │
 │  │  Node C  │──┤ Service  │◄─│   Node D     │  │
 │  │(Control) │  │/plan_    │  │(Navigation)  │  │
-│  └──────────┘  │ path     │ 
+│  └──────────┘  │ path     │
 
 ### Perception & Sensor Fusion
 ## 3. Perception & Sensor Fusion
@@ -205,9 +205,9 @@ Trajectory Command
 ---
 
 """,
-    skills=['robotics', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["robotics", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

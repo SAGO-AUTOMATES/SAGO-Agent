@@ -136,11 +136,11 @@ guard let user = await repository.find(id: userId) else {
 // Swift 6 — strict concurrency checking
 actor OrderProcessor {
     private var pendingOrders: [Order] = []
-    
+
     func addOrder(_ order: Order) {
         pendingOrders.append(order)
     }
-    
+
     func processNext() async throws -> Order? {
         guard let order = pendingOrders.first else { return nil }
         pendingOrders.removeFirst()
@@ -175,9 +175,9 @@ func fetchDashboard() async throws -> Dashboard {
 ---
 
 """,
-    skills=['swift', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["swift", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

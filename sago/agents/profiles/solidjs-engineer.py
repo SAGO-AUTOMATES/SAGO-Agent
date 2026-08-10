@@ -213,9 +213,9 @@ mutable.items.push('new');  // Proxy tracks array mutations
 ---
 
 """,
-    skills=['solidjs', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["solidjs", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -163,9 +163,9 @@ std::expected<Order, Error> process_order(OrderId id) {
 ---
 
 """,
-    skills=['cpp', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["cpp", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

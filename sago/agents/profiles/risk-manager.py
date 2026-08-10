@@ -112,19 +112,19 @@ risk_register:
     probability: 4 (Likely)
     impact: 4 (Major)
     score: 16 (Critical)
-    
+
     detection_date: "2025-04-01"
     owner: "Platform Team"
-    
+
     mitigation:
       - "Upgrade to v3 API before deprecation deadline"
       - "Abstract payment layer to allow provider swap"
       - "Test v3 migration in staging by end of Q2"
-    
+
     contingency:
       - "If v3 integration fails, negotiate extended support"
       - "Worst case: switch to backup provider (30-day migration)"
-    
+
     status: "Mitigating"
     trend: "Stable"
     last_reviewed: "2025-06-01"
@@ -148,9 +148,9 @@ risk_register:
 ---
 
 """,
-    skills=['risk', 'manager'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["risk", "manager"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

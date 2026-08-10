@@ -16,7 +16,9 @@ class SoftwareInstallArgs(BaseModel):
     """Arguments for SoftwareInstallTool."""
 
     package: str = Field(description="Package name to install")
-    manager: Literal["auto", "apt", "yum", "dnf", "brew", "choco", "pip", "npm", "cargo"] = Field(default="auto", description="Package manager to use")
+    manager: Literal["auto", "apt", "yum", "dnf", "brew", "choco", "pip", "npm", "cargo"] = Field(
+        default="auto", description="Package manager to use"
+    )
     version: str | None = Field(default=None, description="Specific version to install")
     sudo: bool = Field(default=False, description="Use sudo for installation")
 
@@ -77,7 +79,6 @@ class SoftwareInstallTool(BaseTool):
                 pkg_spec = f"{package}@{version}"
 
         # Get command
-        sudo_idx = 1 if sudo else 0
         cmds = self._MANAGER_COMMANDS[manager]
         if sudo and len(cmds) > 1:
             cmd = list(cmds[1])

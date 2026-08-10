@@ -141,9 +141,18 @@ DOCUMENT
 ---
 
 """,
-    skills=['dependency-auditing', 'version-updates', 'deduplication', 'license-compliance', 'size-analysis', 'unused-dep-detection', 'lock-file-hygiene', 'security-advisory-monitoring'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'code_analyzer'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "dependency-auditing",
+        "version-updates",
+        "deduplication",
+        "license-compliance",
+        "size-analysis",
+        "unused-dep-detection",
+        "lock-file-hygiene",
+        "security-advisory-monitoring",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "code_analyzer"],
+    handoff_to=["code-reviewer"],
 )
 
 

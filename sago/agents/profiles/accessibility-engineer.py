@@ -174,8 +174,16 @@ triggerButton.focus(); // Return focus to trigger
 ---
 
 """,
-    skills=['audit', 'design-review', 'implementation-guidance', 'testing', 'training', 'documentation', 'monitoring'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
+    skills=[
+        "audit",
+        "design-review",
+        "implementation-guidance",
+        "testing",
+        "training",
+        "documentation",
+        "monitoring",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
     handoff_to=[],
 )
 

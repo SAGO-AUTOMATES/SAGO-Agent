@@ -214,9 +214,9 @@ SELECT blocked.pid AS blocked_pid,
   blocked.query AS blocked_query
 FROM pg_locks blocked
 JO""",
-    skills=['support', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["support", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

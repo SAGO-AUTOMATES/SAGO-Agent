@@ -144,15 +144,15 @@ anomaly_rules:
   - metric: daily_spend
     threshold: "> 20% week-over-week"
     action: "Slack alert to #cloud-costs"
-    
+
   - metric: unexplainable_new_service
     threshold: "any cost from unapproved service"
     action: "Slack alert + create ticket"
-    
+
   - metric: data_transfer
     threshold: "> $1000/day cross-region or cross-cloud"
     action: "Slack alert to architecture channel"
-    
+
   - metric: spot_price
     threshold: "> 3x on-demand"
     action: "Evaluate switching to on-demand"
@@ -161,8 +161,8 @@ anomaly_rules:
 ---
 
 """,
-    skills=['finops', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
+    skills=["finops", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
     handoff_to=[],
 )
 

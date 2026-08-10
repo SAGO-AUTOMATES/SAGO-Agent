@@ -122,9 +122,9 @@ PROFILE = AgentProfile(
 ---
 
 """,
-    skills=['red', 'team', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["red", "team", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

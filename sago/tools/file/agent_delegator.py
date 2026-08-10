@@ -9,13 +9,12 @@ Smart routing of tasks to appropriate agents based on:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
-
 
 # Language to agent mapping
 LANGUAGE_AGENTS: dict[str, list[str]] = {
@@ -82,6 +81,7 @@ TASK_AGENTS: dict[str, list[str]] = {
 @dataclass
 class DelegationResult:
     """Result of agent delegation analysis."""
+
     recommended_agents: list[str]
     primary_agent: str
     confidence: float
@@ -168,7 +168,6 @@ class AgentDelegator:
         """Delegate based on multiple files."""
         # Analyze file types
         languages: dict[str, int] = {}
-        categories: dict[str, int] = {}
 
         for f in files:
             # Extract language from extension
@@ -209,16 +208,22 @@ class AgentDelegator:
 
         # Map extension to language
         ext_map = {
-            "py": "python", "js": "javascript", "ts": "typescript",
-            "java": "java", "go": "go", "rs": "rust", "rb": "ruby",
-            "php": "php", "swift": "swift", "kt": "kotlin",
+            "py": "python",
+            "js": "javascript",
+            "ts": "typescript",
+            "java": "java",
+            "go": "go",
+            "rs": "rust",
+            "rb": "ruby",
+            "php": "php",
+            "swift": "swift",
+            "kt": "kotlin",
         }
 
         language = ext_map.get(ext)
         if language and language in LANGUAGE_AGENTS:
             return LANGUAGE_AGENTS[language][0]
         return None
-
 
     def execute_delegated(
         self,
@@ -233,7 +238,9 @@ class AgentDelegator:
 
         try:
             import os
+
             from sago.engine.simple_executor import execute_agent_task
+
             api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
             if not api_key:
                 return {
@@ -247,6 +254,7 @@ class AgentDelegator:
             # Use configured model, fallback to openrouter/free
             try:
                 from sago.config.loader import get_config
+
                 config = get_config()
                 model = config.llm.model or "openrouter/free"
             except Exception:
@@ -331,6 +339,7 @@ def delegate_task(
 
 class AgentDelegatorArgs(BaseModel):
     """Arguments for agent delegation."""
+
     task: str = Field(description="Task to delegate to the best agent")
     file_path: str = Field(default="", description="Optional file path for context")
     language: str = Field(default="", description="Optional programming language")
@@ -355,6 +364,7 @@ class AgentDelegatorTool(BaseTool):
         **kwargs: Any,
     ) -> str:
         import json
+
         delegator = get_delegator()
         result = delegator.execute_delegated(
             task=task,

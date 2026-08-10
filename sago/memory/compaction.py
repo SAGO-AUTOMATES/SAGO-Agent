@@ -7,7 +7,7 @@ Provides session compaction for maintaining context in long conversations.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -51,7 +51,7 @@ class InputSummarizer:
 
     # Patterns for extraction
     ERROR_PATTERN = re.compile(
-        r'(?:error|exception|traceback|failed|failure)[^\n]*',
+        r"(?:error|exception|traceback|failed|failure)[^\n]*",
         re.IGNORECASE,
     )
     STACK_TRACE_PATTERN = re.compile(
@@ -59,11 +59,11 @@ class InputSummarizer:
         re.MULTILINE,
     )
     CODE_BLOCK_PATTERN = re.compile(
-        r'```[\s\S]*?```',
+        r"```[\s\S]*?```",
         re.MULTILINE,
     )
     URL_PATTERN = re.compile(
-        r'https?://\S+',
+        r"https?://\S+",
     )
 
     def should_summarize(self, text: str) -> bool:
@@ -82,7 +82,7 @@ class InputSummarizer:
 
         # Extract key components
         errors = self.ERROR_PATTERN.findall(text)
-        stack_traces = self.STACK_TRACE_PATTERN.findall(text)
+        self.STACK_TRACE_PATTERN.findall(text)
         code_blocks = self.CODE_BLOCK_PATTERN.findall(text)
         urls = self.URL_PATTERN.findall(text)
 
@@ -90,19 +90,40 @@ class InputSummarizer:
         parts = []
 
         # Main content summary
-        lines = text.strip().split('\n')
+        lines = text.strip().split("\n")
         key_lines = []
         for line in lines:
             line = line.strip()
             if not line:
                 continue
             # Keep lines with important keywords
-            if any(kw in line.lower() for kw in [
-                'error', 'bug', 'fix', 'implement', 'create', 'update',
-                'delete', 'add', 'remove', 'change', 'modify', 'refactor',
-                'test', 'deploy', 'configure', 'setup', 'install',
-                'issue', 'problem', 'question', 'help', 'please',
-            ]):
+            if any(
+                kw in line.lower()
+                for kw in [
+                    "error",
+                    "bug",
+                    "fix",
+                    "implement",
+                    "create",
+                    "update",
+                    "delete",
+                    "add",
+                    "remove",
+                    "change",
+                    "modify",
+                    "refactor",
+                    "test",
+                    "deploy",
+                    "configure",
+                    "setup",
+                    "install",
+                    "issue",
+                    "problem",
+                    "question",
+                    "help",
+                    "please",
+                ]
+            ):
                 key_lines.append(line)
 
         if key_lines:
@@ -131,7 +152,7 @@ class InputSummarizer:
 
         # Truncate if still too long
         if self.estimate_tokens(summary) > max_tokens:
-            summary = summary[:max_tokens * self.TOKEN_ESTIMATE_RATIO]
+            summary = summary[: max_tokens * self.TOKEN_ESTIMATE_RATIO]
 
         return summary
 
@@ -198,15 +219,30 @@ class SessionCompactor:
             content = msg.get("content", "")
 
             # Extract decisions
-            if any(kw in content.lower() for kw in [
-                "decided", "decision", "chose", "selected", "agreed",
-            ]):
+            if any(
+                kw in content.lower()
+                for kw in [
+                    "decided",
+                    "decision",
+                    "chose",
+                    "selected",
+                    "agreed",
+                ]
+            ):
                 decisions.append(content[:200])
 
             # Extract action items
-            if any(kw in content.lower() for kw in [
-                "will", "should", "need to", "must", "todo", "action",
-            ]):
+            if any(
+                kw in content.lower()
+                for kw in [
+                    "will",
+                    "should",
+                    "need to",
+                    "must",
+                    "todo",
+                    "action",
+                ]
+            ):
                 action_items.append(content[:200])
 
             # Extract key points
@@ -258,6 +294,7 @@ class SessionCompactor:
         """Use LLM to summarize messages for better compaction."""
         if not api_key:
             import os
+
             api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
 
         if not api_key:
@@ -267,6 +304,7 @@ class SessionCompactor:
 
         try:
             from openai import OpenAI
+
             client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=30.0)
 
             # Build conversation for summarization
@@ -279,11 +317,14 @@ class SessionCompactor:
             response = client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": (
-                        "Summarize this conversation concisely. "
-                        "Include: key decisions, action items, current state. "
-                        "Keep it under 500 words."
-                    )},
+                    {
+                        "role": "system",
+                        "content": (
+                            "Summarize this conversation concisely. "
+                            "Include: key decisions, action items, current state. "
+                            "Keep it under 500 words."
+                        ),
+                    },
                     {"role": "user", "content": conversation},
                 ],
                 max_tokens=1024,
@@ -305,10 +346,12 @@ class SessionCompactor:
 
         # Add system prompt
         if system_prompt:
-            context.append({
-                "role": "system",
-                "content": system_prompt,
-            })
+            context.append(
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                }
+            )
 
         # Calculate remaining tokens
         system_tokens = len(system_prompt) // 4 if system_prompt else 0
@@ -317,10 +360,12 @@ class SessionCompactor:
         # If few messages, include all
         if len(messages) <= 10:
             for msg in messages:
-                context.append({
-                    "role": msg.get("role", "user"),
-                    "content": msg.get("content", ""),
-                })
+                context.append(
+                    {
+                        "role": msg.get("role", "user"),
+                        "content": msg.get("content", ""),
+                    }
+                )
             return context
 
         # Compact older messages
@@ -328,16 +373,20 @@ class SessionCompactor:
 
         # Add compacted context
         if compacted.summary:
-            context.append({
-                "role": "system",
-                "content": f"Previous context: {compacted.summary}",
-            })
+            context.append(
+                {
+                    "role": "system",
+                    "content": f"Previous context: {compacted.summary}",
+                }
+            )
 
         if compacted.decisions:
-            context.append({
-                "role": "system",
-                "content": f"Key decisions: {'; '.join(compacted.decisions[:3])}",
-            })
+            context.append(
+                {
+                    "role": "system",
+                    "content": f"Key decisions: {'; '.join(compacted.decisions[:3])}",
+                }
+            )
 
         # Add recent messages
         recent = messages[-8:]
@@ -346,12 +395,14 @@ class SessionCompactor:
             # Truncate if needed
             content_tokens = len(content) // 4
             if content_tokens > remaining_tokens // len(recent):
-                content = content[:remaining_tokens // len(recent) * 4]
+                content = content[: remaining_tokens // len(recent) * 4]
 
-            context.append({
-                "role": msg.get("role", "user"),
-                "content": content,
-            })
+            context.append(
+                {
+                    "role": msg.get("role", "user"),
+                    "content": content,
+                }
+            )
 
         return context
 

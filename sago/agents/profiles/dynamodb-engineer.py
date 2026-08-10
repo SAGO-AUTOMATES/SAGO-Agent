@@ -235,9 +235,9 @@ Use: 300 WCU for 100 seconds
 ---
 
 """,
-    skills=['dynamodb', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["dynamodb", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

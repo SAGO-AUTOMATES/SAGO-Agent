@@ -58,12 +58,16 @@ class ClipboardTool(BaseTool):
             if self._is_macos():
                 result = subprocess.run(
                     ["pbpaste"],
-                    capture_output=True, text=True, timeout=10,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
             elif self._is_windows():
                 result = subprocess.run(
                     ["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
-                    capture_output=True, text=True, timeout=10,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
             else:
                 # Linux - try xclip, then xsel, then wl-clipboard
@@ -74,7 +78,10 @@ class ClipboardTool(BaseTool):
                 ]:
                     try:
                         result = subprocess.run(
-                            cmd, capture_output=True, text=True, timeout=10,
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
                         )
                         if result.returncode == 0:
                             return result.stdout
@@ -106,7 +113,11 @@ class ClipboardTool(BaseTool):
                 )
             else:
                 # Linux
-                for cmd in [["xclip", "-selection", "clipboard"], ["xsel", "--input", "--clipboard"], ["wl-copy"]]:
+                for cmd in [
+                    ["xclip", "-selection", "clipboard"],
+                    ["xsel", "--input", "--clipboard"],
+                    ["wl-copy"],
+                ]:
                     try:
                         process = subprocess.Popen(cmd, stdin=subprocess.PIPE)
                         process.communicate(input=content.encode("utf-8"))

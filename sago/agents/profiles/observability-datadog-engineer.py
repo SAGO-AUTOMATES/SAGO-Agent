@@ -234,9 +234,9 @@ resource "datadog_dashboard" "service_overview" {
 ---
 
 """,
-    skills=['observability', 'datadog', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["observability", "datadog", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import threading
 import time
-from pathlib import Path
 from typing import Any
 
 from sago.paths import get_sago_home
@@ -49,14 +48,17 @@ class LearningStore:
         with self._lock:
             if task_type not in self._data["successful_patterns"]:
                 self._data["successful_patterns"][task_type] = []
-            self._data["successful_patterns"][task_type].append({
-                "tools": tools_used,
-                "approach": approach,
-                "timestamp": time.time(),
-            })
+            self._data["successful_patterns"][task_type].append(
+                {
+                    "tools": tools_used,
+                    "approach": approach,
+                    "timestamp": time.time(),
+                }
+            )
             # Keep only last 10 successes per type
-            self._data["successful_patterns"][task_type] = \
-                self._data["successful_patterns"][task_type][-10:]
+            self._data["successful_patterns"][task_type] = self._data["successful_patterns"][
+                task_type
+            ][-10:]
             self._save()
 
     def record_failure(self, task_type: str, error: str, context: str = "") -> None:
@@ -64,13 +66,16 @@ class LearningStore:
         with self._lock:
             if task_type not in self._data["failed_patterns"]:
                 self._data["failed_patterns"][task_type] = []
-            self._data["failed_patterns"][task_type].append({
-                "error": error[:500],
-                "context": context[:500],
-                "timestamp": time.time(),
-            })
-            self._data["failed_patterns"][task_type] = \
-                self._data["failed_patterns"][task_type][-10:]
+            self._data["failed_patterns"][task_type].append(
+                {
+                    "error": error[:500],
+                    "context": context[:500],
+                    "timestamp": time.time(),
+                }
+            )
+            self._data["failed_patterns"][task_type] = self._data["failed_patterns"][task_type][
+                -10:
+            ]
             self._save()
 
     def record_error_fix(self, error_pattern: str, fix_approach: str) -> None:
@@ -84,8 +89,7 @@ class LearningStore:
             # Keep only last 50 error fixes
             if len(self._data["error_fixes"]) > 50:
                 oldest = sorted(
-                    self._data["error_fixes"].items(),
-                    key=lambda x: x[1].get("timestamp", 0)
+                    self._data["error_fixes"].items(), key=lambda x: x[1].get("timestamp", 0)
                 )[:10]
                 for k, _ in oldest:
                     del self._data["error_fixes"][k]
@@ -106,13 +110,16 @@ class LearningStore:
         with self._lock:
             if language not in self._data["language_patterns"]:
                 self._data["language_patterns"][language] = []
-            self._data["language_patterns"][language].append({
-                "pattern": pattern,
-                "details": details[:500],
-                "timestamp": time.time(),
-            })
-            self._data["language_patterns"][language] = \
-                self._data["language_patterns"][language][-5:]
+            self._data["language_patterns"][language].append(
+                {
+                    "pattern": pattern,
+                    "details": details[:500],
+                    "timestamp": time.time(),
+                }
+            )
+            self._data["language_patterns"][language] = self._data["language_patterns"][language][
+                -5:
+            ]
             self._save()
 
     def get_successful_approaches(self, task_type: str) -> list[dict]:

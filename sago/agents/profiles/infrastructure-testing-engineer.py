@@ -151,9 +151,9 @@ checkov --directory terraform/ --framework terraform --compact \
 | Ignoring state drift | Manual changes accumulate; next Terraform apply may fail or overwrite | Schedule `refresh-only` plans; alert on unexpected changes |
 | No golden image tests | AMIs/containers have unknown config; compliance gaps | Test base images with goss/inspec before promotion |
 | No network connectivity tests | Firewall changes break service-to-""",
-    skills=['infrastructure', 'testing', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
-    handoff_to=['code-reviewer'],
+    skills=["infrastructure", "testing", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -82,7 +82,9 @@ class SSHConnectTool(BaseTool):
             remote_addr = transport.getpeername() if transport else ("unknown", 0)
 
             # Get system info
-            stdin, stdout, stderr = client.exec_command("uname -a 2>/dev/null || systeminfo 2>/dev/null")
+            stdin, stdout, stderr = client.exec_command(
+                "uname -a 2>/dev/null || systeminfo 2>/dev/null"
+            )
             system_info = stdout.read().decode("utf-8", errors="replace").strip()
 
             client.close()

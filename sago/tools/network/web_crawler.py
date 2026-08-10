@@ -47,8 +47,9 @@ class WebCrawler(BaseTool):
     ) -> str:
         """Crawl a website and extract content."""
         try:
-            import httpx
             from urllib.parse import urljoin, urlparse
+
+            import httpx
         except ImportError:
             return "Error: httpx not installed. Run: pip install httpx"
 
@@ -83,7 +84,20 @@ class WebCrawler(BaseTool):
                     src = attrs_dict["src"]
                     if src:
                         self.images.append(src)
-                elif tag in ("p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "td", "th", "span"):
+                elif tag in (
+                    "p",
+                    "div",
+                    "h1",
+                    "h2",
+                    "h3",
+                    "h4",
+                    "h5",
+                    "h6",
+                    "li",
+                    "td",
+                    "th",
+                    "span",
+                ):
                     self.text_parts.append("\n")
 
             def handle_endtag(self, tag: str) -> None:
@@ -130,11 +144,7 @@ class WebCrawler(BaseTool):
                     page_data["links"] = absolute_links[:50]
 
                 if extract_images:
-                    absolute_images = [
-                        urljoin(current_url, img)
-                        for img in extractor.images
-                        if img
-                    ]
+                    absolute_images = [urljoin(current_url, img) for img in extractor.images if img]
                     page_data["images"] = absolute_images[:20]
 
                 results.append(page_data)

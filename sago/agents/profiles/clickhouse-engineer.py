@@ -164,9 +164,9 @@ ORDER BY event_date DESC;
 ---
 
 """,
-    skills=['clickhouse', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["clickhouse", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

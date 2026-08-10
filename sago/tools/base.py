@@ -9,12 +9,11 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
-import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Type
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class BaseTool(ABC):
@@ -28,7 +27,7 @@ class BaseTool(ABC):
 
     name: str = ""
     description: str = ""
-    args_model: Type[BaseModel] | None = None
+    args_model: type[BaseModel] | None = None
 
     def __init__(self) -> None:
         """Initialize the tool."""
@@ -58,6 +57,7 @@ class BaseTool(ABC):
         try:
             # Check permissions before execution
             from sago.permissions import get_permission_manager
+
             pm = get_permission_manager()
             allowed, reason = pm.check_permission(self.name, kwargs)
             if not allowed:
@@ -70,6 +70,7 @@ class BaseTool(ABC):
             # Try to find a known fix from learning store
             try:
                 from sago.learning import get_learning_store
+
                 ls = get_learning_store()
                 known_fix = ls.get_known_fixes(error_msg)
                 if known_fix:
@@ -80,6 +81,7 @@ class BaseTool(ABC):
             # Record this error for future learning
             try:
                 from sago.learning import get_learning_store
+
                 ls = get_learning_store()
                 ls.record_failure("tool_error", error_msg, f"Tool: {self.name}")
             except Exception:

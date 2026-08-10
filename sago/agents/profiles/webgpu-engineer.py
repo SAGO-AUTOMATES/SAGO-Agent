@@ -194,9 +194,9 @@ fn prefix_sum(@builtin(local_invocation_id) lid: vec3<u32>,
 ---
 
 """,
-    skills=['webgpu', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["webgpu", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -133,7 +133,7 @@ index_types:
   BRIN: "Block Range Index"
     pros: "Very small index size"
     cons: "Only efficient for naturally ordered data"
-    
+
   best_practice: "Use GiST for most spatial queries"
   strategy: "CREATE INDEX idx_geom ON table USING GIST (geom);"
 ```
@@ -188,7 +188,7 @@ https://tile.openstreetmap.org/12/653/1583.png
                     └──────┬───────┘
                            │
               ┌────────────┼────────────┐
-           
+
 
 ### Geocoding & Routing
 ## 5. Geocoding & Routing
@@ -205,9 +205,9 @@ https://tile.openstreetmap.org/12/653/1583.png
 ---
 
 """,
-    skills=['gis', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["gis", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -183,9 +183,9 @@ Problem ──▶ Hamiltonian / Cost Function
            │ Classical │
            │ Optimizer │
   """,
-    skills=['quantum', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["quantum", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

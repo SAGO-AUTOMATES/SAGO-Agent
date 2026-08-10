@@ -22,6 +22,7 @@ from sago.paths import get_sago_home
 @dataclass
 class CodeChunk:
     """A chunk of code with metadata."""
+
     file_path: str
     start_line: int
     end_line: int
@@ -50,6 +51,7 @@ class CodeChunk:
 @dataclass
 class SearchResult:
     """A search result with score."""
+
     chunk: CodeChunk
     score: float
     match_highlights: list[tuple[int, int]] = field(default_factory=list)
@@ -88,7 +90,15 @@ class CodebaseIndexer:
             extensions = [".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".rb", ".php"]
 
         if exclude_dirs is None:
-            exclude_dirs = ["node_modules", ".git", "target", "vendor", "__pycache__", ".venv", "venv"]
+            exclude_dirs = [
+                "node_modules",
+                ".git",
+                "target",
+                "vendor",
+                "__pycache__",
+                ".venv",
+                "venv",
+            ]
 
         self._chunks = []
         work_dir = Path(directory)
@@ -127,9 +137,16 @@ class CodebaseIndexer:
     def _detect_language(self, filename: str) -> str:
         """Detect language from filename."""
         ext_map = {
-            ".py": "python", ".js": "javascript", ".ts": "typescript",
-            ".jsx": "javascript", ".tsx": "typescript", ".go": "go",
-            ".rs": "rust", ".java": "java", ".rb": "ruby", ".php": "php",
+            ".py": "python",
+            ".js": "javascript",
+            ".ts": "typescript",
+            ".jsx": "javascript",
+            ".tsx": "typescript",
+            ".go": "go",
+            ".rs": "rust",
+            ".java": "java",
+            ".rb": "ruby",
+            ".php": "php",
         }
         ext = os.path.splitext(filename)[1].lower()
         return ext_map.get(ext, "unknown")
@@ -142,7 +159,7 @@ class CodebaseIndexer:
         max_chunk_lines: int = 50,
     ) -> list[CodeChunk]:
         """Split code into meaningful chunks."""
-        lines = content.split('\n')
+        lines = content.split("\n")
         chunks = []
 
         if language == "python":
@@ -152,23 +169,26 @@ class CodebaseIndexer:
         else:
             # Generic chunking by lines
             for i in range(0, len(lines), max_chunk_lines):
-                chunk_lines = lines[i:i + max_chunk_lines]
-                chunk_content = '\n'.join(chunk_lines)
+                chunk_lines = lines[i : i + max_chunk_lines]
+                chunk_content = "\n".join(chunk_lines)
                 if chunk_content.strip():
-                    chunks.append(CodeChunk(
-                        file_path=file_path,
-                        start_line=i + 1,
-                        end_line=min(i + max_chunk_lines, len(lines)),
-                        content=chunk_content,
-                        language=language,
-                        chunk_type="block",
-                    ))
+                    chunks.append(
+                        CodeChunk(
+                            file_path=file_path,
+                            start_line=i + 1,
+                            end_line=min(i + max_chunk_lines, len(lines)),
+                            content=chunk_content,
+                            language=language,
+                            chunk_type="block",
+                        )
+                    )
 
         return chunks
 
     def _chunk_python(self, content: str, file_path: str, lines: list[str]) -> list[CodeChunk]:
         """Chunk Python code by functions and classes."""
         import ast
+
         chunks = []
 
         try:
@@ -176,50 +196,56 @@ class CodebaseIndexer:
         except SyntaxError:
             # Fall back to generic chunking
             for i in range(0, len(lines), 50):
-                chunk = '\n'.join(lines[i:i + 50])
+                chunk = "\n".join(lines[i : i + 50])
                 if chunk.strip():
-                    chunks.append(CodeChunk(
-                        file_path=file_path,
-                        start_line=i + 1,
-                        end_line=min(i + 50, len(lines)),
-                        content=chunk,
-                        language="python",
-                        chunk_type="block",
-                    ))
+                    chunks.append(
+                        CodeChunk(
+                            file_path=file_path,
+                            start_line=i + 1,
+                            end_line=min(i + 50, len(lines)),
+                            content=chunk,
+                            language="python",
+                            chunk_type="block",
+                        )
+                    )
             return chunks
 
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 start = node.lineno - 1
                 end = getattr(node, "end_lineno", node.lineno) or node.lineno
-                chunk_content = '\n'.join(lines[start:end])
-                chunks.append(CodeChunk(
-                    file_path=file_path,
-                    start_line=start + 1,
-                    end_line=end,
-                    content=chunk_content,
-                    language="python",
-                    chunk_type="function",
-                    name=node.name,
-                ))
+                chunk_content = "\n".join(lines[start:end])
+                chunks.append(
+                    CodeChunk(
+                        file_path=file_path,
+                        start_line=start + 1,
+                        end_line=end,
+                        content=chunk_content,
+                        language="python",
+                        chunk_type="function",
+                        name=node.name,
+                    )
+                )
             elif isinstance(node, ast.ClassDef):
                 start = node.lineno - 1
                 end = getattr(node, "end_lineno", node.lineno) or node.lineno
-                chunk_content = '\n'.join(lines[start:end])
-                chunks.append(CodeChunk(
-                    file_path=file_path,
-                    start_line=start + 1,
-                    end_line=end,
-                    content=chunk_content,
-                    language="python",
-                    chunk_type="class",
-                    name=node.name,
-                ))
+                chunk_content = "\n".join(lines[start:end])
+                chunks.append(
+                    CodeChunk(
+                        file_path=file_path,
+                        start_line=start + 1,
+                        end_line=end,
+                        content=chunk_content,
+                        language="python",
+                        chunk_type="class",
+                        name=node.name,
+                    )
+                )
 
         # Add imports as a chunk
         import_lines = []
         for i, line in enumerate(lines):
-            if line.strip().startswith('import ') or line.strip().startswith('from '):
+            if line.strip().startswith("import ") or line.strip().startswith("from "):
                 import_lines.append((i, line))
             elif import_lines and line.strip():
                 break
@@ -227,15 +253,17 @@ class CodebaseIndexer:
         if import_lines:
             start_idx = import_lines[0][0]
             end_idx = import_lines[-1][0]
-            import_content = '\n'.join(l for _, l in import_lines)
-            chunks.append(CodeChunk(
-                file_path=file_path,
-                start_line=start_idx + 1,
-                end_line=end_idx + 1,
-                content=import_content,
-                language="python",
-                chunk_type="import",
-            ))
+            import_content = "\n".join(line for _, line in import_lines)
+            chunks.append(
+                CodeChunk(
+                    file_path=file_path,
+                    start_line=start_idx + 1,
+                    end_line=end_idx + 1,
+                    content=import_content,
+                    language="python",
+                    chunk_type="import",
+                )
+            )
 
         return chunks
 
@@ -244,47 +272,51 @@ class CodebaseIndexer:
         chunks = []
 
         # Functions
-        for m in re.finditer(r'(?:export\s+)?(?:async\s+)?function\s+(\w+)', content):
-            line_idx = content[:m.start()].count('\n')
+        for m in re.finditer(r"(?:export\s+)?(?:async\s+)?function\s+(\w+)", content):
+            line_idx = content[: m.start()].count("\n")
             # Find function end (approximate)
             end_idx = min(line_idx + 30, len(lines))
-            chunk_content = '\n'.join(lines[line_idx:end_idx])
-            chunks.append(CodeChunk(
-                file_path=file_path,
-                start_line=line_idx + 1,
-                end_line=end_idx,
-                content=chunk_content,
-                language="javascript",
-                chunk_type="function",
-                name=m.group(1),
-            ))
+            chunk_content = "\n".join(lines[line_idx:end_idx])
+            chunks.append(
+                CodeChunk(
+                    file_path=file_path,
+                    start_line=line_idx + 1,
+                    end_line=end_idx,
+                    content=chunk_content,
+                    language="javascript",
+                    chunk_type="function",
+                    name=m.group(1),
+                )
+            )
 
         # Classes
-        for m in re.finditer(r'(?:export\s+)?class\s+(\w+)', content):
-            line_idx = content[:m.start()].count('\n')
+        for m in re.finditer(r"(?:export\s+)?class\s+(\w+)", content):
+            line_idx = content[: m.start()].count("\n")
             end_idx = min(line_idx + 50, len(lines))
-            chunk_content = '\n'.join(lines[line_idx:end_idx])
-            chunks.append(CodeChunk(
-                file_path=file_path,
-                start_line=line_idx + 1,
-                end_line=end_idx,
-                content=chunk_content,
-                language="javascript",
-                chunk_type="class",
-                name=m.group(1),
-            ))
+            chunk_content = "\n".join(lines[line_idx:end_idx])
+            chunks.append(
+                CodeChunk(
+                    file_path=file_path,
+                    start_line=line_idx + 1,
+                    end_line=end_idx,
+                    content=chunk_content,
+                    language="javascript",
+                    chunk_type="class",
+                    name=m.group(1),
+                )
+            )
 
         return chunks
 
     def _tokenize(self, text: str) -> list[str]:
         """Tokenize text into words, splitting on underscores and camelCase."""
         tokens = []
-        for match in re.finditer(r'\b\w+\b', text.lower()):
+        for match in re.finditer(r"\b\w+\b", text.lower()):
             word = match.group()
             tokens.append(word)
             # Also split on underscores (check_permission -> check, permission)
-            if '_' in word:
-                tokens.extend(word.split('_'))
+            if "_" in word:
+                tokens.extend(word.split("_"))
         return tokens
 
     def _build_idf(self) -> None:
@@ -355,7 +387,7 @@ class CodebaseIndexer:
         """Get a summary of a file for context."""
         try:
             content = Path(file_path).read_text(encoding="utf-8", errors="ignore")
-            lines = content.split('\n')
+            lines = content.split("\n")
 
             if len(lines) <= max_lines:
                 return content
@@ -363,13 +395,13 @@ class CodebaseIndexer:
             # Return imports + first N lines
             import_lines = []
             for line in lines:
-                if line.strip().startswith('import ') or line.strip().startswith('from '):
+                if line.strip().startswith("import ") or line.strip().startswith("from "):
                     import_lines.append(line)
-                elif line.strip() and not line.strip().startswith('#'):
+                elif line.strip() and not line.strip().startswith("#"):
                     break
 
-            header = '\n'.join(import_lines[:20])
-            remaining = '\n'.join(lines[max_lines - len(header.split('\n')):max_lines])
+            header = "\n".join(import_lines[:20])
+            remaining = "\n".join(lines[max_lines - len(header.split("\n")) : max_lines])
             return f"{header}\n\n# ... ({len(lines)} total lines) ...\n\n{remaining}"
         except Exception:
             return f"Could not read {file_path}"

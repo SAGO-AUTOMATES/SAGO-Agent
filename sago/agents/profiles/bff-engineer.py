@@ -153,7 +153,7 @@ async function getDashboardData(userId: string): Promise<DashboardResponse> {
 async function getCachedFeed(clientType: 'web' | 'mobile', userId: string) {
   // Different cache strategies per client type
   const ttl = clientType === 'web' ? 60 : 300; // mobile gets longer TTL
-  
+
   const cacheKey = `feed:${clientType}:${userId}`;
   const cached = await cache.get(cacheKey);
   if (cached) return JSON.parse(cached);
@@ -202,10 +202,10 @@ app.get('/api/posts', async (req, res) => {
 // BFF as auth proxy — tokens never reach the client
 app.post('/api/auth/login', async (req, res) => {
   const { code, codeVerifier } = req.body;
-  
+
   // BFF exchanges auth code for tokens
   const tokens = await oauthClient.exchangeCode(code, codeVerifier);
-  
+
   // BFF stores tokens in httpOnly, secure, sameSite cookie
   res.cookie('access_token', tokens.accessToken, {
     httpOnly: true,
@@ -240,9 +240,9 @@ const rateLimiter = new RateLimiter({
 ```
 
 ---""",
-    skills=['bff', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["bff", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

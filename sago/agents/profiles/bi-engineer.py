@@ -114,7 +114,7 @@ dashboard_principles:
     - "KPI cards at top: current value + comparison"
     - "Trend charts showing direction over time"
     - "Details tables below for drill-down"
-    
+
   metrics:
     - "Every metric has a clear definition"
     - "Every metric shows comparison (WoW, MoM, YoY)"
@@ -198,9 +198,9 @@ GROUP BY 1
 ---
 
 """,
-    skills=['engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

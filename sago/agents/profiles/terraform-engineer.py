@@ -170,29 +170,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-      
+
       - name: Terraform Init
         run: terraform init
-        
+
       - name: Terraform Format
         run: terraform fmt -check -recursive
-        
+
       - name: Terraform Validate
         run: terraform validate
-        
+
       - name: TFSec Security Scan
         uses: aquasecurity/tfsec-action@v1
         with:
           format: sarif
-          
+
       - name: Infracost Cost Estimate
         uses: infracost/actions/setup@v3
         run: infracost diff --path . --terraform-plan-flags "-out=plan.tfplan"
-        
+
       - name: Terraform Plan
         id: plan
         run: terraform plan -out=plan.tfplan
-        
+
       - name: Terraform Apply (on push to main)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply plan.tfplan
@@ -212,9 +212,9 @@ jobs:
 ---
 
 """,
-    skills=['terraform', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["terraform", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

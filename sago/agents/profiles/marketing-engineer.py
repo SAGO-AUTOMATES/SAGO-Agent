@@ -75,22 +75,22 @@ content_types:
     format: "Blog post + Code repo"
     frequency: "Weekly"
     goal: "Education, getting started"
-    
+
   - type: "Deep Dive"
     format: "Blog post + Architecture diagram"
     frequency: "Bi-weekly"
     goal: "Advanced use cases, best practices"
-    
+
   - type: "Demo Video"
     format: "5-10 min screen recording"
     frequency: "Weekly"
     goal: "Feature showcase, quick start"
-    
+
   - type: "Case Study"
     format: "Blog post + Quotes + Metrics"
     frequency: "Monthly"
     goal: "Social proof, enterprise adoption"
-    
+
   - type: "Conference Talk"
     format: "30-45 min presentation"
     frequency: "Quarterly"
@@ -138,9 +138,9 @@ content_types:
 ---
 
 """,
-    skills=['marketing', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["marketing", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

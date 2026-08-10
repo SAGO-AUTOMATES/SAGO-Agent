@@ -84,7 +84,7 @@ team_ratios:
   engineers_per_product_manager: "5-8"
   engineers_per_designer: "8-12"
   engineers_per_qa: "10-15 (or embedded)"
-  
+
 squad_composition:
   - "1 EM, 4-8 engineers, 1 PM, 1 designer"
   - "Embedded QA optional, shared QA for integration"
@@ -125,9 +125,9 @@ squad_composition:
 ---
 
 """,
-    skills=['engineering'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["engineering"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

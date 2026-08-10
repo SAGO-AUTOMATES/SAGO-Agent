@@ -6,48 +6,94 @@ and provides smart file routing to appropriate agents.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 # Language detection by file extension
 LANGUAGE_MAP: dict[str, str] = {
     # Python
-    ".py": "python", ".pyi": "python", ".pyx": "python",
+    ".py": "python",
+    ".pyi": "python",
+    ".pyx": "python",
     # JavaScript/TypeScript
-    ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript",
-    ".ts": "typescript", ".tsx": "typescript", ".mts": "typescript",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".mts": "typescript",
     # Web
-    ".html": "html", ".htm": "html", ".css": "css", ".scss": "scss",
-    ".less": "less", ".vue": "vue", ".svelte": "svelte",
+    ".html": "html",
+    ".htm": "html",
+    ".css": "css",
+    ".scss": "scss",
+    ".less": "less",
+    ".vue": "vue",
+    ".svelte": "svelte",
     # Systems
-    ".c": "c", ".h": "c", ".cpp": "cpp", ".hpp": "cpp", ".cc": "cpp",
-    ".rs": "rust", ".go": "go", ".zig": "zig",
+    ".c": "c",
+    ".h": "c",
+    ".cpp": "cpp",
+    ".hpp": "cpp",
+    ".cc": "cpp",
+    ".rs": "rust",
+    ".go": "go",
+    ".zig": "zig",
     # Java/JVM
-    ".java": "java", ".kt": "kotlin", ".scala": "scala", ".groovy": "groovy",
+    ".java": "java",
+    ".kt": "kotlin",
+    ".scala": "scala",
+    ".groovy": "groovy",
     # Scripting
-    ".rb": "ruby", ".php": "php", ".pl": "perl", ".sh": "shell",
-    ".bash": "shell", ".zsh": "shell", ".fish": "shell",
+    ".rb": "ruby",
+    ".php": "php",
+    ".pl": "perl",
+    ".sh": "shell",
+    ".bash": "shell",
+    ".zsh": "shell",
+    ".fish": "shell",
     # Data
-    ".json": "json", ".yaml": "yaml", ".yml": "yaml", ".toml": "toml",
-    ".xml": "xml", ".csv": "data", ".tsv": "data",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "toml",
+    ".xml": "xml",
+    ".csv": "data",
+    ".tsv": "data",
     # Config
-    ".ini": "config", ".cfg": "config", ".conf": "config",
-    ".env": "config", ".env.local": "config",
+    ".ini": "config",
+    ".cfg": "config",
+    ".conf": "config",
+    ".env": "config",
+    ".env.local": "config",
     # Docs
-    ".md": "markdown", ".rst": "markdown", ".txt": "text",
+    ".md": "markdown",
+    ".rst": "markdown",
+    ".txt": "text",
     # Shell
-    ".ps1": "powershell", ".bat": "batch", ".cmd": "batch",
+    ".ps1": "powershell",
+    ".bat": "batch",
+    ".cmd": "batch",
     # SQL
-    ".sql": "sql", ".pgsql": "sql", ".mysql": "sql",
+    ".sql": "sql",
+    ".pgsql": "sql",
+    ".mysql": "sql",
     # Mobile
-    ".swift": "swift", ".m": "objc", ".mm": "objc",
+    ".swift": "swift",
+    ".m": "objc",
+    ".mm": "objc",
     # Other
-    ".r": "r", ".R": "r", ".dart": "dart", ".lua": "lua",
-    ".ex": "elixir", ".exs": "elixir", ".erl": "erlang",
-    ".hs": "haskell", ".ml": "ocaml", ".fs": "fsharp",
+    ".r": "r",
+    ".R": "r",
+    ".dart": "dart",
+    ".lua": "lua",
+    ".ex": "elixir",
+    ".exs": "elixir",
+    ".erl": "erlang",
+    ".hs": "haskell",
+    ".ml": "ocaml",
+    ".fs": "fsharp",
 }
 
 # Framework detection by config files
@@ -95,6 +141,7 @@ FILE_CATEGORIES: dict[str, list[str]] = {
 @dataclass
 class FileEntry:
     """A single file entry."""
+
     path: str
     name: str
     extension: str
@@ -117,6 +164,7 @@ class FileEntry:
 @dataclass
 class ScanResult:
     """Result of a directory scan."""
+
     root_path: str
     total_files: int
     total_directories: int
@@ -141,22 +189,62 @@ class ScanResult:
 
 # Directories to skip
 SKIP_DIRS = {
-    "node_modules", "venv", ".venv", "env", ".env",
-    "__pycache__", ".git", ".svn", ".hg",
-    "dist", "build", "target", "out",
-    ".idea", ".vscode", ".eclipse",
-    "coverage", ".nyc_output",
-    "vendor", "packages",
+    "node_modules",
+    "venv",
+    ".venv",
+    "env",
+    ".env",
+    "__pycache__",
+    ".git",
+    ".svn",
+    ".hg",
+    "dist",
+    "build",
+    "target",
+    "out",
+    ".idea",
+    ".vscode",
+    ".eclipse",
+    "coverage",
+    ".nyc_output",
+    "vendor",
+    "packages",
 }
 
 # File extensions to skip
 SKIP_EXTENSIONS = {
-    ".pyc", ".pyo", ".class", ".o", ".obj",
-    ".exe", ".dll", ".so", ".dylib",
-    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".ico", ".svg",
-    ".mp3", ".mp4", ".avi", ".mov", ".mkv",
-    ".zip", ".tar", ".gz", ".bz2", ".rar", ".7z",
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx",
+    ".pyc",
+    ".pyo",
+    ".class",
+    ".o",
+    ".obj",
+    ".exe",
+    ".dll",
+    ".so",
+    ".dylib",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".bmp",
+    ".ico",
+    ".svg",
+    ".mp3",
+    ".mp4",
+    ".avi",
+    ".mov",
+    ".mkv",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".bz2",
+    ".rar",
+    ".7z",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
 }
 
 

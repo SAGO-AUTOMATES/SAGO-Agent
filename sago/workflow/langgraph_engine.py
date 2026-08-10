@@ -12,13 +12,14 @@ from __future__ import annotations
 import json
 import os
 import time
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Annotated, Callable, TypedDict
+from typing import Annotated, Any, TypedDict
 
-from langgraph.graph import StateGraph, END
-from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, StateGraph
+from langgraph.graph.message import add_messages
 
 
 # Tool definitions - self-contained, no simple_executor dependency
@@ -26,6 +27,7 @@ def _discover_tools() -> dict[str, Any]:
     """Discover all available tools."""
     import importlib
     import logging
+
     from sago.tools.base import BaseTool
 
     _log = logging.getLogger("sago.langgraph")
@@ -49,11 +51,7 @@ def _discover_tools() -> dict[str, Any]:
 
         for attr_name in dir(mod):
             obj = getattr(mod, attr_name)
-            if (
-                isinstance(obj, type)
-                and hasattr(obj, "name")
-                and obj.__name__ != "BaseTool"
-            ):
+            if isinstance(obj, type) and hasattr(obj, "name") and obj.__name__ != "BaseTool":
                 try:
                     if issubclass(obj, BaseTool) and obj.name:
                         tools[obj.name] = obj
@@ -102,7 +100,9 @@ def _get_context() -> str:
             if item.is_file():
                 try:
                     s = item.stat().st_size
-                    files.append(f"  {item.name} ({s}B)" if s < 100_000 else f"  {item.name} ({s//1024}KB)")
+                    files.append(
+                        f"  {item.name} ({s}B)" if s < 100_000 else f"  {item.name} ({s // 1024}KB)"
+                    )
                 except Exception:
                     files.append(f"  {item.name}")
     except PermissionError:
@@ -117,6 +117,7 @@ def _get_context() -> str:
 def _extract_tool_calls(content: str) -> list[dict]:
     """Extract tool calls from LLM output."""
     import re
+
     calls = []
 
     # JSON on its own line
@@ -134,7 +135,7 @@ def _extract_tool_calls(content: str) -> list[dict]:
         return calls
 
     # JSON in code blocks
-    for pattern in [r'```json\s*\n(.*?)\n```', r'```\s*\n(\{.*?\})\n```']:
+    for pattern in [r"```json\s*\n(.*?)\n```", r"```\s*\n(\{.*?\})\n```"]:
         for f in re.findall(pattern, content, re.DOTALL):
             try:
                 data = json.loads(f.strip())
@@ -149,6 +150,7 @@ def _extract_tool_calls(content: str) -> list[dict]:
 # Workflow state with LangGraph reducers
 class WorkflowState(TypedDict):
     """State passed between workflow nodes."""
+
     task: str
     messages: Annotated[list[dict], add_messages]
     current_agent: str
@@ -167,6 +169,7 @@ class WorkflowState(TypedDict):
 @dataclass
 class WorkflowResult:
     """Result of a workflow execution."""
+
     success: bool
     output: str
     tool_calls: list[dict]
@@ -204,7 +207,9 @@ class SagoWorkflowEngine:
     """
 
     def __init__(self, api_key: str = "", model: str = "openrouter/free") -> None:
-        self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+        self.api_key = api_key or os.environ.get(
+            "OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")
+        )
         self.model = model
         self.checkpointer = MemorySaver()
         self._tools: dict[str, Any] | None = None
@@ -262,12 +267,15 @@ class SagoWorkflowEngine:
         project_ctx = _get_context()
 
         messages = [
-            {"role": "system", "content": (
-                "You are a planning agent. Analyze the task and create a brief execution plan.\n"
-                "List the steps as numbered items. Be concise.\n\n"
-                f"Project context:\n{project_ctx}\n\n"
-                f"Available tools:\n{tool_desc}"
-            )},
+            {
+                "role": "system",
+                "content": (
+                    "You are a planning agent. Analyze the task and create a brief execution plan.\n"
+                    "List the steps as numbered items. Be concise.\n\n"
+                    f"Project context:\n{project_ctx}\n\n"
+                    f"Available tools:\n{tool_desc}"
+                ),
+            },
             {"role": "user", "content": state["task"]},
         ]
 
@@ -310,8 +318,12 @@ class SagoWorkflowEngine:
 
         # Add tool results from previous iteration
         if tool_history:
-            last_results = [f"[{tc.get('tool', '')}] {tc.get('result', '')[:300]}" for tc in tool_history[-5:]]
-            messages.append({"role": "user", "content": "Previous tool results:\n" + "\n".join(last_results)})
+            last_results = [
+                f"[{tc.get('tool', '')}] {tc.get('result', '')[:300]}" for tc in tool_history[-5:]
+            ]
+            messages.append(
+                {"role": "user", "content": "Previous tool results:\n" + "\n".join(last_results)}
+            )
 
         content, tokens_in, tokens_out = self._make_llm_call(messages, max_tokens=4096)
 
@@ -329,12 +341,14 @@ class SagoWorkflowEngine:
                 if fp and fp not in files_created:
                     files_created.append(fp)
 
-            tool_history.append({
-                "tool": name,
-                "args": call.get("args", {}),
-                "result": result_str[:500],
-                "success": not is_error,
-            })
+            tool_history.append(
+                {
+                    "tool": name,
+                    "args": call.get("args", {}),
+                    "result": result_str[:500],
+                    "success": not is_error,
+                }
+            )
 
             status = "ERROR" if is_error else "OK"
             results_for_next.append(f"[{status}] {name}:\n{result_str[:1500]}")
@@ -530,7 +544,10 @@ class SagoWorkflowEngine:
                                 msgs = output["messages"]
                                 if msgs:
                                     last_msg = msgs[-1]
-                                    if isinstance(last_msg, dict) and last_msg.get("role") == "assistant":
+                                    if (
+                                        isinstance(last_msg, dict)
+                                        and last_msg.get("role") == "assistant"
+                                    ):
                                         _notify("token", last_msg.get("content", ""))
                         final_state = output if isinstance(output, dict) else final_state
 
@@ -561,6 +578,7 @@ class SagoWorkflowEngine:
                 if loop.is_running():
                     # We're in an async context, use a thread
                     import concurrent.futures
+
                     with concurrent.futures.ThreadPoolExecutor() as pool:
                         result = pool.submit(lambda: asyncio.run(_run_stream())).result()
                 else:

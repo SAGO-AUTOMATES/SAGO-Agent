@@ -144,9 +144,18 @@ PROFILE = AgentProfile(
 ---
 
 """,
-    skills=['schema-design', 'performance-tuning', 'backup-&-recovery', 'replication-&-ha', 'security', 'migration', 'monitoring', 'capacity-planning'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'code_analyzer'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "schema-design",
+        "performance-tuning",
+        "backup-&-recovery",
+        "replication-&-ha",
+        "security",
+        "migration",
+        "monitoring",
+        "capacity-planning",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "code_analyzer"],
+    handoff_to=["code-reviewer"],
 )
 
 

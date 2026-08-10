@@ -141,9 +141,18 @@ REPORT
 ---
 
 """,
-    skills=['benchmark-design', 'quality-metrics', 'regression-testing', 'edge-case-testing', 'safety-evaluation', 'performance-benchmarking', 'comparative-analysis', 'quality-reporting'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "benchmark-design",
+        "quality-metrics",
+        "regression-testing",
+        "edge-case-testing",
+        "safety-evaluation",
+        "performance-benchmarking",
+        "comparative-analysis",
+        "quality-reporting",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
+    handoff_to=["code-reviewer"],
 )
 
 

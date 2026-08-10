@@ -194,7 +194,7 @@ def process_batch(messages):
             log_error(f"Failed to process order: {e}")
             # Dead letter queue
             produce_dlq(msg)
-    
+
     consumer.commit(asynchronous=False)
 
 try:
@@ -229,9 +229,9 @@ finally:
 ---
 
 """,
-    skills=['kafka', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["kafka", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

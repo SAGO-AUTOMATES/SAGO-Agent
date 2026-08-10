@@ -12,9 +12,7 @@ from sago.tools.base import BaseTool
 class CodeSearchArgs(BaseModel):
     """Arguments for CodeSearchTool."""
 
-    action: str = Field(
-        description="Action: search, index, stats, file_context"
-    )
+    action: str = Field(description="Action: search, index, stats, file_context")
     query: str = Field(default="", description="Search query")
     path: str = Field(default=".", description="Directory to index or file for context")
     language: str = Field(default="", description="Language filter (optional)")
@@ -49,8 +47,7 @@ class CodeSearchTool(BaseTool):
             count = indexer.index_directory(path)
             stats = indexer.get_stats()
             return (
-                f"Indexed {count} code chunks from {path}\n"
-                f"Languages: {stats.get('languages', {})}"
+                f"Indexed {count} code chunks from {path}\nLanguages: {stats.get('languages', {})}"
             )
 
         elif action == "search":

@@ -76,14 +76,14 @@ sso_architecture:
     - "Service Provider (SP) — each application"
     - "Identity Broker (if multi-IdP)"
     - "Session Management (refresh tokens, sessions)"
-    
+
   flow:
     - "User requests access to application"
     - "App redirects to IdP for authentication"
     - "User authenticates (passwordless, MFA, biometric)"
     - "IdP issues tokens (ID token, access token, refresh token)"
     - "App validates token and grants access"
-    
+
   security_controls:
     - "PKCE for mobile/SPA"
     - "Refresh token rotation"
@@ -139,9 +139,9 @@ jit_access:
 ---
 
 """,
-    skills=['iam', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["iam", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

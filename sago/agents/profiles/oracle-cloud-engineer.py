@@ -143,9 +143,9 @@ resource "oci_core_instance" "app" {
 ---
 
 """,
-    skills=['oracle', 'cloud', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["oracle", "cloud", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

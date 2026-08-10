@@ -161,9 +161,17 @@ OUTPUT
 ---
 
 """,
-    skills=['conventional-commit-generation', 'diff-analysis', 'scope-detection', 'body-composition', 'footer-management', 'changelog-alignment', 'multi-commit-curation'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'debugger', 'log_analyzer'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "conventional-commit-generation",
+        "diff-analysis",
+        "scope-detection",
+        "body-composition",
+        "footer-management",
+        "changelog-alignment",
+        "multi-commit-curation",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "debugger", "log_analyzer"],
+    handoff_to=["code-reviewer"],
 )
 
 

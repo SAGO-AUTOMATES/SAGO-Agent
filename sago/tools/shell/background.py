@@ -6,8 +6,6 @@ Cross-platform background process management.
 from __future__ import annotations
 
 import subprocess
-import threading
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field

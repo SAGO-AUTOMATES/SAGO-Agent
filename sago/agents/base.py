@@ -5,8 +5,6 @@ All agents inherit from BaseAgent and are registered with CrewAI.
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel, Field
 
 

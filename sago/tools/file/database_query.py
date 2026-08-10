@@ -9,9 +9,20 @@ from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
 
-
 # SQL injection prevention: only allow SELECT statements for queries
-_READ_ONLY_KEYWORDS = {"DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE", "TRUNCATE", "EXEC", "EXECUTE", "GRANT", "REVOKE"}
+_READ_ONLY_KEYWORDS = {
+    "DROP",
+    "DELETE",
+    "UPDATE",
+    "INSERT",
+    "ALTER",
+    "CREATE",
+    "TRUNCATE",
+    "EXEC",
+    "EXECUTE",
+    "GRANT",
+    "REVOKE",
+}
 
 
 def _validate_query(query: str) -> str | None:
@@ -20,8 +31,10 @@ def _validate_query(query: str) -> str | None:
     # Check for dangerous keywords
     for keyword in _READ_ONLY_KEYWORDS:
         # Match as whole word
-        if re.search(r'\b' + keyword + r'\b', query_upper):
-            return f"Security: '{keyword}' operation not allowed. Only SELECT queries are permitted."
+        if re.search(r"\b" + keyword + r"\b", query_upper):
+            return (
+                f"Security: '{keyword}' operation not allowed. Only SELECT queries are permitted."
+            )
     return None
 
 
@@ -85,8 +98,8 @@ class DatabaseQuery(BaseTool):
 
     def _run_sqlite(self, operation: str, connection: str, query: str, output_format: str) -> str:
         """Execute operation on SQLite database."""
-        import sqlite3
         import json
+        import sqlite3
 
         conn_path = self._expand_path(connection)
 
@@ -103,7 +116,9 @@ class DatabaseQuery(BaseTool):
                 return f"Tables ({len(tables)}):\n" + "\n".join(f"  - {t}" for t in tables)
 
             elif operation == "schema":
-                cursor.execute("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name")
+                cursor.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name"
+                )
                 schemas = []
                 for name, sql in cursor.fetchall():
                     schemas.append(f"-- {name}\n{sql}")
@@ -148,8 +163,9 @@ class DatabaseQuery(BaseTool):
     def _run_postgres(self, operation: str, connection: str, query: str, output_format: str) -> str:
         """Execute operation on PostgreSQL database."""
         try:
-            import psycopg2
             import json
+
+            import psycopg2
         except ImportError:
             return "Error: psycopg2 not installed. Run: pip install psycopg2-binary"
 
@@ -232,6 +248,7 @@ class DatabaseQuery(BaseTool):
         try:
             # Parse connection string
             import urllib.parse
+
             parsed = urllib.parse.urlparse(connection)
             conn_params = {
                 "host": parsed.hostname or "localhost",
@@ -272,6 +289,7 @@ class DatabaseQuery(BaseTool):
                     rows = cursor.fetchall()
 
                     import json
+
                     if output_format == "json" or operation == "export":
                         result = [dict(zip(columns, row)) for row in rows]
                         return json.dumps(result, indent=2, default=str)[:5000]
@@ -316,9 +334,7 @@ class DatabaseQuery(BaseTool):
         lines = [header, separator]
         for row in rows[:100]:
             line = " | ".join(
-                str(val)[:50].ljust(widths[i])
-                for i, val in enumerate(row)
-                if i < len(widths)
+                str(val)[:50].ljust(widths[i]) for i, val in enumerate(row) if i < len(widths)
             )
             lines.append(line)
 

@@ -31,8 +31,8 @@ PROFILE = AgentProfile(
     description="Offline-First, Sync & Edge Database Specialist",
     system_prompt="""# Local-First Engineer — Offline-First, Sync & Edge Database Specialist
 
-> **Role:** Local-First Engineer  
-> **Archetype:** The Offline Architect  
+> **Role:** Local-First Engineer
+> **Archetype:** The Offline Architect
 > **Tone:** Async-first, conflict-aware, resilience-focused
 
 ## Identity & Persona
@@ -63,9 +63,9 @@ PROFILE = AgentProfile(
 
 ### Offline-First Architecture
 The app loads and functions with zero network. All reads are local. Writes are queued locally and synced when connectivity returns""",
-    skills=['local', 'first', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["local", "first", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

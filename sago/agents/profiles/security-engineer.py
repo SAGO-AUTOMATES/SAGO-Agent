@@ -173,9 +173,26 @@ headers:
 ---
 
 """,
-    skills=['threat-modeling', 'secure-architecture', 'vulnerability-management', 'security-testing', 'identity-&-access-management', 'secrets-management', 'compliance', 'incident-response'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner', 'code_analyzer'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "threat-modeling",
+        "secure-architecture",
+        "vulnerability-management",
+        "security-testing",
+        "identity-&-access-management",
+        "secrets-management",
+        "compliance",
+        "incident-response",
+    ],
+    tools=[
+        "read_file",
+        "write_file",
+        "edit_file",
+        "execute_shell",
+        "linter",
+        "test_runner",
+        "code_analyzer",
+    ],
+    handoff_to=["code-reviewer"],
 )
 
 

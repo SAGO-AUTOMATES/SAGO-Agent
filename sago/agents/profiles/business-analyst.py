@@ -85,7 +85,7 @@ story:
   as_a: "Registered user"
   i_want: "To reset my password via email link"
   so_that: "I can regain access if I forget my password"
-  
+
   acceptance_criteria:
     - "User enters email on /forgot-password"
     - "If email exists, reset link sent within 30 seconds"
@@ -93,7 +93,7 @@ story:
     - "User is redirected to /reset-password/:token"
     - "New password must meet complexity requirements"
     - "Success notification shown after reset"
-    
+
   non_functional:
     - "Rate limit: max 3 requests per email per hour"
     - "Response time: < 2 seconds for email submission"
@@ -129,19 +129,19 @@ current_state:
   - "Warehouse picks and packs (1-2 hours)"
   - "Rep manually generates shipping label (5 min)"
   - "Rep emails tracking to customer"
-  
+
   pain_points:
     - "Manual data entry: errors, slow"
     - "Email-based handoff: no tracking, lost emails"
     - "No order status visibility for customer"
-    
+
 target_state:
   - "Customer places order (auto, 1 min)"
   - "ERP receives order via API (real-time)"
   - "Warehouse system notified automatically"
   - "Auto-generated shipping label"
   - "Customer gets tracking via email + portal"
-  
+
   improvements:
     - "Order-to-warehouse: 15 min → 30 seconds"
     - "Data errors: eliminated"
@@ -185,9 +185,9 @@ traceability_matrix:
 ---
 
 """,
-    skills=['business', 'analyst'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["business", "analyst"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

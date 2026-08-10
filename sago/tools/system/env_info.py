@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import platform
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -59,7 +58,7 @@ class EnvInfo(BaseTool):
     def _get_system_info(self, detail: str) -> str:
         """Get system information."""
         info = [
-            f"System Information:",
+            "System Information:",
             f"  OS: {platform.system()} {platform.release()}",
             f"  Platform: {platform.platform()}",
             f"  Machine: {platform.machine()}",
@@ -69,10 +68,12 @@ class EnvInfo(BaseTool):
         ]
 
         if detail == "full":
-            info.extend([
-                f"  OS Name: {platform.os.name}",
-                f"  Architecture: {platform.architecture()[0]}",
-            ])
+            info.extend(
+                [
+                    f"  OS Name: {platform.os.name}",
+                    f"  Architecture: {platform.architecture()[0]}",
+                ]
+            )
 
         return "\n".join(info)
 
@@ -80,6 +81,7 @@ class EnvInfo(BaseTool):
         """Get disk information."""
         try:
             import shutil
+
             total, used, free = shutil.disk_usage("/")
             return (
                 f"Disk Information:\n"
@@ -96,6 +98,7 @@ class EnvInfo(BaseTool):
         try:
             # Try psutil first
             import psutil
+
             mem = psutil.virtual_memory()
             return (
                 f"Memory Information:\n"
@@ -122,6 +125,7 @@ class EnvInfo(BaseTool):
         """Get network information."""
         try:
             import socket
+
             hostname = socket.gethostname()
             try:
                 ip = socket.gethostbyname(hostname)
@@ -129,17 +133,20 @@ class EnvInfo(BaseTool):
                 ip = "N/A"
 
             info = [
-                f"Network Information:",
+                "Network Information:",
                 f"  Hostname: {hostname}",
                 f"  IP Address: {ip}",
             ]
 
             # Try to get interface info
-            result = self._run_command("ip addr show 2>/dev/null || ifconfig 2>/dev/null", timeout=5)
+            result = self._run_command(
+                "ip addr show 2>/dev/null || ifconfig 2>/dev/null", timeout=5
+            )
             if result.returncode == 0:
                 # Extract IPs
                 import re
-                ips = re.findall(r'inet (\d+\.\d+\.\d+\.\d+)', result.stdout)
+
+                ips = re.findall(r"inet (\d+\.\d+\.\d+\.\d+)", result.stdout)
                 if ips:
                     info.append(f"  Interfaces: {', '.join(ips[:3])}")
 
@@ -150,7 +157,7 @@ class EnvInfo(BaseTool):
     def _get_python_info(self) -> str:
         """Get Python environment information."""
         info = [
-            f"Python Information:",
+            "Python Information:",
             f"  Version: {platform.python_version()}",
             f"  Implementation: {platform.python_implementation()}",
             f"  Compiler: {platform.python_compiler()}",
@@ -172,7 +179,7 @@ class EnvInfo(BaseTool):
             return "Node.js not found"
 
         info = [
-            f"Node.js Information:",
+            "Node.js Information:",
             f"  Version: {result.stdout.strip()}",
         ]
 
@@ -191,9 +198,19 @@ class EnvInfo(BaseTool):
     def _get_env_vars(self) -> str:
         """Get relevant environment variables."""
         relevant_vars = [
-            "HOME", "USER", "SHELL", "PATH", "LANG", "TERM",
-            "PYTHONPATH", "NODE_PATH", "GOPATH", "CARGO_HOME",
-            "AWS_REGION", "GCP_PROJECT", "AZURE_SUBSCRIPTION",
+            "HOME",
+            "USER",
+            "SHELL",
+            "PATH",
+            "LANG",
+            "TERM",
+            "PYTHONPATH",
+            "NODE_PATH",
+            "GOPATH",
+            "CARGO_HOME",
+            "AWS_REGION",
+            "GCP_PROJECT",
+            "AZURE_SUBSCRIPTION",
         ]
 
         info = ["Environment Variables:"]

@@ -145,9 +145,9 @@ ALTER SHARE sales_share SET ACCOUNTS = 'ORG1.ACCOUNT1, ORG2.ACCOUNT2';
 ---
 
 """,
-    skills=['snowflake', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["snowflake", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

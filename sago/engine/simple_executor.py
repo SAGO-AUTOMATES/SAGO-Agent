@@ -7,13 +7,13 @@ import json
 import os
 import re
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from openai import OpenAI
 
 from sago.tools.base import BaseTool
-
 
 # Auto-discover all tools
 _TOOL_CLASSES: dict[str, type[BaseTool]] = {}
@@ -44,7 +44,6 @@ def _is_complex_task(task: str) -> bool:
 
 def _auto_install_deps(files_created: list[str], on_thinking: Callable | None = None) -> None:
     """Auto-detect and install dependencies based on created files."""
-    from sago.tools.base import BaseTool
 
     # Check what files were created
     has_python = any(f.endswith(".py") for f in files_created)
@@ -53,14 +52,6 @@ def _auto_install_deps(files_created: list[str], on_thinking: Callable | None = 
     has_go = any(f.endswith(".go") for f in files_created)
 
     # Check for dependency files
-    deps_files = {
-        "requirements.txt": has_python,
-        "pyproject.toml": has_python,
-        "setup.py": has_python,
-        "package.json": has_node,
-        "Cargo.toml": has_rust,
-        "go.mod": has_go,
-    }
 
     # Find execute_shell tool
     shell_tool_class = None
@@ -77,7 +68,9 @@ def _auto_install_deps(files_created: list[str], on_thinking: Callable | None = 
     # Install dependencies for each detected language
     install_commands = []
     if has_python:
-        install_commands.append("pip install -r requirements.txt 2>/dev/null || pip install -e . 2>/dev/null || true")
+        install_commands.append(
+            "pip install -r requirements.txt 2>/dev/null || pip install -e . 2>/dev/null || true"
+        )
     if has_node:
         install_commands.append("npm install 2>/dev/null || yarn install 2>/dev/null || true")
     if has_rust:
@@ -107,6 +100,7 @@ def _run_tests_if_exist(
 
     for pattern in test_patterns:
         import glob
+
         if glob.glob(pattern):
             has_test_files = True
             break
@@ -202,9 +196,15 @@ def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
                 pkg = json.load(f)
             deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
             framework_map = {
-                "react": "react", "next": "nextjs", "vue": "vue",
-                "angular": "angular", "svelte": "svelte", "express": "express",
-                "fastify": "fastify", "nestjs": "nestjs", "electron": "electron",
+                "react": "react",
+                "next": "nextjs",
+                "vue": "vue",
+                "angular": "angular",
+                "svelte": "svelte",
+                "express": "express",
+                "fastify": "fastify",
+                "nestjs": "nestjs",
+                "electron": "electron",
             }
             for dep in framework_map:
                 if dep in deps:
@@ -218,8 +218,11 @@ def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
         try:
             content = open(pyproject).read()
             py_frameworks = {
-                "flask": "flask", "django": "django", "fastapi": "fastapi",
-                "starlette": "starlette", "pytest": "pytest",
+                "flask": "flask",
+                "django": "django",
+                "fastapi": "fastapi",
+                "starlette": "starlette",
+                "pytest": "pytest",
             }
             for keyword, framework in py_frameworks.items():
                 if keyword in content.lower():
@@ -245,12 +248,29 @@ def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
     # Detect project structure (depth 2)
     try:
         result = subprocess.run(
-            ["find", work_dir, "-maxdepth", "2", "-type", "f",
-             "-not", "-path", "*/node_modules/*",
-             "-not", "-path", "*/.git/*",
-             "-not", "-path", "*/target/*",
-             "-not", "-path", "*/vendor/*"],
-            capture_output=True, text=True, timeout=5
+            [
+                "find",
+                work_dir,
+                "-maxdepth",
+                "2",
+                "-type",
+                "f",
+                "-not",
+                "-path",
+                "*/node_modules/*",
+                "-not",
+                "-path",
+                "*/.git/*",
+                "-not",
+                "-path",
+                "*/target/*",
+                "-not",
+                "-path",
+                "*/vendor/*",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             files = result.stdout.strip().split("\n")[:30]
@@ -272,13 +292,16 @@ def _generate_plan_with_llm(
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": (
-                    "You are a task planner. Break down the user's task into clear, actionable steps.\n"
-                    "Reply with ONLY a JSON array of step descriptions. No explanation.\n"
-                    "Each step should be a single clear action.\n"
-                    "Example: [\"Step 1 description\", \"Step 2 description\"]\n"
-                    "Keep it to 3-8 steps. Be specific and actionable."
-                )},
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a task planner. Break down the user's task into clear, actionable steps.\n"
+                        "Reply with ONLY a JSON array of step descriptions. No explanation.\n"
+                        "Each step should be a single clear action.\n"
+                        'Example: ["Step 1 description", "Step 2 description"]\n'
+                        "Keep it to 3-8 steps. Be specific and actionable."
+                    ),
+                },
                 {"role": "user", "content": f"Break down this task into steps:\n\n{task}"},
             ],
             max_tokens=1024,
@@ -308,6 +331,7 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
         return _TOOL_CLASSES
 
     import logging
+
     _log = logging.getLogger("sago.tools")
 
     tools_dir = Path(__file__).parent.parent / "tools"
@@ -319,7 +343,12 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
             mod = importlib.import_module(f"sago.tools.{'.'.join(parts)}")
             for attr in dir(mod):
                 obj = getattr(mod, attr)
-                if isinstance(obj, type) and issubclass(obj, BaseTool) and obj is not BaseTool and getattr(obj, "name", None):
+                if (
+                    isinstance(obj, type)
+                    and issubclass(obj, BaseTool)
+                    and obj is not BaseTool
+                    and getattr(obj, "name", None)
+                ):
                     _TOOL_CLASSES[obj.name] = obj
         except Exception as e:
             _log.debug(f"Failed to load tool from {py_file.name}: {e}")
@@ -344,7 +373,14 @@ def _get_context(cwd: str | None = None) -> str:
     work_dir = Path(cwd) if cwd else Path.cwd()
     lines = [f"Working directory: {work_dir}"]
 
-    for name in ["README.md", "readme.md", "pyproject.toml", "package.json", "Cargo.toml", "go.mod"]:
+    for name in [
+        "README.md",
+        "readme.md",
+        "pyproject.toml",
+        "package.json",
+        "Cargo.toml",
+        "go.mod",
+    ]:
         p = work_dir / name
         if p.exists():
             try:
@@ -368,7 +404,9 @@ def _get_context(cwd: str | None = None) -> str:
             else:
                 try:
                     s = item.stat().st_size
-                    files.append(f"  {item.name} ({s}B)" if s < 100_000 else f"  {item.name} ({s//1024}KB)")
+                    files.append(
+                        f"  {item.name} ({s}B)" if s < 100_000 else f"  {item.name} ({s // 1024}KB)"
+                    )
                 except Exception:
                     files.append(f"  {item.name}")
     except PermissionError:
@@ -382,7 +420,14 @@ def _get_context(cwd: str | None = None) -> str:
 
     try:
         import subprocess
-        r = subprocess.run(["git", "status", "--short"], capture_output=True, text=True, timeout=5, cwd=str(work_dir))
+
+        r = subprocess.run(
+            ["git", "status", "--short"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=str(work_dir),
+        )
         if r.returncode == 0 and r.stdout.strip():
             lines.append(f"\nGit changes:\n{r.stdout.strip()[:800]}")
     except Exception:
@@ -418,7 +463,6 @@ One JSON per tool call on its own line:
 {{"name": "write_file", "args": {{"file_path": "src/app.py", "content": "import os\\n\\nclass App:\\n    def run(self):\\n        print('Hello')"}}}}
 
 IMPORTANT: When writing files, put the ACTUAL CODE in the content field. No markdown, no backticks, just the raw code.""",
-
     "fix": """You are {agent_role}. The user wants you to FIX something (bug, error, issue).
 
 {project_ctx}
@@ -442,7 +486,6 @@ You have {tool_count} tools. For fixing tasks:
 === FORMAT ===
 One JSON per tool call on its own line:
 {{"name": "edit_file", "args": {{"file_path": "app.py", "old_string": "broken code", "new_string": "fixed code"}}}}""",
-
     "analyze": """You are {agent_role}. The user wants you to ANALYZE something (code, project, issue).
 
 {project_ctx}
@@ -470,9 +513,44 @@ One JSON per tool call on its own line:
 
 def _detect_task_type(task: str) -> str:
     task_lower = task.lower()
-    create_words = ["create", "build", "write", "implement", "make", "generate", "setup", "set up", "add", "new"]
-    fix_words = ["fix", "debug", "repair", "resolve", "patch", "correct", "solve", "issue", "error", "bug", "broken"]
-    analyze_words = ["analyze", "review", "explain", "describe", "show", "list", "find", "search", "what", "how", "why"]
+    create_words = [
+        "create",
+        "build",
+        "write",
+        "implement",
+        "make",
+        "generate",
+        "setup",
+        "set up",
+        "add",
+        "new",
+    ]
+    fix_words = [
+        "fix",
+        "debug",
+        "repair",
+        "resolve",
+        "patch",
+        "correct",
+        "solve",
+        "issue",
+        "error",
+        "bug",
+        "broken",
+    ]
+    analyze_words = [
+        "analyze",
+        "review",
+        "explain",
+        "describe",
+        "show",
+        "list",
+        "find",
+        "search",
+        "what",
+        "how",
+        "why",
+    ]
 
     if any(w in task_lower for w in fix_words):
         return "fix"
@@ -487,8 +565,14 @@ def _load_agent_profile(agent_name: str) -> dict[str, Any] | None:
     """Load agent profile metadata if available."""
     try:
         from sago.agents.registry import get_agent
+
         # Try common name formats
-        for name_variant in [agent_name, agent_name.lower(), agent_name.replace(" ", "-"), agent_name.replace(" ", "_")]:
+        for name_variant in [
+            agent_name,
+            agent_name.lower(),
+            agent_name.replace(" ", "-"),
+            agent_name.replace(" ", "_"),
+        ]:
             agent_def = get_agent(name_variant)
             if agent_def:
                 return {
@@ -530,7 +614,6 @@ def execute_agent_task(
         on_request_input: Called when a todo needs user input. Signature: (question: str) -> str
         pause_event: threading.Event to pause/resume execution. If provided and set, executor pauses.
     """
-    import threading
     tools = _discover_tools()
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
     start_time = time.time()
@@ -553,6 +636,7 @@ def execute_agent_task(
     learning_suggestion = None
     try:
         from sago.learning import get_learning_store
+
         ls = get_learning_store()
         task_type = _detect_task_type(task)
         learning_suggestion = ls.suggest_approach(task_type, list(tools.keys()))
@@ -563,7 +647,8 @@ def execute_agent_task(
     task_plan = None
     if _is_complex_task(task) and api_key:
         try:
-            from sago.tasks import get_task_manager, TaskStatus
+            from sago.tasks import TaskStatus, get_task_manager
+
             tm = get_task_manager()
             steps = _generate_plan_with_llm(task, client, model, _TOOL_DESCRIPTIONS)
             # Mark steps that sound like they need confirmation
@@ -577,7 +662,9 @@ def execute_agent_task(
             for i, (_, needs_confirm) in enumerate(todos_with_flags):
                 if needs_confirm and i < len(task_plan.todos):
                     task_plan.todos[i].requires_confirmation = True
-                    task_plan.todos[i].confirmation_message = f"Please confirm: {task_plan.todos[i].description}"
+                    task_plan.todos[
+                        i
+                    ].confirmation_message = f"Please confirm: {task_plan.todos[i].description}"
             if on_todo_created:
                 on_todo_created(task_plan)
         except Exception:
@@ -633,6 +720,7 @@ def execute_agent_task(
     # Load project instructions (CLAUDE.md / .sago/instructions.md)
     try:
         from sago.memory.project_instructions import get_project_instructions
+
         pi = get_project_instructions(cwd)
         instructions_prompt = pi.get_for_prompt()
         if instructions_prompt:
@@ -659,7 +747,9 @@ def execute_agent_task(
 
     content = ""
 
-    def _compact_messages_if_needed(msgs: list[dict[str, Any]], max_tokens: int = 32000) -> list[dict[str, Any]]:
+    def _compact_messages_if_needed(
+        msgs: list[dict[str, Any]], max_tokens: int = 32000
+    ) -> list[dict[str, Any]]:
         """Compact messages if total content exceeds token limit."""
         total_chars = sum(len(m.get("content", "")) for m in msgs)
         estimated_tokens = total_chars // 4
@@ -667,6 +757,7 @@ def execute_agent_task(
             return msgs
         try:
             from sago.memory.compaction import SessionCompactor
+
             compactor = SessionCompactor(max_context_tokens=max_tokens)
             compacted = compactor.build_context_window(msgs, max_tokens=max_tokens)
             return compacted
@@ -693,9 +784,11 @@ def execute_agent_task(
 
         if on_thinking:
             phase = "Planning" if i == 0 else "Working"
-            todo_info = f" | Step {current_todo_index + 1}/{len(task_plan.todos)}" if task_plan else ""
+            todo_info = (
+                f" | Step {current_todo_index + 1}/{len(task_plan.todos)}" if task_plan else ""
+            )
             files_info = f" ({len(files_created)} files created)" if files_created else ""
-            on_thinking(f"{phase}... (step {i+1}/{max_iterations}{todo_info}{files_info})")
+            on_thinking(f"{phase}... (step {i + 1}/{max_iterations}{todo_info}{files_info})")
 
         try:
             temp = profile.get("temperature", 0.3) if profile else 0.3
@@ -717,7 +810,9 @@ def execute_agent_task(
             elif "401" in error_msg or "auth" in error_msg.lower():
                 error_msg = f"Authentication failed. Check your API key for {model}."
             elif "404" in error_msg or "not found" in error_msg.lower():
-                error_msg = f"Model '{model}' not found. Try 'openrouter/free' or check available models."
+                error_msg = (
+                    f"Model '{model}' not found. Try 'openrouter/free' or check available models."
+                )
             elif "insufficient" in error_msg.lower() or "credit" in error_msg.lower():
                 error_msg = f"Insufficient credits for model '{model}'. Add credits or use 'openrouter/free'."
 
@@ -727,7 +822,12 @@ def execute_agent_task(
                 "output": content or f"API error: {error_msg}",
                 "tool_calls": tool_history,
                 "iterations": i + 1,
-                "tokens": {"input": total_tokens_in, "output": total_tokens_out, "cache_hit": total_cache_hit, "cache_miss": total_cache_miss},
+                "tokens": {
+                    "input": total_tokens_in,
+                    "output": total_tokens_out,
+                    "cache_hit": total_cache_hit,
+                    "cache_miss": total_cache_miss,
+                },
                 "elapsed": time.time() - start_time,
                 "files_created": files_created,
                 "task_plan": task_plan.to_dict() if task_plan else None,
@@ -741,13 +841,20 @@ def execute_agent_task(
         # Handle empty or None content - retry with clearer prompt
         if not content or content.strip() == "":
             if i < max_iterations - 1:
-                messages.append({"role": "user", "content": (
-                    "You returned an empty response. Please use the available tools to complete the task. "
-                    "Output a JSON tool call like: {\"name\": \"tool_name\", \"args\": {\"param\": \"value\"}}"
-                )})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "You returned an empty response. Please use the available tools to complete the task. "
+                            'Output a JSON tool call like: {"name": "tool_name", "args": {"param": "value"}}'
+                        ),
+                    }
+                )
                 continue
             else:
-                content = "Error: Model returned empty response. Try again or use a different model."
+                content = (
+                    "Error: Model returned empty response. Try again or use a different model."
+                )
 
         if hasattr(response, "usage") and response.usage:
             total_tokens_in += response.usage.prompt_tokens or 0
@@ -757,7 +864,9 @@ def execute_agent_task(
                 details = response.usage.prompt_tokens_details
                 if hasattr(details, "cached_tokens"):
                     total_cache_hit += details.cached_tokens or 0
-                    total_cache_miss += (response.usage.prompt_tokens or 0) - (details.cached_tokens or 0)
+                    total_cache_miss += (response.usage.prompt_tokens or 0) - (
+                        details.cached_tokens or 0
+                    )
 
         messages.append({"role": "assistant", "content": content})
 
@@ -766,7 +875,8 @@ def execute_agent_task(
         if not tool_calls:
             # No tool calls - LLM is done with current step
             if task_plan and current_todo_index < len(task_plan.todos):
-                from sago.tasks import get_task_manager, TaskStatus
+                from sago.tasks import TaskStatus, get_task_manager
+
                 tm = get_task_manager()
                 current_todo = task_plan.todos[current_todo_index]
                 if current_todo.status == TaskStatus.IN_PROGRESS:
@@ -780,17 +890,27 @@ def execute_agent_task(
                         tm.start_todo(task_plan.id, next_todo.id)
                         if on_todo_update:
                             on_todo_update(task_plan, current_todo_index, "started")
-                        messages.append({"role": "user", "content": (
-                            f"Moving to next step: {next_todo.description}\n"
-                            f"Execute this step now. Use the appropriate tools."
-                        )})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"Moving to next step: {next_todo.description}\n"
+                                    f"Execute this step now. Use the appropriate tools."
+                                ),
+                            }
+                        )
                         continue
             return {
                 "success": True,
                 "output": content,
                 "tool_calls": tool_history,
                 "iterations": i + 1,
-                "tokens": {"input": total_tokens_in, "output": total_tokens_out, "cache_hit": total_cache_hit, "cache_miss": total_cache_miss},
+                "tokens": {
+                    "input": total_tokens_in,
+                    "output": total_tokens_out,
+                    "cache_hit": total_cache_hit,
+                    "cache_miss": total_cache_miss,
+                },
                 "elapsed": time.time() - start_time,
                 "files_created": files_created,
                 "task_plan": task_plan.to_dict() if task_plan else None,
@@ -817,14 +937,17 @@ def execute_agent_task(
                     continue
 
                 # Check permissions before execution
-                from sago.permissions import get_permission_manager, RiskLevel
+                from sago.permissions import RiskLevel, get_permission_manager
+
                 pm = get_permission_manager()
                 risk = pm.get_risk_level(name)
                 allowed, reason = pm.check_permission(name, args)
 
                 if not allowed:
                     if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
-                        results_for_llm.append(f"Permission denied: {name} requires approval (risk: {risk.value})")
+                        results_for_llm.append(
+                            f"Permission denied: {name} requires approval (risk: {risk.value})"
+                        )
                     else:
                         results_for_llm.append(f"Permission denied: {reason}")
                     continue
@@ -832,7 +955,10 @@ def execute_agent_task(
                 tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
                 # No hard limits - let the LLM self-regulate
                 # But detect circular behavior and warn
-                recent_calls = [f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}" for c in tool_history[-5:]]
+                recent_calls = [
+                    f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}"
+                    for c in tool_history[-5:]
+                ]
                 if len(recent_calls) >= 3:
                     unique_recent = set(recent_calls[-3:])
                     if len(unique_recent) == 1:
@@ -848,7 +974,9 @@ def execute_agent_task(
                 result = tool_instance.run(**args)
                 result_str = str(result)[:4000]
 
-                is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
+                is_error = (
+                    result_str.lower().startswith("error") or "traceback" in result_str.lower()
+                )
                 if is_error:
                     failed_calls.add(call_key)
 
@@ -858,12 +986,14 @@ def execute_agent_task(
                     if fp and fp not in files_created:
                         files_created.append(fp)
 
-                tool_history.append({
-                    "tool": name,
-                    "args": args,
-                    "result": result_str[:500],
-                    "success": not is_error,
-                })
+                tool_history.append(
+                    {
+                        "tool": name,
+                        "args": args,
+                        "result": result_str[:500],
+                        "success": not is_error,
+                    }
+                )
 
                 tools_used_in_iteration.append(name)
 
@@ -872,21 +1002,24 @@ def execute_agent_task(
                     on_tool_result(name, args, result_str[:1000], not is_error)
 
                 if is_error:
-                    results_for_llm.append(f"[ERROR] {name}:\n{result_str}\nTry a different approach.")
+                    results_for_llm.append(
+                        f"[ERROR] {name}:\n{result_str}\nTry a different approach."
+                    )
                 else:
                     # Truncate long results
                     display = result_str[:1500] + "..." if len(result_str) > 1500 else result_str
                     results_for_llm.append(f"[OK] {name}:\n{display}")
 
             except json.JSONDecodeError:
-                results_for_llm.append("Invalid JSON. Use: {{\"name\": \"tool\", \"args\": {{...}}}}")
+                results_for_llm.append('Invalid JSON. Use: {{"name": "tool", "args": {{...}}}}')
             except Exception as e:
                 results_for_llm.append(f"Tool error: {type(e).__name__}: {e}")
 
         # Update task plan progress based on actual work done
         if task_plan:
             try:
-                from sago.tasks import get_task_manager, TaskStatus
+                from sago.tasks import TaskStatus, get_task_manager
+
                 tm = get_task_manager()
 
                 if current_todo_index < len(task_plan.todos):
@@ -904,25 +1037,50 @@ def execute_agent_task(
                     todo_tool_counts[current_todo.id] += len(tools_used_in_iteration)
 
                     # Check if todo needs confirmation before proceeding
-                    if current_todo.requires_confirmation and current_todo.status == TaskStatus.IN_PROGRESS:
+                    if (
+                        current_todo.requires_confirmation
+                        and current_todo.status == TaskStatus.IN_PROGRESS
+                    ):
                         # Ask user for confirmation
                         if on_request_input:
-                            question = current_todo.confirmation_message or f"Confirm step: {current_todo.description}"
+                            question = (
+                                current_todo.confirmation_message
+                                or f"Confirm step: {current_todo.description}"
+                            )
                             user_response = on_request_input(question)
-                            if user_response and user_response.lower() in ("no", "deny", "skip", "n"):
+                            if user_response and user_response.lower() in (
+                                "no",
+                                "deny",
+                                "skip",
+                                "n",
+                            ):
                                 tm.skip_todo(task_plan.id, current_todo.id)
                                 if on_todo_update:
                                     on_todo_update(task_plan, current_todo_index, "skipped")
                                 current_todo_index += 1
                                 continue
                             else:
-                                tm.provide_input(plan_id=task_plan.id, todo_id=current_todo.id, user_input=user_response)
+                                tm.provide_input(
+                                    plan_id=task_plan.id,
+                                    todo_id=current_todo.id,
+                                    user_input=user_response,
+                                )
 
                     # Auto-complete todo after sufficient work (3+ successful tools or 2+ iterations on same todo)
-                    successful_tools = [t["tool"] for t in tool_history if t.get("success") and t["tool"] in tools_used_in_iteration]
+                    successful_tools = [
+                        t["tool"]
+                        for t in tool_history
+                        if t.get("success") and t["tool"] in tools_used_in_iteration
+                    ]
                     tools_for_this_todo = todo_tool_counts.get(current_todo.id, 0)
-                    if (tools_for_this_todo >= 3 and len(successful_tools) >= 2) or (i > 0 and tools_for_this_todo >= 2):
-                        tm.complete_todo(task_plan.id, current_todo.id, result=f"Completed: {', '.join(successful_tools[:3])}")
+                    if (tools_for_this_todo >= 3 and len(successful_tools) >= 2) or (
+                        i > 0 and tools_for_this_todo >= 2
+                    ):
+                        tm.complete_todo(
+                            task_plan.id,
+                            current_todo.id,
+                            result=f"Completed: {', '.join(successful_tools[:3])}",
+                        )
                         if on_todo_update:
                             on_todo_update(task_plan, current_todo_index, "completed")
                         current_todo_index += 1
@@ -938,7 +1096,9 @@ def execute_agent_task(
                                 f"Execute this step now."
                             )
                         else:
-                            results_for_llm.append("\n[PROGRESS] All steps completed. Provide final summary.")
+                            results_for_llm.append(
+                                "\n[PROGRESS] All steps completed. Provide final summary."
+                            )
             except Exception:
                 pass
 
@@ -957,7 +1117,8 @@ def execute_agent_task(
     # Mark final todo as complete if plan exists
     if task_plan:
         try:
-            from sago.tasks import get_task_manager, TaskStatus
+            from sago.tasks import TaskStatus, get_task_manager
+
             tm = get_task_manager()
             # Complete any remaining todos
             for idx in range(current_todo_index, len(task_plan.todos)):
@@ -999,19 +1160,25 @@ def execute_agent_task(
             break
 
         if on_thinking:
-            on_thinking(f"Tests failed (attempt {test_fix_attempts}/{max_test_fix_attempts}), fixing...")
+            on_thinking(
+                f"Tests failed (attempt {test_fix_attempts}/{max_test_fix_attempts}), fixing..."
+            )
 
         # Feed test errors back to LLM for fixing
         try:
             fix_response = client.chat.completions.create(
                 model=model,
-                messages=messages + [
-                    {"role": "user", "content": (
-                        f"The tests are failing. Fix the failing tests.\n\n"
-                        f"Test output:\n{test_output[:3000]}\n\n"
-                        f"Files you created: {', '.join(files_created)}\n"
-                        f"Fix the issues and make the tests pass. Use edit_file or write_file to fix."
-                    )},
+                messages=messages
+                + [
+                    {
+                        "role": "user",
+                        "content": (
+                            f"The tests are failing. Fix the failing tests.\n\n"
+                            f"Test output:\n{test_output[:3000]}\n\n"
+                            f"Files you created: {', '.join(files_created)}\n"
+                            f"Fix the issues and make the tests pass. Use edit_file or write_file to fix."
+                        ),
+                    },
                 ],
                 max_tokens=max_tokens,
                 temperature=0.3,
@@ -1033,12 +1200,14 @@ def execute_agent_task(
                             result = tool_instance.run(**args)
                             result_str = str(result)[:4000]
                             is_error = result_str.lower().startswith("error")
-                            tool_history.append({
-                                "tool": name,
-                                "args": args,
-                                "result": result_str[:500],
-                                "success": not is_error,
-                            })
+                            tool_history.append(
+                                {
+                                    "tool": name,
+                                    "args": args,
+                                    "result": result_str[:500],
+                                    "success": not is_error,
+                                }
+                            )
                             if name == "write_file" and not is_error:
                                 fp = args.get("file_path", "")
                                 if fp and fp not in files_created:
@@ -1051,13 +1220,16 @@ def execute_agent_task(
     # Record learning from this execution
     try:
         from sago.learning import get_learning_store
+
         ls = get_learning_store()
         task_type = _detect_task_type(task)
 
         # Record success
         successful_tools = [t["tool"] for t in tool_history if t.get("success")]
         if successful_tools:
-            ls.record_success(task_type, successful_tools, f"Used {', '.join(set(successful_tools[:5]))}")
+            ls.record_success(
+                task_type, successful_tools, f"Used {', '.join(set(successful_tools[:5]))}"
+            )
 
         # Record tool effectiveness
         for tool_record in tool_history:
@@ -1066,11 +1238,17 @@ def execute_agent_task(
         # Record language patterns if files were created
         if files_created and project_context["languages"]:
             for lang in project_context["languages"]:
-                ls.record_language_pattern(lang, "file_creation", f"Created {len(files_created)} files")
+                ls.record_language_pattern(
+                    lang, "file_creation", f"Created {len(files_created)} files"
+                )
 
         # Record error fixes if test fixes were applied
         if test_fix_attempts > 0:
-            ls.record_success("test_fix", ["edit_file", "write_file"], f"Fixed tests in {test_fix_attempts} attempts")
+            ls.record_success(
+                "test_fix",
+                ["edit_file", "write_file"],
+                f"Fixed tests in {test_fix_attempts} attempts",
+            )
     except Exception:
         pass
 
@@ -1078,6 +1256,7 @@ def execute_agent_task(
     change_summary = None
     try:
         from sago.memory.change_tracker import get_change_tracker
+
         tracker = get_change_tracker()
         change_summary = tracker.get_summary()
     except Exception:
@@ -1088,7 +1267,12 @@ def execute_agent_task(
         "output": content,
         "tool_calls": tool_history,
         "iterations": max_iterations + test_fix_attempts,
-        "tokens": {"input": total_tokens_in, "output": total_tokens_out, "cache_hit": total_cache_hit, "cache_miss": total_cache_miss},
+        "tokens": {
+            "input": total_tokens_in,
+            "output": total_tokens_out,
+            "cache_hit": total_cache_hit,
+            "cache_miss": total_cache_miss,
+        },
         "elapsed": time.time() - start_time,
         "files_created": files_created,
         "task_plan": task_plan.to_dict() if task_plan else None,
@@ -1115,7 +1299,7 @@ def _extract_tool_calls(content: str) -> list[str]:
         return matches
 
     # Format 2: Inside code blocks
-    for pattern in [r'```json\s*\n(.*?)\n```', r'```\s*\n(\{.*?\})\n```']:
+    for pattern in [r"```json\s*\n(.*?)\n```", r"```\s*\n(\{.*?\})\n```"]:
         for f in re.findall(pattern, content, re.DOTALL):
             try:
                 data = json.loads(f.strip())
@@ -1128,9 +1312,11 @@ def _extract_tool_calls(content: str) -> list[str]:
         return matches
 
     # Format 3: XML-style tags
-    for tool_name, args_str in re.findall(r'<tool_call>(\w+)(.*?)</tool_call>', content, re.DOTALL):
+    for tool_name, args_str in re.findall(r"<tool_call>(\w+)(.*?)</tool_call>", content, re.DOTALL):
         args = {}
-        for m in re.finditer(r'<arg_key>(\w+)</arg_key><arg_value>(.*?)</arg_value>', args_str, re.DOTALL):
+        for m in re.finditer(
+            r"<arg_key>(\w+)</arg_key><arg_value>(.*?)</arg_value>", args_str, re.DOTALL
+        ):
             args[m.group(1)] = m.group(2)
         if args:
             matches.append(json.dumps({"name": tool_name, "args": args}))
@@ -1140,7 +1326,9 @@ def _extract_tool_calls(content: str) -> list[str]:
 
     # Format 4: Try to find any JSON-like structure with tool call patterns
     # This handles cases where LLM wraps in markdown or adds extra text
-    for m in re.finditer(r'\{[^{}]*"name"\s*:\s*"(\w+)"[^{}]*"args"\s*:\s*\{[^{}]*\}[^{}]*\}', content, re.DOTALL):
+    for m in re.finditer(
+        r'\{[^{}]*"name"\s*:\s*"(\w+)"[^{}]*"args"\s*:\s*\{[^{}]*\}[^{}]*\}', content, re.DOTALL
+    ):
         try:
             data = json.loads(m.group(0))
             if "name" in data and "args" in data:

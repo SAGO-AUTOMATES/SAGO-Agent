@@ -179,9 +179,9 @@ in_order(node(V, L, R), List) :-
 ---
 
 """,
-    skills=['prolog', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'debugger', 'log_analyzer'],
-    handoff_to=['code-reviewer'],
+    skills=["prolog", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "debugger", "log_analyzer"],
+    handoff_to=["code-reviewer"],
 )
 
 

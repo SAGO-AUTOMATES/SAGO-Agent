@@ -167,9 +167,9 @@ Project is tracking to plan. One schedule risk on payment gateway is being resol
 ---
 
 """,
-    skills=['project', 'manager'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["project", "manager"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

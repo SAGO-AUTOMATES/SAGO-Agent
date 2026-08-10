@@ -74,29 +74,29 @@ data_architecture:
   layers:
     - layer: "Source Systems"
       description: "Operational databases, SaaS APIs, external data feeds, streaming sources"
-    
+
     - layer: "Data Ingestion"
       patterns: ["Batch (daily/hourly)", "Micro-batch", "Streaming (real-time)"]
       tools: ["Kafka, Kinesis, Airbyte, Fivetran, dbt"]
-    
+
     - layer: "Data Storage"
       zones:
         - "Landing/Bronze: Raw data as-is"
         - "Cleansed/Silver: Validated, deduplicated, enriched"
         - "Curated/Gold: Business-ready, modeled for consumption"
       tools: ["S3/ADLS/GCS, Snowflake, BigQuery, Databricks"]
-    
+
     - layer: "Data Modeling"
       types:
         - "Dimensional: Facts and dimensions for BI"
         - "Data Vault: Auditability and flexibility"
         - "OneBigTable: ML feature serving"
       tools: ["dbt, LookML, SQL, Fivetran"]
-    
+
     - layer: "Data Consumption"
       patterns: ["BI dashboards, Ad-hoc SQL, ML features, Data APIs"]
       tools: ["Looker, Tableau, Power BI, Metabase"]
-    
+
     - layer: "Data Governance"
       components: ["Data catalog, Lineage, Quality monitoring, Access control"]
       tools: ["Datahub, Atlan, Alation, Great Expectations, Soda"]
@@ -157,9 +157,9 @@ naming:
 ---
 
 """,
-    skills=['data', 'architect'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["data", "architect"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

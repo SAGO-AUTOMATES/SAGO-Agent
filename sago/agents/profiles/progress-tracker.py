@@ -163,9 +163,17 @@ HANDOFF
 ---
 
 """,
-    skills=['status-tracking', 'blocker-escalation', 'velocity-monitoring', 'progress-reporting', 'completion-verification', 'handoff-coordination', 'burndown/burnup'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "status-tracking",
+        "blocker-escalation",
+        "velocity-monitoring",
+        "progress-reporting",
+        "completion-verification",
+        "handoff-coordination",
+        "burndown/burnup",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

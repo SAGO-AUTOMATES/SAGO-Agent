@@ -17,7 +17,9 @@ from sago.tools.base import BaseTool
 class SessionManagerArgs(BaseModel):
     """Arguments for SessionManagerTool."""
 
-    operation: Literal["get", "set", "delete", "list", "clear"] = Field(description="Operation to perform")
+    operation: Literal["get", "set", "delete", "list", "clear"] = Field(
+        description="Operation to perform"
+    )
     key: str | None = Field(default=None, description="Session key")
     value: str | None = Field(default=None, description="Value to store (for set)")
     session_id: str = Field(default="default", description="Session ID")

@@ -17,16 +17,16 @@ class RegexTesterArgs(BaseModel):
     pattern: str = Field(description="Regular expression pattern")
     text: str = Field(description="Text to test against")
     replacement: str = Field(default="", description="Replacement string for replace operation")
-    flags: str = Field(default="", description="Regex flags: i (ignorecase), m (multiline), s (dotall)")
+    flags: str = Field(
+        default="", description="Regex flags: i (ignorecase), m (multiline), s (dotall)"
+    )
 
 
 class RegexTester(BaseTool):
     """Tool for testing and debugging regular expressions."""
 
     name: str = "regex_tester"
-    description: str = (
-        "Test regular expressions: match, findall, replace, split, validate."
-    )
+    description: str = "Test regular expressions: match, findall, replace, split, validate."
     args_model: type[BaseModel] = RegexTesterArgs
 
     def _run(
@@ -61,7 +61,9 @@ class RegexTester(BaseTool):
 
                 result_parts = [f"Found {len(matches)} match(es):\n"]
                 for i, match in enumerate(matches, 1):
-                    result_parts.append(f"Match {i}: '{match.group()}' at position {match.start()}-{match.end()}")
+                    result_parts.append(
+                        f"Match {i}: '{match.group()}' at position {match.start()}-{match.end()}"
+                    )
                     if match.groups():
                         for j, group in enumerate(match.groups(), 1):
                             result_parts.append(f"  Group {j}: '{group}'")
@@ -70,7 +72,7 @@ class RegexTester(BaseTool):
             elif operation == "findall":
                 matches = compiled.findall(text)
                 if not matches:
-                    return f"No matches found"
+                    return "No matches found"
 
                 result_parts = [f"Found {len(matches)} match(es):\n"]
                 for i, match in enumerate(matches[:50], 1):

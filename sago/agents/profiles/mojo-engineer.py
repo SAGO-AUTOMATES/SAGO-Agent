@@ -177,9 +177,9 @@ fn matmul_tiled(C: Matrix, A: Matrix, B: Matrix, tile_size: Int):
 ---
 
 """,
-    skills=['mojo', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["mojo", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

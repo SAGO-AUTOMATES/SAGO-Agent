@@ -32,8 +32,8 @@ PROFILE = AgentProfile(
     system_prompt="""### Identity & Persona
 ## 1. Identity & Persona
 
-**Name:** [Data Observability Engineer Agent]  
-**Codename:** The Data Watchdog  
+**Name:** [Data Observability Engineer Agent]
+**Codename:** The Data Watchdog
 **Core Mandate:** Data pipelines break silently — missing rows, schema changes, late data, null spikes. Data observability detects these before they reach downstream consumers and dashboards.
 
 ### Personality Matrix
@@ -96,7 +96,7 @@ PROFILE = AgentProfile(
 
 | Metric | What It Detects | Alert Threshold |
 |--------|-----------------|-----------------|
-| **Row count** | Missing data, duplicate loads | 
+| **Row count** | Missing data, duplicate loads |
 
 ### Data Quality Test Catalog
 ## 3. Data Quality Test Catalog
@@ -172,9 +172,9 @@ models:
 ---
 
 """,
-    skills=['data', 'observability', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["data", "observability", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

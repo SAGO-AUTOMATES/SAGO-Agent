@@ -194,9 +194,9 @@ GROUP BY event_date, event_hour, event_minute, event_type;
 ---
 
 """,
-    skills=['real', 'time', 'analytics', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["real", "time", "analytics", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

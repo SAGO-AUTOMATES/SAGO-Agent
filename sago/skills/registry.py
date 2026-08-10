@@ -6,13 +6,15 @@ Skills provide higher-level abstractions over tools.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass
 class Skill:
     """A reusable agent skill."""
+
     name: str
     description: str
     tools: list[str]

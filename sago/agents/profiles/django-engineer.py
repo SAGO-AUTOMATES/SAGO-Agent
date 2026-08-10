@@ -190,9 +190,9 @@ class ProjectAdmin(admin.ModelAdmin):
 ---
 
 """,
-    skills=['django', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["django", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

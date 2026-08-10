@@ -89,7 +89,7 @@ PROFILE = AgentProfile(
 @Composable
 fun UserProfile(viewModel: ProfileViewModel) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    
+
     when (val state = uiState) {
         is UiState.Loading -> ShimmerEffect()
         is UiState.Success -> ProfileContent(user = state.data)
@@ -103,7 +103,7 @@ class ProfileViewModel(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<UiState>(UiState.Loading)
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
-    
+
     fun loadUser(id: String) {
         viewModelScope.launch {
             _uiState.value = UiState.Loading
@@ -122,7 +122,7 @@ struct ProfileView: View {
     @State private var user: User?
     @State private var error: Error?
     @State private var isLoading = false
-    
+
     var body: some View {
         Group {
             if isLoading {
@@ -132,7 +132,7 @@ struct ProfileView: View {
             } else if let error = error {
                 ErrorView(error: error) { await loadUser() }
             }
-   
+
 
 ### Performance Patterns
 ## 4. Performance Patterns
@@ -166,9 +166,9 @@ struct ProfileView: View {
 ---
 
 """,
-    skills=['mobile', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["mobile", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

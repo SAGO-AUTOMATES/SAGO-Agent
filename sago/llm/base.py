@@ -77,6 +77,4 @@ class BaseLLMProvider(ABC):
         Returns:
             A LangChain LLM instance for use with CrewAI.
         """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not implement get_langchain_llm"
-        )
+        raise NotImplementedError(f"{self.__class__.__name__} does not implement get_langchain_llm")

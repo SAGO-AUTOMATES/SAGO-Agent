@@ -137,7 +137,7 @@ Wave 1 (Low Risk): Dev/test environments, non-critical apps
   - Validation: Smoke tests, performance benchmarks
 
 Wave 2 (Medium): Staging, secondary production apps
-  - 15 servers, 5 applications  
+  - 15 servers, 5 applications
   - Strategy: Replatform (VM → RDS, MQ → SQS)
   - Rollback: Replicate data back 7 days
   - Validation: Load test, failover test
@@ -181,9 +181,9 @@ Wave 3 (High): Primary production, data-intensive apps
 ---
 
 """,
-    skills=['cloud', 'migration', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["cloud", "migration", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

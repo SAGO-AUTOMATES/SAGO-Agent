@@ -8,14 +8,16 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass
 class MCPTool:
     """MCP tool definition."""
+
     name: str
     description: str
     input_schema: dict[str, Any]
@@ -32,6 +34,7 @@ class MCPTool:
 @dataclass
 class MCPServer:
     """MCP server for exposing tools."""
+
     name: str
     version: str = "1.0.0"
     tools: dict[str, MCPTool] = field(default_factory=dict)
@@ -179,7 +182,7 @@ class MCPClient:
                 },
             }
             self._send_request(init_request)
-            response = self._read_response()
+            self._read_response()
 
             # Send initialized notification
             initialized = {
@@ -270,12 +273,14 @@ class MCPClient:
 def create_sago_mcp_server() -> MCPServer:
     """Create an MCP server with all Sago tools."""
     import logging
+
     _log = logging.getLogger("sago.mcp")
 
     server = MCPServer(name="sago", version="0.1.0")
 
     # Auto-discover and register all Sago tools
     import importlib
+
     from sago.tools.base import BaseTool
 
     tools_dir = Path(__file__).parent.parent / "tools"
@@ -296,11 +301,7 @@ def create_sago_mcp_server() -> MCPServer:
 
         for attr_name in dir(mod):
             obj = getattr(mod, attr_name)
-            if (
-                isinstance(obj, type)
-                and hasattr(obj, "name")
-                and obj.__name__ != "BaseTool"
-            ):
+            if isinstance(obj, type) and hasattr(obj, "name") and obj.__name__ != "BaseTool":
                 try:
                     if issubclass(obj, BaseTool) and obj.name:
                         server.register_sago_tool(obj)

@@ -115,8 +115,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 ---
 
 ## Handof""",
-    skills=['fuzz', 'testing', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
+    skills=["fuzz", "testing", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
     handoff_to=[],
 )
 

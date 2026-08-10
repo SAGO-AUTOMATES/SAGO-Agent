@@ -101,7 +101,7 @@ class CustomNet(nn.Module):
             nn.Dropout(0.2),
             nn.Linear(512, num_classes)
         )
-    
+
     def forward(self, x):
         return self.backbone(x)
 
@@ -158,9 +158,9 @@ criterion = nn.CrossEntropyLos
 ---
 
 """,
-    skills=['deep', 'learning', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["deep", "learning", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

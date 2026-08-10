@@ -16,7 +16,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-
 PID_FILE = Path.home() / ".sago" / "daemon.pid"
 LOG_FILE = Path.home() / ".sago" / "daemon.log"
 SOCKET_FILE = Path.home() / ".sago" / "sago.sock"
@@ -170,7 +169,9 @@ class SagoDaemon:
 
                     client, addr = server.accept()
                     self._active_connections += 1
-                    print(f"Connection from {addr} ({self._active_connections}/{self._max_connections})")
+                    print(
+                        f"Connection from {addr} ({self._active_connections}/{self._max_connections})"
+                    )
 
                     # Handle in a simple way (not threaded for now)
                     try:
@@ -179,7 +180,7 @@ class SagoDaemon:
                         self._active_connections -= 1
                         client.close()
 
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 except Exception as e:
                     print(f"Error: {e}")
@@ -190,7 +191,6 @@ class SagoDaemon:
 
     def _handle_client(self, client: Any) -> None:
         """Handle client connection with auth and size limits."""
-        import socket
 
         try:
             client.settimeout(CLIENT_TIMEOUT)
@@ -218,7 +218,7 @@ class SagoDaemon:
             client.send((json.dumps(response) + "\n").encode())
         except json.JSONDecodeError:
             client.send(json.dumps({"error": "Invalid JSON"}).encode() + b"\n")
-        except socket.timeout:
+        except TimeoutError:
             client.send(json.dumps({"error": "Request timeout"}).encode() + b"\n")
         except Exception as e:
             try:
@@ -263,6 +263,7 @@ class SagoDaemon:
 
             try:
                 from sago.config.loader import get_config
+
                 model = get_config().llm.model or "openrouter/free"
             except Exception:
                 model = "openrouter/free"
@@ -303,6 +304,7 @@ class SagoDaemon:
         """Get peer information."""
         try:
             from sago.peers.manager import PeerManager
+
             pm = PeerManager()
             peers = pm.list_peers()
             return {"peers": [p.to_dict() for p in peers]}
@@ -357,7 +359,9 @@ class SagoDaemon:
 class SagoClient:
     """Client for communicating with daemon."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_PORT, api_key: str | None = None) -> None:
+    def __init__(
+        self, host: str = "127.0.0.1", port: int = DEFAULT_PORT, api_key: str | None = None
+    ) -> None:
         self.host = host
         self.port = port
         self.api_key = api_key or self._load_api_key()
@@ -410,11 +414,13 @@ class SagoClient:
 
     def execute(self, task: str, agent: str | None = None) -> dict[str, Any]:
         """Execute task on daemon."""
-        return self._send({
-            "action": "execute",
-            "task": task,
-            "agent": agent,
-        })
+        return self._send(
+            {
+                "action": "execute",
+                "task": task,
+                "agent": agent,
+            }
+        )
 
     def status(self) -> dict[str, Any]:
         """Get daemon status."""

@@ -178,9 +178,9 @@ const kubeconfig = new aws.eks.Cluster("app").kubeconfig;
 ---
 
 """,
-    skills=['pulumi', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["pulumi", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -76,21 +76,21 @@ sales_process:
       - "Map current architecture"
       - "Identify pain points and priorities"
     outputs: ["Discovery notes", "Technical win criteria"]
-    
+
   - name: "Demo"
     activities:
       - "Tailored demo aligned to discovery"
       - "Show value for specific use cases"
       - "Handle technical objections"
     outputs: ["Demo recording", "Follow-up materials"]
-    
+
   - name: "Proof of Concept"
     activities:
       - "Define success criteria with customer"
       - "Implement in customer environment"
       - "Validate against use cases"
     outputs: ["PoC plan", "Success criteria", "Technical validation"]
-    
+
   - name: "Evaluation"
     activities:
       - "Security review support"
@@ -98,7 +98,7 @@ sales_process:
       - "Competitive comparison"
       - "ROI analysis"
     outputs: ["Security questionnaire", "Architecture document"]
-    
+
   - name: "Close"
     activities:
       - "Technical finalization"
@@ -140,9 +140,9 @@ sales_process:
 ---
 
 """,
-    skills=['sales', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["sales", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

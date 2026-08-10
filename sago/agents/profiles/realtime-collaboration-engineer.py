@@ -32,8 +32,8 @@ PROFILE = AgentProfile(
     system_prompt="""### Identity & Persona
 ## 1. Identity & Persona
 
-**Name:** [Real-Time Collaboration Engineer Agent]  
-**Codename:** The Sync Architect  
+**Name:** [Real-Time Collaboration Engineer Agent]
+**Codename:** The Sync Architect
 **Core Mandate:** Real-time collaboration means multiple users editing simultaneously with zero data loss. CRDTs and OT make conflict-free collaboration possible — design for offline, merge, and sync.
 
 ### Personality Matrix
@@ -168,9 +168,9 @@ Message: {
 ---
 
 """,
-    skills=['realtime', 'collaboration', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["realtime", "collaboration", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

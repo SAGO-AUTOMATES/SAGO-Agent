@@ -11,21 +11,22 @@ Main orchestration engine that ties together:
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
-from sago.streaming.handler import (
-    EffortLevel,
-    StreamingResponse,
-    StreamPrinter,
-)
+from sago.orchestrator.delegator import TaskDelegator, TaskPlan
 from sago.sessions.manager import (
     Session,
     SessionManager,
     Thread,
     ThreadStatus,
 )
-from sago.orchestrator.delegator import TaskDelegator, TaskPlan
+from sago.streaming.handler import (
+    EffortLevel,
+    StreamingResponse,
+    StreamPrinter,
+)
 
 
 @dataclass
@@ -165,11 +166,13 @@ class ProductionEngine:
 
             # Get the agent and execute
             from sago.agents.registry import get_agent
+
             agent_def = get_agent(agent_name)
 
             if not agent_def:
                 # Fallback: try to find any available agent
                 from sago.agents.registry import list_agents
+
                 available = list_agents()
                 if available:
                     fallback_name = available[0].get("name", "")
@@ -210,12 +213,14 @@ class ProductionEngine:
 
             # Notify callbacks
             for cb in self._on_task_complete:
-                cb({
-                    "task": task,
-                    "agent": agent_name,
-                    "result": result[:500],
-                    "stats": response.get_stats(),
-                })
+                cb(
+                    {
+                        "task": task,
+                        "agent": agent_name,
+                        "result": result[:500],
+                        "stats": response.get_stats(),
+                    }
+                )
 
             return {
                 "success": True,
@@ -264,9 +269,9 @@ class ProductionEngine:
         effort_level = EffortLevel(effort or self.config.default_effort)
 
         for i, agent_name in enumerate(agent_chain):
-            print(f"\n{'='*60}")
-            print(f"Step {i+1}/{len(agent_chain)}: {agent_name}")
-            print(f"{'='*60}\n")
+            print(f"\n{'=' * 60}")
+            print(f"Step {i + 1}/{len(agent_chain)}: {agent_name}")
+            print(f"{'=' * 60}\n")
 
             result = self.run_task(
                 current_input,
@@ -280,7 +285,7 @@ class ProductionEngine:
             if not result.get("success"):
                 return {
                     "success": False,
-                    "error": f"Chain failed at step {i+1} ({agent_name}): {result.get('error')}",
+                    "error": f"Chain failed at step {i + 1} ({agent_name}): {result.get('error')}",
                     "results": results,
                     "session_id": session.id,
                 }
@@ -343,17 +348,21 @@ class ProductionEngine:
         for thread, future in futures:
             try:
                 result = future.result(timeout=self.config.timeout)
-                results.append({
-                    "thread_id": thread.id,
-                    "success": True,
-                    "content": result,
-                })
+                results.append(
+                    {
+                        "thread_id": thread.id,
+                        "success": True,
+                        "content": result,
+                    }
+                )
             except Exception as e:
-                results.append({
-                    "thread_id": thread.id,
-                    "success": False,
-                    "error": str(e),
-                })
+                results.append(
+                    {
+                        "thread_id": thread.id,
+                        "success": False,
+                        "error": str(e),
+                    }
+                )
 
         return {
             "success": all(r.get("success") for r in results),
@@ -377,17 +386,21 @@ class ProductionEngine:
         # Get LLM provider
         from sago.config.loader import get_config
         from sago.llm.factory import get_provider
+
         config = get_config()
         default_provider = config.llm_providers.default
         provider_config = config.llm_providers.providers.get(default_provider)
         if provider_config:
-            provider = get_provider(default_provider, {
-                "api_key_env": provider_config.api_key_env,
-                "base_url": provider_config.base_url,
-                "model": provider_config.model,
-                "max_tokens": provider_config.max_tokens,
-                "temperature": provider_config.temperature,
-            })
+            provider = get_provider(
+                default_provider,
+                {
+                    "api_key_env": provider_config.api_key_env,
+                    "base_url": provider_config.base_url,
+                    "model": provider_config.model,
+                    "max_tokens": provider_config.max_tokens,
+                    "temperature": provider_config.temperature,
+                },
+            )
         else:
             provider = None
 
@@ -426,6 +439,7 @@ class ProductionEngine:
     def _execute_thread_task(self, thread: Thread, task: str) -> str:
         """Execute a task for a thread."""
         from sago.agents.registry import get_agent
+
         agent_def = get_agent(thread.agent_name)
 
         if agent_def:

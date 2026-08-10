@@ -76,13 +76,13 @@ rag_pipeline:
     - "Chunking (semantic, recursive, token-based)"
     - "Embedding generation (text-embedding-3-small, voyage-2)"
     - "Vector store indexing (Pinecone, Weaviate, PGVector)"
-    
+
   retrieval:
     - "Query embedding"
     - "Hybrid search (vector + keyword + metadata filtering)"
     - "Re-ranking for precision"
     - "Context window management"
-    
+
   generation:
     - "System prompt with instructions + context"
     - "Structured output (JSON mode / function calling)"
@@ -159,9 +159,9 @@ def review_code(diff: str) -> CodeReview:
 ---
 
 """,
-    skills=['engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

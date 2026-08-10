@@ -6,7 +6,6 @@ Creates or overwrites files with optional backup.
 from __future__ import annotations
 
 import shutil
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -20,7 +19,9 @@ class WriteFileArgs(BaseModel):
     file_path: str = Field(description="Path to the file to write")
     content: str = Field(description="Content to write to the file")
     encoding: str = Field(default="utf-8", description="File encoding (default: utf-8)")
-    create_dirs: bool = Field(default=True, description="Create parent directories if they don't exist")
+    create_dirs: bool = Field(
+        default=True, description="Create parent directories if they don't exist"
+    )
     backup: bool = Field(default=False, description="Create a backup before writing")
 
 
@@ -28,7 +29,9 @@ class WriteFileTool(BaseTool):
     """Tool for writing file contents."""
 
     name = "write_file"
-    description = "Write content to a file. Creates the file if it doesn't exist, overwrites if it does."
+    description = (
+        "Write content to a file. Creates the file if it doesn't exist, overwrites if it does."
+    )
     args_model = WriteFileArgs
 
     def _run(
@@ -67,6 +70,7 @@ class WriteFileTool(BaseTool):
             # Track the change
             try:
                 from sago.memory.change_tracker import get_change_tracker
+
                 tracker = get_change_tracker()
                 old_content = path.read_text(encoding=encoding) if path.exists() else None
                 if old_content is not None:

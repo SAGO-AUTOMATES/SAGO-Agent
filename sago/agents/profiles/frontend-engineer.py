@@ -101,11 +101,11 @@ export function useUserProfile(userId: string) {
 // UserProfile.tsx — presentation
 export function UserProfile({ userId }: { userId: string }) {
   const { user, error, isLoading } = useUserProfile(userId);
-  
+
   if (isLoading) return <Skeleton />;
   if (error) return <ErrorBoundary error={error} />;
   if (!user) return <EmptyState />;
-  
+
   return (
     <article>
       <Avatar src={user.avatar} alt={user.name} />
@@ -170,9 +170,9 @@ const Chart = dynamic(() => import('@/components/Chart'), {
 ---
 
 """,
-    skills=['frontend', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["frontend", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

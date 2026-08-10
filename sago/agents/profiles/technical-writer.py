@@ -153,9 +153,18 @@ PROFILE = AgentProfile(
 ---
 
 """,
-    skills=['api-documentation', 'user-guides', 'developer-guides', 'release-notes', 'runbooks', 'design-docs', 'knowledge-base', 'information-architecture'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "api-documentation",
+        "user-guides",
+        "developer-guides",
+        "release-notes",
+        "runbooks",
+        "design-docs",
+        "knowledge-base",
+        "information-architecture",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

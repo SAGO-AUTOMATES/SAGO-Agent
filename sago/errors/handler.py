@@ -8,21 +8,24 @@ from __future__ import annotations
 
 import time
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Callable
+from enum import StrEnum
+from typing import Any
 
 
-class ErrorSeverity(str, Enum):
+class ErrorSeverity(StrEnum):
     """Error severity levels."""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
 
 
-class RecoveryStrategy(str, Enum):
+class RecoveryStrategy(StrEnum):
     """Recovery strategies."""
+
     RETRY = "retry"
     FALLBACK = "fallback"
     SKIP = "skip"
@@ -33,6 +36,7 @@ class RecoveryStrategy(str, Enum):
 @dataclass
 class ErrorContext:
     """Context information for an error."""
+
     tool_name: str
     error: Exception
     attempt: int
@@ -66,6 +70,7 @@ class ErrorContext:
 @dataclass
 class RecoveryResult:
     """Result of a recovery attempt."""
+
     success: bool
     strategy_used: RecoveryStrategy
     result: Any = None
@@ -225,9 +230,10 @@ class RecoveryManager:
             for fallback_name in self._fallback_tools[tool_name]:
                 try:
                     # Try to find and execute the fallback tool
-                    from sago.tools.base import BaseTool
                     import importlib
                     from pathlib import Path
+
+                    from sago.tools.base import BaseTool
 
                     tools_dir = Path(__file__).parent.parent / "tools"
                     for py_file in tools_dir.rglob("*.py"):
@@ -239,7 +245,11 @@ class RecoveryManager:
                             mod = importlib.import_module(module_name)
                             for attr_name in dir(mod):
                                 obj = getattr(mod, attr_name)
-                                if isinstance(obj, type) and hasattr(obj, "name") and obj.name == fallback_name:
+                                if (
+                                    isinstance(obj, type)
+                                    and hasattr(obj, "name")
+                                    and obj.name == fallback_name
+                                ):
                                     if issubclass(obj, BaseTool):
                                         fallback_instance = obj()
                                         result = fallback_instance.run(**kwargs)
@@ -281,9 +291,10 @@ class RecoveryManager:
         # Try fallbacks
         for fallback_name in self._fallback_tools.get(primary_tool, []):
             try:
-                from sago.tools.base import BaseTool
                 import importlib
                 from pathlib import Path
+
+                from sago.tools.base import BaseTool
 
                 tools_dir = Path(__file__).parent.parent / "tools"
                 for py_file in tools_dir.rglob("*.py"):
@@ -295,7 +306,11 @@ class RecoveryManager:
                         mod = importlib.import_module(module_name)
                         for attr_name in dir(mod):
                             obj = getattr(mod, attr_name)
-                            if isinstance(obj, type) and hasattr(obj, "name") and obj.name == fallback_name:
+                            if (
+                                isinstance(obj, type)
+                                and hasattr(obj, "name")
+                                and obj.name == fallback_name
+                            ):
                                 if issubclass(obj, BaseTool):
                                     fallback_instance = obj()
                                     result = fallback_instance.run(*args, **kwargs)

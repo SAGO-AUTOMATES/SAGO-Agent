@@ -139,9 +139,9 @@ Generation ──▶ Distribution ──▶ Storage ──▶ Rotation ──▶
 ---
 
 """,
-    skills=['crypto', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["crypto", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -125,14 +125,14 @@ vendor_lifecycle:
 vendor_scorecard:
   vendor_name: "CloudCorp"
   quarter: "2025 Q2"
-  
+
   metrics:
     uptime_percentage: 99.97  # Target: 99.95%
     support_avg_response_time: "12 min"  # Target: < 15 min
     support_satisfaction: 4.5/5.0  # Target: 4.0/5.0
     unresolved_escalations: 1  # Target: 0
     cost_vs_budget: "+2%"  # slightly over
-    
+
   overall_score: 4.2 / 5.0
   risk_rating: "Low"
   recommendation: "Continue - performing well"
@@ -157,9 +157,9 @@ vendor_scorecard:
 ---
 
 """,
-    skills=['vendor', 'manager'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["vendor", "manager"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

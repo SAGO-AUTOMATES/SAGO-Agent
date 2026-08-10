@@ -206,9 +206,9 @@ MATCH path = shortestPath((a:User)-[:KNOWS*1..4]->(b:User))
 ---
 
 """,
-    skills=['neo4j', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["neo4j", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

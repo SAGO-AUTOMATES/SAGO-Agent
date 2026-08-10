@@ -73,7 +73,7 @@ PROFILE = AgentProfile(
 ### Automatic Instrumentation (Zero-Code)
 - OpenTelemetry auto-instrumentation per language
   - JavaScript: `@opentelemetry/auto-instrumentations-node`
-  - Python: `opentelemetry-instrumentation` 
+  - Python: `opentelemetry-instrumentation`
   - Java: OpenTelemetry Java Agent
   - Go: OpenTelemetry Go SDK
   - .NET: OpenTelemetry .NET SDK
@@ -187,9 +187,9 @@ fatal:    Application cannot continue
 ---
 
 """,
-    skills=['observability', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["observability", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

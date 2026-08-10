@@ -179,7 +179,7 @@ session:
 
 commerce:
   - product_viewed
-  - 
+  -
 
 ### Data Quality
 ## 5. Data Quality
@@ -208,9 +208,9 @@ Nice-to-have (P2):  Experimental, exploratory data
 ---
 
 """,
-    skills=['data', 'product', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["data", "product", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

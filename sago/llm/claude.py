@@ -56,8 +56,7 @@ class ClaudeProvider(BaseLLMProvider):
             messages=messages,
             temperature=self.temperature,
         ) as stream:
-            for text in stream.text_stream:
-                yield text
+            yield from stream.text_stream
 
     def is_available(self) -> bool:
         """Check if Claude API key is available."""

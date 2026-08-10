@@ -19,6 +19,7 @@ from typing import Any
 @dataclass
 class Diagnostic:
     """A language diagnostic."""
+
     file: str
     line: int
     column: int
@@ -46,6 +47,7 @@ class Diagnostic:
 @dataclass
 class Completion:
     """A code completion item."""
+
     label: str
     kind: str
     detail: str | None = None
@@ -63,6 +65,7 @@ class Completion:
 @dataclass
 class Definition:
     """A definition location."""
+
     file: str
     line: int
     column: int
@@ -129,13 +132,19 @@ def _detect_language(file_path: str) -> str:
     ext = os.path.splitext(file_path)[1].lower()
     ext_map = {
         ".py": "python",
-        ".js": "javascript", ".jsx": "javascript",
-        ".ts": "typescript", ".tsx": "typescript",
+        ".js": "javascript",
+        ".jsx": "javascript",
+        ".ts": "typescript",
+        ".tsx": "typescript",
         ".go": "go",
         ".rs": "rust",
         ".java": "java",
-        ".c": "c", ".h": "c",
-        ".cpp": "cpp", ".hpp": "cpp", ".cc": "cpp", ".cxx": "cpp",
+        ".c": "c",
+        ".h": "c",
+        ".cpp": "cpp",
+        ".hpp": "cpp",
+        ".cc": "cpp",
+        ".cxx": "cpp",
     }
     return ext_map.get(ext, "unknown")
 
@@ -212,7 +221,11 @@ class LSPClient:
                 data = json.loads(result.stdout)
                 return self._parse_pyright_output(data, file_path)
         except FileNotFoundError:
-            return [self._make_info_diagnostic(file_path, "pyright not installed. Run: pip install pyright")]
+            return [
+                self._make_info_diagnostic(
+                    file_path, "pyright not installed. Run: pip install pyright"
+                )
+            ]
         except (subprocess.TimeoutExpired, json.JSONDecodeError):
             pass
         return []
@@ -225,17 +238,19 @@ class LSPClient:
             range_info = diag.get("range", {})
             start = range_info.get("start", {})
             end = range_info.get("end", {})
-            diagnostics.append(Diagnostic(
-                file=file_path,
-                line=start.get("line", 0) + 1,
-                column=start.get("character", 0),
-                end_line=end.get("line", 0) + 1,
-                end_column=end.get("character", 0),
-                severity=severity_map.get(diag.get("severity", "error"), "error"),
-                message=diag.get("message", ""),
-                code=diag.get("rule", ""),
-                source="pyright",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    file=file_path,
+                    line=start.get("line", 0) + 1,
+                    column=start.get("character", 0),
+                    end_line=end.get("line", 0) + 1,
+                    end_column=end.get("character", 0),
+                    severity=severity_map.get(diag.get("severity", "error"), "error"),
+                    message=diag.get("message", ""),
+                    code=diag.get("rule", ""),
+                    source="pyright",
+                )
+            )
         return diagnostics
 
     def _run_tsc(self, file_path: str) -> list[Diagnostic]:
@@ -249,7 +264,11 @@ class LSPClient:
             )
             return self._parse_tsc_output(result.stderr, file_path)
         except FileNotFoundError:
-            return [self._make_info_diagnostic(file_path, "tsc not installed. Run: npm install -g typescript")]
+            return [
+                self._make_info_diagnostic(
+                    file_path, "tsc not installed. Run: npm install -g typescript"
+                )
+            ]
         except subprocess.TimeoutExpired:
             pass
         return []
@@ -257,23 +276,22 @@ class LSPClient:
     def _parse_tsc_output(self, output: str, file_path: str) -> list[Diagnostic]:
         """Parse tsc error output."""
         diagnostics = []
-        for line in output.split('\n'):
-            match = re.match(
-                r'(.+?):(\d+):(\d+)\s*-\s*error\s+(.+?)(?:\s*\((.+?)\))?$',
-                line
-            )
+        for line in output.split("\n"):
+            match = re.match(r"(.+?):(\d+):(\d+)\s*-\s*error\s+(.+?)(?:\s*\((.+?)\))?$", line)
             if match:
-                diagnostics.append(Diagnostic(
-                    file=file_path,
-                    line=int(match.group(2)),
-                    column=int(match.group(3)),
-                    end_line=int(match.group(2)),
-                    end_column=int(match.group(3)) + 10,
-                    severity="error",
-                    message=match.group(4),
-                    code=match.group(5),
-                    source="tsc",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        file=file_path,
+                        line=int(match.group(2)),
+                        column=int(match.group(3)),
+                        end_line=int(match.group(2)),
+                        end_column=int(match.group(3)) + 10,
+                        severity="error",
+                        message=match.group(4),
+                        code=match.group(5),
+                        source="tsc",
+                    )
+                )
         return diagnostics
 
     def _run_go_vet(self, file_path: str) -> list[Diagnostic]:
@@ -287,20 +305,22 @@ class LSPClient:
             )
             diagnostics = []
             output = result.stdout + "\n" + result.stderr
-            for line in output.split('\n'):
+            for line in output.split("\n"):
                 # Parse go vet output: file:line:col: message
-                match = re.match(r'(.+?):(\d+):(\d+):\s*(.*)', line)
+                match = re.match(r"(.+?):(\d+):(\d+):\s*(.*)", line)
                 if match:
-                    diagnostics.append(Diagnostic(
-                        file=file_path,
-                        line=int(match.group(2)),
-                        column=int(match.group(3)),
-                        end_line=int(match.group(2)),
-                        end_column=int(match.group(3)) + 10,
-                        severity="error" if "error" in line.lower() else "warning",
-                        message=match.group(4),
-                        source="go vet",
-                    ))
+                    diagnostics.append(
+                        Diagnostic(
+                            file=file_path,
+                            line=int(match.group(2)),
+                            column=int(match.group(3)),
+                            end_line=int(match.group(2)),
+                            end_column=int(match.group(3)) + 10,
+                            severity="error" if "error" in line.lower() else "warning",
+                            message=match.group(4),
+                            source="go vet",
+                        )
+                    )
             return diagnostics
         except FileNotFoundError:
             return [self._make_info_diagnostic(file_path, "go not installed")]
@@ -318,7 +338,7 @@ class LSPClient:
                 timeout=60,
             )
             diagnostics = []
-            for line in result.stdout.split('\n'):
+            for line in result.stdout.split("\n"):
                 if not line.strip():
                     continue
                 try:
@@ -328,17 +348,19 @@ class LSPClient:
                         spans = cm.get("spans", [])
                         if spans:
                             span = spans[0]
-                            diagnostics.append(Diagnostic(
-                                file=span.get("file_name", file_path),
-                                line=span.get("line_start", 0),
-                                column=span.get("column_start", 0),
-                                end_line=span.get("line_end", 0),
-                                end_column=span.get("column_end", 0),
-                                severity="error" if cm.get("level") == "error" else "warning",
-                                message=cm.get("message", ""),
-                                code=cm.get("code", {}).get("code", ""),
-                                source="cargo",
-                            ))
+                            diagnostics.append(
+                                Diagnostic(
+                                    file=span.get("file_name", file_path),
+                                    line=span.get("line_start", 0),
+                                    column=span.get("column_start", 0),
+                                    end_line=span.get("line_end", 0),
+                                    end_column=span.get("column_end", 0),
+                                    severity="error" if cm.get("level") == "error" else "warning",
+                                    message=cm.get("message", ""),
+                                    code=cm.get("code", {}).get("code", ""),
+                                    source="cargo",
+                                )
+                            )
                 except json.JSONDecodeError:
                     continue
             return diagnostics
@@ -359,19 +381,21 @@ class LSPClient:
             )
             diagnostics = []
             output = result.stdout + "\n" + result.stderr
-            for line in output.split('\n'):
-                match = re.match(r'(.+?):(\d+):\s*(warning|error):\s*(.*)', line)
+            for line in output.split("\n"):
+                match = re.match(r"(.+?):(\d+):\s*(warning|error):\s*(.*)", line)
                 if match:
-                    diagnostics.append(Diagnostic(
-                        file=file_path,
-                        line=int(match.group(2)),
-                        column=0,
-                        end_line=int(match.group(2)),
-                        end_column=0,
-                        severity=match.group(3),
-                        message=match.group(4),
-                        source="javac",
-                    ))
+                    diagnostics.append(
+                        Diagnostic(
+                            file=file_path,
+                            line=int(match.group(2)),
+                            column=0,
+                            end_line=int(match.group(2)),
+                            end_column=0,
+                            severity=match.group(3),
+                            message=match.group(4),
+                            source="javac",
+                        )
+                    )
             return diagnostics
         except FileNotFoundError:
             return [self._make_info_diagnostic(file_path, "javac not installed")]
@@ -391,19 +415,21 @@ class LSPClient:
             )
             diagnostics = []
             output = result.stdout + "\n" + result.stderr
-            for line in output.split('\n'):
-                match = re.match(r'(.+?):(\d+):(\d+):\s*(warning|error|note):\s*(.*)', line)
+            for line in output.split("\n"):
+                match = re.match(r"(.+?):(\d+):(\d+):\s*(warning|error|note):\s*(.*)", line)
                 if match:
-                    diagnostics.append(Diagnostic(
-                        file=file_path,
-                        line=int(match.group(2)),
-                        column=int(match.group(3)),
-                        end_line=int(match.group(2)),
-                        end_column=int(match.group(3)) + 10,
-                        severity=match.group(4),
-                        message=match.group(5),
-                        source=compiler,
-                    ))
+                    diagnostics.append(
+                        Diagnostic(
+                            file=file_path,
+                            line=int(match.group(2)),
+                            column=int(match.group(3)),
+                            end_line=int(match.group(2)),
+                            end_column=int(match.group(3)) + 10,
+                            severity=match.group(4),
+                            message=match.group(5),
+                            source=compiler,
+                        )
+                    )
             return diagnostics
         except FileNotFoundError:
             return [self._make_info_diagnostic(file_path, f"{compiler} not installed")]
@@ -432,14 +458,14 @@ class LSPClient:
         """Get completions at a position (basic implementation)."""
         try:
             content = Path(file_path).read_text()
-            lines = content.split('\n')
+            lines = content.split("\n")
             if line <= len(lines):
                 current_line = lines[line - 1]
                 before_cursor = current_line[:column]
-                word_match = re.search(r'(\w+)$', before_cursor)
+                word_match = re.search(r"(\w+)$", before_cursor)
                 if word_match:
                     prefix = word_match.group(1)
-                    all_words = set(re.findall(r'\b(\w+)\b', content))
+                    all_words = set(re.findall(r"\b(\w+)\b", content))
                     return [
                         Completion(label=w, kind="text")
                         for w in sorted(all_words)

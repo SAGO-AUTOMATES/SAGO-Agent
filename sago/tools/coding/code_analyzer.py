@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import ast
 import re
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -20,8 +19,7 @@ class CodeAnalyzerArgs(BaseModel):
 
     file_path: str = Field(description="Path to the code file to analyze")
     analysis_type: str = Field(
-        default="all",
-        description="Type of analysis: 'structure', 'complexity', 'issues', 'all'"
+        default="all", description="Type of analysis: 'structure', 'complexity', 'issues', 'all'"
     )
 
 
@@ -95,7 +93,9 @@ class CodeAnalyzerTool(BaseTool):
 
                 results.append(f"Classes: {len(classes)}")
                 for cls in classes:
-                    methods = [n for n in ast.iter_child_nodes(cls) if isinstance(n, ast.FunctionDef)]
+                    methods = [
+                        n for n in ast.iter_child_nodes(cls) if isinstance(n, ast.FunctionDef)
+                    ]
                     results.append(f"  {cls.name} ({len(methods)} methods, line {cls.lineno})")
 
                 results.append(f"\nFunctions: {len(functions)}")
@@ -127,8 +127,18 @@ class CodeAnalyzerTool(BaseTool):
 
         # Count cyclomatic complexity indicators
         complexity_keywords = [
-            "if ", "elif ", "else:", "for ", "while ", "except ",
-            "catch", "switch", "case ", "&&", "||", "?",
+            "if ",
+            "elif ",
+            "else:",
+            "for ",
+            "while ",
+            "except ",
+            "catch",
+            "switch",
+            "case ",
+            "&&",
+            "||",
+            "?",
         ]
         count = sum(content.count(kw) for kw in complexity_keywords)
         results.append(f"Cyclomatic complexity indicators: {count}")

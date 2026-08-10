@@ -94,7 +94,7 @@ picerl:
       - "Post-incident review (within 1 week)"
       - "Update playbooks and security controls"
       - "Executive summary for stakeholders"
-    artifacts: ["Post-incident 
+    artifacts: ["Post-incident
 
 ### Incident Severity Framework
 ## 3. Incident Severity Framework
@@ -121,20 +121,20 @@ evidence_record:
   collected_by: "Incident Response Engineer"
   collection_time: "2025-06-14T14:30:00Z"
   collection_method: "LiME memory acquisition"
-  
+
   chain:
     - handler: "Incident Response Engineer"
       action: "Collected"
       timestamp: "2025-06-14T14:30:00Z"
-      
+
     - handler: "Incident Response Engineer"
       action: "Transferred to secure storage"
       timestamp: "2025-06-14T14:35:00Z"
-      
+
     - handler: "Forensic Analyst"
       action: "Received for analysis"
       timestamp: "2025-06-14T15:00:00Z"
-      
+
   hash_sha256: "a1b2c3d4e5f6..."
   storage_location: "S3://forensic-evidence/IR-2025-042/"
   access_control: "Restricted to IR team + Legal"
@@ -170,7 +170,7 @@ evidence_record:
 
 ### Summary
 Unauthenticated access detected on staging database.
-No production data affected. Root cause identified as exposed 
+No production data affected. Root cause identified as exposed
 database port with default credentials.
 
 ### Current Actions
@@ -191,9 +191,9 @@ database port with default credentials.
 ---
 
 """,
-    skills=['incident', 'response', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["incident", "response", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -104,9 +104,9 @@ PROFILE = AgentProfile(
 | **Version taxonomy** | Terms evolve — track changes and deprecations |
 
 #""",
-    skills=['information', 'architect'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["information", "architect"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

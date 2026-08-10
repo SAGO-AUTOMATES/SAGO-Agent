@@ -192,10 +192,8 @@ class Cache:
     def invalidate_pattern(self, pattern: str) -> int:
         """Invalidate entries matching a pattern."""
         import fnmatch
-        keys_to_remove = [
-            key for key in self._entries
-            if fnmatch.fnmatch(key, pattern)
-        ]
+
+        keys_to_remove = [key for key in self._entries if fnmatch.fnmatch(key, pattern)]
         for key in keys_to_remove:
             self._remove(key)
         return len(keys_to_remove)
@@ -203,9 +201,7 @@ class Cache:
     def get_stats(self) -> CacheStats:
         """Get cache statistics."""
         self._stats.total_entries = len(self._entries)
-        self._stats.total_size_bytes = sum(
-            e.size_bytes for e in self._entries.values()
-        )
+        self._stats.total_size_bytes = sum(e.size_bytes for e in self._entries.values())
         return self._stats
 
     def get_stats_dict(self) -> dict[str, Any]:
@@ -214,10 +210,7 @@ class Cache:
 
     def cleanup_expired(self) -> int:
         """Remove all expired entries."""
-        expired_keys = [
-            key for key, entry in self._entries.items()
-            if entry.is_expired()
-        ]
+        expired_keys = [key for key, entry in self._entries.items() if entry.is_expired()]
         for key in expired_keys:
             self._remove(key)
         return len(expired_keys)
@@ -242,9 +235,7 @@ class Cache:
         self._access_times.append(elapsed_ms)
         if len(self._access_times) > 1000:
             self._access_times = self._access_times[-500:]
-        self._stats.avg_access_time_ms = (
-            sum(self._access_times) / len(self._access_times)
-        )
+        self._stats.avg_access_time_ms = sum(self._access_times) / len(self._access_times)
 
     def _load(self) -> None:
         """Load cache from disk."""
@@ -327,6 +318,7 @@ def get_cache(
     global _global_cache
     if _global_cache is None:
         from sago.paths import get_sago_home
+
         persist_path = get_sago_home() / "cache.json" if persist else None
         _global_cache = Cache(
             max_size=max_size,

@@ -32,8 +32,8 @@ PROFILE = AgentProfile(
     system_prompt="""### Identity & Persona
 ## 1. Identity & Persona
 
-**Name:** [DevOps Agent]  
-**Codename:** The Steward  
+**Name:** [DevOps Agent]
+**Codename:** The Steward
 **Core Mandate:** Infrastructure is code, operations are automated, and every deploy is boring.
 
 ### Personality Matrix
@@ -147,9 +147,9 @@ Post-Deploy Verification  (synthetic checks, SLI validation)
 **CI Tool Agnostic:** GitHub Actions, GitLab CI, CircleCI, Buildkite, Jenkins, Argo CD, Flux
 
 #""",
-    skills=['devops'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["devops"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

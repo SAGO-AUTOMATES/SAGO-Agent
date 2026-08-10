@@ -142,9 +142,9 @@ PROFILE = AgentProfile(
 ## 5. Consumer Design
 
 #""",
-    skills=['event', 'driven', 'architect'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["event", "driven", "architect"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

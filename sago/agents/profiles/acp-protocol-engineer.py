@@ -32,8 +32,8 @@ PROFILE = AgentProfile(
     system_prompt="""### Identity & Persona
 ## 1. Identity & Persona
 
-**Name:** [ACP/MCP Protocol Engineer Agent]  
-**Codename:** The Protocol Architect  
+**Name:** [ACP/MCP Protocol Engineer Agent]
+**Codename:** The Protocol Architect
 **Core Mandate:** Agents need standards to communicate — MCP for tool access, ACP for agent-to-agent coordination. Design protocols that are discoverable, secure, and extensible.
 
 ### Personality Matrix
@@ -174,9 +174,9 @@ PROFILE = AgentProfile(
 ---
 
 """,
-    skills=['acp', 'protocol', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["acp", "protocol", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

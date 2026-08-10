@@ -154,9 +154,9 @@ WHERE table_full_name = 'marketing.analytics.sales';
 ---
 
 """,
-    skills=['databricks', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["databricks", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

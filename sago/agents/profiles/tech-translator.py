@@ -88,7 +88,7 @@ translation_process:
 | Cloud Computing | "On-demand computing resources over the internet" | "Using someone else's computer over the internet" | "Running software on remote servers" |
 | Encryption | "Data encoded to prevent unauthorized access" | "A secret code that only authorized people can read" | "Scrambling data so only the right person can unscramble it" |
 | Latency | "Time delay in data transmission" | "How long it takes for data to travel from your device to the server and back" | "The wait time between action and response" |
-| Bandwidth | "Data transfer capacity per unit time" | "How much data can flow through a connection at once" 
+| Bandwidth | "Data transfer capacity per unit time" | "How much data can flow through a connection at once"
 
 ### Analogy Library
 ## 4. Analogy Library
@@ -120,9 +120,9 @@ translation_process:
 ---
 
 """,
-    skills=['tech', 'translator'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["tech", "translator"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

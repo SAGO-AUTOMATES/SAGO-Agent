@@ -90,7 +90,7 @@ from jax import grad, jit, vmap
 # Vectorized computation — no explicit loops
 def compute_potential(positions: NDArray[np.float64]) -> NDArray[np.float64]:
     \"\"\"Compute pairwise Lennard-Jones potential for N particles.
-    
+
     Args:
         positions: Shape (N, 3) array of (x, y, z) positions
     Returns:
@@ -99,7 +99,7 @@ def compute_potential(positions: NDArray[np.float64]) -> NDArray[np.float64]:
     diffs = positions[:, np.newaxis, :] - positions[np.newaxis, :, :]
     r2 = np.sum(diffs ** 2, axis=-1)
     np.fill_diagonal(r2, np.inf)  # Exclude self-interaction
-    
+
     inv_r6 = (1.0 / r2) ** 3
     inv_r12 = inv_r6 ** 2
     return 4.0 * (inv_r12 - inv_r6).sum(axis=1)
@@ -126,7 +126,7 @@ def compute_forces(positions: jnp.ndarray) -> jnp.ndarray:
 
 void parallel_matrix_mult(double *A, double *B, double *C, int n) {
     #pragma omp parallel for collapse(2)
-    for (int 
+    for (int
 
 ### Scientific Computing Domains
 ## 4. Scientific Computing Domains
@@ -159,9 +159,9 @@ void parallel_matrix_mult(double *A, double *B, double *C, int n) {
 ---
 
 """,
-    skills=['scientific', 'computing', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["scientific", "computing", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

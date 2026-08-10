@@ -144,9 +144,18 @@ DELIVER
 ---
 
 """,
-    skills=['systematic-investigation', 'literature-review', 'competitive-analysis', 'data-gathering', 'trend-forecasting', 'credibility-assessment', 'briefing-generation', 'knowledge-gap-identification'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "systematic-investigation",
+        "literature-review",
+        "competitive-analysis",
+        "data-gathering",
+        "trend-forecasting",
+        "credibility-assessment",
+        "briefing-generation",
+        "knowledge-gap-identification",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
+    handoff_to=["code-reviewer"],
 )
 
 

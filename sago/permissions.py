@@ -5,10 +5,8 @@ Controls which tools can be executed based on risk level and user consent.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
 from typing import Any
 
 from sago.paths import get_sago_home
@@ -16,11 +14,12 @@ from sago.paths import get_sago_home
 
 class RiskLevel(Enum):
     """Tool risk levels."""
-    SAFE = "safe"           # Read-only, no side effects
-    LOW = "low"             # Minor side effects (write files, run tests)
-    MEDIUM = "medium"       # Moderate side effects (shell commands, git operations)
-    HIGH = "high"           # Dangerous operations (sudo, SSH, network changes)
-    CRITICAL = "critical"   # Irreversible operations (delete data, system changes)
+
+    SAFE = "safe"  # Read-only, no side effects
+    LOW = "low"  # Minor side effects (write files, run tests)
+    MEDIUM = "medium"  # Moderate side effects (shell commands, git operations)
+    HIGH = "high"  # Dangerous operations (sudo, SSH, network changes)
+    CRITICAL = "critical"  # Irreversible operations (delete data, system changes)
 
 
 # Default risk levels for known tools
@@ -46,7 +45,6 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
     "web_crawler": RiskLevel.SAFE,
     "screenshot": RiskLevel.SAFE,
     "database_query": RiskLevel.SAFE,
-
     # Low - minor side effects
     "write_file": RiskLevel.LOW,
     "edit_file": RiskLevel.LOW,
@@ -56,7 +54,6 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
     "formatter": RiskLevel.LOW,
     "prompt_generator": RiskLevel.LOW,
     "git_ops": RiskLevel.LOW,
-
     # Medium - moderate side effects
     "execute_shell": RiskLevel.MEDIUM,
     "background_process": RiskLevel.MEDIUM,
@@ -67,7 +64,6 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
     "env_manager": RiskLevel.MEDIUM,
     "cron_schedule": RiskLevel.MEDIUM,
     "docker_ops": RiskLevel.MEDIUM,
-
     # High - dangerous operations
     "ssh_connect": RiskLevel.HIGH,
     "ssh_command": RiskLevel.HIGH,
@@ -76,7 +72,6 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
     "sudo_executor": RiskLevel.HIGH,
     "permission_manager": RiskLevel.HIGH,
     "network_config": RiskLevel.HIGH,
-
     # Critical - irreversible operations
     "spawn_agent": RiskLevel.CRITICAL,
 }
@@ -85,6 +80,7 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
 @dataclass
 class PermissionConfig:
     """Permission configuration."""
+
     auto_approve_safe: bool = True
     auto_approve_low: bool = True
     require_approval_medium: bool = True
@@ -108,6 +104,7 @@ class PermissionManager:
         if config_path.exists():
             try:
                 import json
+
                 data = json.loads(config_path.read_text())
                 return PermissionConfig(**data)
             except Exception:
@@ -117,17 +114,23 @@ class PermissionManager:
     def _save_config(self) -> None:
         """Save permission config to disk."""
         import json
+
         config_path = get_sago_home() / "permissions.json"
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(json.dumps({
-            "auto_approve_safe": self.config.auto_approve_safe,
-            "auto_approve_low": self.config.auto_approve_low,
-            "require_approval_medium": self.config.require_approval_medium,
-            "require_approval_high": self.config.require_approval_high,
-            "require_approval_critical": self.config.require_approval_critical,
-            "allowed_tools": self.config.allowed_tools,
-            "blocked_tools": self.config.blocked_tools,
-        }, indent=2))
+        config_path.write_text(
+            json.dumps(
+                {
+                    "auto_approve_safe": self.config.auto_approve_safe,
+                    "auto_approve_low": self.config.auto_approve_low,
+                    "require_approval_medium": self.config.require_approval_medium,
+                    "require_approval_high": self.config.require_approval_high,
+                    "require_approval_critical": self.config.require_approval_critical,
+                    "allowed_tools": self.config.allowed_tools,
+                    "blocked_tools": self.config.blocked_tools,
+                },
+                indent=2,
+            )
+        )
 
     def get_risk_level(self, tool_name: str) -> RiskLevel:
         """Get the risk level for a tool."""
@@ -183,7 +186,9 @@ class PermissionManager:
             return self.config.session_approvals[key]
         return None
 
-    def check_permission(self, tool_name: str, args: dict[str, Any] | None = None, session_id: str = "default") -> tuple[bool, str]:
+    def check_permission(
+        self, tool_name: str, args: dict[str, Any] | None = None, session_id: str = "default"
+    ) -> tuple[bool, str]:
         """Check if a tool can be executed.
 
         Returns:
@@ -201,7 +206,10 @@ class PermissionManager:
         if approved is False:
             return False, "User denied"
 
-        return False, f"Tool '{tool_name}' requires approval (risk: {self.get_risk_level(tool_name).value})"
+        return (
+            False,
+            f"Tool '{tool_name}' requires approval (risk: {self.get_risk_level(tool_name).value})",
+        )
 
 
 # Global instance

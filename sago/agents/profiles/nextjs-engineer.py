@@ -228,9 +228,9 @@ export async function createProject(formData: FormData) {
 ---
 
 """,
-    skills=['nextjs', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["nextjs", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -109,9 +109,18 @@ DISCOVER ──▶ DEFINE ──▶ DESIGN ──▶ DEVELOP ──▶ DELIVER �
 ```
 
 #""",
-    skills=['product-strategy', 'requirements-definition', 'backlog-management', 'user-research', 'metrics-definition', 'stakeholder-communication', 'go-to-market', 'continuous-discovery'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'debugger', 'log_analyzer'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "product-strategy",
+        "requirements-definition",
+        "backlog-management",
+        "user-research",
+        "metrics-definition",
+        "stakeholder-communication",
+        "go-to-market",
+        "continuous-discovery",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "debugger", "log_analyzer"],
+    handoff_to=["code-reviewer"],
 )
 
 

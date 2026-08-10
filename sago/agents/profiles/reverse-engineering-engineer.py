@@ -137,9 +137,9 @@ Recon ──▶ Static Analysis ──▶ Dynamic Analysis ──▶ Protocol Re
 ---
 
 """,
-    skills=['reverse', 'engineering', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["reverse", "engineering", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

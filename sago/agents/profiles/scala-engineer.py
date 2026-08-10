@@ -177,9 +177,9 @@ def process[F[_]: Async](id: UserId): F[Payment] =
 ---
 
 """,
-    skills=['scala', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["scala", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

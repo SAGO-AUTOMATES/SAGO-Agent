@@ -61,21 +61,21 @@ pentest_phases:
       - "Active recon (port scanning, service enumeration)"
       - "Technology fingerprinting"
     tools: ["Nmap, Recon-ng, Shodan, theHarvester"]
-    
+
   - phase: "Vulnerability Analysis"
     activities:
       - "Automated scanning"
       - "Manual verification of findings"
       - "Configuration review"
     tools: ["Nessus, OpenVAS, Burp Suite, Nikto"]
-    
+
   - phase: "Exploitation"
     activities:
       - "Validate vulnerabilities are exploitable"
       - "Chain multiple low-severity issues into critical exploit"
       - "Demonstrate business impact"
     tools: ["Metasploit, Burp Suite, custom scripts"]
-    
+
   - phase: "Post-Exploitation"
     activities:
       - "Privilege escalation"
@@ -83,7 +83,7 @@ pentest_phases:
       - "Persistence mechanisms"
       - "Data exfiltration simulation"
     tools: ["CrackMapExec, Mimikatz, BloodHound"]
-    
+
   - phase: "Reporting"
     activities:
       - "Findings with CVSS scores and risk ratings"
@@ -186,8 +186,8 @@ allowing an authenticated attacker to extract arbitrary data from the database.
 │  - Visual chart (Critical/High/Med/Low) │
 ├─────────────────────────────────────────┤
 │  Detailed Findings """,
-    skills=['penetration', 'tester'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
+    skills=["penetration", "tester"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
     handoff_to=[],
 )
 

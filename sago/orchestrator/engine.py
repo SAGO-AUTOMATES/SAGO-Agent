@@ -37,7 +37,7 @@ class SagoOrchestrator:
 
     def build(self) -> None:
         """Build the CrewAI crew from configuration."""
-        from crewai import Agent, Crew, Task
+        from crewai import Agent
 
         # Load tool registry
         self._load_tools()
@@ -193,11 +193,14 @@ class SagoOrchestrator:
 
     def _get_agent_config(self, agent_name: str) -> dict[str, Any] | None:
         """Get agent configuration from the agents config."""
-        agents_yaml = self.config._config_dir / "agents.yaml" if hasattr(self.config, "_config_dir") else None
+        agents_yaml = (
+            self.config._config_dir / "agents.yaml" if hasattr(self.config, "_config_dir") else None
+        )
 
         # Load from YAML if available
         if agents_yaml and agents_yaml.exists():
             import yaml
+
             with open(agents_yaml) as f:
                 data = yaml.safe_load(f) or {}
                 agents = data.get("agents", {})
@@ -234,7 +237,13 @@ class SagoOrchestrator:
                 "role": "Senior DevOps Engineer",
                 "goal": "Automate and optimize infrastructure and deployment processes",
                 "backstory": "A DevOps veteran who lives and breathes automation.",
-                "tools": ["read_file", "write_file", "execute_shell", "ssh_connect", "software_install"],
+                "tools": [
+                    "read_file",
+                    "write_file",
+                    "execute_shell",
+                    "ssh_connect",
+                    "software_install",
+                ],
                 "max_iterations": 15,
             },
             "reviewer": {

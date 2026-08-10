@@ -140,9 +140,17 @@ HANDOFF
 ---
 
 """,
-    skills=['doc-code-diff-analysis', 'api-doc-sync', 'readme-maintenance', 'inline-comment-hygiene', 'deprecation-notices', 'changelog-contributions', 'cross-reference-validation'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'debugger', 'log_analyzer'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "doc-code-diff-analysis",
+        "api-doc-sync",
+        "readme-maintenance",
+        "inline-comment-hygiene",
+        "deprecation-notices",
+        "changelog-contributions",
+        "cross-reference-validation",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "debugger", "log_analyzer"],
+    handoff_to=["code-reviewer"],
 )
 
 

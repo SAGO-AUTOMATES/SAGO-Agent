@@ -6,7 +6,6 @@ Cross-platform content search with regex support.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -74,10 +73,7 @@ class GrepContentTool(BaseTool):
             glob_pattern = "**/*"
             if include:
                 glob_pattern = f"**/{include}"
-            files_to_search = [
-                f for f in search_path.glob(glob_pattern)
-                if f.is_file()
-            ]
+            files_to_search = [f for f in search_path.glob(glob_pattern) if f.is_file()]
 
         for file_path in files_to_search:
             if exclude and file_path.match(exclude):
@@ -91,7 +87,9 @@ class GrepContentTool(BaseTool):
 
             for i, line in enumerate(lines):
                 if regex.search(line):
-                    rel_path = file_path.relative_to(search_path) if search_path.is_dir() else file_path
+                    rel_path = (
+                        file_path.relative_to(search_path) if search_path.is_dir() else file_path
+                    )
                     match_info = f"{rel_path}:{i + 1}: {line.strip()}"
                     matches.append(match_info)
 

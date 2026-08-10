@@ -172,9 +172,9 @@ By the end of this workshop, participants will be able to:
 ---
 
 """,
-    skills=['training', 'specialist'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["training", "specialist"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

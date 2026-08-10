@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from openai import OpenAI
 
@@ -21,7 +22,9 @@ class UnifiedExecutor:
         model: str = "openrouter/free",
         base_url: str = "https://openrouter.ai/api/v1",
     ) -> None:
-        self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+        self.api_key = api_key or os.environ.get(
+            "OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")
+        )
         self.model = model
         self.base_url = base_url
 
@@ -56,7 +59,15 @@ class UnifiedExecutor:
         elif backend == "langgraph":
             return self._execute_langgraph(task, agent_name, max_iterations)
         else:
-            return self._execute_simple(task, agent_name, system_prompt, max_tokens, max_iterations, on_tool_call, on_thinking)
+            return self._execute_simple(
+                task,
+                agent_name,
+                system_prompt,
+                max_tokens,
+                max_iterations,
+                on_tool_call,
+                on_thinking,
+            )
 
     def _execute_simple(
         self,
@@ -70,6 +81,7 @@ class UnifiedExecutor:
     ) -> dict[str, Any]:
         """Execute using simple_executor (all 45 tools)."""
         from sago.engine.simple_executor import execute_agent_task
+
         return execute_agent_task(
             task=task,
             agent_role=agent_name.replace("-", " ").title(),
@@ -94,6 +106,7 @@ class UnifiedExecutor:
         """Execute using CrewAI (multi-agent orchestration)."""
         try:
             from sago.agents.spawner import AgentSpawner
+
             spawner = AgentSpawner()
             result_str = spawner.execute_with_agent(
                 agent_name=agent_name,
@@ -129,6 +142,7 @@ class UnifiedExecutor:
         """Execute using LangGraph (stateful workflow)."""
         try:
             from sago.workflow.langgraph_engine import SagoWorkflowEngine
+
             engine = SagoWorkflowEngine(api_key=self.api_key, model=self.model)
             result = engine.run(task, agent_name, max_iterations)
             return result.to_dict()
@@ -169,9 +183,17 @@ class UnifiedExecutor:
         Returns:
             Execution result.
         """
-        from sago.engine.simple_executor import _discover_tools, _get_context, _detect_task_type, PROMPTS, _TOOL_DESCRIPTIONS
-        from sago.engine.simple_executor import _extract_tool_calls, _load_agent_profile
         import json
+
+        from sago.engine.simple_executor import (
+            _TOOL_DESCRIPTIONS,
+            PROMPTS,
+            _detect_task_type,
+            _discover_tools,
+            _extract_tool_calls,
+            _get_context,
+            _load_agent_profile,
+        )
 
         tools = _discover_tools()
         client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=90.0)
@@ -208,7 +230,7 @@ class UnifiedExecutor:
         for iteration in range(max_iterations):
             if on_thinking:
                 phase = "Planning" if iteration == 0 else "Working"
-                on_thinking(f"{phase}... (step {iteration+1}/{max_iterations})")
+                on_thinking(f"{phase}... (step {iteration + 1}/{max_iterations})")
 
             stream = client.chat.completions.create(
                 model=self.model,
@@ -222,7 +244,7 @@ class UnifiedExecutor:
             content = ""
             for chunk in stream:
                 # Get usage from final chunk
-                if hasattr(chunk, 'usage') and chunk.usage:
+                if hasattr(chunk, "usage") and chunk.usage:
                     total_tokens_in = chunk.usage.prompt_tokens or 0
                     total_tokens_out = chunk.usage.completion_tokens or 0
                 if chunk.choices and chunk.choices[0].delta.content:
@@ -257,19 +279,23 @@ class UnifiedExecutor:
                     result = tool_instance.run(**args)
                     result_str = str(result)[:4000]
 
-                    is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
+                    is_error = (
+                        result_str.lower().startswith("error") or "traceback" in result_str.lower()
+                    )
 
                     if name == "write_file" and not is_error:
                         fp = args.get("file_path", "")
                         if fp and fp not in files_created:
                             files_created.append(fp)
 
-                    tool_history.append({
-                        "tool": name,
-                        "args": args,
-                        "result": result_str[:500],
-                        "success": not is_error,
-                    })
+                    tool_history.append(
+                        {
+                            "tool": name,
+                            "args": args,
+                            "result": result_str[:500],
+                            "success": not is_error,
+                        }
+                    )
 
                     display = result_str[:1500] + "..." if len(result_str) > 1500 else result_str
                     results_for_llm.append(f"[{'ERROR' if is_error else 'OK'}] {name}:\n{display}")

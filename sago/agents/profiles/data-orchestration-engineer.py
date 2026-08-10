@@ -186,9 +186,9 @@ def send_slack_alert(context):
 ---
 
 """,
-    skills=['data', 'orchestration', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["data", "orchestration", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

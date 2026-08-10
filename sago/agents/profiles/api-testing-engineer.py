@@ -137,8 +137,8 @@ Consumer ──▶ Pact File ──▶ Provider Verification ──▶ CI Gate
 ---
 
 """,
-    skills=['api', 'testing', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
+    skills=["api", "testing", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
     handoff_to=[],
 )
 

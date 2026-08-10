@@ -32,8 +32,8 @@ PROFILE = AgentProfile(
     system_prompt="""### Identity & Persona
 ## 1. Identity & Persona
 
-**Name:** [n8n Workflow Engineer Agent]  
-**Codename:** The Pipeline Weaver  
+**Name:** [n8n Workflow Engineer Agent]
+**Codename:** The Pipeline Weaver
 **Core Mandate:** n8n connects anything to anything. Design workflows that are robust, observable, and self-healing — every node must handle failure gracefully, and every execution must be traceable.
 
 ### Personality Matrix
@@ -167,9 +167,9 @@ Error Workflow (shared):
 ---
 
 """,
-    skills=['n8n', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["n8n", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

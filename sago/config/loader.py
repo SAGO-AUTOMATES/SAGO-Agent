@@ -65,10 +65,18 @@ class AgentOverride(BaseModel):
 class AgentsConfig(BaseModel):
     """Agent selection configuration."""
 
-    enabled: list[str] = Field(default_factory=lambda: [
-        "sago", "coder", "debugger", "architect",
-        "devops", "reviewer", "researcher", "planner"
-    ])
+    enabled: list[str] = Field(
+        default_factory=lambda: [
+            "sago",
+            "coder",
+            "debugger",
+            "architect",
+            "devops",
+            "reviewer",
+            "researcher",
+            "planner",
+        ]
+    )
     overrides: dict[str, AgentOverride] = Field(default_factory=dict)
 
 
@@ -174,27 +182,21 @@ def load_config(
     if agents_yaml.exists():
         with open(agents_yaml) as f:
             agents_data = yaml.safe_load(f) or {}
-            raw_config["agents"] = _deep_merge(
-                raw_config.get("agents", {}), agents_data
-            )
+            raw_config["agents"] = _deep_merge(raw_config.get("agents", {}), agents_data)
 
     # Load tools config
     tools_yaml = config_dir / "tools.yaml"
     if tools_yaml.exists():
         with open(tools_yaml) as f:
             tools_data = yaml.safe_load(f) or {}
-            raw_config["tools"] = _deep_merge(
-                raw_config.get("tools", {}), tools_data
-            )
+            raw_config["tools"] = _deep_merge(raw_config.get("tools", {}), tools_data)
 
     # Load LLM providers config
     llm_yaml = config_dir / "llm_providers.yaml"
     if llm_yaml.exists():
         with open(llm_yaml) as f:
             llm_data = yaml.safe_load(f) or {}
-            raw_config["llm_providers"] = _deep_merge(
-                raw_config.get("llm_providers", {}), llm_data
-            )
+            raw_config["llm_providers"] = _deep_merge(raw_config.get("llm_providers", {}), llm_data)
 
     # Merge user config if provided
     if user_config_path and user_config_path.exists():

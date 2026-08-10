@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -24,9 +23,7 @@ class CronSchedule(BaseTool):
     """Tool for managing scheduled tasks (cron jobs)."""
 
     name: str = "cron_schedule"
-    description: str = (
-        "Manage scheduled tasks: list, add, remove, enable, disable cron jobs."
-    )
+    description: str = "Manage scheduled tasks: list, add, remove, enable, disable cron jobs."
     args_model: type[BaseModel] = CronScheduleArgs
 
     def _run(
@@ -41,7 +38,9 @@ class CronSchedule(BaseTool):
         """Execute cron operation."""
         try:
             if operation == "list":
-                result = self._run_command("crontab -l 2>/dev/null || echo 'No crontab jobs'", timeout=10)
+                result = self._run_command(
+                    "crontab -l 2>/dev/null || echo 'No crontab jobs'", timeout=10
+                )
                 if result.returncode != 0 or "no crontab" in result.stdout.lower():
                     return "No scheduled jobs found"
                 return f"Scheduled jobs:\n{result.stdout}"
@@ -60,8 +59,7 @@ class CronSchedule(BaseTool):
                 # Remove existing job with same name
                 if name:
                     lines = [
-                        line for line in existing.splitlines()
-                        if f"SAGOJOB:{name}" not in line
+                        line for line in existing.splitlines() if f"SAGOJOB:{name}" not in line
                     ]
                     existing = "\n".join(lines)
 
@@ -85,9 +83,9 @@ class CronSchedule(BaseTool):
 
                 lines = result.stdout.splitlines()
                 if name:
-                    filtered = [l for l in lines if f"SAGOJOB:{name}" not in l]
+                    filtered = [line for line in lines if f"SAGOJOB:{name}" not in line]
                 else:
-                    filtered = [l for l in lines if job_id not in l]
+                    filtered = [line for line in lines if job_id not in line]
 
                 new_crontab = "\n".join(filtered)
                 result = self._run_command(

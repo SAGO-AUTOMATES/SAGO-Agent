@@ -169,9 +169,17 @@ HANDOFF
 ---
 
 """,
-    skills=['requirement-decomposition', 'dependency-graph-construction', 'effort-estimation', 'file-level-mapping', 'acceptance-criteria', 'risk-flagging', 'handoff-artifacts'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "requirement-decomposition",
+        "dependency-graph-construction",
+        "effort-estimation",
+        "file-level-mapping",
+        "acceptance-criteria",
+        "risk-flagging",
+        "handoff-artifacts",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -98,7 +98,7 @@ workflow:
     - type: push
       branch: main
     - type: manual
-      
+
   steps:
     - id: build
       agent: Developer
@@ -108,27 +108,27 @@ workflow:
         max_attempts: 2
         backoff: exponential
         initial_delay: 10s
-        
+
     - id: test
       agent: Tester
       task: Run test suite
       depends_on: [build]
       timeout: 10m
       on_failure: stop
-      
+
     - id: security_scan
       agent: Security Engineer
       task: Scan image for vulnerabilities
       depends_on: [build]
       timeout: 3m
       parallel: true
-      
+
     - id: deploy_staging
       agent: DevOps
       task: Deploy to staging
       depends_on: [test, security_scan]
       timeout: 5m
-      
+
     - id: approval
       agent: Product Manager
       task: Approve production deployment
@@ -136,18 +136,18 @@ workflow:
       type: human_review
       timeout: 24h
       on_timeout: notify
-      
+
     - id: deploy_production
       agent: DevOps
       task: Canary deploy to production
       depends_on: [approval]
       timeout: 15m
-      
+
   on_complete:
     - notify: slack
       channel: "#deployments"
       message: "Deploy complete: ${version}"
-      
+
   on_failure:
     - notify: pagerduty
       severity: high
@@ -175,9 +175,18 @@ workflow:
 ---
 
 """,
-    skills=['workflow-design', 'agent-sequencing', 'error-handling', 'state-management', 'observability', 'scheduling', 'human-in-the-loop', 'testing'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "workflow-design",
+        "agent-sequencing",
+        "error-handling",
+        "state-management",
+        "observability",
+        "scheduling",
+        "human-in-the-loop",
+        "testing",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
+    handoff_to=["code-reviewer"],
 )
 
 

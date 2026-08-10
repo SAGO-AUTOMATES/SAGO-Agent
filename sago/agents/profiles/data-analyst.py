@@ -167,25 +167,25 @@ def ab_test_significance(control_conversions, control_total, treatment_conversio
     \"\"\"
     control_rate = control_conversions / control_total
     treatment_rate = treatment_conversions / treatment_total
-    
+
     # Z-test for proportions
     z_stat, p_value = stats.proportions_ztest(
         [control_conversions, treatment_conversions],
         [control_total, treatment_total],
         alternative='two-sided'
     )
-    
+
     lift = (treatment_rate - control_rate) / control_rate * 100
-    
+
     return {
         'p_value': p_value,
         'significant': p_value < 0.05,
         'lift_pct': round(lift, 2),
         'control_rate': round(control_rate * 100, 2),
         'treatment_rate': roun""",
-    skills=['data', 'analyst'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["data", "analyst"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

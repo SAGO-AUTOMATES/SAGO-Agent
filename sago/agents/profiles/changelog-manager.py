@@ -173,9 +173,17 @@ PUBLISH
 ---
 
 """,
-    skills=['changelog-curation', 'commit-to-entry-mapping', 'version-bumping', 'release-notes-generation', 'deprecation-tracking', 'migration-note-drafting', 'cross-reference'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'debugger', 'log_analyzer'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "changelog-curation",
+        "commit-to-entry-mapping",
+        "version-bumping",
+        "release-notes-generation",
+        "deprecation-tracking",
+        "migration-note-drafting",
+        "cross-reference",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "debugger", "log_analyzer"],
+    handoff_to=["code-reviewer"],
 )
 
 

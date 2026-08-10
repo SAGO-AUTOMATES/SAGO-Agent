@@ -142,8 +142,16 @@ Commit ──▶ SAST ──▶ SCA ──▶ Build ──▶ Deploy ──▶ D
 ---
 
 """,
-    skills=['security', 'testing', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner', 'code_analyzer'],
+    skills=["security", "testing", "engineer"],
+    tools=[
+        "read_file",
+        "write_file",
+        "edit_file",
+        "execute_shell",
+        "linter",
+        "test_runner",
+        "code_analyzer",
+    ],
     handoff_to=[],
 )
 

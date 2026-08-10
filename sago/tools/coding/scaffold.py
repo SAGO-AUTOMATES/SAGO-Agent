@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -65,7 +64,7 @@ TEMPLATES: dict[str, dict[str, str]] = {
     },
     "go": {
         "README.md": "# {project_name}\n\nA Go project.\n\n## Build\n\n```bash\ngo build\n```\n\n## Run\n\n```bash\ngo run .\n```\n\n## Test\n\n```bash\ngo test ./...\n```\n",
-        "go.mod": 'module {project_name}\n\ngo 1.21\n',
+        "go.mod": "module {project_name}\n\ngo 1.21\n",
         "main.go": 'package main\n\nimport "fmt"\n\nfunc main() {\n    fmt.Println("Hello from {project_name}!")\n}\n',
         "main_test.go": 'package main\n\nimport "testing"\n\nfunc TestHello(t *testing.T) {\n    if true != true {\n        t.Error("Expected true")\n    }\n}\n',
         ".gitignore": "vendor/\n",
@@ -86,7 +85,6 @@ class ScaffoldTool(BaseTool):
 
     def _detect_project_type(self, path: str) -> str | None:
         """Auto-detect project type from existing files in the directory."""
-        import os
         work_dir = self._expand_path(path)
 
         indicators = {
@@ -145,9 +143,8 @@ class ScaffoldTool(BaseTool):
             if detected:
                 project_type = detected
             else:
-                return (
-                    "Could not auto-detect project type. Available types: "
-                    + ", ".join(sorted(TEMPLATES.keys()))
+                return "Could not auto-detect project type. Available types: " + ", ".join(
+                    sorted(TEMPLATES.keys())
                 )
 
         if project_type not in TEMPLATES:

@@ -154,9 +154,9 @@ ffi.C.printf("sqrt(%f) = %f\n", 2.0, ffi.C.sqrt(2.0))
 ---
 
 """,
-    skills=['lua', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["lua", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

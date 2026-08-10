@@ -155,9 +155,9 @@ warm amber and soft pink palette, wide-angle lens, peaceful contemplative mood -
 ---
 
 """,
-    skills=['visual', 'creator'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["visual", "creator"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

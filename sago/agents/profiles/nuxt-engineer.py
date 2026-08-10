@@ -205,7 +205,7 @@ export default defineEventHandler(async (event) => {
   if (!token) throw createError({ statusCode: 401, message: "Unauthorized" });
 
   const user = await verifyToken(token);
-  if (!user) throw createError({ statusCode: 403, 
+  if (!user) throw createError({ statusCode: 403,
 
 ### Composables & Auto-imports
 ## 5. Composables & Auto-imports
@@ -234,9 +234,9 @@ export const useProjects = () => {
 ---
 
 """,
-    skills=['nuxt', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["nuxt", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

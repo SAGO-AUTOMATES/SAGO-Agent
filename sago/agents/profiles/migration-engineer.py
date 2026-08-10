@@ -87,9 +87,9 @@ PROFILE = AgentProfile(
 | API version migration | Gateway routing, dual writes, consumer negotiation | Medium |
 
 #""",
-    skills=['migration', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["migration", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

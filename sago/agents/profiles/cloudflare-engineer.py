@@ -96,7 +96,7 @@ PROFILE = AgentProfile(
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    
+
     // Cache-first strategy with KV
     const cacheKey = `page:${url.pathname}`;
     const cached = await env.CACHE_KV.get(cacheKey);
@@ -108,10 +108,10 @@ export default {
 
     // Dynamic content generation
     const html = await generateContent(request, env);
-    
+
     // Store in KV (async — don't block response)
     ctx.waitUntil(env.CACHE_KV.put(cacheKey, html, { expirationTtl: 300 }));
-    
+
     return new Response(
 
 ### Cloudflare Storage
@@ -190,9 +190,9 @@ resource "cloudflare_access_policy" "admin_app" {
 ---
 
 """,
-    skills=['cloudflare', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["cloudflare", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

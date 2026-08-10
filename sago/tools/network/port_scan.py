@@ -30,12 +30,28 @@ class PortScanTool(BaseTool):
 
     # Common port to service mapping
     _COMMON_SERVICES: dict[int, str] = {
-        21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP",
-        53: "DNS", 80: "HTTP", 110: "POP3", 143: "IMAP",
-        443: "HTTPS", 445: "SMB", 993: "IMAPS", 995: "POP3S",
-        1433: "MSSQL", 1521: "Oracle", 3306: "MySQL", 3389: "RDP",
-        5432: "PostgreSQL", 5900: "VNC", 6379: "Redis",
-        8080: "HTTP-Alt", 8443: "HTTPS-Alt", 27017: "MongoDB",
+        21: "FTP",
+        22: "SSH",
+        23: "Telnet",
+        25: "SMTP",
+        53: "DNS",
+        80: "HTTP",
+        110: "POP3",
+        143: "IMAP",
+        443: "HTTPS",
+        445: "SMB",
+        993: "IMAPS",
+        995: "POP3S",
+        1433: "MSSQL",
+        1521: "Oracle",
+        3306: "MySQL",
+        3389: "RDP",
+        5432: "PostgreSQL",
+        5900: "VNC",
+        6379: "Redis",
+        8080: "HTTP-Alt",
+        8443: "HTTPS-Alt",
+        27017: "MongoDB",
     }
 
     def _run(
@@ -74,7 +90,7 @@ class PortScanTool(BaseTool):
                 if result == 0:
                     service = self._COMMON_SERVICES.get(port, "unknown")
                     open_ports.append((port, service))
-            except (socket.timeout, socket.error):
+            except (TimeoutError, OSError):
                 continue
 
         if open_ports:

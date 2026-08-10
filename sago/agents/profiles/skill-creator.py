@@ -74,7 +74,7 @@ skill:
   name: analyze-code-quality
   version: 1.2.0
   description: "Analyze code for quality issues, linting, and style violations"
-  
+
   inputs:
     - name: code_path
       type: path
@@ -179,9 +179,18 @@ MAINTAIN
 ---
 
 """,
-    skills=['skill-design', 'skill-development', 'parameterization', 'documentation', 'testing', 'versioning', 'registry-management', 'composition'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "skill-design",
+        "skill-development",
+        "parameterization",
+        "documentation",
+        "testing",
+        "versioning",
+        "registry-management",
+        "composition",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
+    handoff_to=["code-reviewer"],
 )
 
 

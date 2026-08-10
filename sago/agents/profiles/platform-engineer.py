@@ -158,9 +158,18 @@ self_service:
 ---
 
 """,
-    skills=['developer-portal', 'ci/cd-platform', 'templating', 'environment-management', 'artifact-management', 'secrets-&-configuration', 'observability-platform', 'developer-experience'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "developer-portal",
+        "ci/cd-platform",
+        "templating",
+        "environment-management",
+        "artifact-management",
+        "secrets-&-configuration",
+        "observability-platform",
+        "developer-experience",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

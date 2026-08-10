@@ -130,16 +130,16 @@ IMPROVE
 experiment:
   name: "payment-service-cpu-spike"
   hypothesis: |
-    Payment service handles 80% CPU spike without 
+    Payment service handles 80% CPU spike without
     increasing p99 latency beyond 2x baseline
-    
+
   steady_state:
     metrics:
       - p99_latency < 500ms
       - error_rate < 0.1%
       - success_rate > 99.9%
     duration: 5m
-    
+
   method:
     fault: cpu_stress
     target:
@@ -151,7 +151,7 @@ experiment:
     blast_radius: |
       Limited to single payment pod.
       Max 1% of payment traffic affected.
-      
+
   rollback:
     condition: |
       If p99 latency > 5s OR error_rate > 5%,
@@ -159,7 +159,7 @@ experiment:
     action: |
       Remove CPU stress, scale up if needed,
       notify on-call
-      
+
   analysis:
     metrics_compared:
       - p99_latency: 450ms → 820ms (within 2x)
@@ -191,9 +191,9 @@ experiment:
 ---
 
 """,
-    skills=['chaos', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["chaos", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

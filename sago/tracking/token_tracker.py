@@ -183,10 +183,7 @@ class TokenTracker:
         now = time.time()
 
         # Clean old entries
-        self._rate_limits[provider] = [
-            t for t in self._rate_limits[provider]
-            if now - t < window
-        ]
+        self._rate_limits[provider] = [t for t in self._rate_limits[provider] if now - t < window]
 
         if len(self._rate_limits[provider]) >= limit:
             oldest = self._rate_limits[provider][0]
@@ -218,9 +215,7 @@ class TokenTracker:
         summary.cache_misses = sum(1 for u in usages if not u.cached)
 
         latencies = [u.latency_ms for u in usages if u.latency_ms > 0]
-        summary.avg_latency_ms = (
-            sum(latencies) / len(latencies) if latencies else 0.0
-        )
+        summary.avg_latency_ms = sum(latencies) / len(latencies) if latencies else 0.0
 
         # By provider
         for usage in usages:
@@ -337,6 +332,7 @@ def get_token_tracker(persist: bool = True) -> TokenTracker:
     global _global_tracker
     if _global_tracker is None:
         from sago.paths import get_sago_home
+
         persist_path = get_sago_home() / "token_usage.json" if persist else None
         _global_tracker = TokenTracker(persist_path=persist_path)
     return _global_tracker

@@ -155,9 +155,9 @@ Validate that users can complete a purchase without errors or confusion.
 ---
 
 """,
-    skills=['usability', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["usability", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

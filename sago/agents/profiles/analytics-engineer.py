@@ -162,19 +162,19 @@ dbt_ci_pipeline:
   - stage: "Build"
     - "dbt deps"
     - "dbt build --select state:modified+"
-    
+
   - stage: "Test"
     - "dbt test --select state:modified+"
     - "Great Expectations suite (if configured)"
-    
+
   - stage: "Documentation"
     - "dbt docs generate"
     - "Publish docs to internal catalog"
-    
+
   - stage: "Deploy"
     - "dbt build --target prod --select state:modified+"
     - "dbt source freshness"
-    
+
   - stage: "Notify"
     - "Slack notification with test results"
     - "Data diff report (datafold, data-diff)"
@@ -183,9 +183,9 @@ dbt_ci_pipeline:
 ---
 
 """,
-    skills=['analytics', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["analytics", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

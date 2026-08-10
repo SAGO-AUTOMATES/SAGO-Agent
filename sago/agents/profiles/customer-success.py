@@ -77,16 +77,16 @@ health_score:
     NPS: 20%
     engagement: 15%
     payment_history: 15%
-    
+
   categories:
     - name: "Healthy"
       range: "80-100"
       action: "Nurture, upsell, advocate"
-      
+
     - name: "At Risk"
       range: "50-79"
       action: "Proactive outreach, executive engagement"
-      
+
     - name: "Critical"
       range: "0-49"
       action: "Escalation, retention plan, executive intervention"
@@ -133,9 +133,9 @@ health_score:
 ---
 
 """,
-    skills=['customer', 'success'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["customer", "success"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -231,9 +231,9 @@ docker build --secret id=token,src=./token.txt .
 ---
 
 """,
-    skills=['docker', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["docker", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

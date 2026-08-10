@@ -6,11 +6,9 @@ Cross-platform debugging with Python, JavaScript, and general code support.
 from __future__ import annotations
 
 import ast
-import json
 import re
 import subprocess
 import sys
-import traceback
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +23,9 @@ class DebuggerArgs(BaseModel):
     file_path: str | None = Field(default=None, description="Path to file to debug")
     code_snippet: str | None = Field(default=None, description="Code snippet to analyze")
     error_message: str | None = Field(default=None, description="Error message to analyze")
-    command: str | None = Field(default=None, description="Command to run and debug (e.g. 'python script.py')")
+    command: str | None = Field(
+        default=None, description="Command to run and debug (e.g. 'python script.py')"
+    )
     breakpoint_line: int | None = Field(default=None, description="Line number to set breakpoint")
 
 
@@ -232,7 +232,7 @@ class DebuggerTool(BaseTool):
                 results.append("\nContext:")
                 for i in range(start, end):
                     marker = ">>>" if i + 1 == e.lineno else "   "
-                    results.append(f"{marker} {i+1:4}: {lines[i]}")
+                    results.append(f"{marker} {i + 1:4}: {lines[i]}")
 
         # Static analysis
         issues = self._static_analysis(content, lines)
@@ -247,7 +247,11 @@ class DebuggerTool(BaseTool):
             results.append("\n=== Execution Test ===")
             try:
                 proc = subprocess.run(
-                    [sys.executable, "-c", f"import py_compile; py_compile.compile('{path}', doraise=True)"],
+                    [
+                        sys.executable,
+                        "-c",
+                        f"import py_compile; py_compile.compile('{path}', doraise=True)",
+                    ],
                     capture_output=True,
                     text=True,
                     timeout=10,
@@ -266,7 +270,7 @@ class DebuggerTool(BaseTool):
             end = min(len(lines), breakpoint_line + 3)
             for i in range(start, end):
                 marker = ">>>" if i + 1 == breakpoint_line else "   "
-                results.append(f"{marker} {i+1:4}: {lines[i]}")
+                results.append(f"{marker} {i + 1:4}: {lines[i]}")
 
         return results
 
@@ -289,7 +293,9 @@ class DebuggerTool(BaseTool):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for default in node.args.defaults + node.args.kw_defaults:
                     if default and isinstance(default, (ast.List, ast.Dict, ast.Set)):
-                        issues.append(f"  Line {node.lineno}: Mutable default argument in {node.name}()")
+                        issues.append(
+                            f"  Line {node.lineno}: Mutable default argument in {node.name}()"
+                        )
 
             # Global variable usage
             if isinstance(node, ast.Global):
@@ -299,13 +305,13 @@ class DebuggerTool(BaseTool):
         for i, line in enumerate(lines):
             stripped = line.strip()
             if stripped.startswith("except") and "pass" in stripped:
-                issues.append(f"  Line {i+1}: Swallowed exception")
+                issues.append(f"  Line {i + 1}: Swallowed exception")
 
         # Check for print statements (debugging leftover)
         for i, line in enumerate(lines):
             stripped = line.strip()
             if stripped.startswith("print("):
-                issues.append(f"  Line {i+1}: Print statement (debugging leftover?)")
+                issues.append(f"  Line {i + 1}: Print statement (debugging leftover?)")
 
         return issues
 

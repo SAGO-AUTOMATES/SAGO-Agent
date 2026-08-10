@@ -92,7 +92,7 @@ def update_user_async(user_id, data):
 
 ### Eviction Policies
 
-| Policy | Behavior | Use Case 
+| Policy | Behavior | Use Case
 
 ### Persistence Options
 ## 3. Persistence Options
@@ -203,9 +203,9 @@ redis.set(f"counter:{id}", 42)  # Stored as int, 8 bytes
 ---
 
 """,
-    skills=['redis', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["redis", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

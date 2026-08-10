@@ -80,13 +80,13 @@ api_design:
     PUT: "Full update"
     PATCH: "Partial update"
     DELETE: "Delete"
-    
+
   responses:
     success:
       200: "OK - GET, PUT, PATCH"
       201: "Created - POST"
       204: "No Content - DELETE"
-      
+
     errors:
       400: "Bad Request - validation error"
       401: "Unauthorized - no auth token"
@@ -147,9 +147,9 @@ api_design:
 ---
 
 """,
-    skills=['backend', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["backend", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

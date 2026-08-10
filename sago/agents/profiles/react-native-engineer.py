@@ -211,9 +211,9 @@ import { FlashList } from '@shopify/flash-list';
 }
 // Enable Hermes flags for production
 // "es6proxy": tru""",
-    skills=['react', 'native', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["react", "native", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

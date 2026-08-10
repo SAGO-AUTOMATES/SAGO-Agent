@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -22,9 +21,7 @@ class PDFReader(BaseTool):
     """Tool for reading and extracting content from PDF files."""
 
     name: str = "pdf_reader"
-    description: str = (
-        "Read PDF files: extract text, get info, extract specific pages."
-    )
+    description: str = "Read PDF files: extract text, get info, extract specific pages."
     args_model: type[BaseModel] = PDFReaderArgs
 
     def _run(
@@ -82,7 +79,9 @@ class PDFReader(BaseTool):
                             if text:
                                 text_parts.append(f"--- Page {i + 1} ---\n{text}")
 
-                    return f"Extracted {len(text_parts)} pages:\n\n" + "\n\n".join(text_parts)[:5000]
+                    return (
+                        f"Extracted {len(text_parts)} pages:\n\n" + "\n\n".join(text_parts)[:5000]
+                    )
 
                 else:
                     return f"Error: Invalid operation '{operation}'"

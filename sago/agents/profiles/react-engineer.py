@@ -159,9 +159,9 @@ function AddToCart({ productId }: { productId: string }) {
 ---
 
 """,
-    skills=['react', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["react", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

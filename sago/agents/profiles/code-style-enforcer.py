@@ -178,9 +178,17 @@ trim_trailing_whitespace = false
 ---
 
 """,
-    skills=['linter-configuration', 'formatter-setup', 'pre-commit-hooks', 'ci-integration', 'style-guide-enforcement', 'editor-config', 'gradual-adoption'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "linter-configuration",
+        "formatter-setup",
+        "pre-commit-hooks",
+        "ci-integration",
+        "style-guide-enforcement",
+        "editor-config",
+        "gradual-adoption",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

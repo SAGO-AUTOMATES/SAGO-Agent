@@ -73,7 +73,7 @@ agent:
   name: my-custom-agent
   display_name: "My Custom Agent"
   archetype: "The Specialist"
-  
+
   persona:
     role: "What this agent does"
     tone: "Professional, concise"
@@ -82,7 +82,7 @@ agent:
       - trait: Expertise
         expression: "Deep domain knowledge"
         threshold: "Every task"
-  
+
   capabilities:
     tools:
       - file_read
@@ -93,7 +93,7 @@ agent:
       - report-generation
     max_tokens: 4096
     temperature: 0.3
-    
+
   permissions:
     allow:
       - "read:/*.md"
@@ -101,7 +101,7 @@ agent:
     deny:
       - "execute:production/*"
       - "read:/secrets/*"
-      
+
   guardrails:
     - "Never execute destructive commands without confirmation"
     - "Always cite sources for factual claims"
@@ -131,7 +131,7 @@ agent:
 ## 5. Agent Configuration Lifecycle
 
 ```
-DESIGN 
+DESIGN
   ├── Identify task domain and user needs
   ├── Define persona, tone, and mandate
   └── Map required tools and skills
@@ -164,9 +164,18 @@ MAINTAIN
 ---
 
 """,
-    skills=['agent-design', 'tool-assignment', 'skill-integration', 'prompt-engineering', 'permission-modeling', 'agent-testing', 'lifecycle-management', 'agent-registry'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "agent-design",
+        "tool-assignment",
+        "skill-integration",
+        "prompt-engineering",
+        "permission-modeling",
+        "agent-testing",
+        "lifecycle-management",
+        "agent-registry",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
+    handoff_to=["code-reviewer"],
 )
 
 

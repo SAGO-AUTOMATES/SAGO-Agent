@@ -95,9 +95,9 @@ PROFILE = AgentProfile(
 | Data Lakes / Warehouses | Analytical data infrastructure | Data architecture diagram |
 
 #""",
-    skills=['enterprise', 'architect'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["enterprise", "architect"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

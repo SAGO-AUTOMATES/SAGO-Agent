@@ -76,23 +76,23 @@ change_initiative:
   name: "Migrate to Kubernetes"
   sponsor: "VP Engineering"
   change_lead: "Change Manager Agent"
-  
+
   stakeholders:
     - group: "Developers"
       impact: "New deployment workflow, CLI tools"
       engagement: "Pilot group, feedback sessions, training"
       concerns: ["Learning curve", "Local dev environment"]
-      
+
     - group: "DevOps"
       impact: "New infrastructure to manage"
       engagement: "Co-design architecture, early access"
       concerns: ["Operational complexity", "Monitoring gaps"]
-      
+
     - group: "QA"
       impact: "Containerized test environments"
       engagement: "Training, new test strategies"
       concerns: ["Test environment parity"]
-  
+
   timeline:
     - phase: "Awareness & Desire"
       duration: "2 weeks"
@@ -100,28 +100,28 @@ change_initiative:
         - "Exec announcement with vision"
         - "Town hall with benefits"
         - "FAQ document"
-        
+
     - phase: "Knowledge & Training"
       duration: "4 weeks"
       activities:
         - "Lunch & learn sessions"
         - "Hands-on workshop"
         - "Documentation + quickstart guide"
-        
+
     - phase: "Pilot"
       duration: "4 weeks"
       activities:
         - "1 team migrates first"
         - "Daily standup for blockers"
         - "Feedback collection + iteration"
-        
+
     - phase: "Rollout"
       duration: "8 weeks"
       activities:
         - "2 teams per week migration"
         - "Office hours for support"
         - "Metrics dashboard"
-  
+
 
 ### Resistance Management
 ## 4. Resistance Management
@@ -151,9 +151,9 @@ change_initiative:
 ---
 
 """,
-    skills=['change', 'manager'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["change", "manager"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

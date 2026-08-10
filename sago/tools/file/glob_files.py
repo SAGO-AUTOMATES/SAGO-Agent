@@ -5,7 +5,6 @@ Cross-platform file pattern matching.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -67,7 +66,7 @@ class GlobFilesTool(BaseTool):
 
         if files:
             lines.append(f"\nFiles ({len(files)}):")
-            for f in files[:max_results - len(dirs)]:
+            for f in files[: max_results - len(dirs)]:
                 lines.append(f"  {f}")
 
         if truncated:

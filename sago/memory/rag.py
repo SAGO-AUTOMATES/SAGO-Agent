@@ -6,9 +6,9 @@ Stores, indexes, and retrieves relevant context from past interactions.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
-import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -252,7 +252,7 @@ class RAGMemory:
         # Sort by importance and access count
         sorted_entries = sorted(
             self._entries.values(),
-            key=lambda e: (e.importance * 0.7 + (e.access_count / 100) * 0.3),
+            key=lambda e: e.importance * 0.7 + (e.access_count / 100) * 0.3,
             reverse=True,
         )
 
@@ -389,6 +389,7 @@ def get_memory(persist: bool = True) -> RAGMemory:
     global _global_memory
     if _global_memory is None:
         from sago.paths import get_sago_home
+
         persist_dir = get_sago_home() / "memory" if persist else None
         _global_memory = RAGMemory(persist_dir=persist_dir)
     return _global_memory

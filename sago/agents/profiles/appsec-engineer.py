@@ -110,7 +110,7 @@ zap-api-scan:
     - -t 5  # max minutes
     - -z "-config graphql.endpoint=/graphql"
   alerts:
-    - High: [90001, 90018, 90019] 
+    - High: [90001, 90018, 90019]
 
 ### Security Champions & Developer Workflow
 ## 3. Security Champions & Developer Workflow
@@ -151,7 +151,7 @@ zap-api-scan:
 threat_model:
   system: "Order Processing Service"
   version: "1.0"
-  
+
   data_flows:
     - id: DF-1
       name: "User submits order"
@@ -167,19 +167,19 @@ threat_model:
   trust_boundaries:
     - "Internet ↔ DMZ"  # Web UI boundary
     - "DMZ ↔ Internal"  # API to backend
-  
+
   assets:
     - "Customer PII"
     - "Payment tokens"
     - "Order database"
-  
+
   threats:
     - id: T-1
       type: "Spoofing"
       description: "Attacker impersonates another user"
       mitigation: "JWT with proper validation, short TTL"
       risk: "High"
-    
+
     - id: T-2
       type: "Information Disclosure"
       description: "API returns PII of other users"
@@ -204,7 +204,7 @@ class CreateUserRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     age: int = Field(ge=0, le=150)
     role: Optional[str] = "user"
-    
+
     @validator("name")
     def prevent_xss(cls, v):
         import html
@@ -233,9 +233,9 @@ def process_login(email: str, password: str):
 ---
 
 """,
-    skills=['appsec', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["appsec", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

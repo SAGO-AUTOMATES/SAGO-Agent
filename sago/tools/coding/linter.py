@@ -5,7 +5,6 @@ Cross-platform linting with auto-detection of linters.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -17,7 +16,9 @@ class LinterArgs(BaseModel):
     """Arguments for LinterTool."""
 
     file_path: str = Field(description="Path to the file or directory to lint")
-    linter: str | None = Field(default=None, description="Specific linter to use (auto-detect if not set)")
+    linter: str | None = Field(
+        default=None, description="Specific linter to use (auto-detect if not set)"
+    )
     fix: bool = Field(default=False, description="Attempt to auto-fix issues")
 
 

@@ -14,7 +14,9 @@ class SpawnAgentArgs(BaseModel):
     """Arguments for SpawnAgentTool."""
 
     task: str = Field(description="Task to delegate to the agent")
-    agent_name: str = Field(description="Name of the agent (e.g. python-engineer, debugger, devops)")
+    agent_name: str = Field(
+        description="Name of the agent (e.g. python-engineer, debugger, devops)"
+    )
     context: str = Field(default="", description="Optional context from previous work")
 
 
@@ -61,6 +63,7 @@ class SpawnAgentTool(BaseTool):
         # Use configured model from config, not hardcoded
         try:
             from sago.config.loader import get_config
+
             config = get_config()
             model = config.llm.model or "openrouter/free"
         except Exception:
@@ -93,7 +96,9 @@ class SpawnAgentTool(BaseTool):
                 if output and not output.startswith("Error:") and len(output.strip()) > 10:
                     response_parts = [f"[Agent: {agent_name}]"]
                     if tools_used:
-                        response_parts.append(f"Tools used: {', '.join(t['tool'] for t in tools_used)}")
+                        response_parts.append(
+                            f"Tools used: {', '.join(t['tool'] for t in tools_used)}"
+                        )
                     response_parts.append(output)
                     return "\n".join(response_parts)
 
@@ -117,6 +122,7 @@ class SpawnAgentTool(BaseTool):
         """Get system prompt for an agent."""
         try:
             from sago.agents.registry import get_agent
+
             definition = get_agent(agent_name)
             if definition:
                 prompt = definition.system_prompt

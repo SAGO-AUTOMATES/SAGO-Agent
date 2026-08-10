@@ -168,8 +168,8 @@ Risk Level:
 ---
 
 """,
-    skills=['iso27001', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
+    skills=["iso27001", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
     handoff_to=[],
 )
 

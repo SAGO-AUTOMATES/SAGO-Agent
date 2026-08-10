@@ -16,7 +16,9 @@ class HTTPClientArgs(BaseModel):
     """Arguments for HTTPClientTool."""
 
     url: str = Field(description="URL to send request to")
-    method: Literal["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"] = Field(default="GET", description="HTTP method")
+    method: Literal["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"] = Field(
+        default="GET", description="HTTP method"
+    )
     headers: dict[str, str] | None = Field(default=None, description="Request headers")
     body: str | None = Field(default=None, description="Request body (JSON or text)")
     timeout: int = Field(default=30, description="Request timeout in seconds")
@@ -64,6 +66,7 @@ class HTTPClientTool(BaseTool):
             if body:
                 # Try to parse as JSON
                 import json
+
                 try:
                     request_kwargs["json"] = json.loads(body)
                 except (json.JSONDecodeError, TypeError):
@@ -76,7 +79,7 @@ class HTTPClientTool(BaseTool):
                 f"HTTP {response.status_code} {response.http_version}",
                 f"Method: {method}",
                 f"URL: {url}",
-                f"\nResponse Headers:",
+                "\nResponse Headers:",
             ]
 
             for key, value in response.headers.items():

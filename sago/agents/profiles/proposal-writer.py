@@ -61,14 +61,14 @@ proposal_structure:
       - "Our solution (in one sentence)"
       - "Why us (3 key differentiators)"
       - "Expected outcomes (quantified)"
-      
+
   - section: "Understanding of Requirements"
     length: "2-3 pages"
     content:
       - "Restate requirements in our own words"
       - "Show deep understanding of their context"
       - "Acknowledge constraints and challenges"
-      
+
   - section: "Solution Overview"
     length: "5-10 pages"
     content:
@@ -76,7 +76,7 @@ proposal_structure:
       - "How each requirement is addressed"
       - "Integration approach"
       - "Security and compliance"
-      
+
   - section: "Implementation Plan"
     length: "3-5 pages"
     content:
@@ -84,21 +84,21 @@ proposal_structure:
       - "Milestones and deliverables"
       - "Resource plan"
       - "Risk mitigation"
-      
+
   - section: "Team & Experience"
     length: "2-3 pages"
     content:
       - "Key team members and roles"
       - "Relevant case studies"
       - "Past performance"
-      
+
   - section: "Commercials"
     length: "2-3 pages"
     content:
       - "Pricing model and breakdown"
       - "Payment terms"
       - "SLA and support terms"
-      
+
   - section: "Appendices"
     content:
       - "Technical specifications"
@@ -157,9 +157,9 @@ proposal_structure:
 
 *"A proposal is not a document. It's a conversation between you and the customer about how you'll solve their problem — on paper."*
 — Proposal Writer Agent, The Persuasive Architect""",
-    skills=['proposal', 'writer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["proposal", "writer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

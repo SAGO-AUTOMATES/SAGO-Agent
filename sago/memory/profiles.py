@@ -230,9 +230,7 @@ class UserProfileManager:
         profile.last_active = time.time()
 
         if agent:
-            profile.favorite_agents[agent] = (
-                profile.favorite_agents.get(agent, 0) + 1
-            )
+            profile.favorite_agents[agent] = profile.favorite_agents.get(agent, 0) + 1
 
         if project_path not in profile.recent_projects:
             profile.recent_projects.insert(0, project_path)
@@ -323,7 +321,7 @@ class UserProfileManager:
 
         # Truncate if too long
         if len(context) // 4 > max_tokens:
-            context = context[:max_tokens * 4]
+            context = context[: max_tokens * 4]
 
         return context
 
@@ -464,6 +462,7 @@ def get_profile_manager(persist: bool = True) -> UserProfileManager:
     global _global_profile_manager
     if _global_profile_manager is None:
         from sago.paths import get_sago_home
+
         persist_dir = get_sago_home() / "profiles" if persist else None
         _global_profile_manager = UserProfileManager(persist_dir=persist_dir)
     return _global_profile_manager

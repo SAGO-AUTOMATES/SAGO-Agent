@@ -149,7 +149,7 @@ bgp:
 ```yaml
 firewall_rules:
   default_policy: "deny all inbound, deny all outbound"
-  
+
   inbound_rules:
     - port: 443 (HTTPS)
       source: "0.0.0.0/0"
@@ -157,7 +157,7 @@ firewall_rules:
     - port: 22 (SSH)
       source: "bastion-subnet"
       description: "Management access only via bastion"
-      
+
   outbound_rules:
     - port: 443 (HTTPS)
       destination: "specific-api-endpoints"
@@ -167,9 +167,9 @@ firewall_rules:
 ---
 
 """,
-    skills=['network', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["network", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

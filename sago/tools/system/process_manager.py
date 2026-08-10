@@ -15,7 +15,9 @@ from sago.tools.base import BaseTool
 class ProcessManagerArgs(BaseModel):
     """Arguments for ProcessManagerTool."""
 
-    operation: Literal["list", "search", "kill", "info", "top"] = Field(description="Operation to perform")
+    operation: Literal["list", "search", "kill", "info", "top"] = Field(
+        description="Operation to perform"
+    )
     query: str | None = Field(default=None, description="Search query or PID")
     signal: str = Field(default="TERM", description="Signal to send (for kill)")
 
@@ -103,7 +105,6 @@ class ProcessManagerTool(BaseTool):
 
     def _kill_process(self, pid_str: str, signal: str) -> str:
         """Kill a process by PID."""
-        import signal as signal_mod
         import psutil
 
         try:
@@ -138,10 +139,19 @@ class ProcessManagerTool(BaseTool):
 
         try:
             proc = psutil.Process(pid)
-            info = proc.as_dict(attrs=[
-                "pid", "name", "status", "cpu_percent", "memory_percent",
-                "create_time", "cmdline", "cwd", "username",
-            ])
+            info = proc.as_dict(
+                attrs=[
+                    "pid",
+                    "name",
+                    "status",
+                    "cpu_percent",
+                    "memory_percent",
+                    "create_time",
+                    "cmdline",
+                    "cwd",
+                    "username",
+                ]
+            )
 
             lines = [f"=== Process {pid} ==="]
             lines.append(f"Name: {info['name']}")

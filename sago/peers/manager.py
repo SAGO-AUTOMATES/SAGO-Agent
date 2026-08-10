@@ -20,13 +20,14 @@ import json
 import subprocess
 import time
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 
-class PeerStatus(str, Enum):
+class PeerStatus(StrEnum):
     """Peer connection status."""
+
     UNKNOWN = "unknown"
     CONNECTING = "connecting"
     CONNECTED = "connected"
@@ -36,8 +37,9 @@ class PeerStatus(str, Enum):
     SAGO_NOT_INSTALLED = "sago_not_installed"
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """Remote task status."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -48,6 +50,7 @@ class TaskStatus(str, Enum):
 @dataclass
 class PeerInfo:
     """Information about a remote peer."""
+
     hostname: str
     alias: str = ""
     ssh_user: str = "root"
@@ -87,6 +90,7 @@ class PeerInfo:
 @dataclass
 class RemoteTask:
     """A task to execute on a remote peer."""
+
     id: str
     peer: PeerInfo
     task: str
@@ -123,7 +127,9 @@ class PeerManager:
     def __init__(self, config_path: str | Path | None = None) -> None:
         self.peers: dict[str, PeerInfo] = {}
         self.tasks: list[RemoteTask] = []
-        self.config_path = Path(config_path) if config_path else Path.home() / ".sago" / "peers.json"
+        self.config_path = (
+            Path(config_path) if config_path else Path.home() / ".sago" / "peers.json"
+        )
         self._load_config()
 
     def _load_config(self) -> None:
@@ -141,9 +147,7 @@ class PeerManager:
     def _save_config(self) -> None:
         """Save peer configuration."""
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "peers": [p.to_dict() for p in self.peers.values()]
-        }
+        data = {"peers": [p.to_dict() for p in self.peers.values()]}
         with open(self.config_path, "w") as f:
             json.dump(data, f, indent=2)
 
@@ -230,9 +234,12 @@ class SSHManager:
         """Execute command on remote peer via SSH."""
         ssh_cmd = [
             "ssh",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "ConnectTimeout=10",
-            "-p", str(peer.ssh_port),
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "ConnectTimeout=10",
+            "-p",
+            str(peer.ssh_port),
         ]
 
         if peer.ssh_key:
@@ -278,7 +285,9 @@ class SSHManager:
             info["python"] = stdout.strip()
 
         # Sago version
-        code, stdout, _ = self.execute_command(peer, "sago --version 2>/dev/null || echo 'NOT_INSTALLED'", timeout=5)
+        code, stdout, _ = self.execute_command(
+            peer, "sago --version 2>/dev/null || echo 'NOT_INSTALLED'", timeout=5
+        )
         if code == 0 and "NOT_INSTALLED" not in stdout:
             info["sago_version"] = stdout.strip()
 
@@ -414,7 +423,7 @@ class RemoteExecutor:
         failed = [t for t in tasks if t.status == TaskStatus.FAILED]
 
         lines = [
-            f"Remote Execution Summary:",
+            "Remote Execution Summary:",
             f"  Total: {len(tasks)}",
             f"  Completed: {len(completed)}",
             f"  Failed: {len(failed)}",

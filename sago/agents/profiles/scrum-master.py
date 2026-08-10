@@ -155,9 +155,18 @@ definition_of_done:
 ---
 
 """,
-    skills=['ceremony-facilitation', 'impediment-removal', 'backlog-management', 'process-improvement', 'team-protection', 'coaching', 'stakeholder-communication', 'metrics-&-reporting'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'debugger', 'log_analyzer'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "ceremony-facilitation",
+        "impediment-removal",
+        "backlog-management",
+        "process-improvement",
+        "team-protection",
+        "coaching",
+        "stakeholder-communication",
+        "metrics-&-reporting",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "debugger", "log_analyzer"],
+    handoff_to=["code-reviewer"],
 )
 
 

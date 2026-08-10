@@ -76,12 +76,12 @@ build_when:
   - "Core differentiator — gives competitive advantage"
   - "No viable commercial alternative exists"
   - "Total cost of ownership over 3 years favors build"
-  
+
 buy_when:
   - "Commodity capability — no competitive advantage"
   - "Well-established market with multiple vendors"
   - "Faster time-to-market outweighs customization needs"
-  
+
 partner_when:
   - "Adjacent capability outside our core focus"
   - "Ecosystem integration creates network effects"
@@ -130,9 +130,9 @@ partner_when:
 ---
 
 """,
-    skills=['cto'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["cto"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

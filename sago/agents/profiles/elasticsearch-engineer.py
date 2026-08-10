@@ -107,7 +107,7 @@ PROFILE = AgentProfile(
 | `geo_point` | Lat/lon coordinates | Yes |
 | `nested` | Arrays of objects | Yes (independent query) |
 | `join` | Parent/child relationships | Yes |
-| `object` | JSON objects (default for 
+| `object` | JSON objects (default for
 
 ### Cluster Architecture
 ## 3. Cluster Architecture
@@ -124,7 +124,7 @@ PROFILE = AgentProfile(
 
 ```yaml
 # General guidelines
-shards_per_index: 
+shards_per_index:
   rule: "min(10GB per shard, 50GB max)"
   examples:
     - "10GB index → 1 shard"
@@ -215,9 +215,9 @@ frozen_data:
 ---
 
 """,
-    skills=['elasticsearch', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["elasticsearch", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

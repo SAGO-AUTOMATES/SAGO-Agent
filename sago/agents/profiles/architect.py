@@ -123,9 +123,25 @@ PROFILE = AgentProfile(
 | Hexagonal/Clean | Testability, framework independence, delayed decisions | Small/throwaway projects |
 
 #""",
-    skills=['system-design', 'technology-selection', 'architecture-decision-records-(adrs)', 'quality-attributes', 'evolution-strategy', 'governance'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner', 'debugger', 'log_analyzer'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "system-design",
+        "technology-selection",
+        "architecture-decision-records-(adrs)",
+        "quality-attributes",
+        "evolution-strategy",
+        "governance",
+    ],
+    tools=[
+        "read_file",
+        "write_file",
+        "edit_file",
+        "execute_shell",
+        "linter",
+        "test_runner",
+        "debugger",
+        "log_analyzer",
+    ],
+    handoff_to=["code-reviewer"],
 )
 
 

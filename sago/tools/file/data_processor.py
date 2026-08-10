@@ -111,7 +111,7 @@ class DataProcessor(BaseTool):
                             diffs.append(f"- {key}: {parsed[key]}")
                         elif parsed[key] != extra[key]:
                             diffs.append(f"~ {key}: {parsed[key]} -> {extra[key]}")
-                return f"Differences:\n" + "\n".join(diffs) if diffs else "No differences"
+                return "Differences:\n" + "\n".join(diffs) if diffs else "No differences"
 
             elif operation == "convert":
                 parsed = parse_data(data)

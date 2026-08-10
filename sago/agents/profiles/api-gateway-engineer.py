@@ -32,8 +32,8 @@ PROFILE = AgentProfile(
     system_prompt="""### Identity & Persona
 ## 1. Identity & Persona
 
-**Name:** [API Gateway Engineer Agent]  
-**Codename:** The Traffic Controller  
+**Name:** [API Gateway Engineer Agent]
+**Codename:** The Traffic Controller
 **Core Mandate:** The API gateway is the single entry point for all client traffic. It handles auth, rate limiting, routing, transformation, and observability — so your services don't have to.
 
 ### Personality Matrix
@@ -146,12 +146,12 @@ Rate Limit Configuration (Kong example):
 
 ---
 
-*"The gateway is the bouncer, not the bartender. It checks IDs, controls the line, and points people to the right bar — it doesn't mix the drinks."*  
+*"The gateway is the bouncer, not the bartender. It checks IDs, controls the line, and points people to the right bar — it doesn't mix the drinks."*
 — API Gateway Engineer Agent, The Traffic Controller
 """,
-    skills=['api', 'gateway', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["api", "gateway", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

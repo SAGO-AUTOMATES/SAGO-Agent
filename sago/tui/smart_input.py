@@ -46,36 +46,53 @@ class InputAnalysis:
 
 # Patterns for extraction
 ERROR_PATTERNS = [
-    re.compile(r'(?:error|exception|traceback|failed|failure|fatal|panic)[^\n]*', re.IGNORECASE),
+    re.compile(r"(?:error|exception|traceback|failed|failure|fatal|panic)[^\n]*", re.IGNORECASE),
     re.compile(r'(?:Traceback|File\s+".*",\s*line\s+\d+)[^\n]*', re.IGNORECASE),
-    re.compile(r'(?:Error|Exception|Warning):\s*[^\n]+'),
+    re.compile(r"(?:Error|Exception|Warning):\s*[^\n]+"),
 ]
 
 STACK_PATTERNS = [
-    re.compile(r'at\s+([\w.]+)\(([^)]*)\)'),
+    re.compile(r"at\s+([\w.]+)\(([^)]*)\)"),
     re.compile(r'File\s+"([^"]+)",\s*line\s+(\d+)'),
-    re.compile(r'in\s+(\w+)\s+at\s+line\s+(\d+)'),
+    re.compile(r"in\s+(\w+)\s+at\s+line\s+(\d+)"),
 ]
 
 FILE_PATTERNS = [
-    re.compile(r'(?:/[\w.-]+){2,}[\w.-]*\.\w+'),  # Unix paths
-    re.compile(r'(?:[A-Z]:\\[\w.-]+\\)+[\w.-]+\.\w+'),  # Windows paths
-    re.compile(r'[\w.-]+\.(?:py|js|ts|tsx|jsx|rs|go|java|c|cpp|h|hpp|rb|php|sh|yaml|yml|json|toml|xml|sql|md|txt)\b'),
+    re.compile(r"(?:/[\w.-]+){2,}[\w.-]*\.\w+"),  # Unix paths
+    re.compile(r"(?:[A-Z]:\\[\w.-]+\\)+[\w.-]+\.\w+"),  # Windows paths
+    re.compile(
+        r"[\w.-]+\.(?:py|js|ts|tsx|jsx|rs|go|java|c|cpp|h|hpp|rb|php|sh|yaml|yml|json|toml|xml|sql|md|txt)\b"
+    ),
 ]
 
-CODE_BLOCK_PATTERN = re.compile(r'```[\s\S]*?```', re.MULTILINE)
-URL_PATTERN = re.compile(r'https?://\S+')
-NUMBER_PATTERN = re.compile(r'\b\d+(?:\.\d+)?\b')
+CODE_BLOCK_PATTERN = re.compile(r"```[\s\S]*?```", re.MULTILINE)
+URL_PATTERN = re.compile(r"https?://\S+")
+NUMBER_PATTERN = re.compile(r"\b\d+(?:\.\d+)?\b")
 
 # Keywords that indicate importance
 IMPORTANCE_KEYWORDS = {
-    "critical": 0.9, "urgent": 0.9, "bug": 0.8, "error": 0.8,
-    "fix": 0.7, "security": 0.8, "vulnerability": 0.9,
-    "implement": 0.6, "create": 0.6, "deploy": 0.7,
-    "test": 0.5, "review": 0.5, "refactor": 0.5,
-    "performance": 0.7, "optimize": 0.7, "slow": 0.6,
-    "crash": 0.9, "fail": 0.8, "broken": 0.8,
-    "todo": 0.4, "hack": 0.6, "workaround": 0.5,
+    "critical": 0.9,
+    "urgent": 0.9,
+    "bug": 0.8,
+    "error": 0.8,
+    "fix": 0.7,
+    "security": 0.8,
+    "vulnerability": 0.9,
+    "implement": 0.6,
+    "create": 0.6,
+    "deploy": 0.7,
+    "test": 0.5,
+    "review": 0.5,
+    "refactor": 0.5,
+    "performance": 0.7,
+    "optimize": 0.7,
+    "slow": 0.6,
+    "crash": 0.9,
+    "fail": 0.8,
+    "broken": 0.8,
+    "todo": 0.4,
+    "hack": 0.6,
+    "workaround": 0.5,
 }
 
 # Keywords for task classification
@@ -132,7 +149,7 @@ class SmartInputProcessor:
 
     def _extract_keywords(self, text: str) -> list[str]:
         """Extract important keywords from text."""
-        words = set(re.findall(r'\b\w+\b', text.lower()))
+        words = set(re.findall(r"\b\w+\b", text.lower()))
         keywords = []
         for word in words:
             if word in IMPORTANCE_KEYWORDS or len(word) > 6:
@@ -208,7 +225,7 @@ class SmartInputProcessor:
             parts.append(f"Task: {task_type}")
 
         # Key points from first and last lines
-        lines = [l.strip() for l in text.strip().split('\n') if l.strip()]
+        lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
         if lines:
             parts.append(f"Start: {lines[0][:150]}")
             if len(lines) > 1:

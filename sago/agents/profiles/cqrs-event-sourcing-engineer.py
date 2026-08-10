@@ -81,7 +81,7 @@ PROFILE = AgentProfile(
    │                                        ▼            ▼            ▼
    │                                   [Projector]  [Projector]  [Projector]
    │                                        │            │            │
-   │                         
+   │
 
 ### Event Store Patterns
 ## 3. Event Store Patterns
@@ -238,9 +238,9 @@ class OrderSummaryProjection {
   // Rebuild projection from scratch
   async rebuild(): Promise<void> {
     await db.query('TRUNCATE order_summar""",
-    skills=['cqrs', 'event', 'sourcing', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["cqrs", "event", "sourcing", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

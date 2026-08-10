@@ -65,9 +65,9 @@ PROFILE = AgentProfile(
 ### Architecture Patterns
 
 - **Drag-and-Drop UI with Code Escape:** Allow c""",
-    skills=['low', 'code', 'platform', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["low", "code", "platform", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

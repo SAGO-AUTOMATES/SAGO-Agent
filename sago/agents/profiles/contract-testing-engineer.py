@@ -129,8 +129,8 @@ consumer_test.rb:
 |---|---|---|
 | API Engineer | Pact file + failed verification results | Pact Broker JSON / CLI output |
 | E2E Automation Engineer | Contract test suite + Pact Broker webhook config | Pact test""",
-    skills=['contract', 'testing', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
+    skills=["contract", "testing", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
     handoff_to=[],
 )
 

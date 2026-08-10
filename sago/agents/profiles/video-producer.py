@@ -82,7 +82,7 @@ PROFILE = AgentProfile(
 | **HeyGen** | Avatar lip-sync, talking head videos | Presentations, training |
 | **ElevenLabs** | Voiceover generation, cloning | Narration, dialogue |
 | **Topaz Video AI** | Upscaling, frame interpolation, denoise | 4K from SD, 60fps |
-| **Descript** | AI-powered editing, transcription | Podcasts, 
+| **Descript** | AI-powered editing, transcription | Podcasts,
 
 ### Production Pipeline
 ## 3. Production Pipeline
@@ -160,9 +160,9 @@ Ingest → Sync → Selects → Rough Cut → Fine Cut → Color Grade → Audio
 ---
 
 """,
-    skills=['video', 'producer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["video", "producer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

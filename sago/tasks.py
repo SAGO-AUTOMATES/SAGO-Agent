@@ -9,16 +9,18 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from sago.paths import get_sago_home
 
 
 class TaskStatus(Enum):
     """Status of a todo item."""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -30,6 +32,7 @@ class TaskStatus(Enum):
 @dataclass
 class TodoItem:
     """A single todo item in a task list."""
+
     id: str
     description: str
     status: TaskStatus = TaskStatus.PENDING
@@ -68,6 +71,7 @@ class TodoItem:
 @dataclass
 class TaskPlan:
     """A plan for executing a complex task."""
+
     id: str
     goal: str
     todos: list[TodoItem] = field(default_factory=list)
@@ -85,10 +89,7 @@ class TaskPlan:
 
     @property
     def is_complete(self) -> bool:
-        return all(
-            t.status in (TaskStatus.COMPLETED, TaskStatus.SKIPPED)
-            for t in self.todos
-        )
+        return all(t.status in (TaskStatus.COMPLETED, TaskStatus.SKIPPED) for t in self.todos)
 
     @property
     def current_todo(self) -> TodoItem | None:
@@ -150,9 +151,7 @@ class TaskManager:
     def _save(self) -> None:
         path = self._get_storage_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "plans": [p.to_dict() for p in self.plans.values()]
-        }
+        data = {"plans": [p.to_dict() for p in self.plans.values()]}
         path.write_text(json.dumps(data, indent=2))
 
     def on_update(self, callback: Callable[..., None]) -> None:
@@ -174,16 +173,24 @@ class TaskManager:
         )
         if todos:
             for desc in todos:
-                plan.todos.append(TodoItem(
-                    id=str(uuid.uuid4())[:8],
-                    description=desc,
-                ))
+                plan.todos.append(
+                    TodoItem(
+                        id=str(uuid.uuid4())[:8],
+                        description=desc,
+                    )
+                )
         self.plans[plan.id] = plan
         self._save()
         self._notify("plan_created", plan.to_dict())
         return plan
 
-    def add_todo(self, plan_id: str, description: str, requires_confirmation: bool = False, confirmation_message: str | None = None) -> TodoItem | None:
+    def add_todo(
+        self,
+        plan_id: str,
+        description: str,
+        requires_confirmation: bool = False,
+        confirmation_message: str | None = None,
+    ) -> TodoItem | None:
         """Add a todo item to a plan."""
         plan = self.plans.get(plan_id)
         if not plan:
@@ -286,7 +293,9 @@ class TaskManager:
                 todo.metadata["user_input"] = user_input
                 todo.status = TaskStatus.PENDING
                 self._save()
-                self._notify("input_received", {"plan_id": plan_id, "todo_id": todo_id, "input": user_input})
+                self._notify(
+                    "input_received", {"plan_id": plan_id, "todo_id": todo_id, "input": user_input}
+                )
                 return True
         return False
 

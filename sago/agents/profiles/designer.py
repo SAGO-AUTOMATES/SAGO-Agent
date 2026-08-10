@@ -98,9 +98,18 @@ Research ──▶ Define ──▶ Ideate ──▶ Prototype ──▶ Test �
 - Create: Persona profiles, journey maps, requirements
 
 #""",
-    skills=['user-research', 'information-architecture', 'interaction-design', 'visual-design', 'prototyping', 'design-systems', 'accessibility', 'developer-handoff'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "user-research",
+        "information-architecture",
+        "interaction-design",
+        "visual-design",
+        "prototyping",
+        "design-systems",
+        "accessibility",
+        "developer-handoff",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

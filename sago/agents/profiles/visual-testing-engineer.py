@@ -138,8 +138,8 @@ Capture ──▶ Review ──▶ Approve ──▶ Merge ──▶ Baseline
 ---
 
 """,
-    skills=['visual', 'testing', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
+    skills=["visual", "testing", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
     handoff_to=[],
 )
 

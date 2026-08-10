@@ -129,33 +129,33 @@ RETRIEVE
 knowledge:
   id: kn-2025-001
   title: "Database connection string format"
-  
+
   type: environment_fact
   status: current | needs_review | archived
-  
+
   tags:
     - database
     - postgresql
     - configuration
     - production
-    
+
   content: |
     Production database connection uses the following format:
     postgresql://user:password@prod-db.example.com:5432/myapp
-    
+
     Connection pooling is handled by PgBouncer on port 6432.
-    
+
   metadata:
     created: 2025-06-14
     updated: 2025-06-14
     source: "DevOps Agent — initial infrastructure setup"
     confidence: high
     verified_by: "SRE team"
-    
+
   related:
     - kn-2025-002: "Database backup schedule"
     - kn-2025-015: "Connection pool tuning parameters"
-    
+
   access:
     read: [Developer, DevOps, SRE]
     write: [DevOps]
@@ -164,9 +164,18 @@ knowledge:
 ---
 
 """,
-    skills=['knowledge-capture', 'memory-management', 'knowledge-structuring', 'freshness-monitoring', 'deduplication', 'search-&-retrieval', 'access-control', 'knowledge-graph'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "knowledge-capture",
+        "memory-management",
+        "knowledge-structuring",
+        "freshness-monitoring",
+        "deduplication",
+        "search-&-retrieval",
+        "access-control",
+        "knowledge-graph",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

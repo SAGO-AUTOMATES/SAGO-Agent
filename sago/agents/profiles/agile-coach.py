@@ -132,9 +132,9 @@ coaching_levels:
 ---
 
 """,
-    skills=['agile', 'coach'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["agile", "coach"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

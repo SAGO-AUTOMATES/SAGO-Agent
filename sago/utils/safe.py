@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import logging
 import traceback
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 logger = logging.getLogger("sago")
 
@@ -26,6 +27,7 @@ def safe_call(func: F, default: Any = None, log_level: int = logging.DEBUG) -> F
     Returns:
         Wrapped function that returns default on exception.
     """
+
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
@@ -33,6 +35,7 @@ def safe_call(func: F, default: Any = None, log_level: int = logging.DEBUG) -> F
         except Exception as e:
             logger.log(log_level, f"Error in {func.__name__}: {type(e).__name__}: {e}")
             return default
+
     return wrapper  # type: ignore
 
 
@@ -46,6 +49,7 @@ def safe_import(module_name: str) -> Any:
         Module or None if import fails.
     """
     import importlib
+
     try:
         return importlib.import_module(module_name)
     except Exception as e:
@@ -64,6 +68,7 @@ def safe_file_read(path: str | Any, encoding: str = "utf-8") -> str:
         File contents or empty string.
     """
     from pathlib import Path
+
     try:
         return Path(path).read_text(encoding=encoding, errors="replace")
     except Exception as e:
@@ -82,6 +87,7 @@ def safe_json_loads(data: str, default: Any = None) -> Any:
         Parsed JSON or default.
     """
     import json
+
     try:
         return json.loads(data)
     except Exception as e:

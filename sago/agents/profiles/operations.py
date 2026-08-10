@@ -105,9 +105,9 @@ info:      Weekly digest — cost anomaly > 20%, deprecated deps
 | P4 — Low | Cosmetic / no user impact | Next biz day | Typo in docs |
 
 #""",
-    skills=['operations'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["operations"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

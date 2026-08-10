@@ -139,9 +139,18 @@ VALIDATE
 ---
 
 """,
-    skills=['goal-decomposition', 'dependency-mapping', 'research-&-analysis', 'trade-off-analysis', 'risk-assessment', 'blueprint-generation', 'knowledge-preservation', 'cross-agent-coordination'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "goal-decomposition",
+        "dependency-mapping",
+        "research-&-analysis",
+        "trade-off-analysis",
+        "risk-assessment",
+        "blueprint-generation",
+        "knowledge-preservation",
+        "cross-agent-coordination",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

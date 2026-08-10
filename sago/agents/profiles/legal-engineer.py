@@ -84,21 +84,21 @@ data_flow:
   data_element: "user_email"
   classification: "PII"
   jurisdictions: [GDPR, CCPA, LGPD]
-  
+
   collection:
     source: "Registration form"
     lawful_basis: "Consent"
     consent_ref: "consent_v2_2024"
-    
+
   storage:
     location: "AWS RDS (us-east-1)"
     encryption: "AES-256 at rest"
     retention: "24 months after account deletion"
-    
+
   processing:
     purposes: ["Authentication", "Marketing (opt-in)", "Support"]
     sharing: ["Email provider (SendGrid)", "Analytics (GA4 - anonymized)"]
-    
+
   deletion:
     process: "GDPR right-to-erasure workflow"
     sla: "30 days"
@@ -190,7 +190,7 @@ license_compliance:
     action: "Check for known vulnerabilities in JS deps"
   - tool: "trivy fs ."
     action: "Vulnerability scan all packages"
-    
+
   enforcement:
     - "Block on critical/high CVEs"
     - "Block on prohibited licenses (GPL, AGPL for proprietary)"
@@ -201,8 +201,8 @@ license_compliance:
 ---
 
 """,
-    skills=['legal', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
+    skills=["legal", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
     handoff_to=[],
 )
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -16,7 +15,9 @@ class HashChecksumArgs(BaseModel):
 
     operation: str = Field(description="Operation: hash-file, hash-string, verify")
     target: str = Field(description="File path or string to hash")
-    algorithm: str = Field(default="sha256", description="Hash algorithm: md5, sha1, sha256, sha512")
+    algorithm: str = Field(
+        default="sha256", description="Hash algorithm: md5, sha1, sha256, sha512"
+    )
     expected_hash: str = Field(default="", description="Expected hash for verify operation")
 
 
@@ -24,10 +25,7 @@ class HashChecksum(BaseTool):
     """Tool for generating and verifying hashes."""
 
     name: str = "hash_checksum"
-    description: str = (
-        "Generate and verify file/string hashes. "
-        "Supports md5, sha1, sha256, sha512."
-    )
+    description: str = "Generate and verify file/string hashes. Supports md5, sha1, sha256, sha512."
     args_model: type[BaseModel] = HashChecksumArgs
 
     VALID_ALGORITHMS = {"md5", "sha1", "sha256", "sha512", "sha3_256", "sha3_512"}
@@ -88,7 +86,9 @@ class HashChecksum(BaseTool):
                 )
 
             else:
-                return f"Error: Invalid operation '{operation}'. Valid: hash-file, hash-string, verify"
+                return (
+                    f"Error: Invalid operation '{operation}'. Valid: hash-file, hash-string, verify"
+                )
 
         except Exception as e:
             return f"Error: {type(e).__name__}: {e}"

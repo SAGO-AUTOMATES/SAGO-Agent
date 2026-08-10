@@ -22,10 +22,7 @@ class TextSummarizer(BaseTool):
     """Tool for summarizing and extracting information from text."""
 
     name: str = "text_summarizer"
-    description: str = (
-        "Summarize text, extract keywords and entities. "
-        "Supports multiple languages."
-    )
+    description: str = "Summarize text, extract keywords and entities. Supports multiple languages."
     args_model: type[BaseModel] = TextSummarizerArgs
 
     def _run(
@@ -94,11 +91,49 @@ class TextSummarizer(BaseTool):
 
         # Common stop words
         stop_words = {
-            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to",
-            "for", "of", "with", "by", "from", "is", "are", "was", "were",
-            "be", "been", "being", "have", "has", "had", "do", "does", "did",
-            "will", "would", "could", "should", "may", "might", "can",
-            "this", "that", "these", "those", "it", "its", "not", "no",
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "but",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "of",
+            "with",
+            "by",
+            "from",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "can",
+            "this",
+            "that",
+            "these",
+            "those",
+            "it",
+            "its",
+            "not",
+            "no",
         }
 
         for word in words:
@@ -131,19 +166,19 @@ class TextSummarizer(BaseTool):
         }
 
         # Email pattern
-        emails = re.findall(r'[\w.-]+@[\w.-]+\.\w+', text)
+        emails = re.findall(r"[\w.-]+@[\w.-]+\.\w+", text)
         entities["emails"] = list(set(emails))
 
         # URL pattern
-        urls = re.findall(r'https?://\S+', text)
+        urls = re.findall(r"https?://\S+", text)
         entities["urls"] = list(set(urls))
 
         # Date pattern (simple)
-        dates = re.findall(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', text)
+        dates = re.findall(r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}", text)
         entities["dates"] = list(set(dates))
 
         # Phone pattern
-        phones = re.findall(r'[\+]?[(]?\d{3}[)]?[-\s.]?\d{3}[-\s.]?\d{4}', text)
+        phones = re.findall(r"[\+]?[(]?\d{3}[)]?[-\s.]?\d{3}[-\s.]?\d{4}", text)
         entities["phone_numbers"] = list(set(phones))
 
         result_parts = ["Entities found:"]

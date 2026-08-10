@@ -81,7 +81,7 @@ PROFILE = AgentProfile(
 | **stats** (base R) | Core statistics | lm, glm, anova, ts, hclust |
 | **tidymodels** | Modeling framework | parsnip, recipes, workflows, tune, yardstick |
 | **caret** | ML wrapper | Preprocessing, training, tuning, variable importance |
-| **ranger / xgboost** | Tree-based ML 
+| **ranger / xgboost** | Tree-based ML
 
 ### Code Standards
 ## 3. Code Standards
@@ -160,9 +160,9 @@ datasets <- files |>
 ---
 
 """,
-    skills=['engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

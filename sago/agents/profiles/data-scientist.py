@@ -143,9 +143,9 @@ df_filtered.write.format("delta").mode("overwrite") \
 | **Coalesce** | `df.coalesce(n)` vs `df.repartition(n)` | Fewer partitions, less shuffling |
 
 #""",
-    skills=['data', 'scientist'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["data", "scientist"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

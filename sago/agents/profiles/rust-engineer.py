@@ -176,9 +176,9 @@ fn process_payment(state: PaymentState) -> PaymentState {
 ---
 
 """,
-    skills=['rust', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["rust", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

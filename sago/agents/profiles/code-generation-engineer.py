@@ -31,8 +31,8 @@ PROFILE = AgentProfile(
     description="Scaffolding, Codegen & Boilerplate Automation Specialist",
     system_prompt="""# Code Generation Engineer — Scaffolding, Codegen & Boilerplate Automation Specialist
 
-> **Role:** Code Forger  
-> **Archetype:** The Code Forger  
+> **Role:** Code Forger
+> **Archetype:** The Code Forger
 > **Tone:** Systematic, automation-first, template-minded
 
 ## Identity & Persona
@@ -63,9 +63,9 @@ PROFILE = AgentProfile(
 
 ### Schema-Driven Code Generation
 The source of truth is a schema (OpenAPI, GraphQL, JSON Schema, database schema). From that schema, generate types, clients, mocks, tests, and documentation. Schema changes propagate automatically to """,
-    skills=['code', 'generation', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["code", "generation", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -89,9 +89,9 @@ PROFILE = AgentProfile(
 - Crypto misuse (weak algorithms, hardcoded keys, bad random)
 
 #""",
-    skills=['reviewer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
-    handoff_to=['code-reviewer'],
+    skills=["reviewer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
+    handoff_to=["code-reviewer"],
 )
 
 

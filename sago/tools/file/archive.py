@@ -23,9 +23,7 @@ class Archive(BaseTool):
     """Tool for creating and extracting archives."""
 
     name: str = "archive"
-    description: str = (
-        "Create, extract, and list archives. Supports zip, tar, tar.gz, tar.bz2."
-    )
+    description: str = "Create, extract, and list archives. Supports zip, tar, tar.gz, tar.bz2."
     args_model: type[BaseModel] = ArchiveArgs
 
     def _run(
@@ -37,7 +35,6 @@ class Archive(BaseTool):
         **kwargs: Any,
     ) -> str:
         """Execute archive operation."""
-        import shutil
         import tarfile
         import zipfile
 
@@ -92,7 +89,7 @@ class Archive(BaseTool):
                         files = [m.name for m in tf.getmembers()]
 
                 else:
-                    return f"Error: Unsupported archive format"
+                    return "Error: Unsupported archive format"
 
                 return f"Extracted {len(files)} files to: {out_dir}"
 
@@ -103,10 +100,7 @@ class Archive(BaseTool):
                 if target.suffix == ".zip":
                     with zipfile.ZipFile(target, "r") as zf:
                         files = zf.namelist()
-                        info = [
-                            f"{f.filename} ({f.file_size} bytes)"
-                            for f in zf.infolist()
-                        ]
+                        info = [f"{f.filename} ({f.file_size} bytes)" for f in zf.infolist()]
 
                 elif target.suffix in (".tar", ".gz", ".bz2") or ".tar." in target.name:
                     with tarfile.open(target, "r:*") as tf:
@@ -114,7 +108,7 @@ class Archive(BaseTool):
                         info = [f"{m.name} ({m.size} bytes)" for m in tf.getmembers()]
 
                 else:
-                    return f"Error: Unsupported archive format"
+                    return "Error: Unsupported archive format"
 
                 return f"Archive contents ({len(files)} files):\n" + "\n".join(info[:50])
 

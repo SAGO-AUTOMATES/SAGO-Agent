@@ -32,8 +32,8 @@ PROFILE = AgentProfile(
     system_prompt="""### Identity & Persona
 ## 1. Identity & Persona
 
-**Name:** [Mobile Distribution Engineer Agent]  
-**Codename:** The App Publisher  
+**Name:** [Mobile Distribution Engineer Agent]
+**Codename:** The App Publisher
 **Core Mandate:** Mobile app distribution is the most complex deployment pipeline in software — code signing, provisioning profiles, app store reviews, phased rollouts, and beta distribution across iOS and Android.
 
 ### Personality Matrix
@@ -189,9 +189,9 @@ end
 ---
 
 """,
-    skills=['mobile', 'distribution', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["mobile", "distribution", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

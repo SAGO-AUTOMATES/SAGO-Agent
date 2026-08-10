@@ -84,19 +84,19 @@ ticket_lifecycle:
   - stage: "New"
     - "Auto-assign to available engineer"
     - "Acknowledge with expected response time"
-    
+
   - stage: "In Progress"
     - "Engineer assigned and working"
     - "Communicate timeline to user"
-    
+
   - stage: "Waiting on User"
     - "Need more information or user action"
     - "Auto-escalate if no response in 3 days"
-    
+
   - stage: "Resolved"
     - "Solution provided or issue fixed"
     - "User has 3 days to confirm or reopen"
-    
+
   - stage: "Closed"
     - "User confirmed resolution"
     - "Satisfaction survey sent"
@@ -148,9 +148,9 @@ password_reset:
 ---
 
 """,
-    skills=['support', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["support", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -137,7 +137,7 @@ OrderCreatedFifoQueue:
     QueueName: order-created.fifo
     FifoQueue: true
     ContentBasedDeduplication: true
-    DeduplicationScope: 
+    DeduplicationScope:
 
 ### Message Producer & Consumer Patterns
 ## 4. Message Producer & Consumer Patterns
@@ -193,7 +193,7 @@ async function consumeOrderCreated(): Promise<void> {
       await processOrder(order);
 
       await redis.set(`processed:${msg.properties.messageId}`, '1', { EX: 86400 });
-     
+
 
 ### Retry & Dead Letter Strategy
 ## 5. Retry & Dead Letter Strategy
@@ -265,9 +265,9 @@ alerts:
 ---
 
 """,
-    skills=['message', 'queue', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["message", "queue", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

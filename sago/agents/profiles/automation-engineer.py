@@ -126,22 +126,22 @@ automation_roi:
 def sync_users_to_idp():
     \"\"\"
     Sync user directory to identity provider.
-    
+
     Idempotent: safe to run multiple times.
     Only processes delta changes.
     \"\"\"
     logger.info("Starting user sync", extra={"source": "hr-system"})
-    
+
     start_time = time.time()
     try:
         users = fetch_hr_directory()
         delta = calculate_delta(users)
         sync_to_idp(delta)
-        
+
         metrics.automation_duration.observe(time.time() - start_time)
         metrics.automation_success.inc()
         logger.info(f"Synced {len(delta)} users successfully")
-        
+
         return {"status": "success", "synced": len(delta)}
     except IdpConnectionError as e:
         logger.error(f"IDP connection failed: {e}")
@@ -169,9 +169,9 @@ def sync_users_to_idp():
 ---
 
 """,
-    skills=['automation', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["automation", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

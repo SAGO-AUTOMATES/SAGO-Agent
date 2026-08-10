@@ -4,8 +4,8 @@ Loads agent profiles from individual .py files in the profiles/ directory.
 Each profile file exports a get_profile() function returning an AgentProfile.
 """
 
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
-from importlib.util import spec_from_file_location, module_from_spec
 from typing import Any
 
 

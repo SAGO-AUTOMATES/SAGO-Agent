@@ -144,9 +144,16 @@ DELIVER
 ---
 
 """,
-    skills=['implementation', 'scaffolding', 'testing', 'quality', 'documentation', 'version-control'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "implementation",
+        "scaffolding",
+        "testing",
+        "quality",
+        "documentation",
+        "version-control",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-
 # Priority files loaded first (in order)
 PRIORITY_FILES = [
     "CLAUDE.md",
@@ -34,8 +33,18 @@ MAX_SINGLE_FILE_SIZE = 15_000  # characters
 
 # Directories to skip when scanning for .md files
 SKIP_DIRS = {
-    "node_modules", ".git", "__pycache__", ".venv", "venv", "env",
-    "target", "vendor", "dist", "build", ".tox", ".mypy_cache",
+    "node_modules",
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "env",
+    "target",
+    "vendor",
+    "dist",
+    "build",
+    ".tox",
+    ".mypy_cache",
 }
 
 
@@ -78,11 +87,7 @@ class ProjectInstructions:
         sago_dir = work_dir / ".sago"
         if sago_dir.exists() and sago_dir.is_dir():
             for path in sorted(sago_dir.iterdir()):
-                if (
-                    path.suffix.lower() == ".md"
-                    and path.is_file()
-                    and str(path) not in seen
-                ):
+                if path.suffix.lower() == ".md" and path.is_file() and str(path) not in seen:
                     results.append((f".sago/{path.name}", path))
                     seen.add(str(path))
 
@@ -116,10 +121,24 @@ class ProjectInstructions:
                 # Skip files that are mostly not instructions (e.g., huge READMEs with images)
                 # Heuristic: if file has < 10% instructional content, skip it
                 instructional_keywords = [
-                    "should", "must", "do not", "never", "always",
-                    "follow", "use ", "avoid ", "prefer ", "require",
-                    "rule", "guideline", "convention", "standard",
-                    "setup", "install", "configure", "test",
+                    "should",
+                    "must",
+                    "do not",
+                    "never",
+                    "always",
+                    "follow",
+                    "use ",
+                    "avoid ",
+                    "prefer ",
+                    "require",
+                    "rule",
+                    "guideline",
+                    "convention",
+                    "standard",
+                    "setup",
+                    "install",
+                    "configure",
+                    "test",
                 ]
                 content_lower = content.lower()
                 keyword_count = sum(1 for kw in instructional_keywords if kw in content_lower)
@@ -133,12 +152,14 @@ class ProjectInstructions:
 
                 parts.append(f"--- {source_label} ---\n{content}")
                 total_size += len(content)
-                loaded_files.append({
-                    "file": str(path),
-                    "source": source_label,
-                    "size": len(content),
-                    "line_count": line_count,
-                })
+                loaded_files.append(
+                    {
+                        "file": str(path),
+                        "source": source_label,
+                        "size": len(content),
+                        "line_count": line_count,
+                    }
+                )
             except Exception:
                 continue
 
@@ -146,7 +167,10 @@ class ProjectInstructions:
 
         # Final truncation if combined is too large
         if len(combined) > MAX_TOTAL_INSTRUCTION_SIZE:
-            combined = combined[:MAX_TOTAL_INSTRUCTION_SIZE] + "\n\n[...additional instructions truncated...]"
+            combined = (
+                combined[:MAX_TOTAL_INSTRUCTION_SIZE]
+                + "\n\n[...additional instructions truncated...]"
+            )
 
         self._instructions = combined
         self._metadata = {

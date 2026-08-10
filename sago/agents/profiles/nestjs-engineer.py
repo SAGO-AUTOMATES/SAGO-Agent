@@ -253,9 +253,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
 ---
 
 """,
-    skills=['nestjs', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["nestjs", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

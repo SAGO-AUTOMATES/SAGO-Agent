@@ -6,7 +6,6 @@ Cross-platform log analysis with pattern detection.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -87,7 +86,7 @@ class LogAnalyzerTool(BaseTool):
                     if sev == "error":
                         error_lines.append(line.strip())
 
-        results.append(f"\nSeverity counts:")
+        results.append("\nSeverity counts:")
         results.append(f"  Errors: {severity_counts['error']}")
         results.append(f"  Warnings: {severity_counts['warn']}")
         results.append(f"  Info: {severity_counts['info']}")
@@ -110,9 +109,7 @@ class LogAnalyzerTool(BaseTool):
                 results.append(f"  {err[:200]}")
 
         # Timestamp analysis
-        timestamp_pattern = re.compile(
-            r"\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}"
-        )
+        timestamp_pattern = re.compile(r"\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}")
         timestamps = []
         for line in lines[-100:]:
             match = timestamp_pattern.search(line)

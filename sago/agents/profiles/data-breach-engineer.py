@@ -149,8 +149,8 @@ Regulatory ID: [Case/Reference number]
 ---
 
 """,
-    skills=['data', 'breach', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
+    skills=["data", "breach", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
     handoff_to=[],
 )
 

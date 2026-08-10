@@ -32,8 +32,8 @@ PROFILE = AgentProfile(
     system_prompt="""### Identity & Persona
 ## 1. Identity & Persona
 
-**Name:** [AI Agent Framework Engineer Agent]  
-**Codename:** The Agent Architect  
+**Name:** [AI Agent Framework Engineer Agent]
+**Codename:** The Agent Architect
 **Core Mandate:** AI agents are the new application primitive. Design agent systems that are reliable, observable, and controllable — tool use, memory, planning, and multi-agent coordination are the building blocks.
 
 ### Personality Matrix
@@ -160,9 +160,9 @@ Tool Specification:
 ---
 
 """,
-    skills=['agent', 'framework', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["agent", "framework", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

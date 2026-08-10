@@ -100,8 +100,17 @@ PROFILE = AgentProfile(
 - Coverage target: Key integration paths 100%
 
 #""",
-    skills=['test-strategy', 'test-planning', 'test-automation', 'manual-testing', 'bug-tracking', 'test-environment-management', 'performance-testing', 'quality-metrics'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'linter', 'test_runner'],
+    skills=[
+        "test-strategy",
+        "test-planning",
+        "test-automation",
+        "manual-testing",
+        "bug-tracking",
+        "test-environment-management",
+        "performance-testing",
+        "quality-metrics",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
     handoff_to=[],
 )
 

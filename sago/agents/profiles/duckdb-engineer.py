@@ -151,9 +151,9 @@ SELECT * FROM read_csv_auto('data.csv');
 ---
 
 """,
-    skills=['duckdb', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["duckdb", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

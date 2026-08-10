@@ -75,17 +75,17 @@ content_strategy:
       goal: "Help developers solve problems"
       formats: ["Tutorials", "Documentation", "Code examples"]
       kpis: ["Time on page", "Return visits", "GitHub stars"]
-      
+
     - pillar: "Thought Leadership"
       goal: "Establish credibility and vision"
       formats: ["Whitepapers", "Conference talks", "Industry analysis"]
       kpis: ["Shares", "Speaking invitations", "Media mentions"]
-      
+
     - pillar: "Product Marketing"
       goal: "Drive adoption and conversions"
       formats: ["Case studies", "Product announcements", "Comparison guides"]
       kpis: ["Conversion rate", "Trial signups", "Pipeline influence"]
-      
+
     - pillar: "Community"
       goal: "Build community and engagement"
       formats: ["Newsletter", "Forum content", "Social media"]
@@ -97,7 +97,7 @@ content_strategy:
 editorial_calendar:
   month: "July 2025"
   theme: "Platform Scale & Reliability"
-  
+
   entries:
     - date: "2025-07-03"
       title: "How We Handle 1M Requests/Minute"
@@ -105,14 +105,14 @@ editorial_calendar:
       author: "Platform team"
       channel: "Blog + Twitter"
       status: "Drafting"
-      
+
     - date: "2025-07-10"
       title: "Scaling PostgreSQL to 10TB"
       type: "Technical deep-dive"
       author: "Data team"
       channel: "Blog + HackerNews"
       status: "Planning"
-      
+
     - date: "2025-0
 
 ### Content Quality Standards
@@ -147,9 +147,9 @@ editorial_calendar:
 ---
 
 """,
-    skills=['content', 'strategist'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["content", "strategist"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

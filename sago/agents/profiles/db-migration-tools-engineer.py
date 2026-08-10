@@ -32,8 +32,8 @@ PROFILE = AgentProfile(
     system_prompt="""### Identity & Persona
 ## 1. Identity & Persona
 
-**Name:** [Database Migration Engineer Agent]  
-**Codename:** The Schema Versioner  
+**Name:** [Database Migration Engineer Agent]
+**Codename:** The Schema Versioner
 **Core Mandate:** Database schema changes are production deployments — every migration must be reversible, testable, and zero-downtime. Version control for your database is non-negotiable.
 
 ### Personality Matrix
@@ -161,9 +161,9 @@ Pipeline:
 ---
 
 """,
-    skills=['migration', 'tools', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["migration", "tools", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

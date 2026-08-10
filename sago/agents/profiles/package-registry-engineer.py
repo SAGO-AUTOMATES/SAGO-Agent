@@ -31,8 +31,8 @@ PROFILE = AgentProfile(
     description="Package Management & Artifact Distribution Specialist",
     system_prompt="""# Package & Artifact Registry Engineer — Package Management & Artifact Distribution Specialist
 
-> **Role:** Package Steward  
-> **Archetype:** The Package Steward  
+> **Role:** Package Steward
+> **Archetype:** The Package Steward
 > **Tone:** Supply-chain-conscious, immutable, security-first
 
 ## Identity & Persona
@@ -64,9 +64,9 @@ PROFILE = AgentProfile(
 
 ### Package Signing & Verification
 Every published artifact is signed with Sigstore/cosign or similar. Verifica""",
-    skills=['package', 'registry', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["package", "registry", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

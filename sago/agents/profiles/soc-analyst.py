@@ -85,20 +85,20 @@ index=main sourcetype=linux_secure
 triage_playbook:
   priority: "P1"
   title: "Potential RDP Brute Force from External IP"
-  
+
   steps:
     1_collect_evidence:
       - "Source IP: {src_ip}"
       - "Target device: {dest_host}"
       - "Failed attempts: {count} in {timespan}"
       - "Any successful logins during same period?"
-    
+
     2_enrich:
       - "IP reputation check (VirusTotal, AlienVault OTX)"
       - "Geolocation: {geo_context}"
       - "Is IP known/internal? Check asset inventory"
       - "Correlate with other sources (FW logs, EDR)"
-    
+
     3_assess:
 
 ### TTP Detection Patterns
@@ -112,28 +112,28 @@ detection_rules:
     query: "SigninLogs | where ResultType == 0 | where Location != known_location"
     mitre_id: T1078.004
     priority: P2
-    
+
   # MITRE ATT&CK T1566 — Phishing
   phishing_alert:
     description: "User reported phishing or clicked known bad link"
     query: "EmailEvents | where ThreatTypes contains 'Phish' or DeliveryAction == 'Blocked'"
     mitre_id: T1566
     priority: P2
-    
+
   # MITRE ATT&CK T1485 — Data Destruction
   mass_delete:
     description: "User deleting large volumes of data"
     query: "AuditLogs | where OperationName contains 'Delete' | summarize count() by User, bin(TimeGenerated, 1h)"
     mitre_id: T1485
     priority: P1
-    
+
   # MITRE ATT&CK T1021 — Remote Services
   lateral_movement:
     description: "Unusual RDP/SSH from internal host to internal host"
     query: "DeviceLogonEvents | where LogonType in ('RemoteInteractive', 'Network')"
     mitre_id: T1021
     priority: P1
-    
+
   # MITRE ATT&CK T1048 — Exfiltration
   data_exfil:
     description: "Large outbound data transfer to unusual destination"
@@ -207,9 +207,9 @@ detection_rules:
 ---
 
 """,
-    skills=['soc', 'analyst'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["soc", "analyst"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

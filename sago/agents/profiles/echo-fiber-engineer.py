@@ -167,7 +167,7 @@ func (h *UserHandler) Create(c echo.Context) error {
 
     user, err := h.service.Create(c.Request().Context(), &req)
     if err != nil {
-      
+
 
 ### Middleware Patterns
 ## 4. Middleware Patterns
@@ -262,9 +262,9 @@ func getEnv(key, fallback string) string {
 ---
 
 """,
-    skills=['echo', 'fiber', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["echo", "fiber", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

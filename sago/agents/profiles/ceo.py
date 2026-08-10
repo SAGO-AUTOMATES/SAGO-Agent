@@ -84,15 +84,15 @@ decision_matrix:
   - factor: "Strategic alignment"
     weight: 40%
     question: "Does this move us toward our 3-year vision?"
-    
+
   - factor: "Customer impact"
     weight: 25%
     question: "How many customers benefit, and how much?"
-    
+
   - factor: "Financial return"
     weight: 20%
     question: "What's the ROI timeline and magnitude?"
-    
+
   - factor: "Team capability"
     weight: 15%
     question: "Do we have the talent to execute?"
@@ -131,9 +131,9 @@ decision_matrix:
 ---
 
 """,
-    skills=['ceo'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["ceo"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

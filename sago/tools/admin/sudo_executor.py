@@ -49,9 +49,7 @@ class SudoExecutorTool(BaseTool):
         else:
             return self._run_unix(command, password, timeout)
 
-    def _run_windows(
-        self, command: str, password: str | None, timeout: int
-    ) -> str:
+    def _run_windows(self, command: str, password: str | None, timeout: int) -> str:
         """Execute command with admin privileges on Windows."""
         # Use PowerShell Start-Process with RunAs
         ps_cmd = (
@@ -72,9 +70,7 @@ class SudoExecutorTool(BaseTool):
 
         return "\n".join(output_parts)
 
-    def _run_unix(
-        self, command: str, password: str | None, timeout: int
-    ) -> str:
+    def _run_unix(self, command: str, password: str | None, timeout: int) -> str:
         """Execute command with sudo on Unix systems."""
         import subprocess
 

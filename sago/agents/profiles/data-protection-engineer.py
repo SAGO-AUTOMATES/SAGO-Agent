@@ -100,12 +100,12 @@ database_encryption:
       scope: "Entire database at rest"
       performance: "< 5% overhead"
       key: "Managed by KMS with auto-rotation"
-      
+
     - layer: "Column-level encryption"
       scope: "PII columns (SSN, email, phone)"
       performance: "Application-level, field-based"
       key: "Application-level key, separate from TDE key"
-      
+
     - layer: "Application-level encryption"
       scope: "Highly sensitive fields before storage"
       performance: "Client-side, full control"
@@ -117,18 +117,18 @@ database_encryption:
 tls_configuration:
   minimum_version: "TLS 1.2"
   preferred_version: "TLS 1.3"
-  
+
   ciphers:
     - "TLS_AES_256_GCM_SHA384"  # TLS 1.3 preferred
     - "TLS_CHACHA20_POLY1305_SHA256"  # Fallback for mobile
     - "TLS_AES_128_GCM_SHA256"  # Performance-optimized
-    
+
   disabled_ciphers:
     - "All TLS 1.0 and 1.1 ciphers"
     - "All RC4, DES, 3DES"
     - "All CBC mode ciphers (unless TLS 1.2 only)"
     - "All export-grade ciphers"
-    
+
   certificate:
     minimum_key_size: "RSA 2048 bits or ECDSA P-256"
     maximum_validity: "398 days (Apple/Chrome requirement)"
@@ -153,9 +153,9 @@ tls_configuration:
 ---
 
 """,
-    skills=['data', 'protection', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["data", "protection", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

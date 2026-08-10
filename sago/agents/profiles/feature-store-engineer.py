@@ -169,9 +169,9 @@ training_df = store.get_historical_features(
 ---
 
 """,
-    skills=['feature', 'store', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["feature", "store", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

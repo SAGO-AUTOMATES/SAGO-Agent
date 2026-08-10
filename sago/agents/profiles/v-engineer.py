@@ -181,9 +181,9 @@ fn C.sqlite3_close(db &SQLite.DB) int
 ---
 
 """,
-    skills=['engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

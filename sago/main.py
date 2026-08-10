@@ -5,14 +5,13 @@ Main entry point for the Sago application.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from typing import Any
 
 console = Console()
 
@@ -21,6 +20,7 @@ def _get_configured_model() -> str:
     """Get the configured model from config, fallback to openrouter/free."""
     try:
         from sago.config.loader import get_config
+
         config = get_config()
         return config.llm.model or "openrouter/free"
     except Exception:
@@ -41,7 +41,12 @@ def cli() -> None:
 @cli.command()
 @click.argument("task")
 @click.option("--agent", "-a", default=None, help="Specific agent to use")
-@click.option("--chain", "-c", default=None, help="Comma-separated agent chain (e.g. python-pro,code-reviewer)")
+@click.option(
+    "--chain",
+    "-c",
+    default=None,
+    help="Comma-separated agent chain (e.g. python-pro,code-reviewer)",
+)
 @click.option("--interactive", "-i", is_flag=True, help="Interactive mode with agent selection")
 def run(task: str, agent: str | None, chain: str | None, interactive: bool) -> None:
     """Execute a task using Sago agents.
@@ -53,16 +58,19 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool) -> N
         sago run "Fix security issues" --interactive
     """
     import os
+
     from sago.database import init
     from sago.engine.simple_executor import execute_agent_task
 
     init()
 
-    console.print(Panel.fit(
-        f"[bold green]Sago Agent System[/]\n"
-        f"[dim]Task: {task[:80]}{'...' if len(task) > 80 else ''}[/]",
-        border_style="green",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold green]Sago Agent System[/]\n"
+            f"[dim]Task: {task[:80]}{'...' if len(task) > 80 else ''}[/]",
+            border_style="green",
+        )
+    )
 
     # Get API key from environment
     api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
@@ -87,26 +95,30 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool) -> N
         output = result.get("output", "No output")
         tool_calls = result.get("tool_calls", [])
         files = result.get("files_created", [])
-        
+
         if tool_calls:
-            console.print(f"\n[bold]Tool calls:[/]")
+            console.print("\n[bold]Tool calls:[/]")
             for tc in tool_calls:
                 console.print(f"  [cyan]{tc['tool']}[/]: {tc.get('result', '')[:100]}")
-        
+
         if files:
             console.print(f"\n[green]Files created:[/] {', '.join(files)}")
-        
-        console.print(Panel(
-            output,
-            title="[bold]Result[/]",
-            border_style="blue",
-        ))
+
+        console.print(
+            Panel(
+                output,
+                title="[bold]Result[/]",
+                border_style="blue",
+            )
+        )
     else:
-        console.print(Panel(
-            str(result),
-            title="[bold]Result[/]",
-            border_style="blue",
-        ))
+        console.print(
+            Panel(
+                str(result),
+                title="[bold]Result[/]",
+                border_style="blue",
+            )
+        )
 
 
 @cli.command()
@@ -116,10 +128,12 @@ def agents() -> None:
 
     agents_list = list_agents()
 
-    console.print(Panel.fit(
-        "[bold]Sago Specialist Agents[/]",
-        border_style="blue",
-    ))
+    console.print(
+        Panel.fit(
+            "[bold]Sago Specialist Agents[/]",
+            border_style="blue",
+        )
+    )
 
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Name", style="cyan")
@@ -157,11 +171,12 @@ def info(agent_name: str) -> None:
         console.print("Use 'sago agents' to see available agents.")
         return
 
-    console.print(Panel.fit(
-        f"[bold]{agent.codename}[/]\n"
-        f"[dim]{agent.role}[/]",
-        border_style="blue",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold]{agent.codename}[/]\n[dim]{agent.role}[/]",
+            border_style="blue",
+        )
+    )
 
     console.print(f"\n[bold]Description:[/]\n{agent.description}")
     console.print(f"\n[bold]Skills:[/]\n{', '.join(agent.skills)}")
@@ -171,7 +186,7 @@ def info(agent_name: str) -> None:
 
     handoff = get_handoff_targets(agent_name)
     if handoff:
-        console.print(f"\n[bold]Can Hand Off To:[/]")
+        console.print("\n[bold]Can Hand Off To:[/]")
         for h in handoff:
             console.print(f"  - {h.name} ({h.codename})")
 
@@ -180,17 +195,19 @@ def info(agent_name: str) -> None:
 def status() -> None:
     """Show Sago system status."""
     from sago.config.loader import get_config
-    from sago.paths import get_sago_home, get_db_path
     from sago.database import Session
+    from sago.paths import get_db_path, get_sago_home
 
     config = get_config()
 
-    console.print(Panel.fit(
-        "[bold]Sago System Status[/]",
-        border_style="blue",
-    ))
+    console.print(
+        Panel.fit(
+            "[bold]Sago System Status[/]",
+            border_style="blue",
+        )
+    )
 
-    console.print(f"\n[bold]Version:[/] 0.1.0")
+    console.print("\n[bold]Version:[/] 0.1.0")
     console.print(f"[bold]Home:[/] {get_sago_home()}")
     console.print(f"[bold]Database:[/] {get_db_path()}")
 
@@ -207,6 +224,7 @@ def status() -> None:
 
     # Enabled agents
     from sago.agents.registry import list_agents
+
     agents_list = list_agents()
     console.print(f"[bold]Agents:[/] {len(agents_list)} available")
 
@@ -216,19 +234,35 @@ def tools() -> None:
     """List all available tools."""
     from sago.config.loader import get_config
 
-    config = get_config()
+    get_config()
 
-    console.print(Panel.fit(
-        "[bold]Sago Tools Registry[/]",
-        border_style="blue",
-    ))
+    console.print(
+        Panel.fit(
+            "[bold]Sago Tools Registry[/]",
+            border_style="blue",
+        )
+    )
 
     tool_categories = {
-        "File Operations": ["read_file", "write_file", "edit_file", "glob_files", "grep_content", "file_operations"],
+        "File Operations": [
+            "read_file",
+            "write_file",
+            "edit_file",
+            "glob_files",
+            "grep_content",
+            "file_operations",
+        ],
         "Shell": ["execute_shell", "background_process"],
         "SSH": ["ssh_connect", "ssh_command", "ssh_transfer"],
         "Session": ["session_manager", "clipboard"],
-        "Coding": ["code_analyzer", "linter", "formatter", "test_runner", "debugger", "log_analyzer"],
+        "Coding": [
+            "code_analyzer",
+            "linter",
+            "formatter",
+            "test_runner",
+            "debugger",
+            "log_analyzer",
+        ],
         "Network": ["http_client", "dns_lookup", "port_scan", "network_config"],
         "Admin": ["software_install", "permission_manager", "sudo_executor", "prompt_generator"],
         "System": ["os_detector", "process_manager", "env_manager"],
@@ -284,10 +318,12 @@ def history(session_id: str) -> None:
         console.print(f"[dim]No messages found for session {session_id}[/]")
         return
 
-    console.print(Panel.fit(
-        f"[bold]Session History: {session_id[:12]}[/]",
-        border_style="blue",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold]Session History: {session_id[:12]}[/]",
+            border_style="blue",
+        )
+    )
 
     for msg in messages:
         role = msg["role"]
@@ -295,7 +331,7 @@ def history(session_id: str) -> None:
         content = msg["content"]
 
         if role == "user":
-            console.print(f"\n[bold blue]User:[/]")
+            console.print("\n[bold blue]User:[/]")
         elif role == "assistant":
             console.print(f"\n[bold green]{agent or 'Sago'}:[/]")
         else:
@@ -320,19 +356,21 @@ def init(name: str | None, ssh: bool) -> None:
         sago init --name my-project
         sago init --ssh
     """
+    from sago.agents.loader import load_all_profiles
     from sago.config.project_config import (
         create_config_file,
-        detect_project_languages,
         detect_project_frameworks,
+        detect_project_languages,
     )
-    from sago.agents.loader import load_all_profiles
 
     project_path = Path.cwd()
 
-    console.print(Panel.fit(
-        "[bold blue]Sago Project Initialization[/]",
-        border_style="blue",
-    ))
+    console.print(
+        Panel.fit(
+            "[bold blue]Sago Project Initialization[/]",
+            border_style="blue",
+        )
+    )
 
     # Detect project info
     languages = detect_project_languages(project_path)
@@ -371,29 +409,30 @@ def init(name: str | None, ssh: bool) -> None:
         profile = profiles[agent_name]
         console.print(f"  [cyan]{agent_name}[/] - {profile.role}")
 
-    console.print(f"\n[bold]Customize by editing config.sago.json:[/]")
+    console.print("\n[bold]Customize by editing config.sago.json:[/]")
     console.print("  - Enable/disable agents")
     console.print("  - Override system prompts")
     console.print("  - Add/remove tools per agent")
     console.print("  - Configure permissions")
     console.print("  - Set LLM provider preferences")
 
-    console.print(f"\n[bold]Usage:[/]")
-    console.print("  sago run \"your task\"          # Auto-orchestrate")
-    console.print("  sago run \"task\" --agent X     # Use specific agent")
+    console.print("\n[bold]Usage:[/]")
+    console.print('  sago run "your task"          # Auto-orchestrate')
+    console.print('  sago run "task" --agent X     # Use specific agent')
     console.print("  sago agents                   # List all agents")
 
 
 @cli.command()
 def setup() -> None:
     """Interactive setup wizard for Sago."""
-    from rich.prompt import Prompt, Confirm
+    from rich.prompt import Prompt
 
-    console.print(Panel.fit(
-        "[bold blue]Sago Setup Wizard[/]\n"
-        "[dim]Configure your multi-agent system[/]",
-        border_style="blue",
-    ))
+    console.print(
+        Panel.fit(
+            "[bold blue]Sago Setup Wizard[/]\n[dim]Configure your multi-agent system[/]",
+            border_style="blue",
+        )
+    )
 
     # Select LLM provider
     console.print("\n[bold]Select LLM Provider:[/]")
@@ -417,6 +456,7 @@ def setup() -> None:
 
     if api_key_env:
         import os
+
         key = Prompt.ask(f"Enter {api_key_env} (or press Enter to skip)")
         if key:
             os.environ[api_key_env] = key
@@ -424,10 +464,11 @@ def setup() -> None:
 
     # Initialize database
     from sago.database import init
+
     init()
     console.print("[green]Database initialized.[/]")
 
-    console.print(f"\n[green]Setup complete![/]")
+    console.print("\n[green]Setup complete![/]")
     console.print("Run [bold]sago run 'your task'[/] to get started.")
     console.print("Run [bold]sago agents[/] to see available agents.")
 
@@ -448,8 +489,9 @@ def smart(task: str, effort: str, thinking: bool) -> None:
         sago smart "Review this code" --thinking
     """
     import os
-    import json
+
     from openai import OpenAI
+
     from sago.agents.registry import get_agent, list_agents
     from sago.engine.simple_executor import execute_agent_task
 
@@ -460,10 +502,12 @@ def smart(task: str, effort: str, thinking: bool) -> None:
 
     # First: Ask the AI which agent to use
     agents = list_agents()
-    agent_list_str = "\n".join([
-        f"- {a['name']}: {a.get('role', '')} | Skills: {', '.join(a.get('skills', [])[:5])}"
-        for a in agents[:50]
-    ])
+    agent_list_str = "\n".join(
+        [
+            f"- {a['name']}: {a.get('role', '')} | Skills: {', '.join(a.get('skills', [])[:5])}"
+            for a in agents[:50]
+        ]
+    )
 
     client = OpenAI(
         api_key=api_key,
@@ -473,12 +517,15 @@ def smart(task: str, effort: str, thinking: bool) -> None:
     router_response = client.chat.completions.create(
         model=_get_configured_model(),
         messages=[
-            {"role": "system", "content": (
-                "You are a task router. Given a task, select the EXACT BEST agent name from the list.\n"
-                "Reply with ONLY the exact agent name, nothing else. No quotes, no explanation.\n"
-                "If the task mentions Java, use java-engineer. If Python, use python-engineer.\n\n"
-                f"Available agents:\n{agent_list_str}"
-            )},
+            {
+                "role": "system",
+                "content": (
+                    "You are a task router. Given a task, select the EXACT BEST agent name from the list.\n"
+                    "Reply with ONLY the exact agent name, nothing else. No quotes, no explanation.\n"
+                    "If the task mentions Java, use java-engineer. If Python, use python-engineer.\n\n"
+                    f"Available agents:\n{agent_list_str}"
+                ),
+            },
             {"role": "user", "content": f"Task: {task}"},
         ],
         max_tokens=50,
@@ -506,19 +553,21 @@ def smart(task: str, effort: str, thinking: bool) -> None:
                 agent_name = a["name"]
                 agent_def = get_agent(agent_name)
                 break
-    
+
     if not agent_def:
         agent_name = "python-engineer"
         agent_def = get_agent(agent_name)
 
     agent_role = agent_def.role if agent_def else agent_name
 
-    console.print(Panel.fit(
-        f"[bold green]Smart Execution[/]\n"
-        f"[dim]Agent: {agent_name} ({agent_role}) | Effort: {effort}[/]\n"
-        f"[dim]Task: {task[:60]}{'...' if len(task) > 60 else ''}[/]",
-        border_style="green",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold green]Smart Execution[/]\n"
+            f"[dim]Agent: {agent_name} ({agent_role}) | Effort: {effort}[/]\n"
+            f"[dim]Task: {task[:60]}{'...' if len(task) > 60 else ''}[/]",
+            border_style="green",
+        )
+    )
 
     with console.status(f"[bold green]Agent {agent_name} is working...[/]"):
         result = execute_agent_task(
@@ -541,11 +590,13 @@ def smart(task: str, effort: str, thinking: bool) -> None:
             for tc in tool_calls:
                 console.print(f"  [cyan]{tc.get('tool', '')}[/]: {tc.get('result', '')[:100]}")
 
-        console.print(Panel(
-            output,
-            title=f"[bold]{agent_name}[/]",
-            border_style="blue",
-        ))
+        console.print(
+            Panel(
+                output,
+                title=f"[bold]{agent_name}[/]",
+                border_style="blue",
+            )
+        )
         console.print(f"[dim]Completed in {iterations} iterations[/]")
     else:
         console.print(Panel(str(result), title="[bold]Result[/]", border_style="blue"))
@@ -569,11 +620,12 @@ def chain(task: str, chain: str, effort: str) -> None:
     engine = ProductionEngine()
     agent_list = [a.strip() for a in chain.split(",")]
 
-    console.print(Panel.fit(
-        f"[bold green]Agent Chain[/]\n"
-        f"[dim]{' -> '.join(agent_list)}[/]",
-        border_style="green",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold green]Agent Chain[/]\n[dim]{' -> '.join(agent_list)}[/]",
+            border_style="green",
+        )
+    )
 
     result = engine.run_chain(task, agent_list, effort=effort)
 
@@ -622,11 +674,13 @@ def workflows() -> None:
 @cli.command()
 @click.argument("name")
 @click.option("--description", "-d", default="", help="Workflow description")
-@click.option("--trigger", "-t", default="manual", help="Trigger type: manual/schedule/event/ticket")
+@click.option(
+    "--trigger", "-t", default="manual", help="Trigger type: manual/schedule/event/ticket"
+)
 def workflow_create(name: str, description: str, trigger: str) -> None:
     """Create a new workflow interactively."""
     from sago.paths import get_sago_home
-    from sago.workflow.engine import WorkflowEngine, TriggerType
+    from sago.workflow.engine import TriggerType, WorkflowEngine
 
     engine = WorkflowEngine(persist_dir=get_sago_home() / "workflows")
 
@@ -705,7 +759,7 @@ def workflow_run(workflow_id: str) -> None:
     if "error" in result:
         console.print(f"[red]Workflow failed: {result['error']}[/]")
     else:
-        console.print(f"[green]Workflow completed![/]")
+        console.print("[green]Workflow completed![/]")
         console.print(f"Status: {result.get('status')}")
         console.print(f"Progress: {result.get('progress')}")
 
@@ -713,8 +767,8 @@ def workflow_run(workflow_id: str) -> None:
 @cli.command()
 def usage() -> None:
     """Show token usage and cache statistics."""
-    from sago.tracking.token_tracker import get_token_tracker
     from sago.cache.intelligent import get_cache
+    from sago.tracking.token_tracker import get_token_tracker
 
     tracker = get_token_tracker(persist=False)
     cache = get_cache(persist=False)
@@ -752,13 +806,15 @@ def usage() -> None:
 def chat(message: str) -> None:
     """Interactive chat with Sago."""
     import os
+
     from sago.engine.simple_executor import execute_agent_task
 
-    console.print(Panel.fit(
-        "[bold green]Sago Chat[/]\n"
-        "[dim]Type 'exit' to quit, 'help' for commands[/]",
-        border_style="green",
-    ))
+    console.print(
+        Panel.fit(
+            "[bold green]Sago Chat[/]\n[dim]Type 'exit' to quit, 'help' for commands[/]",
+            border_style="green",
+        )
+    )
 
     api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
     if not api_key:
@@ -884,11 +940,13 @@ def remote(task: str, agent: str | None, host: str, port: int) -> None:
     result = client.execute(task, agent)
 
     if result.get("status") == "completed":
-        console.print(Panel(
-            result.get("result", ""),
-            title="[bold]Result[/]",
-            border_style="blue",
-        ))
+        console.print(
+            Panel(
+                result.get("result", ""),
+                title="[bold]Result[/]",
+                border_style="blue",
+            )
+        )
     else:
         console.print(f"[red]Error: {result.get('error', 'Unknown error')}[/]")
 
@@ -910,7 +968,6 @@ def workflow(task: str, agent: str, iterations: int, stream: bool) -> None:
         sago workflow "Debug the memory leak" --stream
     """
     import os
-    import sys
 
     api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
     if not api_key:
@@ -921,12 +978,14 @@ def workflow(task: str, agent: str, iterations: int, stream: bool) -> None:
 
     engine = SagoWorkflowEngine(api_key=api_key, model=_get_configured_model())
 
-    console.print(Panel.fit(
-        f"[bold green]LangGraph Workflow[/]\n"
-        f"[dim]Task: {task[:60]}{'...' if len(task) > 60 else ''}[/]\n"
-        f"[dim]Agent: {agent} | Max Iterations: {iterations}[/]",
-        border_style="green",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold green]LangGraph Workflow[/]\n"
+            f"[dim]Task: {task[:60]}{'...' if len(task) > 60 else ''}[/]\n"
+            f"[dim]Agent: {agent} | Max Iterations: {iterations}[/]",
+            border_style="green",
+        )
+    )
 
     def on_update(event: str, data: Any) -> None:
         if event == "thinking":
@@ -947,13 +1006,17 @@ def workflow(task: str, agent: str, iterations: int, stream: bool) -> None:
     if result.files_created:
         console.print(f"\n[green]Files created:[/] {', '.join(result.files_created)}")
 
-    console.print(Panel(
-        result.output,
-        title="[bold]Result[/]",
-        border_style="blue",
-    ))
+    console.print(
+        Panel(
+            result.output,
+            title="[bold]Result[/]",
+            border_style="blue",
+        )
+    )
 
-    console.print(f"[dim]Iterations: {result.iterations} | Tokens: {result.tokens['input']} in / {result.tokens['output']} out | Time: {result.elapsed:.1f}s[/]")
+    console.print(
+        f"[dim]Iterations: {result.iterations} | Tokens: {result.tokens['input']} in / {result.tokens['output']} out | Time: {result.elapsed:.1f}s[/]"
+    )
 
 
 def main() -> None:

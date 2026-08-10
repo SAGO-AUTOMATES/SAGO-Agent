@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import os
 import platform
-import sys
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -61,6 +60,7 @@ class OSDetectorTool(BaseTool):
             # Memory info
             try:
                 import psutil
+
                 mem = psutil.virtual_memory()
                 info.append(f"Total memory: {mem.total // (1024**3)} GB")
                 info.append(f"Available memory: {mem.available // (1024**3)} GB")
@@ -71,6 +71,7 @@ class OSDetectorTool(BaseTool):
             # Disk info
             try:
                 import psutil
+
                 disk = psutil.disk_usage("/")
                 info.append(f"Disk total: {disk.total // (1024**3)} GB")
                 info.append(f"Disk free: {disk.free // (1024**3)} GB")

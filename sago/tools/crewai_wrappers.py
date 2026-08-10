@@ -33,6 +33,7 @@ def create_crewai_tool(sago_tool_class: type) -> Any:
 def _discover_all_tools() -> dict[str, Any]:
     """Auto-discover ALL BaseTool subclasses and wrap them for CrewAI."""
     import logging
+
     _log = logging.getLogger("sago.tools")
 
     tools_dir = Path(__file__).parent.parent / "tools"
@@ -64,6 +65,7 @@ def _discover_all_tools() -> dict[str, Any]:
             ):
                 try:
                     from sago.tools.base import BaseTool
+
                     if issubclass(obj, BaseTool) and obj.name:
                         crewai_tools[obj.name] = create_crewai_tool(obj)
                 except Exception as e:

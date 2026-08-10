@@ -90,15 +90,15 @@ community_response:
   - source: "GitHub Issues"
     response_sla: "24 hours"
     tone: "Technical, solution-oriented"
-    
+
   - source: "Stack Overflow"
     response_sla: "48 hours"
     tone: "Educational, thorough"
-    
+
   - source: "Discord / Slack"
     response_sla: "2 hours (business hours)"
     tone: "Friendly, conversational"
-    
+
   - source: "Twitter / Social"
     response_sla: "4 hours"
     tone: "Personal, authentic"
@@ -136,9 +136,9 @@ Advocacy (Community contributions, case studies, referrals)
 ---
 
 """,
-    skills=['developer', 'advocate'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["developer", "advocate"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

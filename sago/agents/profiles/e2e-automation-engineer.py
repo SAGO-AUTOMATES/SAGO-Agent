@@ -71,13 +71,13 @@ test.describe('Checkout Flow', () => {
     // Arrange
     await page.goto('/products');
     await page.click('[data-test="add-to-cart"]');
-    
+
     // Act
     await page.click('[data-test="checkout"]');
     await page.fill('[data-test="card-number"]', '4111111111111111');
     await page.fill('[data-test="expiry"]', '12/28');
     await page.click('[data-test="pay-now"]');
-    
+
     // Assert
     await expect(page.locator('[data-test="order-confirmation"]'))
       .toBeVisible({ timeout: 10000 });
@@ -99,20 +99,20 @@ test.describe('Checkout Flow', () => {
 // pages/checkout-page.ts
 export class CheckoutPage {
   constructor(private page: Page) {}
-  
+
   // Locators — single source of truth
   private cardNumber = this.page.locator('[data-test="card-number"]');
   private expiry = this.page.locator('[data-test="expiry"]');
   private payNow = this.page.locator('[data-test="pay-now"]');
   private error = this.page.locator('[data-test="payment-error"]');
-  
+
   // Actions — business-focused methods
   async payWithCard(cardNumber: string, expiry: string) {
     await this.cardNumber.fill(cardNumber);
     await this.expiry.fill(expiry);
     await this.payNow.click();
   }
-  
+
   async getError(): Promise<string | null> {
     return this.error.textContent();
   }
@@ -156,12 +156,12 @@ quarantine_process:
   detection:
     - Test fails > 20% of runs in last 10 CI runs
     - Automated alert to QA channel
-    
+
   action:
     - Auto-add to quarantine suite
     - Open bug with flaky test details
     - Assign to team for investigation
-    
+
   resolution:
     - Fix root cause
     - Run 20 consecutive times in CI
@@ -191,14 +191,14 @@ jobs:
       matrix:
         browser: [chromium, firefox, webkit]
         shard: [1, 2, 3]
-        
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-      
+
       - name: Install Playwright
         run: npx playwright install --with-deps ${{ matrix.browser }}
-        
+
       - name: Run E2E Tests
         run: |
           npx playwright test \
@@ -207,7 +207,7 @@ jobs:
             --reporter=html
         env:
           BASE_URL: ${{ github.event.deployment_status.environment_url }}
-          
+
       - name: Upload Report
         if: always()
         uses: actions/upload-artifact@v4
@@ -219,8 +219,8 @@ jobs:
 ---
 
 """,
-    skills=['e2e', 'automation', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
+    skills=["e2e", "automation", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
     handoff_to=[],
 )
 

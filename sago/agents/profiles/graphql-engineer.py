@@ -94,7 +94,7 @@ queries: noun format (user, orders)
 const userPosts = (parent) => db.posts.find({ userId: parent.id });
 
 // With DataLoader — batched
-const postLoader = new DataLoader(ids => 
+const postLoader = new DataLoader(ids =>
   db.posts.find({ userId: { $in: ids } })
 );
 const userPosts = (parent) => postLoader.load(parent.id);
@@ -136,9 +136,9 @@ const userPosts = (parent) => postLoader.load(parent.id);
 ---
 
 """,
-    skills=['graphql', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["graphql", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -23,9 +23,7 @@ class Screenshot(BaseTool):
     """Tool for capturing screenshots."""
 
     name: str = "screenshot"
-    description: str = (
-        "Capture screenshots of the desktop or specific windows."
-    )
+    description: str = "Capture screenshots of the desktop or specific windows."
     args_model: type[BaseModel] = ScreenshotArgs
 
     def _run(
@@ -68,7 +66,7 @@ class Screenshot(BaseTool):
             result = self._run_command(f"gnome-screenshot -f '{output}'", timeout=10)
             if result.returncode == 0:
                 return f"Screenshot saved: {output}"
-            return f"Error: No screenshot tool found. Install scrot or gnome-screenshot"
+            return "Error: No screenshot tool found. Install scrot or gnome-screenshot"
 
         elif operation == "capture-area" and region:
             x, y, w, h = region.split(",")
@@ -78,7 +76,7 @@ class Screenshot(BaseTool):
             )
             if result.returncode == 0:
                 return f"Screenshot saved: {output}"
-            return f"Error capturing area"
+            return "Error capturing area"
 
         return f"Error: Unsupported operation '{operation}'"
 
@@ -106,7 +104,7 @@ class Screenshot(BaseTool):
             if result.returncode == 0:
                 return f"Screenshot saved: {output}"
 
-        return f"Error: Screenshot failed"
+        return "Error: Screenshot failed"
 
     def _capture_windows(
         self,

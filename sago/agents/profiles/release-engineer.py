@@ -162,9 +162,18 @@ build:  Build metadata (e.g., 2.0.0+build.20250614)
 ---
 
 """,
-    skills=['release-planning', 'release-pipeline', 'artifact-management', 'environment-promotion', 'change-log-management', 'rollback-orchestration', 'deployment-gates', 'release-calendar'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'debugger', 'log_analyzer'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "release-planning",
+        "release-pipeline",
+        "artifact-management",
+        "environment-promotion",
+        "change-log-management",
+        "rollback-orchestration",
+        "deployment-gates",
+        "release-calendar",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "debugger", "log_analyzer"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -76,17 +76,17 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const country = request.cf?.country || 'US';
-    
+
     // Cache strategy
     const cacheKey = new Request(url.toString(), request);
     const cache = caches.default;
     let response = await cache.match(cacheKey);
-    
+
     if (!response) {
       // Route to nearest region
       const region = getRegion(country);
       const originUrl = `https://${region}.origin.example.com${url.pathname}`;
-      
+
       response = await fetch(originUrl, {
         cf: {
           cacheTtl: env.CACHE_TTL_SECONDS,
@@ -99,12 +99,12 @@ export default {
           },
         },
       });
-      
+
       // Cache the response
       const headers = new Headers(response.headers);
       headers.set('CF-Country', country);
       headers.set('Cache-Control', `public, max-age=${env.CACHE_TTL_SECONDS}`);
-      
+
       resp
 
 ### Edge Services Strategy
@@ -137,7 +137,7 @@ interface Session {
 export async function getSession(sessionId: string, env: Env): Promise<Session | null> {
   const value = await env.SESSIONS.get(sessionId);
   if (!value) return null;
-  
+
   const session = JSON.parse(value) as Session;
   if (session.expiresAt < Date.now()) {
     await env.SESSIONS.delete(sessionId);
@@ -150,12 +150,12 @@ export async function getSession(sessionId: string, env: Env): Promise<Session |
 export async function getVariant(userId: string, env: Env): Promise<string> {
   const key = `ab:${userId}`;
   let variant = await env.FLAGS.get(key);
-  
+
   if (!variant) {
     variant = Math.random() < 0.5 ? 'control' : 'treatment';
     await env.FLAGS.put(key, variant, { expirationTtl: 86400 });
   }
-  
+
   return variant;
 }
 ```
@@ -165,20 +165,20 @@ export async function getVariant(userId: string, env: Env): Promise<string> {
 ```typescript
 function shouldBypassCache(request: Request): boolean {
   const url = new URL(request.url);
-  
+
   // Never cache auth-related requests
   if (url.pathname.startsWith('/auth/')) return true;
-  
+
   // Never cache POST/PUT/DELETE
   if (request.method !== 'GET') return true;
-  
+
   // Never cache with specific cookies
   const cookie = request.headers.get('Cookie') || '';
   if (cookie.includes('session_token=')) return true;
-  
+
   // Don't cache admin paths
   if (url.pathname.startsWith('/admin/')) return true;
-  
+
   return false;
 }
 ```
@@ -196,18 +196,18 @@ ddos_protection:
     - "100 req/s per IP to API endpoints"
     - "10 req/s per IP to login/auth"
     - "Challenge JS (Cloudflare) for suspicious traffic"
-  
+
   rules:
     - "Block traffic from known bad IPs (threat intelligence)"
     - "Block requests with missing/bad User-Agent"
     - "Block requests from data centers (unless expected)"
     - "Rate limit by ASN for aggressive sources"
-  
+
   challenge:
     - "JS challenge for moderate risk"
     - "CAPTCHA for high risk"
     - "Block for critical risk"
-  
+
   monitoring:
     - "Traffic volume anomaly detection"
     - "Origin error rate spike detection"
@@ -217,9 +217,9 @@ ddos_protection:
 ---
 
 """,
-    skills=['edge', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["edge", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

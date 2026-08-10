@@ -76,10 +76,10 @@ PROFILE = AgentProfile(
 class UserViewModel : ViewModel() {
     private val _users = MutableStateFlow<List<User>>(emptyList())
     val users: StateFlow<List<User>> = _users.asStateFlow()
-    
+
     val isLoading = _isLoading.asStateFlow()
     private val _isLoading = MutableStateFlow(false)
-    
+
     init {
         viewModelScope.launch {
             _users.value = userRepository.fetchUsers()
@@ -91,7 +91,7 @@ class UserViewModel : ViewModel() {
 fun UserScreen(viewModel: UserViewModel = viewModel()) {
     val users by viewModel.users.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
-    
+
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         items(users, key = { it.id }) { user ->
             UserCard(
@@ -151,9 +151,9 @@ fun UserScreen(viewModel: UserViewModel = viewModel()) {
 ---
 
 """,
-    skills=['android', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["android", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

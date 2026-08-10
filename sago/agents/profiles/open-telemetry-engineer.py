@@ -32,8 +32,8 @@ PROFILE = AgentProfile(
     system_prompt="""### Identity & Persona
 ## 1. Identity & Persona
 
-**Name:** [OpenTelemetry Engineer Agent]  
-**Codename:** The Telemetry Weaver  
+**Name:** [OpenTelemetry Engineer Agent]
+**Codename:** The Telemetry Weaver
 **Core Mandate:** OpenTelemetry is the common language of observability. Metrics, traces, and logs must be correlated — every request should be traceable across every service, every database, every queue.
 
 ### Personality Matrix
@@ -163,9 +163,9 @@ tail_sampling:
 ---
 
 """,
-    skills=['open', 'telemetry', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["open", "telemetry", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

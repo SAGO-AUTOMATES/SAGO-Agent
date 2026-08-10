@@ -173,9 +173,9 @@ fun watchUser(id: String): Flow<UserState> = channelFlow {
 ---
 
 """,
-    skills=['kotlin', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["kotlin", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -159,7 +159,7 @@ module Api
       end
 
       def project_params
-        params.require(:project).permit(:name, 
+        params.require(:project).permit(:name,
 
 ### Testing Patterns
 ## 4. Testing Patterns
@@ -225,9 +225,9 @@ end
 ---
 
 """,
-    skills=['rails', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["rails", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

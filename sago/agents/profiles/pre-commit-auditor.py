@@ -153,9 +153,18 @@ REPORT
 ---
 
 """,
-    skills=['secret-detection', 'credential-pattern-matching', 'sensitive-file-guard', 'large-file-warning', 'debug-code-detection', '.gitignore-compliance', 'file-permission-audit', 'merge-conflict-detection'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell', 'debugger', 'log_analyzer'],
-    handoff_to=['code-reviewer'],
+    skills=[
+        "secret-detection",
+        "credential-pattern-matching",
+        "sensitive-file-guard",
+        "large-file-warning",
+        "debug-code-detection",
+        ".gitignore-compliance",
+        "file-permission-audit",
+        "merge-conflict-detection",
+    ],
+    tools=["read_file", "write_file", "edit_file", "execute_shell", "debugger", "log_analyzer"],
+    handoff_to=["code-reviewer"],
 )
 
 

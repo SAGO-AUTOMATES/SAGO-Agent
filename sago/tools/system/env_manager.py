@@ -17,7 +17,9 @@ from sago.tools.base import BaseTool
 class EnvManagerArgs(BaseModel):
     """Arguments for EnvManagerTool."""
 
-    operation: Literal["get", "set", "list", "path", "load", "save"] = Field(description="Operation to perform")
+    operation: Literal["get", "set", "list", "path", "load", "save"] = Field(
+        description="Operation to perform"
+    )
     key: str | None = Field(default=None, description="Environment variable name")
     value: str | None = Field(default=None, description="Value to set")
     file_path: str | None = Field(default=None, description="Env file path for load/save")

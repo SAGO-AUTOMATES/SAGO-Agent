@@ -121,7 +121,7 @@ SELECT p.* FROM products p INNER JOIN reviews r ON p.id = r.product_id GROUP BY 
 | `long_query_time` | 0.5–2 seconds (start low, tune up) |
 | `log_queries_not_using_indexes` | ON for index audit |
 | `log_slow_admin_statements` | ON for DDL analysis |
-| `log_slow_slave_statements` | ON for 
+| `log_slow_slave_statements` | ON for
 
 ### Replication
 ## 4. Replication
@@ -173,9 +173,9 @@ CHANGE MASTER TO MASTER_AUTO_POSITION = 1;
 ---
 
 """,
-    skills=['mysql', 'engineer'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["mysql", "engineer"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 

@@ -78,17 +78,17 @@ program:
   program_manager: "TPM Lead"
   start_date: "2025-01-01"
   target_end_date: "2025-12-31"
-  
+
   vision: >
     Migrate all production workloads from on-premise to AWS
     with zero downtime, reduced cost, and improved reliability.
-  
+
   outcomes:
     - "100% workloads on AWS by EOY"
     - "40% reduction in infrastructure cost"
     - "99.99% uptime SLA"
     - "Disaster recovery RTO < 1 hour, RPO < 5 minutes"
-  
+
   streams:
     - name: "Compute Migration"
       lead: "Cloud Architect"
@@ -99,7 +99,7 @@ program:
     - name: "Security & Compliance"
       lead: "Security Engineer"
       dependencies: []
-  
+
   risks:
     - description: "Data migration exceeds timeline due to data volume"
       likelihood: "Medium"
@@ -109,7 +109,7 @@ program:
       likelihood: "Medium"
       impact: "Medium"
       mitigation: "Compatibility testing in staging, fallback plan"
-  
+
   governance:
     steercos: "Monthly with VP+ stakeholders"
     status_updates: "Weekly to program sponsor"
@@ -154,9 +154,9 @@ graph TD
 ---
 
 """,
-    skills=['program', 'manager'],
-    tools=['read_file', 'write_file', 'edit_file', 'execute_shell'],
-    handoff_to=['code-reviewer'],
+    skills=["program", "manager"],
+    tools=["read_file", "write_file", "edit_file", "execute_shell"],
+    handoff_to=["code-reviewer"],
 )
 
 
