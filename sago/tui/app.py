@@ -44,6 +44,7 @@ COMMANDS = {
     "/commit": "Commit (/commit <message>)",
     "/approve": "Approve pending action",
     "/deny": "Deny pending action",
+    "/yolo": "Toggle YOLO mode (auto-approve all tools)",
     "/version": "Version info",
     "/undo": "Undo last file change",
     "/changes": "Show file changes this session",
@@ -51,11 +52,40 @@ COMMANDS = {
 }
 
 MODELS = [
+    # Free models
     "openrouter/free",
-    "openrouter/deepseek/deepseek-chat",
-    "openrouter/meta-llama/llama-3.1-70b-instruct",
-    "openrouter/qwen/qwen-2.5-72b-instruct",
-    "openrouter/google/gemini-2.0-flash-001",
+    # OpenAI
+    "openai/gpt-4o",
+    "openai/gpt-4o-mini",
+    "openai/gpt-4-turbo",
+    "openai/o1-preview",
+    "openai/o1-mini",
+    # Anthropic
+    "anthropic/claude-3-5-sonnet",
+    "anthropic/claude-3-haiku",
+    "anthropic/claude-3-opus",
+    # Google
+    "google/gemini-2.0-flash-001",
+    "google/gemini-2.0-flash-lite",
+    "google/gemini-pro",
+    # Meta
+    "meta-llama/llama-3.1-70b-instruct",
+    "meta-llama/llama-3.1-405b-instruct",
+    "meta-llama/llama-3.2-90b-vision",
+    # DeepSeek
+    "deepseek/deepseek-chat",
+    "deepseek/deepseek-coder",
+    "deepseek/deepseek-r1",
+    # Mistral
+    "mistralai/mistral-large-latest",
+    "mistralai/mixtral-8x7b-instruct",
+    # Qwen
+    "qwen/qwen-2.5-72b-instruct",
+    "qwen/qwen-2.5-coder-32b-instruct",
+    # Cohere
+    "cohere/command-r-plus",
+    # Perplexity
+    "perplexity/sonar-pro",
 ]
 
 EFFORT_LEVELS = {
@@ -265,6 +295,7 @@ class SagoApp(App):
     pending_action: reactive[dict] = reactive(dict)
     pending_orchestration: dict | None = None
     approval_message: reactive[str] = reactive("")
+    yolo_mode: reactive[bool] = reactive(False)
     command_history: reactive[list[str]] = reactive(list)
     history_index: reactive[int] = reactive(-1)
     total_input_tokens: reactive[int] = reactive(0)
@@ -586,6 +617,7 @@ class SagoApp(App):
             "/commit": lambda: self._git_commit(args),
             "/approve": lambda: self._approve_action(),
             "/deny": lambda: self._deny_action(),
+            "/yolo": lambda: self._toggle_yolo(),
             "/permissions": lambda: self._show_permissions(args),
             "/allow": lambda: self._allow_tool(args),
             "/block": lambda: self._block_tool(args),
@@ -710,11 +742,13 @@ class SagoApp(App):
             n = 0
         sid = self.current_session_id[:8] if self.current_session_id else "none"
         effort = EFFORT_LEVELS.get(self.current_effort, {})
+        yolo_status = "ON ⚠️" if self.yolo_mode else "off"
         self._add_system_message(
             f"Sago v0.1.0\n"
             f"  Agent:    {self.current_agent}\n"
             f"  Model:    {self.current_model}\n"
             f"  Effort:   {self.current_effort} ({effort.get('desc', '')})\n"
+            f"  YOLO:     {yolo_status}\n"
             f"  Session:  {sid}\n"
             f"  Agents:   {n} available\n"
             f"  Messages: {len(self.messages)}"
@@ -801,16 +835,30 @@ class SagoApp(App):
 
     def _change_model(self, m: str) -> None:
         if not m:
-            self._add_system_message(
-                f"Current: {self.current_model}\n" + "\n".join(f"  {x}" for x in MODELS)
-            )
+            # Group models by provider
+            providers: dict[str, list[str]] = {}
+            for model in MODELS:
+                provider = model.split("/")[0]
+                if provider not in providers:
+                    providers[provider] = []
+                providers[provider].append(model)
+            
+            lines = [f"Current: {self.current_model}\n"]
+            for provider, models in providers.items():
+                lines.append(f"  [{provider}]")
+                for model in models:
+                    marker = " *" if model == self.current_model else "  "
+                    lines.append(f"    {marker} {model}")
+                lines.append("")
+            
+            self._add_system_message("\n".join(lines))
             return
         for model in MODELS:
             if m.lower() in model.lower():
                 self.current_model = model
                 self._add_system_message(f"Model: {model}")
                 return
-        self._add_system_message(f"Unknown: {m}\nAvailable: {', '.join(MODELS)}")
+        self._add_system_message(f"Unknown: {m}\nType /model to see all available models")
 
     def _change_provider(self, p: str) -> None:
         self.current_model = f"{p}/free" if "/" not in p else p
@@ -1052,6 +1100,7 @@ class SagoApp(App):
             if self._executor_pause_event and isinstance(
                 self._executor_pause_event, threading.Event
             ):
+                self._tool_approved = True  # Mark tool as approved
                 self._executor_pause_event.clear()  # Resume executor
                 self._add_system_message("Approved - continuing execution")
                 return
@@ -1098,6 +1147,17 @@ class SagoApp(App):
             return
         self.pending_action = {}
         self._add_system_message("Denied")
+
+    def _toggle_yolo(self) -> None:
+        """Toggle YOLO mode - auto-approve all tool calls."""
+        self.yolo_mode = not self.yolo_mode
+        if self.yolo_mode:
+            self._add_system_message(
+                "YOLO MODE ON - All tools will be auto-approved without asking\n"
+                "⚠️  Use with caution! Type /yolo again to disable"
+            )
+        else:
+            self._add_system_message("YOLO MODE OFF - Permissions restored")
 
     def _show_permissions(self, args: str) -> None:
         from sago.permissions import TOOL_RISK_LEVELS, get_permission_manager
@@ -1309,7 +1369,7 @@ class SagoApp(App):
         self, tool_calls: list[dict], output: str, elapsed: float, tokens: dict
     ) -> None:
         n_tools = len(tool_calls)
-        n_ok = sum(1 for t in tool_calls if t.get("success", True))
+        n_ok = sum(1 for t in tool_calls if t.get("success", False))
         n_fail = n_tools - n_ok
         t_in = tokens.get("input", 0)
         t_out = tokens.get("output", 0)
@@ -1322,9 +1382,19 @@ class SagoApp(App):
         self.total_cache_hit_tokens += cache_hit
         self.total_cache_miss_tokens += cache_miss
 
-        lines = [
-            f"Summary: {n_tools} calls ({n_ok} ok, {n_fail} fail) | {t_in}+{t_out} tokens | {elapsed:.1f}s"
-        ]
+        # Build summary line
+        parts = []
+        if n_tools > 0:
+            parts.append(f"{n_tools} tool{'s' if n_tools != 1 else ''} ({n_ok} ok, {n_fail} fail)")
+        if t_in > 0 or t_out > 0:
+            parts.append(f"{t_in:,}+{t_out:,} tokens")
+        if elapsed > 0:
+            parts.append(f"{elapsed:.1f}s")
+        
+        if not parts:
+            parts.append("Done")
+
+        lines = ["Summary: " + " | ".join(parts)]
 
         if cache_hit > 0:
             lines.append(f"Cache: {cache_hit:,} hit, {cache_miss:,} miss")
@@ -1332,7 +1402,7 @@ class SagoApp(App):
         files = [
             t["args"].get("file_path", "")
             for t in tool_calls
-            if t.get("tool") == "write_file" and t.get("success", True)
+            if t.get("tool") == "write_file" and t.get("success", False)
         ]
         files = [f for f in files if f]
         if files:
@@ -1846,22 +1916,44 @@ class SagoApp(App):
 
                             pm = get_permission_manager()
                             risk = pm.get_risk_level(name)
-                            allowed, reason = pm.check_permission(
-                                name, args, self.current_session_id
-                            )
+                            
+                            # YOLO mode: skip all permission checks
+                            if self.yolo_mode:
+                                allowed = True
+                                reason = "YOLO mode"
+                            else:
+                                allowed, reason = pm.check_permission(
+                                    name, args, self.current_session_id
+                                )
 
                             if not allowed:
                                 if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
                                     # For high/critical risk, ask user in TUI
                                     self.call_from_thread(
-                                        self._add_system_message,
-                                        f"Tool '{name}' requires approval (risk: {risk.value})",
+                                        self._show_approval_bar,
+                                        f"Allow {name}? (risk: {risk.value}) — Press [Y] or [N]"
                                     )
-                                    # Auto-deny for now - can add interactive prompt later
-                                    results_for_llm.append(
-                                        f"Permission denied: {name} requires approval"
-                                    )
-                                    continue
+                                    # Store pending tool for approval
+                                    pause_event = threading.Event()
+                                    pause_event.set()  # Start paused
+                                    self._executor_pause_event = pause_event
+                                    self._pending_tool_approval = {
+                                        "name": name,
+                                        "args": args,
+                                        "results_for_llm": results_for_llm,
+                                    }
+                                    pause_event.wait()  # Block until user responds
+                                    self._executor_pause_event = None
+                                    self._pending_tool_approval = None
+                                    # Check if approved (resume with allow flag)
+                                    if hasattr(self, '_tool_approved') and self._tool_approved:
+                                        self._tool_approved = False
+                                        # Continue to execute
+                                    else:
+                                        results_for_llm.append(
+                                            f"Permission denied: {name} requires approval"
+                                        )
+                                        continue
                                 else:
                                     results_for_llm.append(f"Permission denied: {reason}")
                                     continue
