@@ -1360,7 +1360,7 @@ def _extract_tool_calls(content: str) -> list[str]:
     # Format 5: Free model format — <|tool_call>call:tool_name{arg: val, ...}<tool_call|>
     # e.g. <|tool_call>call:read_file{file_path: "/path/to/file"}<tool_call|>
     for m in re.finditer(
-        r"<\|tool_call\>call:(\w+)\{(.*?)\}<tool_call\>", content, re.DOTALL
+        r"<\|tool_call\>call:(\w+)\{(.*?)\}<tool_call\|>", content, re.DOTALL
     ):
         tool_name = m.group(1)
         kwargs_str = m.group(2)

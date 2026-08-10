@@ -1753,9 +1753,33 @@ class SagoApp(App):
                             token = chunk.choices[0].delta.content
                             content += token
 
-                    if not content and hasattr(stream, "choices") and stream.choices:
-                        if hasattr(stream.choices[0].message, "reasoning"):
-                            content = stream.choices[0].message.reasoning or ""
+                    # Handle empty content from streaming
+                    if not content:
+                        # Try non-streaming fallback for this iteration
+                        try:
+                            fallback = client.chat.completions.create(
+                                model=self.current_model,
+                                messages=messages,
+                                max_tokens=effort["max_tokens"],
+                                temperature=0.3,
+                            )
+                            content = fallback.choices[0].message.content or ""
+                            if not content and hasattr(fallback.choices[0].message, "reasoning"):
+                                content = fallback.choices[0].message.reasoning or ""
+                        except Exception:
+                            pass
+
+                    # Final fallback - show error instead of empty
+                    if not content or content.strip() == "":
+                        if iteration < effort["max_iterations"] - 1:
+                            messages.append({"role": "user", "content": (
+                                "You returned an empty response. "
+                                "Please respond with text or use a tool. "
+                                "For tools, output: {\"name\": \"tool_name\", \"args\": {...}}"
+                            )})
+                            continue
+                        else:
+                            content = "I wasn't able to generate a response. Please try again."
 
                     messages.append({"role": "assistant", "content": content})
 
@@ -2132,7 +2156,21 @@ class SagoApp(App):
                 except Exception:
                     pass
 
-                self.call_from_thread(self._add_assistant_message, content)
+                # Always show the response - handle empty content
+                if content and content.strip():
+                    self.call_from_thread(self._add_assistant_message, content)
+                elif tool_history:
+                    # Had tool calls but no final text - show summary of what was done
+                    tools_done = [t["tool"] for t in tool_history]
+                    self.call_from_thread(
+                        self._add_assistant_message,
+                        f"Completed using: {', '.join(tools_done)}"
+                    )
+                else:
+                    self.call_from_thread(
+                        self._add_assistant_message,
+                        "I wasn't able to process your request. Please try rephrasing."
+                    )
 
             except ImportError:
                 # Fallback to non-streaming
@@ -2195,12 +2233,32 @@ class SagoApp(App):
                     result.get("tokens", {}),
                 )
 
-                output = result.get("output", "No response")
-                self.call_from_thread(self._add_assistant_message, output)
+                output = result.get("output", "")
+                tool_calls = result.get("tool_calls", [])
+                if output and output.strip():
+                    self.call_from_thread(self._add_assistant_message, output)
+                elif tool_calls:
+                    tools_done = [t.get("tool", "unknown") for t in tool_calls]
+                    self.call_from_thread(
+                        self._add_assistant_message,
+                        f"Completed using: {', '.join(tools_done)}"
+                    )
+                else:
+                    self.call_from_thread(
+                        self._add_assistant_message,
+                        "I wasn't able to process your request. Please try rephrasing."
+                    )
 
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_system_message, f"Error: {e}")
+            error_msg = str(e)
+            if "429" in error_msg or "rate" in error_msg.lower():
+                error_msg = "Rate limited. Wait a moment or add credits at https://openrouter.ai/settings/credits"
+            elif "401" in error_msg or "auth" in error_msg.lower():
+                error_msg = "Authentication failed. Check your API key."
+            elif "404" in error_msg:
+                error_msg = "Model not found. Try a different model."
+            self.call_from_thread(self._add_system_message, f"Error: {error_msg}")
         finally:
             self.is_thinking = False
 
