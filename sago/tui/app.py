@@ -14,9 +14,9 @@ from rich.syntax import Syntax
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import ScrollableContainer, Vertical
+from textual.containers import ScrollableContainer, Vertical, Horizontal
 from textual.reactive import reactive
-from textual.widgets import Collapsible, Input, Static
+from textual.widgets import Collapsible, Input, Static, Button, Footer
 
 
 COMMANDS = {
@@ -172,12 +172,50 @@ class SagoApp(App):
         padding: 1;
         margin: 0 0 1 0;
     }
+
+    #approval-bar {
+        display: none;
+        height: auto;
+        background: #161b22;
+        border: solid #f0883e;
+        margin: 0 1 0 1;
+        padding: 1;
+    }
+    #approval-bar.visible { display: block; }
+
+    #approval-bar .approval-label {
+        color: #f0883e;
+        text-style: bold;
+        padding: 0 0 1 0;
+    }
+
+    #approval-bar .approval-buttons {
+        layout: horizontal;
+        height: 3;
+    }
+
+    #approval-bar Button {
+        margin: 0 1 0 0;
+        min-width: 12;
+    }
+
+    .approve-btn { background: #238636; color: #ffffff; border: solid #2ea043; }
+    .approve-btn:hover { background: #2ea043; }
+    .approve-btn:focus { border: solid #ffffff; }
+
+    .deny-btn { background: #da3633; color: #ffffff; border: solid #f85149; }
+    .deny-btn:hover { background: #f85149; }
+    .deny-btn:focus { border: solid #ffffff; }
     """
 
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear"),
         Binding("escape", "dismiss_suggestions", "Dismiss"),
+        Binding("y", "approve_action", "Approve", show=True, priority=True),
+        Binding("n", "deny_action", "Deny", show=True, priority=True),
+        Binding("ctrl+y", "approve_action", "Approve", show=False),
+        Binding("ctrl+n", "deny_action", "Deny", show=False),
     ]
 
     TITLE = "Sago"
@@ -193,6 +231,8 @@ class SagoApp(App):
     suggestion_index: reactive[int] = reactive(0)
     is_thinking: reactive[bool] = reactive(False)
     pending_action: reactive[dict] = reactive(dict)
+    pending_orchestration: dict | None = None
+    approval_message: reactive[str] = reactive("")
     command_history: reactive[list[str]] = reactive(list)
     history_index: reactive[int] = reactive(-1)
     total_input_tokens: reactive[int] = reactive(0)
@@ -207,8 +247,14 @@ class SagoApp(App):
     def compose(self) -> ComposeResult:
         yield ScrollableContainer(id="messages")
         yield Vertical(id="suggestions")
+        with Vertical(id="approval-bar"):
+            yield Static("Pending action", id="approval-label", classes="approval-label")
+            with Horizontal(id="approval-buttons"):
+                yield Button("Approve [Y]", id="btn-approve", variant="success", classes="approve-btn")
+                yield Button("Deny [N]", id="btn-deny", variant="error", classes="deny-btn")
         with Vertical(id="input-area"):
             yield Input(placeholder="/, @, # for autocomplete", id="msg-input")
+        yield Footer()
 
     def on_mount(self) -> None:
         self._spinner = None
@@ -409,6 +455,38 @@ class SagoApp(App):
 
     def action_dismiss_suggestions(self) -> None:
         self._hide_suggestions()
+
+    def action_approve_action(self) -> None:
+        """Handle Y key or Approve button click."""
+        if self.approval_message:
+            self._approve_action()
+
+    def action_deny_action(self) -> None:
+        """Handle N key or Deny button click."""
+        if self.approval_message:
+            self._deny_action()
+
+    @on(Button.Pressed, "#btn-approve")
+    def on_approve_pressed(self, event: Button.Pressed) -> None:
+        """Handle Approve button click."""
+        self._approve_action()
+
+    @on(Button.Pressed, "#btn-deny")
+    def on_deny_pressed(self, event: Button.Pressed) -> None:
+        """Handle Deny button click."""
+        self._deny_action()
+
+    def _show_approval_bar(self, message: str) -> None:
+        """Show the approval bar with a message."""
+        self.approval_message = message
+        label = self.query_one("#approval-label", Static)
+        label.update(f"  {message}")
+        self.query_one("#approval-bar").add_class("visible")
+
+    def _hide_approval_bar(self) -> None:
+        """Hide the approval bar."""
+        self.approval_message = ""
+        self.query_one("#approval-bar").remove_class("visible")
 
     def _show_spinner(self, text: str = "Thinking") -> None:
         self._hide_spinner()
@@ -885,10 +963,11 @@ class SagoApp(App):
             self._add_system_message("Usage: /commit <message>")
             return
         self.pending_action = {"type": "git_commit", "message": msg}
-        self._add_system_message(f"Commit: \"{msg}\"?\nType /approve or /deny")
+        self._show_approval_bar(f"Commit: \"{msg}\"?  Press [Y] Approve or [N] Deny")
 
     def _approve_action(self) -> None:
         import threading
+        self._hide_approval_bar()
         action = self.pending_action
         if not action:
             # Check for pending orchestration plan
@@ -926,6 +1005,7 @@ class SagoApp(App):
 
     def _deny_action(self) -> None:
         import threading
+        self._hide_approval_bar()
         # Check for pending orchestration plan
         if hasattr(self, 'pending_orchestration') and self.pending_orchestration:
             self.pending_orchestration = None
@@ -1060,8 +1140,8 @@ class SagoApp(App):
             current = plan.current_todo
             if current:
                 tm.wait_for_input(plan.id, current.id, message)
-                self._add_system_message(f"⏳ Waiting for input: {message}")
                 self.pending_action = {"type": "user_input", "plan_id": plan.id, "todo_id": current.id}
+                self._show_approval_bar(f"Input needed: {message}")
         else:
             self._add_system_message(f"❓ {message}")
 
@@ -1293,9 +1373,13 @@ class SagoApp(App):
                 agent = step.get("agent", "python-engineer")
                 step_task = step.get("task", "")[:80]
                 plan_lines.append(f"  {i+1}. {agent}: {step_task}")
-            plan_msg = "Proposed plan:\n" + "\n".join(plan_lines) + "\n\nUse /approve or /deny"
+            plan_summary = f"Orchestration plan ({len(plan)} steps):\n" + "\n".join(plan_lines)
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_system_message, plan_msg)
+            self.call_from_thread(self._add_system_message, plan_summary)
+
+            # Show approval bar with buttons
+            approval_msg = f"Execute {len(plan)} steps?  Press [Y] Approve or [N] Deny"
+            self.call_from_thread(self._show_approval_bar, approval_msg)
 
             # Store plan for /approve command
             self.pending_orchestration = {"task": task, "plan": plan}
