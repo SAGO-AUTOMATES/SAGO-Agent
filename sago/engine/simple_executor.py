@@ -738,6 +738,17 @@ def execute_agent_task(
         if not content and hasattr(choice.message, "reasoning") and choice.message.reasoning:
             content = choice.message.reasoning
 
+        # Handle empty or None content - retry with clearer prompt
+        if not content or content.strip() == "":
+            if i < max_iterations - 1:
+                messages.append({"role": "user", "content": (
+                    "You returned an empty response. Please use the available tools to complete the task. "
+                    "Output a JSON tool call like: {\"name\": \"tool_name\", \"args\": {\"param\": \"value\"}}"
+                )})
+                continue
+            else:
+                content = "Error: Model returned empty response. Try again or use a different model."
+
         if hasattr(response, "usage") and response.usage:
             total_tokens_in += response.usage.prompt_tokens or 0
             total_tokens_out += response.usage.completion_tokens or 0
@@ -1089,6 +1100,7 @@ def execute_agent_task(
 def _extract_tool_calls(content: str) -> list[str]:
     matches = []
 
+    # Format 1: Single JSON object on its own line
     for line in content.splitlines():
         line = line.strip()
         if line.startswith("{") and line.endswith("}"):
@@ -1102,6 +1114,7 @@ def _extract_tool_calls(content: str) -> list[str]:
     if matches:
         return matches
 
+    # Format 2: Inside code blocks
     for pattern in [r'```json\s*\n(.*?)\n```', r'```\s*\n(\{.*?\})\n```']:
         for f in re.findall(pattern, content, re.DOTALL):
             try:
@@ -1114,11 +1127,27 @@ def _extract_tool_calls(content: str) -> list[str]:
     if matches:
         return matches
 
+    # Format 3: XML-style tags
     for tool_name, args_str in re.findall(r'<tool_call>(\w+)(.*?)</tool_call>', content, re.DOTALL):
         args = {}
         for m in re.finditer(r'<arg_key>(\w+)</arg_key><arg_value>(.*?)</arg_value>', args_str, re.DOTALL):
             args[m.group(1)] = m.group(2)
         if args:
             matches.append(json.dumps({"name": tool_name, "args": args}))
+
+    if matches:
+        return matches
+
+    # Format 4: Try to find any JSON-like structure with tool call patterns
+    # This handles cases where LLM wraps in markdown or adds extra text
+    for m in re.finditer(r'\{[^{}]*"name"\s*:\s*"(\w+)"[^{}]*"args"\s*:\s*\{[^{}]*\}[^{}]*\}', content, re.DOTALL):
+        try:
+            data = json.loads(m.group(0))
+            if "name" in data and "args" in data:
+                matches.append(m.group(0))
+        except json.JSONDecodeError:
+            pass
+
+    return matches
 
     return matches
