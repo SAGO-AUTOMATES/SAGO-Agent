@@ -891,6 +891,13 @@ class SagoApp(App):
         import threading
         action = self.pending_action
         if not action:
+            # Check for pending orchestration plan
+            if hasattr(self, 'pending_orchestration') and self.pending_orchestration:
+                plan = self.pending_orchestration.get("plan")
+                if plan:
+                    self.pending_orchestration = None
+                    self._execute_orchestration_plan(plan)
+                    return
             # Check if executor is paused (waiting for user confirmation)
             if self._executor_pause_event and isinstance(self._executor_pause_event, threading.Event):
                 self._executor_pause_event.clear()  # Resume executor
@@ -906,7 +913,6 @@ class SagoApp(App):
             except Exception as e:
                 self._add_system_message(f"Failed: {e}")
         elif action["type"] == "user_input":
-            # Handle user input for todo
             plan_id = action.get("plan_id")
             todo_id = action.get("todo_id")
             if plan_id and todo_id:
@@ -920,6 +926,11 @@ class SagoApp(App):
 
     def _deny_action(self) -> None:
         import threading
+        # Check for pending orchestration plan
+        if hasattr(self, 'pending_orchestration') and self.pending_orchestration:
+            self.pending_orchestration = None
+            self._add_system_message("Orchestration plan denied")
+            return
         # Check if executor is paused - resume with skip
         if self._executor_pause_event and isinstance(self._executor_pause_event, threading.Event):
             self._executor_pause_event.clear()  # Resume executor (it will skip the current step)
@@ -1165,7 +1176,9 @@ class SagoApp(App):
             api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
-                self.call_from_thread(self._add_system_message, "No API key.")
+                self.call_from_thread(self._add_system_message,
+                    "No API key. Set OPENROUTER_API_KEY or OPENAI_API_KEY.\n"
+                    "You can still use Sago without agent delegation.")
                 return
 
             from sago.tools.file.spawn_agent import SpawnAgentTool
@@ -1173,10 +1186,22 @@ class SagoApp(App):
             result = tool.run(task=task, agent_name=agent_name)
 
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_assistant_message, result)
+
+            # If agent spawning failed, offer fallback
+            if "could not be spawned" in result or "Error:" in result:
+                self.call_from_thread(self._add_system_message,
+                    f"{result}\n\n"
+                    f"Would you like to:\n"
+                    f"  1. Run the task directly (type the task again without /delegate)\n"
+                    f"  2. Try a different agent"
+                )
+            else:
+                self.call_from_thread(self._add_assistant_message, result)
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_system_message, f"Delegation error: {e}")
+            self.call_from_thread(self._add_system_message,
+                f"Delegation error: {e}\n"
+                f"Try running the task directly instead.")
         finally:
             self.is_thinking = False
 
@@ -1216,37 +1241,44 @@ class SagoApp(App):
             api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
-                self.call_from_thread(self._add_system_message, "No API key.")
+                self.call_from_thread(self._add_system_message, "No API key. Set OPENROUTER_API_KEY or OPENAI_API_KEY.")
                 return
 
             from openai import OpenAI
             from sago.agents.registry import list_agents
 
-            client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+            client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=30.0)
             agents = list_agents()
             agent_list_str = "\n".join([
                 f"- {a['name']}: {a.get('role', '')} | Skills: {', '.join(a.get('skills', [])[:3])}"
                 for a in agents[:50]
             ])
 
-            response = client.chat.completions.create(
-                model=self.current_model,
-                messages=[
-                    {"role": "system", "content": (
-                        "You are a task orchestrator. Analyze the task and break it into steps.\n"
-                        "For each step, specify which agent should handle it.\n"
-                        "Reply with a JSON list of steps: [{\"agent\": \"agent-name\", \"task\": \"what to do\"}]\n\n"
-                        f"Available agents:\n{agent_list_str}"
-                    )},
-                    {"role": "user", "content": task},
-                ],
-                max_tokens=1024,
-            )
+            try:
+                response = client.chat.completions.create(
+                    model=self.current_model,
+                    messages=[
+                        {"role": "system", "content": (
+                            "You are a task orchestrator. Analyze the task and break it into steps.\n"
+                            "For each step, specify which agent should handle it.\n"
+                            "Reply with a JSON list of steps: [{\"agent\": \"agent-name\", \"task\": \"what to do\"}]\n\n"
+                            f"Available agents:\n{agent_list_str}"
+                        )},
+                        {"role": "user", "content": task},
+                    ],
+                    max_tokens=1024,
+                )
+            except Exception as api_err:
+                self.call_from_thread(self._hide_spinner)
+                self.call_from_thread(self._add_system_message,
+                    f"Failed to create orchestration plan: {api_err}\n"
+                    f"Try running the task directly instead of using /orchestrate."
+                )
+                return
 
             plan_text = response.choices[0].message.content or "[]"
             import json
             try:
-                # Try to extract JSON from the response
                 json_match = re.search(r'\[.*\]', plan_text, re.DOTALL)
                 if json_match:
                     plan = json.loads(json_match.group())
@@ -1255,24 +1287,58 @@ class SagoApp(App):
             except json.JSONDecodeError:
                 plan = [{"agent": "python-engineer", "task": task}]
 
-            self.call_from_thread(self._update_spinner, f"Executing {len(plan)} steps...")
+            # Show plan and ask for confirmation
+            plan_lines = []
+            for i, step in enumerate(plan):
+                agent = step.get("agent", "python-engineer")
+                step_task = step.get("task", "")[:80]
+                plan_lines.append(f"  {i+1}. {agent}: {step_task}")
+            plan_msg = "Proposed plan:\n" + "\n".join(plan_lines) + "\n\nUse /approve or /deny"
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(self._add_system_message, plan_msg)
+
+            # Store plan for /approve command
+            self.pending_orchestration = {"task": task, "plan": plan}
+
+        except Exception as e:
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(self._add_system_message, f"Orchestration error: {e}")
+        finally:
+            self.is_thinking = False
+
+    def _execute_orchestration_plan(self, plan: list[dict]) -> None:
+        """Execute an approved orchestration plan."""
+        self.is_thinking = True
+        self.call_from_thread(self._show_spinner, f"Executing {len(plan)} steps...")
+        try:
             from sago.tools.file.spawn_agent import SpawnAgentTool
             tool = SpawnAgentTool()
             results = []
+            failed_steps = []
 
             for i, step in enumerate(plan):
                 agent = step.get("agent", "python-engineer")
                 step_task = step.get("task", "")
                 self.call_from_thread(self._update_spinner, f"Step {i+1}/{len(plan)}: {agent}")
                 result = tool.run(task=step_task, agent_name=agent)
-                results.append(f"**{agent}**: {result[:500]}")
+
+                # Check if step failed
+                if result.startswith("Agent '") and "could not be spawned" in result:
+                    failed_steps.append((i+1, agent, result))
+                    results.append(f"**{agent}** (FAILED): {result[:300]}")
+                else:
+                    results.append(f"**{agent}**: {result[:500]}")
 
             self.call_from_thread(self._hide_spinner)
+
+            # Show results with failure summary
             final = f"Orchestration complete ({len(plan)} steps):\n\n" + "\n\n".join(results)
+            if failed_steps:
+                final += f"\n\n**{len(failed_steps)} step(s) failed** — you can retry those steps or run the task directly."
             self.call_from_thread(self._add_assistant_message, final)
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_system_message, f"Orchestration error: {e}")
+            self.call_from_thread(self._add_system_message, f"Execution error: {e}")
         finally:
             self.is_thinking = False
 

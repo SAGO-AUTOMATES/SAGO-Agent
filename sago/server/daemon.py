@@ -261,11 +261,17 @@ class SagoDaemon:
 
             agent_role = agent.replace("-", " ").title() if agent else "Sago Orchestrator"
 
+            try:
+                from sago.config.loader import get_config
+                model = get_config().llm.model or "openrouter/free"
+            except Exception:
+                model = "openrouter/free"
+
             result = execute_agent_task(
                 task=task,
                 agent_role=agent_role,
                 api_key=api_key,
-                model="openrouter/free",
+                model=model,
                 max_tokens=16384,
                 max_iterations=8,
             )

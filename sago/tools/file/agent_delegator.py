@@ -241,25 +241,62 @@ class AgentDelegator:
                     "confidence": result.confidence,
                     "reason": result.reason,
                     "success": False,
-                    "error": "No API key configured",
+                    "error": "No API key configured. Set OPENROUTER_API_KEY or OPENAI_API_KEY.",
                 }
 
-            exec_result = execute_agent_task(
-                task=task,
-                agent_role=agent_name.replace("-", " ").title(),
-                api_key=api_key,
-                model="openrouter/free",
-                max_tokens=4096,
-                max_iterations=5,
-            )
+            # Use configured model, fallback to openrouter/free
+            try:
+                from sago.config.loader import get_config
+                config = get_config()
+                model = config.llm.model or "openrouter/free"
+            except Exception:
+                model = "openrouter/free"
+
+            # Try configured model first, then free model as fallback
+            models_to_try = [model]
+            if model != "openrouter/free":
+                models_to_try.append("openrouter/free")
+
+            last_error = ""
+            for try_model in models_to_try:
+                try:
+                    exec_result = execute_agent_task(
+                        task=task,
+                        agent_role=agent_name.replace("-", " ").title(),
+                        api_key=api_key,
+                        model=try_model,
+                        max_tokens=4096,
+                        max_iterations=5,
+                    )
+                    output = exec_result.get("output", "")
+                    # Check for real response
+                    if output and not output.startswith("Error:") and len(output.strip()) > 10:
+                        return {
+                            "delegated_to": agent_name,
+                            "confidence": result.confidence,
+                            "reason": result.reason,
+                            "recommended_agents": result.recommended_agents,
+                            "success": True,
+                            "output": output,
+                            "tool_calls": len(exec_result.get("tool_calls", [])),
+                        }
+                    last_error = output or "Empty response"
+                except Exception as e:
+                    last_error = str(e)
+                    continue
+
+            # All models failed
             return {
                 "delegated_to": agent_name,
                 "confidence": result.confidence,
                 "reason": result.reason,
-                "recommended_agents": result.recommended_agents,
-                "success": exec_result.get("success", False),
-                "output": exec_result.get("output", ""),
-                "tool_calls": len(exec_result.get("tool_calls", [])),
+                "success": False,
+                "error": f"Agent '{agent_name}' failed: {last_error}",
+                "alternatives": [
+                    "Run the task directly without agent delegation",
+                    "Try a different agent",
+                    "Check API key credits at https://openrouter.ai/settings/credits",
+                ],
             }
         except Exception as e:
             return {

@@ -705,10 +705,25 @@ def execute_agent_task(
                 temperature=temp,
             )
         except Exception as e:
+            error_msg = str(e)
+            # Provide helpful error messages for common failures
+            if "429" in error_msg or "rate" in error_msg.lower():
+                error_msg = (
+                    f"Rate limit exceeded for model '{model}'.\n"
+                    f"Try: 1) Wait a moment and retry, 2) Use a different model, "
+                    f"3) Add credits at https://openrouter.ai/settings/credits"
+                )
+            elif "401" in error_msg or "auth" in error_msg.lower():
+                error_msg = f"Authentication failed. Check your API key for {model}."
+            elif "404" in error_msg or "not found" in error_msg.lower():
+                error_msg = f"Model '{model}' not found. Try 'openrouter/free' or check available models."
+            elif "insufficient" in error_msg.lower() or "credit" in error_msg.lower():
+                error_msg = f"Insufficient credits for model '{model}'. Add credits or use 'openrouter/free'."
+
             return {
                 "success": False,
-                "error": str(e),
-                "output": content or f"API error: {e}",
+                "error": error_msg,
+                "output": content or f"API error: {error_msg}",
                 "tool_calls": tool_history,
                 "iterations": i + 1,
                 "tokens": {"input": total_tokens_in, "output": total_tokens_out, "cache_hit": total_cache_hit, "cache_miss": total_cache_miss},

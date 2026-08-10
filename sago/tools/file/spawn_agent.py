@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+import os
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -41,6 +41,7 @@ class SpawnAgentTool(BaseTool):
         "lua-engineer, perl-engineer, r-engineer, scala-engineer"
     )
     args_model = SpawnAgentArgs
+    risk_level = "high"
 
     def _run(
         self,
@@ -50,9 +51,6 @@ class SpawnAgentTool(BaseTool):
         **kwargs: Any,
     ) -> str:
         """Spawn an agent to handle a task."""
-        import os
-        from pathlib import Path
-
         api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
         if not api_key:
             return "Error: No API key set. Set OPENROUTER_API_KEY or OPENAI_API_KEY."
@@ -60,28 +58,60 @@ class SpawnAgentTool(BaseTool):
         # Get agent profile for system prompt
         system_prompt = self._get_agent_prompt(agent_name, context)
 
-        # Use simple_executor to run the task
-        from sago.engine.simple_executor import execute_agent_task
+        # Use configured model from config, not hardcoded
+        try:
+            from sago.config.loader import get_config
+            config = get_config()
+            model = config.llm.model or "openrouter/free"
+        except Exception:
+            model = "openrouter/free"
 
-        result = execute_agent_task(
-            task=task,
-            agent_role=agent_name.replace("-", " ").title(),
-            system_prompt=system_prompt,
-            api_key=api_key,
-            model="openrouter/free",
-            max_tokens=4096,
-            max_iterations=5,
+        # Try with configured model first, fallback to free model
+        models_to_try = [model]
+        if model != "openrouter/free":
+            models_to_try.append("openrouter/free")
+
+        last_error = None
+        for try_model in models_to_try:
+            try:
+                from sago.engine.simple_executor import execute_agent_task
+
+                result = execute_agent_task(
+                    task=task,
+                    agent_role=agent_name.replace("-", " ").title(),
+                    system_prompt=system_prompt,
+                    api_key=api_key,
+                    model=try_model,
+                    max_tokens=4096,
+                    max_iterations=5,
+                )
+
+                output = result.get("output", "No response")
+                tools_used = result.get("tool_calls", [])
+
+                # Check if we got a real response (not just an error)
+                if output and not output.startswith("Error:") and len(output.strip()) > 10:
+                    response_parts = [f"[Agent: {agent_name}]"]
+                    if tools_used:
+                        response_parts.append(f"Tools used: {', '.join(t['tool'] for t in tools_used)}")
+                    response_parts.append(output)
+                    return "\n".join(response_parts)
+
+                last_error = output or "Empty response"
+
+            except Exception as e:
+                last_error = str(e)
+                continue
+
+        # All models failed — provide helpful error with alternatives
+        return (
+            f"Agent '{agent_name}' could not be spawned.\n"
+            f"Reason: {last_error}\n\n"
+            f"Alternatives:\n"
+            f"  1. Try running the task directly (without agent delegation)\n"
+            f"  2. Check your API key and credits at https://openrouter.ai/settings/credits\n"
+            f"  3. Use /agent <name> to switch to a specialist agent first"
         )
-
-        output = result.get("output", "No response")
-        tools_used = result.get("tool_calls", [])
-
-        response_parts = [f"[Agent: {agent_name}]"]
-        if tools_used:
-            response_parts.append(f"Tools used: {', '.join(t['tool'] for t in tools_used)}")
-        response_parts.append(output)
-
-        return "\n".join(response_parts)
 
     def _get_agent_prompt(self, agent_name: str, context: str = "") -> str:
         """Get system prompt for an agent."""

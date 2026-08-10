@@ -17,6 +17,16 @@ from typing import Any
 console = Console()
 
 
+def _get_configured_model() -> str:
+    """Get the configured model from config, fallback to openrouter/free."""
+    try:
+        from sago.config.loader import get_config
+        config = get_config()
+        return config.llm.model or "openrouter/free"
+    except Exception:
+        return "openrouter/free"
+
+
 @click.group()
 @click.version_option(version="0.1.0", prog_name="sago")
 def cli() -> None:
@@ -67,7 +77,7 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool) -> N
         task=task,
         agent_role=agent_name.replace("-", " ").title(),
         api_key=api_key,
-        model="openrouter/free",
+        model=_get_configured_model(),
         max_tokens=4096,
         max_iterations=8,
     )
@@ -461,7 +471,7 @@ def smart(task: str, effort: str, thinking: bool) -> None:
     )
 
     router_response = client.chat.completions.create(
-        model="openrouter/free",
+        model=_get_configured_model(),
         messages=[
             {"role": "system", "content": (
                 "You are a task router. Given a task, select the EXACT BEST agent name from the list.\n"
@@ -515,7 +525,7 @@ def smart(task: str, effort: str, thinking: bool) -> None:
             task=task,
             agent_role=agent_role,
             api_key=api_key,
-            model="openrouter/free",
+            model=_get_configured_model(),
             max_tokens=2048,
             max_iterations=5,
         )
@@ -762,7 +772,7 @@ def chat(message: str) -> None:
         task=message,
         agent_role="Sago Orchestrator",
         api_key=api_key,
-        model="openrouter/free",
+        model=_get_configured_model(),
         max_tokens=2048,
         max_iterations=3,
     )
@@ -909,7 +919,7 @@ def workflow(task: str, agent: str, iterations: int, stream: bool) -> None:
 
     from sago.workflow.langgraph_engine import SagoWorkflowEngine
 
-    engine = SagoWorkflowEngine(api_key=api_key, model="openrouter/free")
+    engine = SagoWorkflowEngine(api_key=api_key, model=_get_configured_model())
 
     console.print(Panel.fit(
         f"[bold green]LangGraph Workflow[/]\n"

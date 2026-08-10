@@ -206,11 +206,17 @@ class WorkflowEngine:
                 return {"error": "No API key", "success": False}
 
             from sago.engine.simple_executor import execute_agent_task
+            try:
+                from sago.config.loader import get_config
+                model = get_config().llm.model or "openrouter/free"
+            except Exception:
+                model = "openrouter/free"
+
             result = execute_agent_task(
                 task=task,
                 agent_role=agent.replace("-", " ").title(),
                 api_key=api_key,
-                model="openrouter/free",
+                model=model,
                 max_tokens=4096,
                 max_iterations=5,
             )
