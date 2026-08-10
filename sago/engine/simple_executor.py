@@ -972,16 +972,31 @@ def execute_agent_task(
             content_lower = content.lower()
             is_hallucination = any(phrase in content_lower for phrase in hallucination_phrases)
 
-            if is_hallucination and i < max_iterations - 1:
+            # Detect LLM fabricating results without using tools
+            fabrication_phrases = [
+                "the file contains", "the contents are", "i read the file",
+                "the file has", "i can see that", "looking at the file",
+                "the code shows", "i opened the file", "the file shows",
+                "successfully created", "i saved the file", "the file was created",
+                "i have created", "i've created", "done! the file",
+            ]
+            is_fabrication = (
+                not tool_history  # No tools were called this session
+                and any(phrase in content_lower for phrase in fabrication_phrases)
+            )
+
+            if (is_hallucination or is_fabrication) and i < max_iterations - 1:
+                reason = "hallucinating that tools are blocked" if is_hallucination else "fabricating results without calling tools"
                 # Force the LLM to actually use tools
                 messages.append({
                     "role": "user",
                     "content": (
-                        "STOP. You are hallucinating. Tools are NOT blocked. "
-                        "They work perfectly fine. Do NOT say 'I cannot' or 'tools are blocked'. "
-                        "You MUST use a tool right now. Output a JSON tool call like: "
-                        '{"name": "read_file", "args": {"file_path": "the_file"}}\n'
-                        "Do it NOW. No explanations. Just the JSON."
+                        f"STOP. You are {reason}. "
+                        "You have NOT read any file. You have NOT created any file. "
+                        "You are making things up. "
+                        "You MUST use a tool. Output ONLY a JSON tool call. No text before or after.\n"
+                        "Example: {\"name\": \"read_file\", \"args\": {\"file_path\": \"the_file\"}}\n"
+                        "Do it NOW."
                     ),
                 })
                 continue
