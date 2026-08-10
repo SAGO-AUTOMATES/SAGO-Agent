@@ -517,6 +517,7 @@ def execute_agent_task(
     max_iterations: int = 8,
     cwd: str | None = None,
     on_tool_call: Callable | None = None,
+    on_tool_result: Callable | None = None,
     on_thinking: Callable | None = None,
     on_todo_created: Callable | None = None,
     on_todo_update: Callable | None = None,
@@ -854,6 +855,10 @@ def execute_agent_task(
                 })
 
                 tools_used_in_iteration.append(name)
+
+                # Notify caller of tool result immediately
+                if on_tool_result:
+                    on_tool_result(name, args, result_str[:1000], not is_error)
 
                 if is_error:
                     results_for_llm.append(f"[ERROR] {name}:\n{result_str}\nTry a different approach.")

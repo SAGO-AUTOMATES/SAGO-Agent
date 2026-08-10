@@ -1440,8 +1440,11 @@ class SagoApp(App):
             effort = EFFORT_LEVELS.get(self.current_effort, EFFORT_LEVELS["medium"])
 
             def on_tool(name, args):
-                args_str = ", ".join(f"{k}={str(v)[:20]}" for k, v in list(args.items())[:2])
-                self.call_from_thread(self._update_spinner, f"{name}({args_str})")
+                args_str = ", ".join(f"{k}={str(v)[:30]}" for k, v in list(args.items())[:3])
+                self.call_from_thread(self._update_spinner, f"Running: {name}({args_str})")
+
+            def on_tool_result(name, args, result, success):
+                self.call_from_thread(self._add_tool_call, name, args, result, success)
 
             def on_thinking(text):
                 self.call_from_thread(self._update_spinner, text)
@@ -1694,6 +1697,9 @@ class SagoApp(App):
 
                             tools_used_in_iteration.append(name)
 
+                            # Show tool call immediately in UI
+                            self.call_from_thread(on_tool_result, name, args, result_str[:1000], not is_error)
+
                             display = result_str[:1500] + "..." if len(result_str) > 1500 else result_str
                             results_for_llm.append(f"[{'ERROR' if is_error else 'OK'}] {name}:\n{display}")
 
@@ -1850,15 +1856,8 @@ class SagoApp(App):
 
                 self.call_from_thread(self._hide_spinner)
 
-                for tc in tool_history:
-                    self.call_from_thread(
-                        self._add_tool_call,
-                        tc.get("tool", ""),
-                        tc.get("args", {}),
-                        tc.get("result", ""),
-                        tc.get("success", True),
-                    )
-
+                # Tool calls already shown live via on_tool_result callback
+                # Just show the summary
                 self.call_from_thread(
                     self._add_summary,
                     tool_history,
@@ -1918,6 +1917,7 @@ class SagoApp(App):
                     max_tokens=effort["max_tokens"],
                     max_iterations=effort["max_iterations"],
                     on_tool_call=on_tool,
+                    on_tool_result=on_tool_result,
                     on_thinking=on_thinking,
                     on_todo_created=on_todo_created,
                     on_todo_update=on_todo_update,
@@ -1933,15 +1933,7 @@ class SagoApp(App):
 
                 self.call_from_thread(self._hide_spinner)
 
-                for tc in result.get("tool_calls", []):
-                    self.call_from_thread(
-                        self._add_tool_call,
-                        tc.get("tool", ""),
-                        tc.get("args", {}),
-                        tc.get("result", ""),
-                        tc.get("success", True),
-                    )
-
+                # Tool calls already shown live via on_tool_result callback
                 self.call_from_thread(
                     self._add_summary,
                     result.get("tool_calls", []),
