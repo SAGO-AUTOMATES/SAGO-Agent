@@ -878,9 +878,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             try:
                 from sago.llm.tui_providers import get_tui_client
 
+                import sago.engine.simple_executor as _se
+                _se._discover_tools()  # Ensure tools are loaded
                 from sago.engine.simple_executor import (
                     PROMPTS,
-                    _TOOL_DESCRIPTIONS,
                     _detect_project_context,
                     _detect_task_type,
                     _discover_tools,
@@ -942,7 +943,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     agent_role=self.current_agent.replace("-", " ").title(),
                     project_ctx=project_ctx,
                     tool_count=len(tools),
-                    tool_list=_TOOL_DESCRIPTIONS,
+                    tool_list=_se._TOOL_DESCRIPTIONS,
                 )
 
                 if profile and profile.get("system_prompt"):
@@ -981,7 +982,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                         tm = get_task_manager()
                         steps = _generate_plan_with_llm(
-                            message, client, self.current_model, _TOOL_DESCRIPTIONS
+                            message, client, self.current_model, _se._TOOL_DESCRIPTIONS
                         )
                         task_plan = tm.create_plan(goal=message, todos=steps)
                         confirm_keywords = [
