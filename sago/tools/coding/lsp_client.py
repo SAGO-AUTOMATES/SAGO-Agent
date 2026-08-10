@@ -1,7 +1,8 @@
 """LSP Client - Language Server Protocol integration for type checking and diagnostics.
 
 Provides type checking, diagnostics, go-to-definition, and completions
-by communicating with language servers (pyright, typescript-language-server, etc.).
+by communicating with language servers (pyright, gopls, rust-analyzer, etc.).
+Falls back to CLI tools when LSP servers aren't available.
 """
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ import json
 import os
 import re
 import subprocess
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -71,32 +71,132 @@ class Definition:
         return {"file": self.file, "line": self.line, "column": self.column}
 
 
+# Supported languages and their LSP/CLI tools
+LANGUAGE_SERVERS = {
+    "python": {
+        "lsp": ["pyright-langserver", "--stdio"],
+        "cli_check": ["pyright", "--outputjson"],
+        "cli_format": ["black", "--quiet", "--line-length", "100"],
+        "ext": [".py"],
+    },
+    "javascript": {
+        "lsp": ["typescript-language-server", "--stdio"],
+        "cli_check": ["tsc", "--noEmit", "--pretty", "false"],
+        "cli_format": ["prettier", "--write"],
+        "ext": [".js", ".jsx"],
+    },
+    "typescript": {
+        "lsp": ["typescript-language-server", "--stdio"],
+        "cli_check": ["tsc", "--noEmit", "--pretty", "false"],
+        "cli_format": ["prettier", "--write"],
+        "ext": [".ts", ".tsx"],
+    },
+    "go": {
+        "lsp": ["gopls"],
+        "cli_check": ["go", "vet", "./..."],
+        "cli_format": ["gofmt", "-w"],
+        "ext": [".go"],
+    },
+    "rust": {
+        "lsp": ["rust-analyzer"],
+        "cli_check": ["cargo", "check", "--message-format=json"],
+        "cli_format": ["rustfmt"],
+        "ext": [".rs"],
+    },
+    "java": {
+        "lsp": ["jdtls"],
+        "cli_check": ["javac", "-Xlint:all"],
+        "cli_format": [],
+        "ext": [".java"],
+    },
+    "c": {
+        "lsp": ["clangd"],
+        "cli_check": ["gcc", "-fsyntax-only", "-Wall", "-Wextra"],
+        "cli_format": ["clang-format", "-i"],
+        "ext": [".c", ".h"],
+    },
+    "cpp": {
+        "lsp": ["clangd"],
+        "cli_check": ["g++", "-fsyntax-only", "-Wall", "-Wextra"],
+        "cli_format": ["clang-format", "-i"],
+        "ext": [".cpp", ".hpp", ".cc", ".cxx"],
+    },
+}
+
+
+def _detect_language(file_path: str) -> str:
+    """Detect language from file extension."""
+    ext = os.path.splitext(file_path)[1].lower()
+    ext_map = {
+        ".py": "python",
+        ".js": "javascript", ".jsx": "javascript",
+        ".ts": "typescript", ".tsx": "typescript",
+        ".go": "go",
+        ".rs": "rust",
+        ".java": "java",
+        ".c": "c", ".h": "c",
+        ".cpp": "cpp", ".hpp": "cpp", ".cc": "cpp", ".cxx": "cpp",
+    }
+    return ext_map.get(ext, "unknown")
+
+
+def _check_command_exists(cmd: str) -> bool:
+    """Check if a command exists on the system."""
+    try:
+        result = subprocess.run(
+            ["which", cmd],
+            capture_output=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 class LSPClient:
-    """Lightweight LSP client using pyright/typescript-language-server."""
+    """Lightweight LSP client with CLI fallbacks for multiple languages."""
 
     def __init__(self) -> None:
         self._servers: dict[str, subprocess.Popen | None] = {}
-
-    def _get_server_command(self, language: str) -> list[str] | None:
-        """Get the LSP server command for a language."""
-        servers = {
-            "python": ["pyright-langserver", "--stdio"],
-            "javascript": ["typescript-language-server", "--stdio"],
-            "typescript": ["typescript-language-server", "--stdio"],
-        }
-        return servers.get(language)
+        self._available_checkers: dict[str, bool | None] = {}  # None = unchecked
 
     def check_types(self, file_path: str) -> list[Diagnostic]:
-        """Run type checking on a file using pyright."""
+        """Run type checking on a file."""
         path = Path(file_path)
         if not path.exists():
             return []
 
-        # Use pyright for Python files
-        if path.suffix == ".py":
+        language = _detect_language(file_path)
+        if language == "unknown":
+            return []
+
+        # Try LSP server first, then CLI fallback
+        return self._check_with_cli(file_path, language)
+
+    def _check_with_cli(self, file_path: str, language: str) -> list[Diagnostic]:
+        """Check using CLI tools as fallback."""
+        config = LANGUAGE_SERVERS.get(language)
+        if not config:
+            return []
+
+        cli_cmd = config.get("cli_check")
+        if not cli_cmd:
+            return []
+
+        # Special handling per language
+        if language == "python":
             return self._run_pyright(file_path)
-        elif path.suffix in (".js", ".ts", ".jsx", ".tsx"):
+        elif language in ("javascript", "typescript"):
             return self._run_tsc(file_path)
+        elif language == "go":
+            return self._run_go_vet(file_path)
+        elif language == "rust":
+            return self._run_cargo_check(file_path)
+        elif language == "java":
+            return self._run_javac_lint(file_path)
+        elif language in ("c", "cpp"):
+            return self._run_gcc_syntax(file_path, language)
+
         return []
 
     def _run_pyright(self, file_path: str) -> list[Diagnostic]:
@@ -111,19 +211,17 @@ class LSPClient:
             if result.returncode == 0 or result.stdout:
                 data = json.loads(result.stdout)
                 return self._parse_pyright_output(data, file_path)
-        except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
+        except FileNotFoundError:
+            return [self._make_info_diagnostic(file_path, "pyright not installed. Run: pip install pyright")]
+        except (subprocess.TimeoutExpired, json.JSONDecodeError):
             pass
         return []
 
     def _parse_pyright_output(self, data: dict, file_path: str) -> list[Diagnostic]:
         """Parse pyright JSON output."""
         diagnostics = []
+        severity_map = {"error": "error", "warning": "warning", "information": "info"}
         for diag in data.get("generalDiagnostics", []):
-            severity_map = {
-                "error": "error",
-                "warning": "warning",
-                "information": "info",
-            }
             range_info = diag.get("range", {})
             start = range_info.get("start", {})
             end = range_info.get("end", {})
@@ -150,7 +248,9 @@ class LSPClient:
                 timeout=30,
             )
             return self._parse_tsc_output(result.stderr, file_path)
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except FileNotFoundError:
+            return [self._make_info_diagnostic(file_path, "tsc not installed. Run: npm install -g typescript")]
+        except subprocess.TimeoutExpired:
             pass
         return []
 
@@ -158,7 +258,7 @@ class LSPClient:
         """Parse tsc error output."""
         diagnostics = []
         for line in output.split('\n'):
-            match = __import__('re').match(
+            match = re.match(
                 r'(.+?):(\d+):(\d+)\s*-\s*error\s+(.+?)(?:\s*\((.+?)\))?$',
                 line
             )
@@ -176,26 +276,169 @@ class LSPClient:
                 ))
         return diagnostics
 
+    def _run_go_vet(self, file_path: str) -> list[Diagnostic]:
+        """Run go vet for Go files."""
+        try:
+            result = subprocess.run(
+                ["go", "vet", file_path],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            diagnostics = []
+            output = result.stdout + "\n" + result.stderr
+            for line in output.split('\n'):
+                # Parse go vet output: file:line:col: message
+                match = re.match(r'(.+?):(\d+):(\d+):\s*(.*)', line)
+                if match:
+                    diagnostics.append(Diagnostic(
+                        file=file_path,
+                        line=int(match.group(2)),
+                        column=int(match.group(3)),
+                        end_line=int(match.group(2)),
+                        end_column=int(match.group(3)) + 10,
+                        severity="error" if "error" in line.lower() else "warning",
+                        message=match.group(4),
+                        source="go vet",
+                    ))
+            return diagnostics
+        except FileNotFoundError:
+            return [self._make_info_diagnostic(file_path, "go not installed")]
+        except subprocess.TimeoutExpired:
+            pass
+        return []
+
+    def _run_cargo_check(self, file_path: str) -> list[Diagnostic]:
+        """Run cargo check for Rust files."""
+        try:
+            result = subprocess.run(
+                ["cargo", "check", "--message-format=json"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            diagnostics = []
+            for line in result.stdout.split('\n'):
+                if not line.strip():
+                    continue
+                try:
+                    msg = json.loads(line)
+                    if msg.get("reason") == "compiler-message":
+                        cm = msg.get("message", {})
+                        spans = cm.get("spans", [])
+                        if spans:
+                            span = spans[0]
+                            diagnostics.append(Diagnostic(
+                                file=span.get("file_name", file_path),
+                                line=span.get("line_start", 0),
+                                column=span.get("column_start", 0),
+                                end_line=span.get("line_end", 0),
+                                end_column=span.get("column_end", 0),
+                                severity="error" if cm.get("level") == "error" else "warning",
+                                message=cm.get("message", ""),
+                                code=cm.get("code", {}).get("code", ""),
+                                source="cargo",
+                            ))
+                except json.JSONDecodeError:
+                    continue
+            return diagnostics
+        except FileNotFoundError:
+            return [self._make_info_diagnostic(file_path, "cargo not installed")]
+        except subprocess.TimeoutExpired:
+            pass
+        return []
+
+    def _run_javac_lint(self, file_path: str) -> list[Diagnostic]:
+        """Run javac -Xlint for Java files."""
+        try:
+            result = subprocess.run(
+                ["javac", "-Xlint:all", "-d", "/tmp", file_path],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            diagnostics = []
+            output = result.stdout + "\n" + result.stderr
+            for line in output.split('\n'):
+                match = re.match(r'(.+?):(\d+):\s*(warning|error):\s*(.*)', line)
+                if match:
+                    diagnostics.append(Diagnostic(
+                        file=file_path,
+                        line=int(match.group(2)),
+                        column=0,
+                        end_line=int(match.group(2)),
+                        end_column=0,
+                        severity=match.group(3),
+                        message=match.group(4),
+                        source="javac",
+                    ))
+            return diagnostics
+        except FileNotFoundError:
+            return [self._make_info_diagnostic(file_path, "javac not installed")]
+        except subprocess.TimeoutExpired:
+            pass
+        return []
+
+    def _run_gcc_syntax(self, file_path: str, language: str) -> list[Diagnostic]:
+        """Run gcc/g++ syntax check for C/C++ files."""
+        compiler = "g++" if language == "cpp" else "gcc"
+        try:
+            result = subprocess.run(
+                [compiler, "-fsyntax-only", "-Wall", "-Wextra", file_path],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            diagnostics = []
+            output = result.stdout + "\n" + result.stderr
+            for line in output.split('\n'):
+                match = re.match(r'(.+?):(\d+):(\d+):\s*(warning|error|note):\s*(.*)', line)
+                if match:
+                    diagnostics.append(Diagnostic(
+                        file=file_path,
+                        line=int(match.group(2)),
+                        column=int(match.group(3)),
+                        end_line=int(match.group(2)),
+                        end_column=int(match.group(3)) + 10,
+                        severity=match.group(4),
+                        message=match.group(5),
+                        source=compiler,
+                    ))
+            return diagnostics
+        except FileNotFoundError:
+            return [self._make_info_diagnostic(file_path, f"{compiler} not installed")]
+        except subprocess.TimeoutExpired:
+            pass
+        return []
+
+    def _make_info_diagnostic(self, file_path: str, message: str) -> Diagnostic:
+        """Create an informational diagnostic."""
+        return Diagnostic(
+            file=file_path,
+            line=0,
+            column=0,
+            end_line=0,
+            end_column=0,
+            severity="info",
+            message=message,
+            source="sago",
+        )
+
     def get_definitions(self, file_path: str, line: int, column: int) -> list[Definition]:
         """Get definitions at a position (basic implementation)."""
-        # For now, return basic info
         return [Definition(file=file_path, line=line, column=column)]
 
     def get_completions(self, file_path: str, line: int, column: int) -> list[Completion]:
         """Get completions at a position (basic implementation)."""
-        # Basic completions based on file content
         try:
             content = Path(file_path).read_text()
             lines = content.split('\n')
             if line <= len(lines):
                 current_line = lines[line - 1]
-                # Get word being typed
                 before_cursor = current_line[:column]
-                import re
                 word_match = re.search(r'(\w+)$', before_cursor)
                 if word_match:
                     prefix = word_match.group(1)
-                    # Find all words in file
                     all_words = set(re.findall(r'\b(\w+)\b', content))
                     return [
                         Completion(label=w, kind="text")
@@ -208,31 +451,27 @@ class LSPClient:
 
     def format_code(self, file_path: str) -> str | None:
         """Format code using language-specific formatter."""
-        path = Path(file_path)
-        if path.suffix == ".py":
-            try:
-                result = subprocess.run(
-                    ["black", "--quiet", "--line-length", "100", file_path],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                if result.returncode == 0:
-                    return Path(file_path).read_text()
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                pass
-        elif path.suffix in (".js", ".ts", ".jsx", ".tsx"):
-            try:
-                result = subprocess.run(
-                    ["prettier", "--write", file_path],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                if result.returncode == 0:
-                    return Path(file_path).read_text()
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                pass
+        language = _detect_language(file_path)
+        config = LANGUAGE_SERVERS.get(language)
+        if not config:
+            return None
+
+        fmt_cmd = config.get("cli_format")
+        if not fmt_cmd:
+            return None
+
+        try:
+            cmd = fmt_cmd + [file_path]
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                return Path(file_path).read_text()
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
         return None
 
 

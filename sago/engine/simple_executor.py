@@ -658,6 +658,22 @@ def execute_agent_task(
 
     content = ""
 
+    def _compact_messages_if_needed(msgs: list[dict[str, Any]], max_tokens: int = 32000) -> list[dict[str, Any]]:
+        """Compact messages if total content exceeds token limit."""
+        total_chars = sum(len(m.get("content", "")) for m in msgs)
+        estimated_tokens = total_chars // 4
+        if estimated_tokens <= max_tokens:
+            return msgs
+        try:
+            from sago.memory.compaction import SessionCompactor
+            compactor = SessionCompactor(max_context_tokens=max_tokens)
+            compacted = compactor.build_context_window(msgs, max_tokens=max_tokens)
+            return compacted
+        except Exception:
+            system_msgs = [m for m in msgs if m.get("role") == "system"]
+            other_msgs = [m for m in msgs if m.get("role") != "system"]
+            return system_msgs + other_msgs[-5:]
+
     for i in range(max_iterations):
         # Check if execution is paused (user input needed)
         if pause_event and pause_event.is_set():
@@ -903,6 +919,10 @@ def execute_agent_task(
         combined = "\n\n".join(results_for_llm) + progress
         messages.append({"role": "user", "content": combined})
 
+        # Auto-compact if messages are getting too large
+        if len(messages) > 15:
+            messages = _compact_messages_if_needed(messages)
+
     # Mark final todo as complete if plan exists
     if task_plan:
         try:
@@ -918,7 +938,7 @@ def execute_agent_task(
         except Exception:
             pass
 
-    # === POST-EXECUTION: Test → Fix → Retry loop ===
+        # === POST-EXECUTION: Test → Fix → Retry loop ===
     if files_created and on_thinking:
         on_thinking("Running tests and checking for errors...")
 

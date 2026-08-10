@@ -12,6 +12,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import BaseModel, Field
+
+from sago.tools.base import BaseTool
+
 
 # Language to agent mapping
 LANGUAGE_AGENTS: dict[str, list[str]] = {
@@ -216,6 +220,57 @@ class AgentDelegator:
         return None
 
 
+    def execute_delegated(
+        self,
+        task: str,
+        file_path: str | None = None,
+        language: str | None = None,
+        category: str | None = None,
+    ) -> dict[str, Any]:
+        """Delegate and actually execute the task with the best agent."""
+        result = self.delegate(task, file_path, language, category)
+        agent_name = result.primary_agent
+
+        try:
+            import os
+            from sago.engine.simple_executor import execute_agent_task
+            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            if not api_key:
+                return {
+                    "delegated_to": agent_name,
+                    "confidence": result.confidence,
+                    "reason": result.reason,
+                    "success": False,
+                    "error": "No API key configured",
+                }
+
+            exec_result = execute_agent_task(
+                task=task,
+                agent_role=agent_name.replace("-", " ").title(),
+                api_key=api_key,
+                model="openrouter/free",
+                max_tokens=4096,
+                max_iterations=5,
+            )
+            return {
+                "delegated_to": agent_name,
+                "confidence": result.confidence,
+                "reason": result.reason,
+                "recommended_agents": result.recommended_agents,
+                "success": exec_result.get("success", False),
+                "output": exec_result.get("output", ""),
+                "tool_calls": len(exec_result.get("tool_calls", [])),
+            }
+        except Exception as e:
+            return {
+                "delegated_to": agent_name,
+                "confidence": result.confidence,
+                "reason": result.reason,
+                "success": False,
+                "error": str(e),
+            }
+
+
 # Singleton delegator
 _delegator: AgentDelegator | None = None
 
@@ -235,3 +290,43 @@ def delegate_task(
 ) -> DelegationResult:
     """Quick task delegation."""
     return get_delegator().delegate(task, file_path, language)
+
+
+class AgentDelegatorArgs(BaseModel):
+    """Arguments for agent delegation."""
+    task: str = Field(description="Task to delegate to the best agent")
+    file_path: str = Field(default="", description="Optional file path for context")
+    language: str = Field(default="", description="Optional programming language")
+
+
+class AgentDelegatorTool(BaseTool):
+    """Delegate tasks to the best-suited agent based on context."""
+
+    name: str = "delegate_to_agent"
+    description: str = (
+        "Smartly delegate a task to the most appropriate agent based on "
+        "file types, language, task keywords, and project context. "
+        "Actually executes the task with the selected agent."
+    )
+    args_model: type[BaseModel] = AgentDelegatorArgs
+
+    def _run(
+        self,
+        task: str,
+        file_path: str = "",
+        language: str = "",
+        **kwargs: Any,
+    ) -> str:
+        import json
+        delegator = get_delegator()
+        result = delegator.execute_delegated(
+            task=task,
+            file_path=file_path or None,
+            language=language or None,
+        )
+        return json.dumps(result, indent=2, default=str)[:5000]
+
+
+def get_tool() -> type[AgentDelegatorTool]:
+    """Get the tool class."""
+    return AgentDelegatorTool

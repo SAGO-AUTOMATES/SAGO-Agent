@@ -92,12 +92,35 @@ class MCPServer:
         return [tool.to_dict() for tool in self.tools.values()]
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
-        """Call a registered tool."""
+        """Call a registered tool with validation."""
         tool = self.tools.get(name)
         if not tool:
-            raise ValueError(f"Tool not found: {name}")
+            available = ", ".join(sorted(self.tools.keys()))
+            raise ValueError(f"Tool not found: {name}. Available: {available}")
         if tool.handler is None:
             raise ValueError(f"Tool has no handler: {name}")
+
+        # Validate arguments against input_schema
+        schema = tool.input_schema
+        required = schema.get("required", [])
+        properties = schema.get("properties", {})
+
+        for req_field in required:
+            if req_field not in arguments:
+                raise ValueError(f"Missing required argument: {req_field}")
+
+        for arg_name, arg_value in arguments.items():
+            if arg_name in properties:
+                prop = properties[arg_name]
+                expected_type = prop.get("type", "string")
+                if expected_type == "string" and not isinstance(arg_value, str):
+                    arguments[arg_name] = str(arg_value)
+                elif expected_type == "number" and not isinstance(arg_value, (int, float)):
+                    try:
+                        arguments[arg_name] = float(arg_value)
+                    except (ValueError, TypeError):
+                        pass
+
         return tool.handler(**arguments)
 
     def to_mcp_response(self) -> dict[str, Any]:

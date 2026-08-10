@@ -7,6 +7,7 @@ No external dependencies - uses Python's built-in math and re modules.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 import re
@@ -69,6 +70,8 @@ class CodebaseIndexer:
         self._tf_cache: dict[str, dict[str, float]] = {}
         self._indexed_at: float = 0
         self._index_path = get_sago_home() / "codebase_index.json"
+        # Load persisted index if available
+        self._load_index()
 
     def index_directory(
         self,
@@ -115,6 +118,9 @@ class CodebaseIndexer:
         # Build TF-IDF index
         self._build_idf()
         self._indexed_at = time.time()
+
+        # Persist index
+        self._save_index()
 
         return len(self._chunks)
 
@@ -271,8 +277,15 @@ class CodebaseIndexer:
         return chunks
 
     def _tokenize(self, text: str) -> list[str]:
-        """Tokenize text into words."""
-        return re.findall(r'\b\w+\b', text.lower())
+        """Tokenize text into words, splitting on underscores and camelCase."""
+        tokens = []
+        for match in re.finditer(r'\b\w+\b', text.lower()):
+            word = match.group()
+            tokens.append(word)
+            # Also split on underscores (check_permission -> check, permission)
+            if '_' in word:
+                tokens.extend(word.split('_'))
+        return tokens
 
     def _build_idf(self) -> None:
         """Build IDF scores for all terms."""
@@ -372,6 +385,33 @@ class CodebaseIndexer:
             "languages": languages,
             "indexed_at": self._indexed_at,
         }
+
+    def _save_index(self) -> None:
+        """Persist index to disk."""
+        if not self._index_path:
+            return
+        try:
+            data = {
+                "chunks": [c.to_dict() for c in self._chunks],
+                "idf": self._idf,
+                "indexed_at": self._indexed_at,
+            }
+            self._index_path.parent.mkdir(parents=True, exist_ok=True)
+            self._index_path.write_text(json.dumps(data, default=str))
+        except Exception:
+            pass
+
+    def _load_index(self) -> None:
+        """Load persisted index from disk."""
+        if not self._index_path or not self._index_path.exists():
+            return
+        try:
+            data = json.loads(self._index_path.read_text())
+            self._idf = data.get("idf", {})
+            self._indexed_at = data.get("indexed_at", 0)
+            # Note: chunks are not persisted (too large), only IDF scores
+        except Exception:
+            pass
 
 
 # Global instance

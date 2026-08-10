@@ -62,11 +62,13 @@ class ChangeTracker:
     def track_modify(self, file_path: str, old_content: str, new_content: str) -> FileChange:
         """Track file modification with backup for undo."""
         backup_path = None
-        if os.path.exists(file_path):
+        real_path = os.path.realpath(file_path)
+        if os.path.exists(real_path):
+            self._backup_dir.mkdir(parents=True, exist_ok=True)
             backup_name = f"{len(self.changes)}_{os.path.basename(file_path)}.bak"
             backup_path = str(self._backup_dir / backup_name)
             try:
-                shutil.copy2(file_path, backup_path)
+                shutil.copy2(real_path, backup_path)
             except Exception:
                 backup_path = None
 
@@ -84,11 +86,13 @@ class ChangeTracker:
     def track_delete(self, file_path: str, content: str) -> FileChange:
         """Track file deletion with backup for undo."""
         backup_path = None
-        if os.path.exists(file_path):
+        real_path = os.path.realpath(file_path)
+        if os.path.exists(real_path):
+            self._backup_dir.mkdir(parents=True, exist_ok=True)
             backup_name = f"{len(self.changes)}_{os.path.basename(file_path)}.bak"
             backup_path = str(self._backup_dir / backup_name)
             try:
-                shutil.copy2(file_path, backup_path)
+                shutil.copy2(real_path, backup_path)
             except Exception:
                 backup_path = None
 

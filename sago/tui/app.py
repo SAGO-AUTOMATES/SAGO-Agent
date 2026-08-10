@@ -1310,8 +1310,27 @@ class SagoApp(App):
 
                 tools = _discover_tools()
                 client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=90.0)
-                project_ctx = _get_context()
                 start_time = _time.time()
+
+                # Detect project context (languages, frameworks)
+                from sago.engine.simple_executor import _detect_project_context
+                project_context = _detect_project_context()
+                project_ctx = _get_context()
+
+                # Enrich context with detected info
+                if project_context["languages"]:
+                    project_ctx += f"\nDetected languages: {', '.join(project_context['languages'])}"
+                if project_context["frameworks"]:
+                    project_ctx += f"\nDetected frameworks: {', '.join(project_context['frameworks'])}"
+
+                # Load learning suggestions
+                learning_suggestion = None
+                try:
+                    from sago.learning import get_learning_store
+                    ls = get_learning_store()
+                    learning_suggestion = ls.suggest_approach("general", list(tools.keys()))
+                except Exception:
+                    pass
 
                 # Load profile and build prompt
                 profile = _load_agent_profile(self.current_agent.replace("-", " ").title())
@@ -1326,6 +1345,33 @@ class SagoApp(App):
 
                 if profile and profile.get("system_prompt"):
                     system_prompt = profile["system_prompt"]
+
+                # Inject learning suggestion
+                if learning_suggestion:
+                    system_prompt += (
+                        f"\n\n=== PAST SUCCESSFUL APPROACH ===\n"
+                        f"Based on past similar tasks, this approach worked:\n"
+                        f"{learning_suggestion}\n"
+                        f"Consider using a similar approach, but adapt to the current context."
+                    )
+
+                # Inject project instructions (CLAUDE.md / .sago/instructions.md)
+                try:
+                    from sago.memory.project_instructions import get_project_instructions
+                    pi = get_project_instructions()
+                    instructions_prompt = pi.get_for_prompt()
+                    if instructions_prompt:
+                        system_prompt += instructions_prompt
+                except Exception:
+                    pass
+
+                # Inject framework context
+                if project_context["frameworks"]:
+                    system_prompt += (
+                        f"\n\n=== EXISTING PROJECT DETECTED ===\n"
+                        f"This project uses: {', '.join(project_context['frameworks'])}\n"
+                        f"Match the existing style and conventions."
+                    )
 
                 # === TODO SYSTEM: Auto-create plan for complex tasks ===
                 task_plan = None
@@ -1670,6 +1716,29 @@ class SagoApp(App):
                     elapsed,
                     {"input": total_tokens_in, "output": total_tokens_out},
                 )
+
+                # Show change summary if files were modified
+                if files_created:
+                    try:
+                        from sago.memory.change_tracker import get_change_tracker
+                        tracker = get_change_tracker()
+                        change_summary = tracker.get_diff_summary()
+                        if change_summary and "No changes" not in change_summary:
+                            self.call_from_thread(self._add_system_message, f"📝 {change_summary}")
+                    except Exception:
+                        pass
+
+                # Record learning
+                try:
+                    from sago.learning import get_learning_store
+                    ls = get_learning_store()
+                    successful_tools = [t["tool"] for t in tool_history if t.get("success")]
+                    if successful_tools:
+                        ls.record_success(task_type, successful_tools, f"Used {', '.join(set(successful_tools[:5]))}")
+                    for tool_record in tool_history:
+                        ls.record_tool_effectiveness(tool_record["tool"], tool_record.get("success", False))
+                except Exception:
+                    pass
 
                 self.call_from_thread(self._add_assistant_message, content)
 

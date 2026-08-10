@@ -48,11 +48,30 @@ class ProductionEngine:
         self.session_manager = SessionManager(max_workers=self.config.max_workers)
         self.delegator = TaskDelegator()
         self.stream_printer = StreamPrinter(show_thinking=self.config.show_thinking)
+        self._last_cleanup = time.time()
+        self._session_ttl = 3600  # 1 hour TTL for sessions
 
         # Event callbacks
         self._on_task_start: list[Callable[..., None]] = []
         self._on_task_complete: list[Callable[..., None]] = []
         self._on_error: list[Callable[..., None]] = []
+
+    def _cleanup_sessions(self) -> None:
+        """Clean up old sessions to prevent unbounded growth."""
+        now = time.time()
+        if now - self._last_cleanup < 300:  # Cleanup every 5 minutes
+            return
+        self._last_cleanup = now
+
+        try:
+            sessions = self.session_manager.list_sessions()
+            for session_data in sessions:
+                session_id = session_data.get("id", "")
+                updated_at = session_data.get("updated_at", 0)
+                if now - updated_at > self._session_ttl:
+                    self.session_manager.delete_session(session_id)
+        except Exception:
+            pass
 
     def on_task_start(self, callback: Callable[..., None]) -> None:
         """Register callback for task start."""
@@ -91,6 +110,7 @@ class ProductionEngine:
             Result dictionary with content, stats, and metadata
         """
         # Create or get session
+        self._cleanup_sessions()
         if session_id:
             session = self.session_manager.get_session(session_id)
             if not session:
@@ -146,6 +166,18 @@ class ProductionEngine:
             # Get the agent and execute
             from sago.agents.registry import get_agent
             agent_def = get_agent(agent_name)
+
+            if not agent_def:
+                # Fallback: try to find any available agent
+                from sago.agents.registry import list_agents
+                available = list_agents()
+                if available:
+                    fallback_name = available[0].get("name", "")
+                    if fallback_name:
+                        agent_def = get_agent(fallback_name)
+                        if agent_def:
+                            agent_name = agent_name
+                            response.add_thinking(f"Fallback to agent: {agent_name}")
 
             if agent_def:
                 response.add_thinking(f"Using agent: {agent_def.codename}")

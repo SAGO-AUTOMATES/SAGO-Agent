@@ -314,7 +314,7 @@ class WorkflowEngine:
         workflow_id: str,
         initial_vars: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Execute a workflow from start to finish."""
+        """Execute a workflow from start to finish with parallel support."""
         workflow = self.workflows.get(workflow_id)
         if not workflow:
             return {"error": "Workflow not found"}
@@ -329,13 +329,31 @@ class WorkflowEngine:
         self._notify("workflow_started", {"workflow_id": workflow_id})
 
         try:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
             while True:
                 next_steps = workflow.next_steps()
                 if not next_steps:
                     break
 
-                for step in next_steps:
-                    self._execute_step(workflow, step)
+                # Group steps by dependency level for parallel execution
+                if len(next_steps) > 1:
+                    # Execute parallel steps concurrently
+                    with ThreadPoolExecutor(max_workers=min(len(next_steps), 4)) as pool:
+                        futures = {
+                            pool.submit(self._execute_step, workflow, step): step
+                            for step in next_steps
+                        }
+                        for future in as_completed(futures):
+                            try:
+                                future.result()
+                            except Exception as e:
+                                step = futures[future]
+                                step.error = str(e)
+                                step.status = StepStatus.FAILED
+                else:
+                    # Single step, execute directly
+                    self._execute_step(workflow, next_steps[0])
 
                 # Check if workflow is complete
                 if all(

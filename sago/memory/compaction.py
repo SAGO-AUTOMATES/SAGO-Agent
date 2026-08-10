@@ -249,6 +249,51 @@ class SessionCompactor:
             compacted_length=compacted_length,
         )
 
+    def compact_with_llm(
+        self,
+        messages: list[dict[str, Any]],
+        api_key: str = "",
+        model: str = "openrouter/free",
+    ) -> str:
+        """Use LLM to summarize messages for better compaction."""
+        if not api_key:
+            import os
+            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+
+        if not api_key:
+            # Fallback to rule-based compaction
+            compacted = self.compact_messages(messages)
+            return compacted.summary
+
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=30.0)
+
+            # Build conversation for summarization
+            conversation = ""
+            for msg in messages[-20:]:  # Last 20 messages
+                role = msg.get("role", "user")
+                content = msg.get("content", "")[:500]
+                conversation += f"{role}: {content}\n"
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": (
+                        "Summarize this conversation concisely. "
+                        "Include: key decisions, action items, current state. "
+                        "Keep it under 500 words."
+                    )},
+                    {"role": "user", "content": conversation},
+                ],
+                max_tokens=1024,
+                temperature=0.3,
+            )
+            return response.choices[0].message.content or "Summary unavailable"
+        except Exception:
+            compacted = self.compact_messages(messages)
+            return compacted.summary
+
     def build_context_window(
         self,
         messages: list[dict[str, Any]],
