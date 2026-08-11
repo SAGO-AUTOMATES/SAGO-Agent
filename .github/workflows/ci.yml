@@ -22,12 +22,12 @@ jobs:
           python-version: "3.11"
 
       - name: Install ruff
-        run: pip install --no-cache-dir ruff==0.16.2
-
-      - name: Verify ruff version
-        run: ruff --version
+        run: pip install ruff==0.16.2
 
       - name: Run ruff check
+        run: ruff check sago/ --fix
+
+      - name: Verify no unfixable lint errors
         run: ruff check sago/
 
       - name: Run ruff format check
