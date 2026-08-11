@@ -1,4 +1,4 @@
-"""Smart Executor - Handles complex multi-step tasks like building projects."""
+"""Smart Executor - Handles complex multi-step tasks using native function calling."""
 
 from __future__ import annotations
 
@@ -18,6 +18,120 @@ from sago.tools.base import BaseTool
 # Auto-discover all tools
 _TOOL_CLASSES: dict[str, type[BaseTool]] = {}
 _TOOL_DESCRIPTIONS = ""
+
+
+# ---------------------------------------------------------------------------
+# Native function calling: convert Pydantic args_model -> OpenAI tool schema
+# ---------------------------------------------------------------------------
+
+_PYTYPE_TO_JSON: dict[str, str] = {
+    "str": "string",
+    "int": "integer",
+    "float": "number",
+    "bool": "boolean",
+    "list": "array",
+    "dict": "object",
+}
+
+
+def _pydantic_field_to_schema(field_info: Any) -> dict[str, Any]:
+    """Convert a single Pydantic field info to a JSON Schema property."""
+    annotation = field_info.annotation
+    schema: dict[str, Any] = {}
+
+    # Handle Optional[X] -> X
+    origin = getattr(annotation, "__origin__", None)
+    if origin is type(None):
+        return {"type": "string"}
+
+    # Get type name
+    _type_name = getattr(annotation, "__name__", str(annotation))
+
+    # Handle Literal types
+    if origin is not None and getattr(annotation, "__module__", "") == "typing":
+        # typing.Literal
+        args = getattr(annotation, "__args__", ())
+        if args and all(isinstance(a, str) for a in args):
+            schema["type"] = "string"
+            schema["enum"] = list(args)
+            return schema
+
+    # Check if Optional (Union[X, None])
+    if origin is getattr(__import__("typing"), "Union", None) or (
+        hasattr(annotation, "__class__") and annotation.__class__.__name__ == "_GenericAlias"
+    ):
+        args = getattr(annotation, "__args__", ())
+        non_none = [a for a in args if a is not type(None)]
+        if len(non_none) == 1:
+            return _pydantic_field_to_schema_simple(non_none[0], field_info)
+
+    return _pydantic_field_to_schema_simple(annotation, field_info)
+
+
+def _pydantic_field_to_schema_simple(annotation: Any, field_info: Any) -> dict[str, Any]:
+    """Convert a simple type annotation to JSON Schema."""
+    type_name = getattr(annotation, "__name__", str(annotation))
+    schema: dict[str, Any] = {}
+
+    # Handle basic types
+    json_type = _PYTYPE_TO_JSON.get(type_name)
+    if json_type:
+        schema["type"] = json_type
+    elif type_name == "list" or type_name == "List":
+        schema["type"] = "array"
+        inner = getattr(annotation, "__args__", (str,))
+        if inner:
+            item_type = getattr(inner[0], "__name__", str(inner[0]))
+            item_json = _PYTYPE_TO_JSON.get(item_type, "string")
+            schema["items"] = {"type": item_json}
+    elif type_name == "dict" or type_name == "Dict":
+        schema["type"] = "object"
+    else:
+        schema["type"] = "string"  # fallback
+
+    # Add description from field info if available
+    if hasattr(field_info, "description") and field_info.description:
+        schema["description"] = field_info.description
+
+    return schema
+
+
+def _build_openai_tools(tool_classes: dict[str, type[BaseTool]]) -> list[dict[str, Any]]:
+    """Convert tool classes to OpenAI function calling tool definitions.
+
+    Returns a list of tool dicts in the format:
+        [{"type": "function", "function": {"name": ..., "description": ..., "parameters": ...}}]
+    """
+    openai_tools: list[dict[str, Any]] = []
+
+    for name, cls in sorted(tool_classes.items()):
+        description = cls.description or name
+        parameters: dict[str, Any] = {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        }
+
+        if cls.args_model:
+            fields = cls.args_model.model_fields
+            for field_name, field_info in fields.items():
+                prop = _pydantic_field_to_schema(field_info)
+                parameters["properties"][field_name] = prop
+                if field_info.is_required():
+                    parameters["required"].append(field_name)
+
+        openai_tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": description,
+                    "parameters": parameters,
+                },
+            }
+        )
+
+    return openai_tools
 
 
 def _is_complex_task(task: str) -> bool:
@@ -327,7 +441,7 @@ def _generate_plan_with_llm(
 
 def _discover_tools() -> dict[str, type[BaseTool]]:
     global _TOOL_CLASSES, _TOOL_DESCRIPTIONS
-    if _TOOL_CLASSES:
+    if _TOOL_CLASSES and _TOOL_DESCRIPTIONS:
         return _TOOL_CLASSES
 
     import logging
@@ -436,18 +550,11 @@ def _get_context(cwd: str | None = None) -> str:
     return "\n".join(lines)
 
 
-# Task-specific system prompts
+# Task-specific system prompts (tools are now passed via API, not in text)
 PROMPTS = {
     "create": """You are {agent_role}. The user wants you to CREATE something (file, project, feature).
 
 {project_ctx}
-
-=== YOUR CAPABILITIES ===
-You have {tool_count} tools. For creation tasks, you'll typically:
-1. Explore existing structure with glob_files, read_file
-2. Create files with write_file (creates directories automatically)
-3. Edit files with edit_file for modifications
-4. Test with execute_shell (run tests, linting, etc.)
 
 === CREATION STRATEGY ===
 - Start by understanding what exists (glob_files, read_file)
@@ -456,34 +563,16 @@ You have {tool_count} tools. For creation tasks, you'll typically:
 - For projects: create structure first, then implement
 - Always verify your work (run tests, check syntax)
 
-{tool_list}
-
-=== FORMAT ===
-One JSON per tool call on its own line:
-{{"name": "write_file", "args": {{"file_path": "src/app.py", "content": "import os\\n\\nclass App:\\n    def run(self):\\n        print('Hello')"}}}}
-
-IMPORTANT: When writing files, put the ACTUAL CODE in the content field. No markdown, no backticks, just the raw code.
-
 === CRITICAL RULES ===
 - NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
 - NEVER claim to have done something you haven't actually done.
 - ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
 - If a tool call fails, report the error honestly. Do not pretend it succeeded.
-- DO NOT output explanatory text before tool calls. Output ONLY the JSON tool call.
-- Tools are NOT blocked by the TUI. They work immediately. Do not claim otherwise.
-- NEVER say "I cannot" or "I am unable" — you have tools, USE THEM.
-- When the user asks you to read a file, IMMEDIATELY output: {{"name": "read_file", "args": {{"file_path": "the_file"}}}}
-- Do NOT explain what you will do. Just DO it by outputting the tool call JSON.""",
+- When writing files, put the ACTUAL CODE in the content field. No markdown, no backticks, just the raw code.
+- NEVER say "I cannot" or "I am unable" — you have tools, USE THEM.""",
     "fix": """You are {agent_role}. The user wants you to FIX something (bug, error, issue).
 
 {project_ctx}
-
-=== YOUR CAPABILITIES ===
-You have {tool_count} tools. For fixing tasks:
-1. Understand the error (read error messages, logs)
-2. Find the relevant code (grep_content, read_file)
-3. Fix the issue (edit_file or write_file)
-4. Verify the fix (run tests, execute commands)
 
 === FIX STRATEGY ===
 - Read the error message carefully
@@ -492,30 +581,15 @@ You have {tool_count} tools. For fixing tasks:
 - Make minimal changes to fix
 - Test that the fix works
 
-{tool_list}
-
-=== FORMAT ===
-One JSON per tool call on its own line:
-{{"name": "edit_file", "args": {{"file_path": "app.py", "old_string": "broken code", "new_string": "fixed code"}}}}
-
 === CRITICAL RULES ===
 - NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
 - NEVER claim to have done something you haven't actually done.
 - ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
 - If a tool call fails, report the error honestly. Do not pretend it succeeded.
-- DO NOT output explanatory text before tool calls. Output ONLY the JSON tool call.
-- Tools are NOT blocked by the TUI. They work immediately. Do not claim otherwise.
 - NEVER say "I cannot" or "I am unable" — you have tools, USE THEM.""",
     "analyze": """You are {agent_role}. The user wants you to ANALYZE something (code, project, issue).
 
 {project_ctx}
-
-=== YOUR CAPABILITIES ===
-You have {tool_count} tools. For analysis tasks:
-1. Explore structure (glob_files, execute_shell with ls/find)
-2. Read relevant files (read_file)
-3. Search for patterns (grep_content)
-4. Provide comprehensive analysis
 
 === ANALYSIS STRATEGY ===
 - Be thorough but focused
@@ -523,22 +597,12 @@ You have {tool_count} tools. For analysis tasks:
 - Look for patterns, issues, improvements
 - Provide actionable recommendations
 
-{tool_list}
-
-=== FORMAT ===
-One JSON per tool call on its own line:
-{{"name": "grep_content", "args": {{"pattern": "def ", "include": "*.py"}}}}
-
 === CRITICAL RULES ===
 - NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
 - NEVER claim to have done something you haven't actually done.
 - ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
 - If a tool call fails, report the error honestly. Do not pretend it succeeded.
-- DO NOT output explanatory text before tool calls. Output ONLY the JSON tool call.
-- Tools are NOT blocked by the TUI. They work immediately. Do not claim otherwise.
-- NEVER say "I cannot" or "I am unable" — you have tools, USE THEM.
-- When the user asks you to read a file, IMMEDIATELY output: {{"name": "read_file", "args": {{"file_path": "the_file"}}}}
-- Do NOT explain what you will do. Just DO it by outputting the tool call JSON.""",
+- NEVER say "I cannot" or "I am unable" — you have tools, USE THEM.""",
 }
 
 
@@ -628,8 +692,8 @@ def execute_agent_task(
     model: str = "openrouter/free",
     api_key: str = "",
     base_url: str | None = None,
-    max_tokens: int = 4096,
-    max_iterations: int = 8,
+    max_tokens: int = 50000,
+    max_iterations: int = 30,
     cwd: str | None = None,
     on_tool_call: Callable | None = None,
     on_tool_result: Callable | None = None,
@@ -722,8 +786,8 @@ def execute_agent_task(
             model = profile["model_preference"]
         if profile.get("temperature"):
             pass  # temperature is used in API call below
-        if profile.get("max_iterations") and max_iterations == 8:
-            max_iterations = min(profile["max_iterations"], 15)
+        if profile.get("max_iterations") and max_iterations == 30:
+            max_iterations = min(profile["max_iterations"], 50)
         # Filter tools to only those the agent knows about
         if profile.get("tools"):
             agent_tools = {t: tools[t] for t in profile["tools"] if t in tools}
@@ -737,8 +801,6 @@ def execute_agent_task(
         system_prompt = template.format(
             agent_role=agent_role,
             project_ctx=project_ctx,
-            tool_count=len(tools),
-            tool_list=_TOOL_DESCRIPTIONS,
         )
 
     # Add learning suggestion if available
@@ -781,10 +843,13 @@ def execute_agent_task(
     current_todo_index = 0
     todo_tool_counts: dict[str, int] = {}  # track tools per todo
 
-    messages = [
+    messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": task},
     ]
+
+    # Build OpenAI function calling tool definitions
+    openai_tools = _build_openai_tools(tools)
 
     content = ""
 
@@ -815,10 +880,10 @@ def execute_agent_task(
             pause_event.wait()  # Block until user provides input
 
         # Get current todo info for LLM context
-        todo_context = ""
+        _todo_context = ""
         if task_plan and current_todo_index < len(task_plan.todos):
             current_todo = task_plan.todos[current_todo_index]
-            todo_context = (
+            _todo_context = (
                 f"\n\n[CURRENT TASK STEP {current_todo_index + 1}/{len(task_plan.todos)}: {current_todo.description}]\n"
                 f"Complete this specific step, then use finish_step tool or indicate you're done with this step."
             )
@@ -850,16 +915,68 @@ def execute_agent_task(
                             contents.append(msg["content"])
                     if not contents:
                         contents = ["Hello"]
+
+                    # Convert OpenAI tools to Google format
+                    google_tools = []
+                    for tool in openai_tools:
+                        func = tool["function"]
+                        google_tools.append(
+                            google_types.FunctionDeclaration(
+                                name=func["name"],
+                                description=func.get("description", ""),
+                                parameters=google_types.Schema(
+                                    type_=google_types.Type.OBJECT,
+                                    properties={
+                                        k: google_types.Schema(
+                                            type_=google_types.Type.STRING,
+                                            description=v.get("description", ""),
+                                        )
+                                        for k, v in func.get("parameters", {})
+                                        .get("properties", {})
+                                        .items()
+                                    },
+                                    required=func.get("parameters", {}).get("required", []),
+                                ),
+                            )
+                        )
+
+                    google_config = google_types.GenerateContentConfig(
+                        system_instruction=sys_msg or None,
+                        max_output_tokens=max_tokens,
+                        temperature=temp,
+                    )
+                    if google_tools:
+                        google_config.tools = [
+                            google_types.Tool(function_declarations=google_tools)
+                        ]
+
                     response = google_client.models.generate_content(
                         model=model,
                         contents=contents,
-                        config=google_types.GenerateContentConfig(
-                            system_instruction=sys_msg or None,
-                            max_output_tokens=max_tokens,
-                            temperature=temp,
-                        ),
+                        config=google_config,
                     )
+
+                    # Extract tool calls from Gemini response
+                    gemini_tool_calls = []
                     content = response.text or ""
+                    if response.candidates:
+                        for part in response.candidates[0].content.parts:
+                            if part.function_call:
+                                gemini_tool_calls.append(
+                                    {
+                                        "name": part.function_call.name,
+                                        "args": dict(part.function_call.args)
+                                        if part.function_call.args
+                                        else {},
+                                    }
+                                )
+
+                    # If Gemini made tool calls, store them for processing
+                    if gemini_tool_calls:
+                        # Store as a special attribute on content for the loop below
+                        # We'll process them after the API call
+                        pass
+
                 except ImportError:
                     return {
                         "success": False,
@@ -870,12 +987,18 @@ def execute_agent_task(
                         "tokens": {"input": 0, "output": 0},
                     }
             else:
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    temperature=temp,
-                )
+                # OpenAI-compatible API with native function calling
+                api_kwargs: dict[str, Any] = {
+                    "model": model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temp,
+                }
+                if openai_tools:
+                    api_kwargs["tools"] = openai_tools
+                    api_kwargs["tool_choice"] = "auto"
+
+                response = client.chat.completions.create(**api_kwargs)
 
         except Exception as e:
             error_msg = str(e)
@@ -919,31 +1042,49 @@ def execute_agent_task(
                 "task_plan": task_plan.to_dict() if task_plan else None,
             }
 
-        # Parse response content
-        # Google SDK already set content = response.text in the try block
+        # Parse response content and extract native tool calls
+        native_tool_calls: list[dict[str, Any]] = []
+        message_obj = None
+
         if not model.startswith("gemini"):
             choice = response.choices[0]
-            content = choice.message.content or ""
-            if not content and hasattr(choice.message, "reasoning") and choice.message.reasoning:
-                content = choice.message.reasoning
+            message_obj = choice.message
+            content = message_obj.content or ""
+            if not content and hasattr(message_obj, "reasoning") and message_obj.reasoning:
+                content = message_obj.reasoning
 
-        # Handle empty or None content - retry with clearer prompt
+            # Extract native tool_calls from OpenAI response
+            if message_obj.tool_calls:
+                for tc in message_obj.tool_calls:
+                    try:
+                        args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                    native_tool_calls.append(
+                        {
+                            "id": tc.id,
+                            "name": tc.function.name,
+                            "args": args,
+                        }
+                    )
+
+        # Handle empty or None content with no tool calls
         if not content or content.strip() == "":
-            if i < max_iterations - 1:
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            "You returned an empty response. Please use the available tools to complete the task. "
-                            'Output a JSON tool call like: {"name": "tool_name", "args": {"param": "value"}}'
-                        ),
-                    }
-                )
-                continue
-            else:
-                content = (
-                    "Error: Model returned empty response. Try again or use a different model."
-                )
+            if not native_tool_calls:
+                if i < max_iterations - 1:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "You returned an empty response. Please use the available tools to complete the task."
+                            ),
+                        }
+                    )
+                    continue
+                else:
+                    content = (
+                        "Error: Model returned empty response. Try again or use a different model."
+                    )
 
         if hasattr(response, "usage") and response.usage:
             total_tokens_in += response.usage.prompt_tokens or 0
@@ -957,48 +1098,59 @@ def execute_agent_task(
                         details.cached_tokens or 0
                     )
 
-        messages.append({"role": "assistant", "content": content})
-
-        tool_calls = _extract_tool_calls(content)
-
-        if not tool_calls:
-            # Detect hallucination: LLM claims tools are blocked/unavailable
-            hallucination_phrases = [
-                "i cannot", "i am unable", "unable to access", "tools are blocked",
-                "threading constraint", "event loop", "sandbox restriction",
-                "permission system", "i don't have access", "i'm not able to",
-                "environment is locked", "environment is restricted",
+        # Append assistant message (with tool_calls if present)
+        assistant_msg: dict[str, Any] = {"role": "assistant", "content": content or None}
+        if native_tool_calls:
+            assistant_msg["tool_calls"] = [
+                {
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tc["name"],
+                        "arguments": json.dumps(tc["args"]),
+                    },
+                }
+                for tc in native_tool_calls
             ]
-            content_lower = content.lower()
-            is_hallucination = any(phrase in content_lower for phrase in hallucination_phrases)
+        messages.append(assistant_msg)
 
-            # Detect LLM fabricating results without using tools
+        # If no tool calls at all, check for hallucination or completion
+        if not native_tool_calls:
+            # Detect fabrication (claims to have done things without tool calls)
             fabrication_phrases = [
-                "the file contains", "the contents are", "i read the file",
-                "the file has", "i can see that", "looking at the file",
-                "the code shows", "i opened the file", "the file shows",
-                "successfully created", "i saved the file", "the file was created",
-                "i have created", "i've created", "done! the file",
+                "the file contains",
+                "the contents are",
+                "i read the file",
+                "the file has",
+                "i can see that",
+                "looking at the file",
+                "the code shows",
+                "i opened the file",
+                "the file shows",
+                "successfully created",
+                "i saved the file",
+                "the file was created",
+                "i have created",
+                "i've created",
+                "done! the file",
             ]
-            is_fabrication = (
-                not tool_history  # No tools were called this session
-                and any(phrase in content_lower for phrase in fabrication_phrases)
+            content_lower = content.lower() if content else ""
+            is_fabrication = not tool_history and any(
+                phrase in content_lower for phrase in fabrication_phrases
             )
 
-            if (is_hallucination or is_fabrication) and i < max_iterations - 1:
-                reason = "hallucinating that tools are blocked" if is_hallucination else "fabricating results without calling tools"
-                # Force the LLM to actually use tools
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        f"STOP. You are {reason}. "
-                        "You have NOT read any file. You have NOT created any file. "
-                        "You are making things up. "
-                        "You MUST use a tool. Output ONLY a JSON tool call. No text before or after.\n"
-                        "Example: {\"name\": \"read_file\", \"args\": {\"file_path\": \"the_file\"}}\n"
-                        "Do it NOW."
-                    ),
-                })
+            if is_fabrication and i < max_iterations - 1:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "STOP. You are fabricating results without calling tools. "
+                            "You have NOT read any file. You have NOT created any file. "
+                            "You MUST use a tool to interact with the system. "
+                            "Do it NOW."
+                        ),
+                    }
+                )
                 continue
 
             # No tool calls - LLM is done with current step
@@ -1008,7 +1160,9 @@ def execute_agent_task(
                 tm = get_task_manager()
                 current_todo = task_plan.todos[current_todo_index]
                 if current_todo.status == TaskStatus.IN_PROGRESS:
-                    tm.complete_todo(task_plan.id, current_todo.id, result=content[:200])
+                    tm.complete_todo(
+                        task_plan.id, current_todo.id, result=content[:200] if content else ""
+                    )
                     if on_todo_update:
                         on_todo_update(task_plan, current_todo_index, "completed")
                     current_todo_index += 1
@@ -1044,104 +1198,130 @@ def execute_agent_task(
                 "task_plan": task_plan.to_dict() if task_plan else None,
             }
 
-        results_for_llm = []
+        # ---- Execute native tool calls and return results as role:tool messages ----
         tools_used_in_iteration = []
 
-        for call_str in tool_calls:
-            try:
-                call = json.loads(call_str) if isinstance(call_str, str) else call_str
-                name = call.get("name", "")
-                args = call.get("args", {})
+        for tc in native_tool_calls:
+            tc_id = tc["id"]
+            name = tc["name"]
+            args = tc["args"]
 
-                # Loop prevention
-                call_key = f"{name}:{json.dumps(args, sort_keys=True)}"
-                if call_key in failed_calls:
-                    results_for_llm.append(f"[SKIP] Already failed: {name} with same args")
-                    continue
-
-                if name not in tools:
-                    avail = ", ".join(sorted(tools.keys()))
-                    results_for_llm.append(f"Unknown tool '{name}'. Available: {avail}")
-                    continue
-
-                # Check permissions before execution
-                from sago.permissions import RiskLevel, get_permission_manager
-
-                pm = get_permission_manager()
-                risk = pm.get_risk_level(name)
-                allowed, reason = pm.check_permission(name, args)
-
-                if not allowed:
-                    if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
-                        results_for_llm.append(
-                            f"Permission denied: {name} requires approval (risk: {risk.value})"
-                        )
-                    else:
-                        results_for_llm.append(f"Permission denied: {reason}")
-                    continue
-
-                tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
-                # No hard limits - let the LLM self-regulate
-                # But detect circular behavior and warn
-                recent_calls = [
-                    f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}"
-                    for c in tool_history[-5:]
-                ]
-                if len(recent_calls) >= 3:
-                    unique_recent = set(recent_calls[-3:])
-                    if len(unique_recent) == 1:
-                        results_for_llm.append(
-                            f"[HINT] You've called {name} with similar args 3 times in a row. "
-                            f"If this isn't working, try a completely different approach or finish the task."
-                        )
-
-                if on_tool_call:
-                    on_tool_call(name, args)
-
-                tool_instance = tools[name]()
-                result = tool_instance.run(**args)
-                result_str = str(result)[:4000]
-
-                is_error = (
-                    result_str.lower().startswith("error") or "traceback" in result_str.lower()
-                )
-                if is_error:
-                    failed_calls.add(call_key)
-
-                # Track created files
-                if name == "write_file" and not is_error:
-                    fp = args.get("file_path", "")
-                    if fp and fp not in files_created:
-                        files_created.append(fp)
-
-                tool_history.append(
+            # Loop prevention
+            call_key = f"{name}:{json.dumps(args, sort_keys=True)}"
+            if call_key in failed_calls:
+                messages.append(
                     {
-                        "tool": name,
-                        "args": args,
-                        "result": result_str[:500],
-                        "success": not is_error,
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "content": f"[SKIP] Already failed: {name} with same args",
                     }
                 )
+                continue
 
-                tools_used_in_iteration.append(name)
+            if name not in tools:
+                avail = ", ".join(sorted(tools.keys()))
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "content": f"Unknown tool '{name}'. Available: {avail}",
+                    }
+                )
+                continue
 
-                # Notify caller of tool result immediately
-                if on_tool_result:
-                    on_tool_result(name, args, result_str[:1000], not is_error)
+            # Check permissions before execution
+            from sago.permissions import RiskLevel, get_permission_manager
 
-                if is_error:
-                    results_for_llm.append(
-                        f"[ERROR] {name}:\n{result_str}\nTry a different approach."
+            pm = get_permission_manager()
+            risk = pm.get_risk_level(name)
+            allowed, reason = pm.check_permission(name, args)
+
+            if not allowed:
+                if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc_id,
+                            "content": f"Permission denied: {name} requires approval (risk: {risk.value})",
+                        }
                     )
                 else:
-                    # Truncate long results
-                    display = result_str[:1500] + "..." if len(result_str) > 1500 else result_str
-                    results_for_llm.append(f"[OK] {name}:\n{display}")
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc_id,
+                            "content": f"Permission denied: {reason}",
+                        }
+                    )
+                continue
 
-            except json.JSONDecodeError:
-                results_for_llm.append('Invalid JSON. Use: {{"name": "tool", "args": {{...}}}}')
-            except Exception as e:
-                results_for_llm.append(f"Tool error: {type(e).__name__}: {e}")
+            tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
+
+            # Detect circular behavior
+            recent_calls = [
+                f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}"
+                for c in tool_history[-5:]
+            ]
+            if len(recent_calls) >= 3:
+                unique_recent = set(recent_calls[-3:])
+                if len(unique_recent) == 1:
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc_id,
+                            "content": (
+                                f"[HINT] You've called {name} with similar args 3 times in a row. "
+                                f"If this isn't working, try a completely different approach or finish the task."
+                            ),
+                        }
+                    )
+                    continue
+
+            if on_tool_call:
+                on_tool_call(name, args)
+
+            tool_instance = tools[name]()
+            result = tool_instance.run(**args)
+            result_str = str(result)
+
+            is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
+            if is_error:
+                failed_calls.add(call_key)
+
+            # Track created files
+            if name == "write_file" and not is_error:
+                fp = args.get("file_path", "")
+                if fp and fp not in files_created:
+                    files_created.append(fp)
+
+            tool_history.append(
+                {
+                    "tool": name,
+                    "args": args,
+                    "result": result_str[:2000],
+                    "success": not is_error,
+                }
+            )
+
+            tools_used_in_iteration.append(name)
+
+            # Notify caller of tool result immediately
+            if on_tool_result:
+                on_tool_result(name, args, result_str, not is_error)
+
+            # Send result back as role:tool message with tool_call_id
+            if is_error:
+                tool_result_content = f"[ERROR] {name}:\n{result_str}\nTry a different approach."
+            else:
+                tool_result_content = result_str
+
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "content": tool_result_content,
+                }
+            )
 
         # Update task plan progress based on actual work done
         if task_plan:
@@ -1194,15 +1374,15 @@ def execute_agent_task(
                                     user_input=user_response,
                                 )
 
-                    # Auto-complete todo after sufficient work (3+ successful tools or 2+ iterations on same todo)
+                    # Auto-complete todo after sufficient work (5+ successful tools or 4+ iterations on same todo)
                     successful_tools = [
                         t["tool"]
                         for t in tool_history
                         if t.get("success") and t["tool"] in tools_used_in_iteration
                     ]
                     tools_for_this_todo = todo_tool_counts.get(current_todo.id, 0)
-                    if (tools_for_this_todo >= 3 and len(successful_tools) >= 2) or (
-                        i > 0 and tools_for_this_todo >= 2
+                    if (tools_for_this_todo >= 5 and len(successful_tools) >= 3) or (
+                        i > 2 and tools_for_this_todo >= 4
                     ):
                         tm.complete_todo(
                             task_plan.id,
@@ -1219,28 +1399,28 @@ def execute_agent_task(
                             tm.start_todo(task_plan.id, next_todo.id)
                             if on_todo_update:
                                 on_todo_update(task_plan, current_todo_index, "started")
-                            results_for_llm.append(
-                                f"\n[PROGRESS] Step completed. Next step: {next_todo.description}\n"
-                                f"Execute this step now."
+                            messages.append(
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"[PROGRESS] Step completed. Next step: {next_todo.description}\n"
+                                        f"Execute this step now."
+                                    ),
+                                }
                             )
                         else:
-                            results_for_llm.append(
-                                "\n[PROGRESS] All steps completed. Provide final summary."
+                            messages.append(
+                                {
+                                    "role": "user",
+                                    "content": "[PROGRESS] All steps completed. Provide final summary.",
+                                }
                             )
             except Exception:
                 pass
 
-        # Add context about progress
-        progress_parts = [f"{len(tool_history)} tools used", f"{len(files_created)} files created"]
-        if task_plan:
-            progress_parts.append(f"Step {current_todo_index + 1}/{len(task_plan.todos)}")
-        progress = f"\n[Progress: {', '.join(progress_parts)}]" + todo_context
-        combined = "\n\n".join(results_for_llm) + progress
-        messages.append({"role": "user", "content": combined})
-
         # Auto-compact if messages are getting too large
-        if len(messages) > 15:
-            messages = _compact_messages_if_needed(messages)
+        if len(messages) > 40:
+            messages = _compact_messages_if_needed(messages, max_tokens=80000)
 
     # Mark final todo as complete if plan exists
     if task_plan:
@@ -1292,56 +1472,87 @@ def execute_agent_task(
                 f"Tests failed (attempt {test_fix_attempts}/{max_test_fix_attempts}), fixing..."
             )
 
-        # Feed test errors back to LLM for fixing
+        # Feed test errors back to LLM for fixing using native function calling
         try:
-            fix_response = client.chat.completions.create(
-                model=model,
-                messages=messages
-                + [
-                    {
-                        "role": "user",
-                        "content": (
-                            f"The tests are failing. Fix the failing tests.\n\n"
-                            f"Test output:\n{test_output[:3000]}\n\n"
-                            f"Files you created: {', '.join(files_created)}\n"
-                            f"Fix the issues and make the tests pass. Use edit_file or write_file to fix."
-                        ),
-                    },
-                ],
-                max_tokens=max_tokens,
-                temperature=0.3,
-            )
-            fix_content = fix_response.choices[0].message.content or ""
-            if not fix_content and hasattr(fix_response.choices[0].message, "reasoning"):
-                fix_content = fix_response.choices[0].message.reasoning or ""
+            fix_messages = messages + [
+                {
+                    "role": "user",
+                    "content": (
+                        f"The tests are failing. Fix the failing tests.\n\n"
+                        f"Test output:\n{test_output[:3000]}\n\n"
+                        f"Files you created: {', '.join(files_created)}\n"
+                        f"Fix the issues and make the tests pass. Use edit_file or write_file to fix."
+                    ),
+                },
+            ]
+            fix_api_kwargs: dict[str, Any] = {
+                "model": model,
+                "messages": fix_messages,
+                "max_tokens": max_tokens,
+                "temperature": 0.3,
+            }
+            if openai_tools:
+                fix_api_kwargs["tools"] = openai_tools
+                fix_api_kwargs["tool_choice"] = "auto"
 
-            if fix_content:
-                messages.append({"role": "assistant", "content": fix_content})
-                fix_tool_calls = _extract_tool_calls(fix_content)
-                for call_str in fix_tool_calls:
+            fix_response = client.chat.completions.create(**fix_api_kwargs)
+            fix_message = fix_response.choices[0].message
+            fix_content = fix_message.content or ""
+            if not fix_content and hasattr(fix_message, "reasoning") and fix_message.reasoning:
+                fix_content = fix_message.reasoning or ""
+
+            if fix_message.tool_calls:
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": fix_content or None,
+                        "tool_calls": [
+                            {
+                                "id": ftc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": ftc.function.name,
+                                    "arguments": ftc.function.arguments,
+                                },
+                            }
+                            for ftc in fix_message.tool_calls
+                        ],
+                    }
+                )
+                for ftc in fix_message.tool_calls:
                     try:
-                        call = json.loads(call_str)
-                        name = call.get("name", "")
-                        args = call.get("args", {})
-                        if name in tools:
-                            tool_instance = tools[name]()
-                            result = tool_instance.run(**args)
-                            result_str = str(result)[:4000]
-                            is_error = result_str.lower().startswith("error")
-                            tool_history.append(
-                                {
-                                    "tool": name,
-                                    "args": args,
-                                    "result": result_str[:500],
-                                    "success": not is_error,
-                                }
-                            )
-                            if name == "write_file" and not is_error:
-                                fp = args.get("file_path", "")
-                                if fp and fp not in files_created:
-                                    files_created.append(fp)
-                    except Exception:
-                        pass
+                        fix_args = (
+                            json.loads(ftc.function.arguments) if ftc.function.arguments else {}
+                        )
+                    except json.JSONDecodeError:
+                        fix_args = {}
+                    fix_name = ftc.function.name
+                    if fix_name in tools:
+                        tool_instance = tools[fix_name]()
+                        result = tool_instance.run(**fix_args)
+                        result_str = str(result)
+                        is_error_result = result_str.lower().startswith("error")
+                        tool_history.append(
+                            {
+                                "tool": fix_name,
+                                "args": fix_args,
+                                "result": result_str[:2000],
+                                "success": not is_error_result,
+                            }
+                        )
+                        if fix_name == "write_file" and not is_error_result:
+                            fp = fix_args.get("file_path", "")
+                            if fp and fp not in files_created:
+                                files_created.append(fp)
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": ftc.id,
+                                "content": result_str,
+                            }
+                        )
+            elif fix_content:
+                messages.append({"role": "assistant", "content": fix_content})
         except Exception:
             break
 
@@ -1410,6 +1621,11 @@ def execute_agent_task(
 
 
 def _extract_tool_calls(content: str) -> list[str]:
+    """DEPRECATED: Extract tool calls from LLM text output.
+
+    This is kept for backward compatibility with the TUI and tests.
+    The main executor now uses native OpenAI function calling instead.
+    """
     matches = []
 
     # Format 1: Single JSON object on its own line
@@ -1453,7 +1669,6 @@ def _extract_tool_calls(content: str) -> list[str]:
         return matches
 
     # Format 4: Try to find any JSON-like structure with tool call patterns
-    # This handles cases where LLM wraps in markdown or adds extra text
     for m in re.finditer(
         r'\{[^{}]*"name"\s*:\s*"(\w+)"[^{}]*"args"\s*:\s*\{[^{}]*\}[^{}]*\}', content, re.DOTALL
     ):
@@ -1468,21 +1683,15 @@ def _extract_tool_calls(content: str) -> list[str]:
         return matches
 
     # Format 5: Free model format — <|tool_call>call:tool_name{arg: val, ...}<tool_call|>
-    # e.g. <|tool_call>call:read_file{file_path: "/path/to/file"}<tool_call|>
-    for m in re.finditer(
-        r"<\|tool_call\>call:(\w+)\{(.*?)\}<tool_call\|>", content, re.DOTALL
-    ):
+    for m in re.finditer(r"<\|tool_call\>call:(\w+)\{(.*?)\}<tool_call\|>", content, re.DOTALL):
         tool_name = m.group(1)
         kwargs_str = m.group(2)
         args = {}
-        # Parse key: value pairs (handles strings, numbers, booleans)
         for kv in re.finditer(r"(\w+):\s*\"([^\"]*)\"", kwargs_str):
             args[kv.group(1)] = kv.group(2)
-        # Also handle unquoted values
         for kv in re.finditer(r"(\w+):\s*([^,\}]+)", kwargs_str):
             if kv.group(1) not in args:
                 val = kv.group(2).strip()
-                # Convert to appropriate type
                 if val.lower() == "true":
                     args[kv.group(1)] = True
                 elif val.lower() == "false":

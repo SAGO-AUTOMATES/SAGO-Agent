@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from rich.markdown import Markdown as RichMarkdown
 from rich.syntax import Syntax
-from rich.text import Text
 from textual.widgets import Collapsible, Static
 
 if TYPE_CHECKING:

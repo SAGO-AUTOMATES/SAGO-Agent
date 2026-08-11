@@ -33,8 +33,8 @@ class UnifiedExecutor:
         task: str,
         agent_name: str = "sago-orchestrator",
         system_prompt: str = "",
-        max_tokens: int = 4096,
-        max_iterations: int = 8,
+        max_tokens: int = 50000,
+        max_iterations: int = 30,
         backend: str = "simple",
         on_tool_call: Callable | None = None,
         on_thinking: Callable | None = None,
@@ -162,8 +162,8 @@ class UnifiedExecutor:
         task: str,
         agent_name: str = "sago-orchestrator",
         system_prompt: str = "",
-        max_tokens: int = 4096,
-        max_iterations: int = 8,
+        max_tokens: int = 50000,
+        max_iterations: int = 30,
         on_token: Callable | None = None,
         on_tool_call: Callable | None = None,
         on_thinking: Callable | None = None,
@@ -186,16 +186,16 @@ class UnifiedExecutor:
         import json
 
         from sago.engine.simple_executor import (
-            _TOOL_DESCRIPTIONS,
             PROMPTS,
+            _build_openai_tools,
             _detect_task_type,
             _discover_tools,
-            _extract_tool_calls,
             _get_context,
             _load_agent_profile,
         )
 
         tools = _discover_tools()
+        openai_tools = _build_openai_tools(tools)
         client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=90.0)
         project_ctx = _get_context()
         start_time = time.time()
@@ -209,14 +209,12 @@ class UnifiedExecutor:
         system_prompt = system_prompt or template.format(
             agent_role=agent_name.replace("-", " ").title(),
             project_ctx=project_ctx,
-            tool_count=len(tools),
-            tool_list=_TOOL_DESCRIPTIONS,
         )
 
         if profile and profile.get("system_prompt"):
             system_prompt = profile["system_prompt"]
 
-        messages = [
+        messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": task},
         ]
@@ -226,87 +224,142 @@ class UnifiedExecutor:
         total_tokens_in = 0
         total_tokens_out = 0
         content = ""
+        last_iteration = 0
 
         for iteration in range(max_iterations):
+            last_iteration = iteration
             if on_thinking:
                 phase = "Planning" if iteration == 0 else "Working"
                 on_thinking(f"{phase}... (step {iteration + 1}/{max_iterations})")
 
-            stream = client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=0.3,
-                stream=True,
-                stream_options={"include_usage": True},
-            )
+            api_kwargs: dict[str, Any] = {
+                "model": self.model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 0.3,
+                "stream": True,
+                "stream_options": {"include_usage": True},
+            }
+            if openai_tools:
+                api_kwargs["tools"] = openai_tools
+                api_kwargs["tool_choice"] = "auto"
+
+            stream = client.chat.completions.create(**api_kwargs)
 
             content = ""
+            # Accumulate streaming tool calls
+            tool_call_deltas: dict[int, dict[str, Any]] = {}
+
             for chunk in stream:
                 # Get usage from final chunk
                 if hasattr(chunk, "usage") and chunk.usage:
                     total_tokens_in = chunk.usage.prompt_tokens or 0
                     total_tokens_out = chunk.usage.completion_tokens or 0
-                if chunk.choices and chunk.choices[0].delta.content:
-                    token = chunk.choices[0].delta.content
+                if not chunk.choices:
+                    continue
+
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    token = delta.content
                     content += token
                     if on_token:
                         on_token(token)
 
-            messages.append({"role": "assistant", "content": content})
+                # Accumulate streaming tool calls
+                if delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        if idx not in tool_call_deltas:
+                            tool_call_deltas[idx] = {
+                                "id": tc_delta.id or "",
+                                "name": "",
+                                "arguments": "",
+                            }
+                        if tc_delta.id:
+                            tool_call_deltas[idx]["id"] = tc_delta.id
+                        if tc_delta.function:
+                            if tc_delta.function.name:
+                                tool_call_deltas[idx]["name"] = tc_delta.function.name
+                            if tc_delta.function.arguments:
+                                tool_call_deltas[idx]["arguments"] += tc_delta.function.arguments
 
-            # Check for tool calls
-            tool_calls = _extract_tool_calls(content)
-            if not tool_calls:
+            messages.append({"role": "assistant", "content": content or None})
+
+            # Process accumulated tool calls
+            if not tool_call_deltas:
                 break
 
-            # Execute tools
-            results_for_llm = []
-            for call_str in tool_calls:
+            # Add tool_calls to assistant message
+            assistant_tool_calls = []
+            for idx in sorted(tool_call_deltas.keys()):
+                tc = tool_call_deltas[idx]
+                assistant_tool_calls.append(
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": tc["arguments"],
+                        },
+                    }
+                )
+            messages[-1]["tool_calls"] = assistant_tool_calls
+
+            # Execute each tool call
+            for tc in assistant_tool_calls:
+                tc_id = tc["id"]
+                name = tc["function"]["name"]
                 try:
-                    call = json.loads(call_str)
-                    name = call.get("name", "")
-                    args = call.get("args", {})
-
-                    if name not in tools:
-                        results_for_llm.append(f"Unknown tool: {name}")
-                        continue
-
-                    if on_tool_call:
-                        on_tool_call(name, args)
-
-                    tool_instance = tools[name]()
-                    result = tool_instance.run(**args)
-                    result_str = str(result)[:4000]
-
-                    is_error = (
-                        result_str.lower().startswith("error") or "traceback" in result_str.lower()
+                    args = (
+                        json.loads(tc["function"]["arguments"])
+                        if tc["function"]["arguments"]
+                        else {}
                     )
+                except json.JSONDecodeError:
+                    args = {}
 
-                    if name == "write_file" and not is_error:
-                        fp = args.get("file_path", "")
-                        if fp and fp not in files_created:
-                            files_created.append(fp)
-
-                    tool_history.append(
+                if name not in tools:
+                    messages.append(
                         {
-                            "tool": name,
-                            "args": args,
-                            "result": result_str[:500],
-                            "success": not is_error,
+                            "role": "tool",
+                            "tool_call_id": tc_id,
+                            "content": f"Unknown tool: {name}",
                         }
                     )
+                    continue
 
-                    display = result_str[:1500] + "..." if len(result_str) > 1500 else result_str
-                    results_for_llm.append(f"[{'ERROR' if is_error else 'OK'}] {name}:\n{display}")
+                if on_tool_call:
+                    on_tool_call(name, args)
 
-                except json.JSONDecodeError:
-                    results_for_llm.append("Invalid JSON format")
-                except Exception as e:
-                    results_for_llm.append(f"Tool error: {e}")
+                tool_instance = tools[name]()
+                result = tool_instance.run(**args)
+                result_str = str(result)
 
-            combined = "\n\n".join(results_for_llm)
-            messages.append({"role": "user", "content": combined})
+                is_error = (
+                    result_str.lower().startswith("error") or "traceback" in result_str.lower()
+                )
+
+                if name == "write_file" and not is_error:
+                    fp = args.get("file_path", "")
+                    if fp and fp not in files_created:
+                        files_created.append(fp)
+
+                tool_history.append(
+                    {
+                        "tool": name,
+                        "args": args,
+                        "result": result_str[:2000],
+                        "success": not is_error,
+                    }
+                )
+
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "content": result_str,
+                    }
+                )
 
         elapsed = time.time() - start_time
 
@@ -314,7 +367,7 @@ class UnifiedExecutor:
             "success": True,
             "output": content,
             "tool_calls": tool_history,
-            "iterations": min(iteration + 1, max_iterations),
+            "iterations": min(last_iteration + 1, max_iterations),
             "tokens": {"input": total_tokens_in, "output": total_tokens_out},
             "elapsed": elapsed,
             "files_created": files_created,
@@ -367,8 +420,8 @@ def execute_parallel(
             task=task_config.get("task", ""),
             agent_name=task_config.get("agent", "sago-orchestrator"),
             system_prompt=task_config.get("system_prompt", ""),
-            max_tokens=task_config.get("max_tokens", 4096),
-            max_iterations=task_config.get("max_iterations", 8),
+            max_tokens=task_config.get("max_tokens", 50000),
+            max_iterations=task_config.get("max_iterations", 30),
             backend=task_config.get("backend", "simple"),
         )
         return idx, result

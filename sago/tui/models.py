@@ -192,7 +192,9 @@ def refresh_models_from_openrouter(api_key: str) -> str:
     _save_models_data(data)
 
     free_count = sum(1 for m in fetched if ":free" in m)
-    return f"Fetched {len(fetched)} models from OpenRouter ({free_count} free)\nUse /model to see all"
+    return (
+        f"Fetched {len(fetched)} models from OpenRouter ({free_count} free)\nUse /model to see all"
+    )
 
 
 def auto_refresh_if_stale(api_key: str) -> str | None:
@@ -209,12 +211,12 @@ def auto_refresh_if_stale(api_key: str) -> str | None:
 
 
 EFFORT_LEVELS = {
-    "low": {"max_iterations": 3, "max_tokens": 8192, "desc": "Quick answers, minimal tool use"},
-    "medium": {"max_iterations": 6, "max_tokens": 16384, "desc": "Balanced approach"},
-    "high": {"max_iterations": 10, "max_tokens": 32768, "desc": "Thorough analysis, complex tasks"},
+    "low": {"max_iterations": 8, "max_tokens": 16384, "desc": "Quick answers, minimal tool use"},
+    "medium": {"max_iterations": 20, "max_tokens": 50000, "desc": "Balanced approach"},
+    "high": {"max_iterations": 35, "max_tokens": 50000, "desc": "Thorough analysis, complex tasks"},
     "max": {
-        "max_iterations": 15,
-        "max_tokens": 65536,
+        "max_iterations": 50,
+        "max_tokens": 50000,
         "desc": "Maximum depth, full context utilization",
     },
 }

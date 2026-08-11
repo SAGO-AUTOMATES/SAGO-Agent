@@ -5,22 +5,19 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import threading
 import time as _time
-from typing import Any
 
-from rich.syntax import Syntax
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.reactive import reactive
-from textual.widgets import Button, Collapsible, Footer, Input, Static
+from textual.widgets import Button, Footer, Input, Static
 
 from sago.tui.commands import CommandHandlers
 from sago.tui.helpers import UIHelpers
-from sago.tui.models import COMMANDS, EFFORT_LEVELS, MODEL_COSTS
+from sago.tui.models import COMMANDS, EFFORT_LEVELS
 from sago.tui.widgets import Spinner
 
 
@@ -175,9 +172,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         yield ScrollableContainer(id="messages")
         yield Vertical(id="suggestions")
         with Vertical(id="approval-bar"):
-            yield Static(
-                "Pending action", id="approval-label", classes="approval-label"
-            )
+            yield Static("Pending action", id="approval-label", classes="approval-label")
             with Horizontal(id="approval-buttons"):
                 yield Button(
                     "Approve [Y]",
@@ -185,13 +180,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     variant="success",
                     classes="approve-btn",
                 )
-                yield Button(
-                    "Deny [N]", id="btn-deny", variant="error", classes="deny-btn"
-                )
+                yield Button("Deny [N]", id="btn-deny", variant="error", classes="deny-btn")
         with Vertical(id="input-area"):
-            yield Input(
-                placeholder="/, @, # for autocomplete", id="msg-input"
-            )
+            yield Input(placeholder="/, @, # for autocomplete", id="msg-input")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -214,6 +205,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         """Load persisted settings (model, provider, effort, yolo, agent)."""
         try:
             from sago.settings import load_setting
+
             self.current_model = load_setting("model", self.current_model)
             self.current_provider = load_setting("provider", self.current_provider)
             self.current_effort = load_setting("effort", self.current_effort)
@@ -226,6 +218,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         """Persist current settings."""
         try:
             from sago.settings import save_setting
+
             save_setting("model", self.current_model)
             save_setting("provider", self.current_provider)
             save_setting("effort", self.current_effort)
@@ -237,8 +230,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     def _auto_refresh_models(self) -> None:
         """Refresh model list from OpenRouter if cache is stale."""
         import os
+
         try:
             from sago.tui.models import auto_refresh_if_stale
+
             api_key = os.environ.get("OPENROUTER_API_KEY", "")
             msg = auto_refresh_if_stale(api_key)
             if msg:
@@ -251,9 +246,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         m = self.current_model
         p = self.current_provider
         if p == "google" and m.startswith("google/"):
-            return m[len("google/"):]
+            return m[len("google/") :]
         if p == "openai" and m.startswith("openai/"):
-            return m[len("openai/"):]
+            return m[len("openai/") :]
         return m
 
     def watch_current_model(self, value: str) -> None:
@@ -331,7 +326,12 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             event.input.value = val + " "
             event.input.cursor_position = len(event.input.value)
             # If selecting a model suggestion, set provider too
-            if val.startswith("/model ") and not val.startswith("/model add") and not val.startswith("/model remove") and not val.startswith("/model refresh"):
+            if (
+                val.startswith("/model ")
+                and not val.startswith("/model add")
+                and not val.startswith("/model remove")
+                and not val.startswith("/model refresh")
+            ):
                 model_id = val[7:].strip()
                 provider = model_id.split("/")[0]
                 self.current_provider = provider
@@ -385,7 +385,12 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             inp.value = val + " "
             inp.cursor_position = len(inp.value)
             # If selecting a model suggestion, set provider too
-            if val.startswith("/model ") and not val.startswith("/model add") and not val.startswith("/model remove") and not val.startswith("/model refresh"):
+            if (
+                val.startswith("/model ")
+                and not val.startswith("/model add")
+                and not val.startswith("/model remove")
+                and not val.startswith("/model refresh")
+            ):
                 model_id = val[7:].strip()
                 provider = model_id.split("/")[0]
                 self.current_provider = provider
@@ -394,7 +399,6 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
     def _update_highlight(self) -> None:
         items = self.query(".suggestion-item")
-        container = self.query_one("#suggestions")
         for i, item in enumerate(items):
             is_highlighted = i == self.suggestion_index
             item.set_class(is_highlighted, "highlighted")
@@ -413,13 +417,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         if key == "up":
             self.history_index = max(0, self.history_index - 1)
         else:
-            self.history_index = min(
-                len(self.command_history) - 1, self.history_index + 1
-            )
+            self.history_index = min(len(self.command_history) - 1, self.history_index + 1)
         if 0 <= self.history_index < len(self.command_history):
-            self.query_one("#msg-input").value = self.command_history[
-                self.history_index
-            ]
+            self.query_one("#msg-input").value = self.command_history[self.history_index]
 
     def on_mouse_scroll_down(self, event) -> None:
         self.query_one("#messages").scroll_down()
@@ -649,9 +649,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self.is_thinking = True
         self.call_from_thread(self._show_spinner, f"Delegating to {agent_name}...")
         try:
-            api_key = os.environ.get(
-                "OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")
-            )
+            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
                 self.call_from_thread(
@@ -675,27 +673,19 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 self.call_from_thread(self._add_assistant_message, result)
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(
-                self._add_system_message, f"Delegation error: {e}"
-            )
+            self.call_from_thread(self._add_system_message, f"Delegation error: {e}")
         finally:
             self.is_thinking = False
 
     @work(thread=True)
     def _process_chain(self, agents: list[str], task: str) -> None:
         self.is_thinking = True
-        self.call_from_thread(
-            self._show_spinner, f"Chain: {' → '.join(agents)}"
-        )
+        self.call_from_thread(self._show_spinner, f"Chain: {' → '.join(agents)}")
         try:
-            api_key = os.environ.get(
-                "OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")
-            )
+            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
-                self.call_from_thread(
-                    self._add_system_message, "No API key."
-                )
+                self.call_from_thread(self._add_system_message, "No API key.")
                 return
 
             from sago.tools.file.spawn_agent import SpawnAgentTool
@@ -703,41 +693,30 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             tool = SpawnAgentTool()
             current_input = task
             for i, agent in enumerate(agents):
-                self.call_from_thread(
-                    self._update_spinner, f"Step {i+1}/{len(agents)}: {agent}"
-                )
+                self.call_from_thread(self._update_spinner, f"Step {i + 1}/{len(agents)}: {agent}")
                 result = tool.run(task=current_input, agent_name=agent)
-                current_input = (
-                    f"Previous agent ({agent}) said:\n\n{result}\n\nNow continue."
-                )
+                current_input = f"Previous agent ({agent}) said:\n\n{result}\n\nNow continue."
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_assistant_message, current_input)
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(
-                self._add_system_message, f"Chain error: {e}"
-            )
+            self.call_from_thread(self._add_system_message, f"Chain error: {e}")
         finally:
             self.is_thinking = False
 
     @work(thread=True)
     def _process_orchestration(self, task: str) -> None:
         self.is_thinking = True
-        self.call_from_thread(
-            self._show_spinner, "Analyzing task for delegation..."
-        )
+        self.call_from_thread(self._show_spinner, "Analyzing task for delegation...")
         try:
-            api_key = os.environ.get(
-                "OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")
-            )
+            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
-                self.call_from_thread(
-                    self._add_system_message, "No API key."
-                )
+                self.call_from_thread(self._add_system_message, "No API key.")
                 return
 
             from openai import OpenAI
+
             from sago.agents.registry import list_agents
 
             client = OpenAI(
@@ -793,10 +772,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             for i, step in enumerate(plan):
                 agent = step.get("agent", "python-engineer")
                 step_task = step.get("task", "")[:80]
-                plan_lines.append(f"  {i+1}. {agent}: {step_task}")
-            plan_summary = (
-                f"Orchestration plan ({len(plan)} steps):\n" + "\n".join(plan_lines)
-            )
+                plan_lines.append(f"  {i + 1}. {agent}: {step_task}")
+            plan_summary = f"Orchestration plan ({len(plan)} steps):\n" + "\n".join(plan_lines)
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_system_message, plan_summary)
 
@@ -809,18 +786,14 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(
-                self._add_system_message, f"Orchestration error: {e}"
-            )
+            self.call_from_thread(self._add_system_message, f"Orchestration error: {e}")
         finally:
             self.is_thinking = False
 
     def _execute_orchestration_plan(self, plan: list[dict]) -> None:
         """Execute an approved orchestration plan."""
         self.is_thinking = True
-        self.call_from_thread(
-            self._show_spinner, f"Executing {len(plan)} steps..."
-        )
+        self.call_from_thread(self._show_spinner, f"Executing {len(plan)} steps...")
         try:
             from sago.tools.file.spawn_agent import SpawnAgentTool
 
@@ -829,23 +802,16 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             for i, step in enumerate(plan):
                 agent = step.get("agent", "python-engineer")
                 step_task = step.get("task", "")
-                self.call_from_thread(
-                    self._update_spinner, f"Step {i+1}/{len(plan)}: {agent}"
-                )
+                self.call_from_thread(self._update_spinner, f"Step {i + 1}/{len(plan)}: {agent}")
                 result = tool.run(task=step_task, agent_name=agent)
                 results.append(f"**{agent}**: {result[:500]}")
 
             self.call_from_thread(self._hide_spinner)
-            final = (
-                f"Orchestration complete ({len(plan)} steps):\n\n"
-                + "\n\n".join(results)
-            )
+            final = f"Orchestration complete ({len(plan)} steps):\n\n" + "\n\n".join(results)
             self.call_from_thread(self._add_assistant_message, final)
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(
-                self._add_system_message, f"Execution error: {e}"
-            )
+            self.call_from_thread(self._add_system_message, f"Execution error: {e}")
         finally:
             self.is_thinking = False
 
@@ -854,38 +820,30 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self.is_thinking = True
         self.call_from_thread(self._show_spinner)
         try:
-            effort = EFFORT_LEVELS.get(
-                self.current_effort, EFFORT_LEVELS["medium"]
-            )
+            effort = EFFORT_LEVELS.get(self.current_effort, EFFORT_LEVELS["medium"])
 
             def on_tool(name, args):
-                args_str = ", ".join(
-                    f"{k}={str(v)[:30]}" for k, v in list(args.items())[:3]
-                )
-                self.call_from_thread(
-                    self._update_spinner, f"Running: {name}({args_str})"
-                )
+                args_str = ", ".join(f"{k}={str(v)[:30]}" for k, v in list(args.items())[:3])
+                self.call_from_thread(self._update_spinner, f"Running: {name}({args_str})")
 
             def on_tool_result(name, args, result, success):
-                self.call_from_thread(
-                    self._add_tool_call, name, args, result, success
-                )
+                self.call_from_thread(self._add_tool_call, name, args, result, success)
 
             def on_thinking(text):
                 self.call_from_thread(self._update_spinner, text)
 
             # Try streaming first
             try:
+                import sago.engine.simple_executor as _se
                 from sago.llm.tui_providers import get_tui_client
 
-                import sago.engine.simple_executor as _se
                 _se._discover_tools()  # Ensure tools are loaded
                 from sago.engine.simple_executor import (
                     PROMPTS,
+                    _build_openai_tools,
                     _detect_project_context,
                     _detect_task_type,
                     _discover_tools,
-                    _extract_tool_calls,
                     _generate_plan_with_llm,
                     _get_context,
                     _is_complex_task,
@@ -896,9 +854,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                 # Get provider client (handles google, openai, openrouter, etc.)
                 try:
-                    client, api_model = get_tui_client(
-                        self.current_provider, self.current_model
-                    )
+                    client, api_model = get_tui_client(self.current_provider, self.current_model)
                     use_native_gemini = self.current_provider == "google"
                     gemini_client = client if use_native_gemini else None
                 except ValueError as e:
@@ -927,23 +883,17 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     from sago.learning import get_learning_store
 
                     ls = get_learning_store()
-                    learning_suggestion = ls.suggest_approach(
-                        "general", list(tools.keys())
-                    )
+                    learning_suggestion = ls.suggest_approach("general", list(tools.keys()))
                 except Exception:
                     pass
 
                 # Load profile and build prompt
-                profile = _load_agent_profile(
-                    self.current_agent.replace("-", " ").title()
-                )
+                profile = _load_agent_profile(self.current_agent.replace("-", " ").title())
                 task_type = _detect_task_type(message)
                 template = PROMPTS.get(task_type, PROMPTS["create"])
                 system_prompt = template.format(
                     agent_role=self.current_agent.replace("-", " ").title(),
                     project_ctx=project_ctx,
-                    tool_count=len(tools),
-                    tool_list=_se._TOOL_DESCRIPTIONS,
                 )
 
                 if profile and profile.get("system_prompt"):
@@ -981,9 +931,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         from sago.tasks import TaskStatus, get_task_manager
 
                         tm = get_task_manager()
-                        steps = _generate_plan_with_llm(
-                            message, client, self.current_model, _se._TOOL_DESCRIPTIONS
-                        )
+                        steps = _generate_plan_with_llm(message, client, self.current_model, "")
                         task_plan = tm.create_plan(goal=message, todos=steps)
                         confirm_keywords = [
                             "confirm",
@@ -994,21 +942,14 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             "validate",
                         ]
                         for todo in task_plan.todos:
-                            if any(
-                                kw in todo.description.lower()
-                                for kw in confirm_keywords
-                            ):
+                            if any(kw in todo.description.lower() for kw in confirm_keywords):
                                 todo.requires_confirmation = True
-                                todo.confirmation_message = (
-                                    f"Please confirm: {todo.description}"
-                                )
+                                todo.confirmation_message = f"Please confirm: {todo.description}"
                         self.call_from_thread(
                             self._add_system_message,
                             f"📋 Created plan with {len(task_plan.todos)} steps:",
                         )
-                        self.call_from_thread(
-                            self._add_system_message, tm.format_plan(task_plan)
-                        )
+                        self.call_from_thread(self._add_system_message, tm.format_plan(task_plan))
                         if task_plan.todos:
                             tm.start_todo(task_plan.id, task_plan.todos[0].id)
                             self.call_from_thread(
@@ -1022,6 +963,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": message},
                 ]
+
+                # Build OpenAI function calling tool definitions
+                openai_tools = _build_openai_tools(tools)
 
                 tool_history = []
                 files_created = []
@@ -1042,9 +986,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         f"Step {iteration + 1}/{effort['max_iterations']}{todo_info}...",
                     )
 
-                    # Call LLM — native Gemini or OpenAI-compatible
+                    # Call LLM — native Gemini or OpenAI-compatible with function calling
+                    native_tool_calls: list[dict] = []
+
                     if use_native_gemini:
-                        # Convert messages to Google format
+                        # Convert messages to Google format with tools
                         sys_msg = ""
                         contents = []
                         for msg in messages:
@@ -1055,129 +1001,178 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         if not contents:
                             contents = ["Hello"]
                         from google.genai import types as google_types
+
+                        # Convert tools to Google format
+                        google_tools = []
+                        for tool in openai_tools:
+                            func = tool["function"]
+                            google_tools.append(
+                                google_types.FunctionDeclaration(
+                                    name=func["name"],
+                                    description=func.get("description", ""),
+                                    parameters=google_types.Schema(
+                                        type_=google_types.Type.OBJECT,
+                                        properties={
+                                            k: google_types.Schema(
+                                                type_=google_types.Type.STRING,
+                                                description=v.get("description", ""),
+                                            )
+                                            for k, v in func.get("parameters", {})
+                                            .get("properties", {})
+                                            .items()
+                                        },
+                                        required=func.get("parameters", {}).get("required", []),
+                                    ),
+                                )
+                            )
+
+                        google_config = google_types.GenerateContentConfig(
+                            system_instruction=sys_msg or None,
+                            max_output_tokens=effort["max_tokens"],
+                            temperature=0.3,
+                        )
+                        if google_tools:
+                            google_config.tools = [
+                                google_types.Tool(function_declarations=google_tools)
+                            ]
+
                         response = gemini_client.models.generate_content(
                             model=api_model,
                             contents=contents,
-                            config=google_types.GenerateContentConfig(
-                                system_instruction=sys_msg or None,
-                                max_output_tokens=effort["max_tokens"],
-                                temperature=0.3,
-                            ),
+                            config=google_config,
                         )
                         content = response.text or ""
+                        # Extract tool calls from Gemini response
+                        if response.candidates:
+                            for part in response.candidates[0].content.parts:
+                                if part.function_call:
+                                    native_tool_calls.append(
+                                        {
+                                            "id": f"gemini_{len(native_tool_calls)}",
+                                            "name": part.function_call.name,
+                                            "args": dict(part.function_call.args)
+                                            if part.function_call.args
+                                            else {},
+                                        }
+                                    )
                     else:
-                        stream = client.chat.completions.create(
-                            model=api_model,
-                            messages=messages,
-                            max_tokens=effort["max_tokens"],
-                            temperature=0.3,
-                            stream=True,
-                            stream_options={"include_usage": True},
-                        )
+                        # OpenAI-compatible with native function calling (streaming)
+                        api_kwargs = {
+                            "model": api_model,
+                            "messages": messages,
+                            "max_tokens": effort["max_tokens"],
+                            "temperature": 0.3,
+                            "stream": True,
+                            "stream_options": {"include_usage": True},
+                        }
+                        if openai_tools:
+                            api_kwargs["tools"] = openai_tools
+                            api_kwargs["tool_choice"] = "auto"
+
+                        stream = client.chat.completions.create(**api_kwargs)
 
                         content = ""
+                        tool_call_deltas: dict[int, dict] = {}
+
                         for chunk in stream:
                             if hasattr(chunk, "usage") and chunk.usage:
                                 total_tokens_in = chunk.usage.prompt_tokens or 0
                                 total_tokens_out = chunk.usage.completion_tokens or 0
-                            if chunk.choices and chunk.choices[0].delta.content:
-                                token = chunk.choices[0].delta.content
-                                content += token
+                            if not chunk.choices:
+                                continue
+                            delta = chunk.choices[0].delta
+                            if delta.content:
+                                content += delta.content
+                            # Accumulate streaming tool calls
+                            if delta.tool_calls:
+                                for tc_delta in delta.tool_calls:
+                                    idx = tc_delta.index
+                                    if idx not in tool_call_deltas:
+                                        tool_call_deltas[idx] = {
+                                            "id": "",
+                                            "name": "",
+                                            "arguments": "",
+                                        }
+                                    if tc_delta.id:
+                                        tool_call_deltas[idx]["id"] = tc_delta.id
+                                    if tc_delta.function:
+                                        if tc_delta.function.name:
+                                            tool_call_deltas[idx]["name"] = tc_delta.function.name
+                                        if tc_delta.function.arguments:
+                                            tool_call_deltas[idx]["arguments"] += (
+                                                tc_delta.function.arguments
+                                            )
 
-                    # Handle empty content
-                    if not content:
-                        if use_native_gemini:
-                            try:
-                                sys_msg = ""
-                                contents = []
-                                for msg in messages:
-                                    if msg["role"] == "system":
-                                        sys_msg = msg["content"]
-                                    elif msg["role"] in ("user", "assistant"):
-                                        contents.append(msg["content"])
-                                if not contents:
-                                    contents = ["Hello"]
-                                from google.genai import types as google_types
-                                response = gemini_client.models.generate_content(
-                                    model=api_model,
-                                    contents=contents,
-                                    config=google_types.GenerateContentConfig(
-                                        system_instruction=sys_msg or None,
-                                        max_output_tokens=effort["max_tokens"],
-                                        temperature=0.3,
-                                    ),
-                                )
-                                content = response.text or ""
-                            except Exception:
-                                pass
-                        else:
-                            try:
-                                fallback = client.chat.completions.create(
-                                    model=api_model,
-                                    messages=messages,
-                                    max_tokens=effort["max_tokens"],
-                                    temperature=0.3,
-                                )
-                                content = fallback.choices[0].message.content or ""
-                            except Exception:
-                                pass
+                        # Convert accumulated deltas to tool calls
+                        for idx in sorted(tool_call_deltas.keys()):
+                            tc = tool_call_deltas[idx]
+                            native_tool_calls.append(tc)
 
-                    if not content or content.strip() == "":
+                    # Handle empty content with no tool calls
+                    if not content and not native_tool_calls:
                         if iteration < effort["max_iterations"] - 1:
                             messages.append(
                                 {
                                     "role": "user",
-                                    "content": (
-                                        "You returned an empty response. "
-                                        "Please respond with text or use a tool."
-                                    ),
+                                    "content": "You returned an empty response. Please use the available tools to complete the task.",
                                 }
                             )
                             continue
                         else:
                             content = "I wasn't able to generate a response. Please try again."
 
-                    messages.append({"role": "assistant", "content": content})
-
-                    # Check for tool calls
-                    tool_calls = _extract_tool_calls(content)
-                    if not tool_calls:
-                        # Detect hallucination: LLM claims tools are blocked/unavailable
-                        hallucination_phrases = [
-                            "i cannot", "i am unable", "unable to access", "tools are blocked",
-                            "threading constraint", "event loop", "sandbox restriction",
-                            "permission system", "i don't have access", "i'm not able to",
-                            "environment is locked", "environment is restricted",
+                    # Build assistant message
+                    assistant_msg: dict = {"role": "assistant", "content": content or None}
+                    if native_tool_calls:
+                        assistant_msg["tool_calls"] = [
+                            {
+                                "id": tc["id"],
+                                "type": "function",
+                                "function": {
+                                    "name": tc["name"],
+                                    "arguments": json.dumps(tc["args"])
+                                    if isinstance(tc["args"], dict)
+                                    else tc["args"],
+                                },
+                            }
+                            for tc in native_tool_calls
                         ]
-                        content_lower = content.lower()
-                        is_hallucination = any(phrase in content_lower for phrase in hallucination_phrases)
+                    messages.append(assistant_msg)
 
-                        # Detect LLM fabricating results without using tools
+                    # If no tool calls, check for fabrication or finish
+                    if not native_tool_calls:
                         fabrication_phrases = [
-                            "the file contains", "the contents are", "i read the file",
-                            "the file has", "i can see that", "looking at the file",
-                            "the code shows", "i opened the file", "the file shows",
-                            "successfully created", "i saved the file", "the file was created",
-                            "i have created", "i've created", "done! the file",
+                            "the file contains",
+                            "the contents are",
+                            "i read the file",
+                            "the file has",
+                            "i can see that",
+                            "looking at the file",
+                            "the code shows",
+                            "i opened the file",
+                            "the file shows",
+                            "successfully created",
+                            "i saved the file",
+                            "the file was created",
+                            "i have created",
+                            "i've created",
+                            "done! the file",
                         ]
-                        is_fabrication = (
-                            tool_history == []  # No tools were called this session
-                            and any(phrase in content_lower for phrase in fabrication_phrases)
+                        content_lower = content.lower() if content else ""
+                        is_fabrication = not tool_history and any(
+                            phrase in content_lower for phrase in fabrication_phrases
                         )
 
-                        if (is_hallucination or is_fabrication) and iteration < effort["max_iterations"] - 1:
-                            reason = "hallucinating that tools are blocked" if is_hallucination else "fabricating results without calling tools"
-                            messages.append({
-                                "role": "user",
-                                "content": (
-                                    f"STOP. You are {reason}. "
-                                    "You have NOT read any file. You have NOT created any file. "
-                                    "You are making things up. "
-                                    "You MUST use a tool. Output ONLY a JSON tool call. No text before or after.\n"
-                                    "Example: {\"name\": \"read_file\", \"args\": {\"file_path\": \"the_file\"}}\n"
-                                    "Do it NOW."
-                                ),
-                            })
+                        if is_fabrication and iteration < effort["max_iterations"] - 1:
+                            messages.append(
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "STOP. You are fabricating results without calling tools. "
+                                        "You MUST use a tool to interact with the system. Do it NOW."
+                                    ),
+                                }
+                            )
                             continue
 
                         # Handle todo completion
@@ -1188,159 +1183,154 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             todo = task_plan.todos[current_todo_index]
                             if todo.status == TaskStatus.IN_PROGRESS:
                                 tm.complete_todo(
-                                    task_plan.id, todo.id, result=content[:200]
+                                    task_plan.id, todo.id, result=content[:200] if content else ""
                                 )
                                 self.call_from_thread(
                                     self._add_system_message,
-                                    f"✅ Step {current_todo_index + 1} completed: {todo.description[:60]}",
+                                    f"Step {current_todo_index + 1} completed: {todo.description[:60]}",
                                 )
                                 current_todo_index += 1
                                 if current_todo_index < len(task_plan.todos):
                                     next_todo = task_plan.todos[current_todo_index]
                                     tm.start_todo(task_plan.id, next_todo.id)
-                                    self.call_from_thread(
-                                        self._update_spinner,
-                                        f"Step {current_todo_index + 1}/{len(task_plan.todos)}: {next_todo.description[:50]}",
-                                    )
                                     messages.append(
                                         {
                                             "role": "user",
-                                            "content": (
-                                                f"Moving to next step: {next_todo.description}\n"
-                                                f"Execute this step now."
-                                            ),
+                                            "content": f"Moving to next step: {next_todo.description}\nExecute this step now.",
                                         }
                                     )
                                     continue
                         break
 
-                    # Execute tools
-                    results_for_llm = []
+                    # ---- Execute native tool calls ----
                     tools_used_in_iteration = []
 
-                    for call_str in tool_calls:
-                        try:
-                            call = json.loads(call_str)
-                            name = call.get("name", "")
-                            args = call.get("args", {})
+                    for tc in native_tool_calls:
+                        tc_id = tc["id"]
+                        name = tc["name"]
+                        args = tc["args"] if isinstance(tc["args"], dict) else {}
 
-                            if name not in tools:
-                                results_for_llm.append(f"Unknown tool: {name}")
-                                continue
-
-                            # Loop protection
-                            call_key = f"{name}:{json.dumps(args, sort_keys=True)}"
-                            if call_key in failed_calls:
-                                results_for_llm.append(
-                                    f"[SKIP] Already failed: {name} with same args"
-                                )
-                                continue
-
-                            # Check permissions
-                            from sago.permissions import RiskLevel, get_permission_manager
-
-                            pm = get_permission_manager()
-                            risk = pm.get_risk_level(name)
-
-                            # YOLO mode: skip all permission checks
-                            if self.yolo_mode:
-                                allowed = True
-                                reason = "YOLO mode"
-                            else:
-                                allowed, reason = pm.check_permission(
-                                    name, args, self.current_session_id
-                                )
-
-                            if not allowed:
-                                if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
-                                    self.call_from_thread(
-                                        self._show_approval_bar,
-                                        f"Allow {name}? (risk: {risk.value}) — Press [Y] or [N]",
-                                    )
-                                    pause_event = threading.Event()
-                                    # DO NOT set() here — wait for user to press Y/N
-                                    self._executor_pause_event = pause_event
-                                    self._pending_tool_approval = {
-                                        "name": name,
-                                        "args": args,
-                                        "results_for_llm": results_for_llm,
-                                    }
-                                    pause_event.wait()  # Blocks until user approves/denies
-                                    self._executor_pause_event = None
-                                    self._pending_tool_approval = None
-                                    if self._tool_approved:
-                                        self._tool_approved = False
-                                    else:
-                                        results_for_llm.append(
-                                            f"Permission denied: {name} requires approval"
-                                        )
-                                        continue
-                                else:
-                                    results_for_llm.append(
-                                        f"Permission denied: {reason}"
-                                    )
-                                    continue
-
-                            # Detect circular behavior
-                            tool_call_counts[name] = (
-                                tool_call_counts.get(name, 0) + 1
-                            )
-                            recent_calls = [
-                                f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}"
-                                for c in tool_history[-5:]
-                            ]
-                            if len(recent_calls) >= 3:
-                                unique_recent = set(recent_calls[-3:])
-                                if len(unique_recent) == 1:
-                                    results_for_llm.append(
-                                        f"[HINT] You've called {name} with similar args 3 times. Try a different approach."
-                                    )
-
-                            self.call_from_thread(on_tool, name, args)
-                            tool_instance = tools[name]()
-                            result = tool_instance.run(**args)
-                            result_str = str(result)[:4000]
-
-                            is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
-                            if is_error:
-                                failed_calls.add(call_key)
-
-                            if name == "write_file" and not is_error:
-                                fp = args.get("file_path", "")
-                                if fp and fp not in files_created:
-                                    files_created.append(fp)
-
-                            tool_history.append(
+                        if name not in tools:
+                            messages.append(
                                 {
-                                    "tool": name,
-                                    "args": args,
-                                    "result": result_str[:500],
-                                    "success": not is_error,
+                                    "role": "tool",
+                                    "tool_call_id": tc_id,
+                                    "content": f"Unknown tool: {name}",
                                 }
                             )
-                            tools_used_in_iteration.append(name)
+                            continue
 
-                            self.call_from_thread(
-                                on_tool_result,
-                                name,
-                                args,
-                                result_str[:1000],
-                                not is_error,
+                        # Loop protection
+                        call_key = f"{name}:{json.dumps(args, sort_keys=True)}"
+                        if call_key in failed_calls:
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tc_id,
+                                    "content": f"[SKIP] Already failed: {name} with same args",
+                                }
+                            )
+                            continue
+
+                        # Check permissions
+                        from sago.permissions import RiskLevel, get_permission_manager
+
+                        pm = get_permission_manager()
+                        risk = pm.get_risk_level(name)
+
+                        if self.yolo_mode:
+                            allowed = True
+                            reason = "YOLO mode"
+                        else:
+                            allowed, reason = pm.check_permission(
+                                name, args, self.current_session_id
                             )
 
-                            display = (
-                                result_str[:1500] + "..."
-                                if len(result_str) > 1500
-                                else result_str
-                            )
-                            results_for_llm.append(
-                                f"[{'ERROR' if is_error else 'OK'}] {name}:\n{display}"
-                            )
+                        if not allowed:
+                            if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+                                self.call_from_thread(
+                                    self._show_approval_bar,
+                                    f"Allow {name}? (risk: {risk.value}) -- Press [Y] or [N]",
+                                )
+                                pause_event = threading.Event()
+                                self._executor_pause_event = pause_event
+                                self._pending_tool_approval = {"name": name, "args": args}
+                                pause_event.wait()
+                                self._executor_pause_event = None
+                                self._pending_tool_approval = None
+                                if not self._tool_approved:
+                                    messages.append(
+                                        {
+                                            "role": "tool",
+                                            "tool_call_id": tc_id,
+                                            "content": f"Permission denied: {name} requires approval",
+                                        }
+                                    )
+                                    continue
+                                self._tool_approved = False
+                            else:
+                                messages.append(
+                                    {
+                                        "role": "tool",
+                                        "tool_call_id": tc_id,
+                                        "content": f"Permission denied: {reason}",
+                                    }
+                                )
+                                continue
 
-                        except json.JSONDecodeError:
-                            results_for_llm.append("Invalid JSON format")
-                        except Exception as e:
-                            results_for_llm.append(f"Tool error: {e}")
+                        # Detect circular behavior
+                        tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
+                        recent_calls = [
+                            f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}"
+                            for c in tool_history[-5:]
+                        ]
+                        if len(recent_calls) >= 3:
+                            unique_recent = set(recent_calls[-3:])
+                            if len(unique_recent) == 1:
+                                messages.append(
+                                    {
+                                        "role": "tool",
+                                        "tool_call_id": tc_id,
+                                        "content": f"[HINT] You've called {name} with similar args 3 times. Try a different approach.",
+                                    }
+                                )
+                                continue
+
+                        self.call_from_thread(on_tool, name, args)
+                        tool_instance = tools[name]()
+                        result = tool_instance.run(**args)
+                        result_str = str(result)
+
+                        is_error = (
+                            result_str.lower().startswith("error")
+                            or "traceback" in result_str.lower()
+                        )
+                        if is_error:
+                            failed_calls.add(call_key)
+
+                        if name == "write_file" and not is_error:
+                            fp = args.get("file_path", "")
+                            if fp and fp not in files_created:
+                                files_created.append(fp)
+
+                        tool_history.append(
+                            {
+                                "tool": name,
+                                "args": args,
+                                "result": result_str[:2000],
+                                "success": not is_error,
+                            }
+                        )
+                        tools_used_in_iteration.append(name)
+                        self.call_from_thread(on_tool_result, name, args, result_str, not is_error)
+
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc_id,
+                                "content": result_str,
+                            }
+                        )
 
                     # TODO progress
                     if task_plan:
@@ -1352,9 +1342,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                 todo = task_plan.todos[current_todo_index]
                                 if todo.id not in todo_tool_counts:
                                     todo_tool_counts[todo.id] = 0
-                                todo_tool_counts[todo.id] += len(
-                                    tools_used_in_iteration
-                                )
+                                todo_tool_counts[todo.id] += len(tools_used_in_iteration)
 
                                 if (
                                     todo.requires_confirmation
@@ -1365,21 +1353,18 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                         f"Confirm: {todo.confirmation_message or todo.description}",
                                     )
                                     pause_event = threading.Event()
-                                    # DO NOT set() here — wait for user
                                     self._executor_pause_event = pause_event
-                                    pause_event.wait()  # Blocks until user approves/denies
+                                    pause_event.wait()
                                     self._executor_pause_event = None
 
                                 successful_tools = [
                                     t["tool"]
                                     for t in tool_history
-                                    if t.get("success")
-                                    and t["tool"] in tools_used_in_iteration
+                                    if t.get("success") and t["tool"] in tools_used_in_iteration
                                 ]
                                 tools_for_todo = todo_tool_counts.get(todo.id, 0)
-                                if (tools_for_todo >= 3 and len(successful_tools) >= 2) or (
-                                    tools_for_todo >= 2
-                                    and len(tools_used_in_iteration) >= 1
+                                if (tools_for_todo >= 5 and len(successful_tools) >= 3) or (
+                                    tools_for_todo >= 4 and len(tools_used_in_iteration) >= 1
                                 ):
                                     tm.complete_todo(
                                         task_plan.id,
@@ -1388,44 +1373,33 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                     )
                                     self.call_from_thread(
                                         self._add_system_message,
-                                        f"✅ Step {current_todo_index + 1} completed: {todo.description[:60]}",
+                                        f"Step {current_todo_index + 1} completed: {todo.description[:60]}",
                                     )
                                     current_todo_index += 1
                                     if current_todo_index < len(task_plan.todos):
-                                        next_todo = task_plan.todos[
-                                            current_todo_index
-                                        ]
+                                        next_todo = task_plan.todos[current_todo_index]
                                         tm.start_todo(task_plan.id, next_todo.id)
-                                        self.call_from_thread(
-                                            self._update_spinner,
-                                            f"Step {current_todo_index + 1}/{len(task_plan.todos)}: {next_todo.description[:50]}",
-                                        )
-                                        results_for_llm.append(
-                                            f"\n[PROGRESS] Step completed. Next step: {next_todo.description}\nExecute this step now."
+                                        messages.append(
+                                            {
+                                                "role": "user",
+                                                "content": f"[PROGRESS] Step completed. Next step: {next_todo.description}\nExecute this step now.",
+                                            }
                                         )
                                     else:
-                                        results_for_llm.append(
-                                            "\n[PROGRESS] All steps completed. Provide final summary."
+                                        messages.append(
+                                            {
+                                                "role": "user",
+                                                "content": "[PROGRESS] All steps completed. Provide final summary.",
+                                            }
                                         )
                         except Exception:
                             pass
 
-                    combined = "\n\n".join(results_for_llm)
-                    # Tell LLM to read results and answer, not call more tools
-                    if not task_plan:
-                        combined += (
-                            "\n\nThe tool has been executed. Read the output above and "
-                            "respond with a natural language answer to the user. "
-                            "Do NOT call any more tools. Just answer."
-                        )
-                    messages.append({"role": "user", "content": combined})
-                    continue  # Loop back for next LLM call with tool results
+                    continue  # Loop back for next LLM call with tool results as role:tool messages
 
                 # Post-execution: test → fix → retry
                 if files_created:
-                    self.call_from_thread(
-                        self._update_spinner, "Running tests..."
-                    )
+                    self.call_from_thread(self._update_spinner, "Running tests...")
                     from sago.engine.simple_executor import (
                         _auto_install_deps,
                         _run_tests_if_exist,
@@ -1442,9 +1416,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                         test_passed, test_output = test_result
                         if test_passed:
-                            self.call_from_thread(
-                                self._add_system_message, "✅ All tests passed!"
-                            )
+                            self.call_from_thread(self._add_system_message, "✅ All tests passed!")
                             break
 
                         test_fix_attempts += 1
@@ -1472,68 +1444,100 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                     ),
                                 },
                             ]
-                            if use_native_gemini:
-                                sys_msg = ""
-                                contents = []
-                                for msg in fix_msgs:
-                                    if msg["role"] == "system":
-                                        sys_msg = msg["content"]
-                                    elif msg["role"] in ("user", "assistant"):
-                                        contents.append(msg["content"])
-                                from google.genai import types as google_types
-                                fix_response = gemini_client.models.generate_content(
-                                    model=api_model,
-                                    contents=contents,
-                                    config=google_types.GenerateContentConfig(
-                                        system_instruction=sys_msg or None,
-                                        max_output_tokens=effort["max_tokens"],
-                                        temperature=0.3,
-                                    ),
-                                )
-                                fix_content = fix_response.text or ""
-                            else:
-                                fix_stream = client.chat.completions.create(
-                                    model=api_model,
-                                    messages=fix_msgs,
-                                    max_tokens=effort["max_tokens"],
-                                    temperature=0.3,
-                                    stream=True,
-                                    stream_options={"include_usage": True},
-                                )
-                                fix_content = ""
-                                for chunk in fix_stream:
-                                    if chunk.choices and chunk.choices[0].delta.content:
-                                        fix_content += chunk.choices[0].delta.content
+                            fix_api_kwargs = {
+                                "model": api_model,
+                                "messages": fix_msgs,
+                                "max_tokens": effort["max_tokens"],
+                                "temperature": 0.3,
+                                "stream": True,
+                                "stream_options": {"include_usage": True},
+                            }
+                            if openai_tools:
+                                fix_api_kwargs["tools"] = openai_tools
+                                fix_api_kwargs["tool_choice"] = "auto"
 
-                            if fix_content:
+                            fix_stream = client.chat.completions.create(**fix_api_kwargs)
+                            fix_content = ""
+                            fix_tc_deltas: dict[int, dict] = {}
+                            for chunk in fix_stream:
+                                if not chunk.choices:
+                                    continue
+                                delta = chunk.choices[0].delta
+                                if delta.content:
+                                    fix_content += delta.content
+                                if delta.tool_calls:
+                                    for tc_delta in delta.tool_calls:
+                                        idx = tc_delta.index
+                                        if idx not in fix_tc_deltas:
+                                            fix_tc_deltas[idx] = {
+                                                "id": "",
+                                                "name": "",
+                                                "arguments": "",
+                                            }
+                                        if tc_delta.id:
+                                            fix_tc_deltas[idx]["id"] = tc_delta.id
+                                        if tc_delta.function:
+                                            if tc_delta.function.name:
+                                                fix_tc_deltas[idx]["name"] = tc_delta.function.name
+                                            if tc_delta.function.arguments:
+                                                fix_tc_deltas[idx]["arguments"] += (
+                                                    tc_delta.function.arguments
+                                                )
+
+                            # Process accumulated fix tool calls
+                            if fix_tc_deltas:
+                                fix_tcs = [fix_tc_deltas[k] for k in sorted(fix_tc_deltas.keys())]
                                 messages.append(
-                                    {"role": "assistant", "content": fix_content}
+                                    {
+                                        "role": "assistant",
+                                        "content": fix_content or None,
+                                        "tool_calls": [
+                                            {
+                                                "id": tc["id"],
+                                                "type": "function",
+                                                "function": {
+                                                    "name": tc["name"],
+                                                    "arguments": tc["arguments"],
+                                                },
+                                            }
+                                            for tc in fix_tcs
+                                        ],
+                                    }
                                 )
-                                fix_tool_calls = _extract_tool_calls(fix_content)
-                                for call_str in fix_tool_calls:
+                                for tc in fix_tcs:
                                     try:
-                                        call = json.loads(call_str)
-                                        name = call.get("name", "")
-                                        args = call.get("args", {})
-                                        if name in tools:
-                                            tool_instance = tools[name]()
-                                            result = tool_instance.run(**args)
-                                            result_str = str(result)[:4000]
-                                            is_error = result_str.lower().startswith("error")
-                                            tool_history.append(
-                                                {
-                                                    "tool": name,
-                                                    "args": args,
-                                                    "result": result_str[:500],
-                                                    "success": not is_error,
-                                                }
-                                            )
-                                            if name == "write_file" and not is_error:
-                                                fp = args.get("file_path", "")
-                                                if fp and fp not in files_created:
-                                                    files_created.append(fp)
-                                    except Exception:
-                                        pass
+                                        fix_args = (
+                                            json.loads(tc["arguments"]) if tc["arguments"] else {}
+                                        )
+                                    except json.JSONDecodeError:
+                                        fix_args = {}
+                                    fix_name = tc["name"]
+                                    if fix_name in tools:
+                                        tool_instance = tools[fix_name]()
+                                        result = tool_instance.run(**fix_args)
+                                        result_str = str(result)
+                                        is_error = result_str.lower().startswith("error")
+                                        tool_history.append(
+                                            {
+                                                "tool": fix_name,
+                                                "args": fix_args,
+                                                "result": result_str[:2000],
+                                                "success": not is_error,
+                                            }
+                                        )
+                                        if fix_name == "write_file" and not is_error:
+                                            fp = fix_args.get("file_path", "")
+                                            if fp and fp not in files_created:
+                                                files_created.append(fp)
+                                        messages.append(
+                                            {
+                                                "role": "tool",
+                                                "tool_call_id": tc["id"],
+                                                "content": result_str,
+                                            }
+                                        )
+                            elif fix_content:
+                                messages.append({"role": "assistant", "content": fix_content})
                         except Exception:
                             break
 
@@ -1543,9 +1547,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         from sago.tasks import TaskStatus, get_task_manager
 
                         tm = get_task_manager()
-                        for idx in range(
-                            current_todo_index, len(task_plan.todos)
-                        ):
+                        for idx in range(current_todo_index, len(task_plan.todos)):
                             todo = task_plan.todos[idx]
                             if todo.status in (
                                 TaskStatus.PENDING,
@@ -1556,9 +1558,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                     todo.id,
                                     result="Task completed",
                                 )
-                        self.call_from_thread(
-                            self._add_system_message, tm.format_plan(task_plan)
-                        )
+                        self.call_from_thread(self._add_system_message, tm.format_plan(task_plan))
                     except Exception:
                         pass
 
@@ -1594,9 +1594,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     from sago.learning import get_learning_store
 
                     ls = get_learning_store()
-                    successful_tools = [
-                        t["tool"] for t in tool_history if t.get("success")
-                    ]
+                    successful_tools = [t["tool"] for t in tool_history if t.get("success")]
                     if successful_tools:
                         ls.record_success(
                             task_type,
@@ -1649,9 +1647,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     from sago.tasks import get_task_manager
 
                     tm = get_task_manager()
-                    self.call_from_thread(
-                        self._add_system_message, tm.format_plan(plan)
-                    )
+                    self.call_from_thread(self._add_system_message, tm.format_plan(plan))
 
                 def on_todo_update(plan, todo_index, status):
                     if todo_index < len(plan.todos):
@@ -1701,9 +1697,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     tm = get_task_manager()
                     plan = tm.get_active_plan()
                     if plan:
-                        self.call_from_thread(
-                            self._add_system_message, tm.format_plan(plan)
-                        )
+                        self.call_from_thread(self._add_system_message, tm.format_plan(plan))
 
                 self.call_from_thread(self._hide_spinner)
 
@@ -1738,9 +1732,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 error_msg = f"Authentication failed. Check your {self.current_provider} API key."
             elif "404" in error_msg:
                 error_msg = f"Model '{self.current_model}' not found. Try a different model."
-            self.call_from_thread(
-                self._add_system_message, f"Error: {error_msg}"
-            )
+            self.call_from_thread(self._add_system_message, f"Error: {error_msg}")
         finally:
             self.is_thinking = False
 

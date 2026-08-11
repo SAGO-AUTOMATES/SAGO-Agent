@@ -5,6 +5,8 @@ from __future__ import annotations
 import subprocess
 from typing import TYPE_CHECKING
 
+from textual.widgets import Static
+
 if TYPE_CHECKING:
     from sago.tui.app import SagoApp
 
@@ -126,11 +128,16 @@ class CommandHandlers:
         if not self.command_history:
             self._add_system_message("No history")
             return
-        lines = [f"  {i+1}. {cmd}" for i, cmd in enumerate(self.command_history[-20:])]
+        lines = [f"  {i + 1}. {cmd}" for i, cmd in enumerate(self.command_history[-20:])]
         self._add_system_message("History:\n" + "\n".join(lines))
 
     def _change_model(self: SagoApp, m: str) -> None:
-        from sago.tui.models import get_all_models, add_custom_model, remove_custom_model, refresh_models_from_openrouter
+        from sago.tui.models import (
+            add_custom_model,
+            get_all_models,
+            refresh_models_from_openrouter,
+            remove_custom_model,
+        )
 
         parts = m.split(None, 2) if m else []
 
@@ -154,7 +161,7 @@ class CommandHandlers:
                 for model in pmodels[:10]:
                     lines.append(f"    {model}")
                 if len(pmodels) > 10:
-                    lines.append(f"    ... +{len(pmodels)-10} more")
+                    lines.append(f"    ... +{len(pmodels) - 10} more")
                 lines.append("")
             self._add_system_message("\n".join(lines))
             return
@@ -162,6 +169,7 @@ class CommandHandlers:
         # /model refresh
         if parts[0] == "refresh":
             import os
+
             api_key = os.environ.get("OPENROUTER_API_KEY", "")
             msg = refresh_models_from_openrouter(api_key)
             self._add_system_message(msg)
@@ -283,7 +291,7 @@ class CommandHandlers:
 
     def _save_session(self: SagoApp, name: str) -> None:
         try:
-            from sago.database import Session, MessageStore, init_db
+            from sago.database import Session, init_db
 
             init_db()
             title = name or f"Session {self.current_session_id[:8]}"
@@ -328,7 +336,9 @@ class CommandHandlers:
                         f"Loaded: {ses.get('title', 'Untitled')} ({len(msgs)} messages)"
                     )
                     return
-            self._add_system_message(f"Session not found: {sid}\nUse /sessions to list available sessions")
+            self._add_system_message(
+                f"Session not found: {sid}\nUse /sessions to list available sessions"
+            )
         except Exception as e:
             self._add_system_message(f"Load error: {e}")
 
@@ -356,7 +366,7 @@ class CommandHandlers:
     def _list_sessions(self: SagoApp) -> None:
         """List recent sessions for easy resume."""
         try:
-            from sago.database import Session, MessageStore, init_db
+            from sago.database import MessageStore, Session, init_db
 
             init_db()
             s = Session()
@@ -483,9 +493,7 @@ class CommandHandlers:
             self._add_system_message("Orchestration plan denied")
             return
         # Check if executor is paused - resume with skip
-        if self._executor_pause_event and isinstance(
-            self._executor_pause_event, threading.Event
-        ):
+        if self._executor_pause_event and isinstance(self._executor_pause_event, threading.Event):
             self._executor_pause_event.clear()  # Resume executor (it will skip the current step)
             self._add_system_message("Skipped - continuing execution")
             return
@@ -504,7 +512,7 @@ class CommandHandlers:
             self._add_system_message("YOLO MODE OFF - Permissions restored")
 
     def _show_permissions(self: SagoApp, args: str) -> None:
-        from sago.permissions import TOOL_RISK_LEVELS, RiskLevel, get_permission_manager
+        from sago.permissions import TOOL_RISK_LEVELS, get_permission_manager
 
         pm = get_permission_manager()
 
@@ -519,9 +527,7 @@ class CommandHandlers:
                 lines = "\n".join(f"  - {t}" for t in pm.config.allowed_tools)
                 self._add_system_message(f"Allowed tools:\n{lines}")
             else:
-                self._add_system_message(
-                    "No explicit allowed list (all tools available)"
-                )
+                self._add_system_message("No explicit allowed list (all tools available)")
         else:
             lines = []
             for name, risk in sorted(TOOL_RISK_LEVELS.items()):
@@ -602,9 +608,7 @@ class CommandHandlers:
             tm.complete_todo(plan.id, todo_id, result="Marked done by user")
             next_todo = plan.current_todo
             if next_todo:
-                self._add_system_message(
-                    f"Next: [{next_todo.id}] {next_todo.description}"
-                )
+                self._add_system_message(f"Next: [{next_todo.id}] {next_todo.description}")
             else:
                 self._add_system_message("All todos completed! 🎉")
         else:
