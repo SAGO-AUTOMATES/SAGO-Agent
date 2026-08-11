@@ -16,15 +16,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/ruff-action@v3
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          version: "0.16.2"
-          args: "check sago/"
+          python-version: "3.11"
 
-      - uses: astral-sh/ruff-action@v3
-        with:
-          version: "0.16.2"
-          args: "format --check sago/"
+      - name: Install ruff
+        run: pip install ruff==0.16.2
+
+      - name: Run ruff check
+        run: ruff check sago/
+
+      - name: Run ruff format check
+        run: ruff format --check sago/
 
   test:
     name: Tests
