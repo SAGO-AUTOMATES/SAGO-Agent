@@ -224,8 +224,6 @@ def convert_all_agents(
 
 
 if __name__ == "__main__":
-    import sys
-
     source = Path("/mnt/ramdisk/agents-readme")
     output = Path("/mnt/ramdisk/sago/sago/agents/profiles")
 

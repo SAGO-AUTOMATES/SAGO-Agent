@@ -1,9 +1,5 @@
 """Integration tests for server/daemon."""
 
-import socket
-import threading
-import time
-
 import pytest
 
 from sago.server.daemon import SagoClient, SagoDaemon

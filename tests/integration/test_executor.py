@@ -1,13 +1,10 @@
 """Integration tests for executor."""
 
-import pytest
-
 from sago.engine.simple_executor import (
     _detect_task_type,
     _discover_tools,
     _extract_tool_calls,
     _get_context,
-    _TOOL_DESCRIPTIONS,
 )
 
 
@@ -17,8 +14,9 @@ class TestToolDiscovery:
         assert len(tools) >= 40
 
     def test_tool_descriptions(self):
-        tools = _discover_tools()
+        _discover_tools()
         from sago.engine.simple_executor import _TOOL_DESCRIPTIONS
+
         assert len(_TOOL_DESCRIPTIONS) > 0
 
     def test_tool_classes_cached(self):

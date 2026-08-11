@@ -19,6 +19,12 @@ jobs:
       - uses: astral-sh/ruff-action@v3
         with:
           version: "0.16.2"
+          args: "check sago/"
+
+      - uses: astral-sh/ruff-action@v3
+        with:
+          version: "0.16.2"
+          args: "format --check sago/"
 
   test:
     name: Tests
