@@ -21,14 +21,17 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install ruff
-        run: pip install ruff==0.16.2
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync --extra dev
 
       - name: Run ruff check
-        run: ruff check sago/
+        run: uv run ruff check sago/
 
       - name: Run ruff format check
-        run: ruff format --check sago/
+        run: uv run ruff format --check sago/
 
   test:
     name: Tests
