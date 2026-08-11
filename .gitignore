@@ -59,7 +59,6 @@ htmlcov/
 .ruff_cache/
 
 # UV
-uv.lock
 
 # Jupyter
 .ipynb_checkpoints/
