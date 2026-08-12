@@ -208,10 +208,10 @@ class AgentDashboard(Widget):
     show_details: reactive[bool] = reactive(True)
 
     def compose(self) -> ComposeResult:
-        yield Static("Agent Dashboard", classes="dashboard-title")
+        yield Static("Agent Dashboard", classes="dashboard-title", markup=False)
         yield Vertical(id="agent-list")
-        yield Static("─" * 33, classes="separator")
-        yield Static("Total: 0 active", id="dashboard-stats", classes="stat-line")
+        yield Static("─" * 33, classes="separator", markup=False)
+        yield Static("Total: 0 active", id="dashboard-stats", classes="stat-line", markup=False)
 
     def update_agents(self, agents: list[AgentTaskInfo]) -> None:
         """Update the dashboard with current agent states."""
@@ -224,8 +224,6 @@ class AgentDashboard(Widget):
         failed = sum(1 for a in agents if a.status == AgentStatus.FAILED)
 
         for info in agents:
-            color = get_agent_color(info.agent_id)
-
             entry = Vertical(classes="agent-entry")
 
             # Agent name with color
@@ -239,29 +237,30 @@ class AgentDashboard(Widget):
             }.get(info.status, "?")
 
             name_line = Static(
-                f"[{color}]{status_icon} {info.agent_name}[/{color}]",
+                f"{status_icon} {info.agent_name}",
                 classes="agent-name",
+                markup=False,
             )
             entry.mount(name_line)
 
             # Task preview
             if info.task:
-                entry.mount(Static(f"  {info.task[:50]}", classes="agent-task"))
+                entry.mount(Static(f"  {info.task[:50]}", classes="agent-task", markup=False))
 
             # Current tool
             if info.current_tool and info.status == AgentStatus.RUNNING:
-                entry.mount(Static(f"  → {info.current_tool}", classes="agent-tools"))
+                entry.mount(Static(f"  → {info.current_tool}", classes="agent-tools", markup=False))
 
             # Progress bar
             if info.status == AgentStatus.RUNNING and info.progress > 0:
                 bar_len = 20
                 filled = int(bar_len * info.progress)
                 bar = "█" * filled + "░" * (bar_len - filled)
-                entry.mount(Static(f"  [{color}]{bar}[/{color}] {info.progress:.0%}", classes="agent-progress"))
+                entry.mount(Static(f"  {bar} {info.progress:.0%}", classes="agent-progress", markup=False))
 
             # Elapsed time
             if info.elapsed > 0:
-                entry.mount(Static(f"  {info.elapsed:.1f}s", classes="agent-tools"))
+                entry.mount(Static(f"  {info.elapsed:.1f}s", classes="agent-tools", markup=False))
 
             agent_list.mount(entry)
 
@@ -384,7 +383,7 @@ class OrchestrationPlanWidget(Widget):
         self.plan = plan
 
     def compose(self) -> ComposeResult:
-        yield Static(f"Orchestration Plan ({len(self.plan)} steps)", classes="plan-title")
+        yield Static(f"Orchestration Plan ({len(self.plan)} steps)", classes="plan-title", markup=False)
         yield Vertical(id="plan-steps")
 
     def update_plan(self, plan: list[dict]) -> None:
@@ -424,11 +423,11 @@ class OrchestrationPlanWidget(Widget):
                 cls = "plan-step plan-step-pending"
                 icon = "○"
 
-            color = get_agent_color(agent)
             container.mount(
                 Static(
-                    f"  {icon} [{color}]{i + 1}. {agent}[/{color}] {task}",
+                    f"  {icon} {i + 1}. {agent} {task}",
                     classes=cls,
+                    markup=False,
                 )
             )
 

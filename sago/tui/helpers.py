@@ -46,7 +46,7 @@ class UIHelpers:
 
     def _add_user_message(self: SagoApp, content: str) -> None:
         self.messages.append({"role": "user", "content": content})
-        self.query_one("#messages").mount(Static(f"> {content}", classes="msg-user"))
+        self.query_one("#messages").mount(Static(f"> {content}", classes="msg-user", markup=False))
         self.query_one("#messages").scroll_end()
         self._save_message("user", content)
 
@@ -69,7 +69,9 @@ class UIHelpers:
         if "```" not in display:
             # Plain text — render markdown formatting
             rendered = _render_markdown(display)
-            container.mount(Static(f"{agent_prefix}{rendered}", classes="msg-assistant"))
+            container.mount(
+                Static(f"{agent_prefix}{rendered}", classes="msg-assistant", markup=False)
+            )
         else:
             # Has code blocks — render each part
             parts = display.split("```")
@@ -81,7 +83,9 @@ class UIHelpers:
                     if rendered.strip():
                         prefix = agent_prefix if first_text else ""
                         first_text = False
-                        container.mount(Static(f"{prefix}{rendered}", classes="msg-assistant"))
+                        container.mount(
+                            Static(f"{prefix}{rendered}", classes="msg-assistant", markup=False)
+                        )
                 else:
                     # Inside code block
                     lines = part.split("\n", 1)
@@ -116,7 +120,7 @@ class UIHelpers:
                             )
                         )
                     except Exception:
-                        container.mount(Static(code, classes="code-block"))
+                        container.mount(Static(code, classes="code-block", markup=False))
 
         container.scroll_end()
         self._save_message("assistant", content)
@@ -126,7 +130,7 @@ class UIHelpers:
         self._add_assistant_message(content, agent_name=agent_name)
 
     def _add_system_message(self: SagoApp, content: str) -> None:
-        self.query_one("#messages").mount(Static(content, classes="msg-system"))
+        self.query_one("#messages").mount(Static(content, classes="msg-system", markup=False))
         self.query_one("#messages").scroll_end()
 
     def _add_tool_call(
@@ -140,7 +144,13 @@ class UIHelpers:
             body += f"\n... ({len(result)} chars total)"
 
         c = self.query_one("#messages")
-        c.mount(Collapsible(Static(body, classes="msg-system"), title=title, collapsed=True))
+        c.mount(
+            Collapsible(
+                Static(body, classes="msg-system", markup=False),
+                title=title,
+                collapsed=True,
+            )
+        )
         c.scroll_end()
 
     def _add_parallel_result(
@@ -160,10 +170,14 @@ class UIHelpers:
                     if rendered.strip():
                         if i == 0:
                             container.mount(
-                                Static(f"{header}\n{rendered}", classes="msg-assistant")
+                                Static(
+                                    f"{header}\n{rendered}",
+                                    classes="msg-assistant",
+                                    markup=False,
+                                )
                             )
                         else:
-                            container.mount(Static(rendered, classes="msg-assistant"))
+                            container.mount(Static(rendered, classes="msg-assistant", markup=False))
                 else:
                     lines = part.split("\n", 1)
                     lang = lines[0].strip() if len(lines) > 1 else ""
@@ -182,10 +196,10 @@ class UIHelpers:
                                 )
                             )
                         except Exception:
-                            container.mount(Static(code, classes="code-block"))
+                            container.mount(Static(code, classes="code-block", markup=False))
         else:
             rendered = _render_markdown(result)
-            container.mount(Static(f"{header}\n{rendered}", classes="msg-assistant"))
+            container.mount(Static(f"{header}\n{rendered}", classes="msg-assistant", markup=False))
         container.scroll_end()
 
     def _add_summary(
@@ -209,11 +223,18 @@ class UIHelpers:
         self.total_cache_hit_tokens += cache_hit
         self.total_cache_miss_tokens += cache_miss
 
+        # Don't show summary box unless enabled
+        if not getattr(self, "show_summary", False):
+            return
+
         # Build summary line
         parts = []
         if n_tools > 0:
             parts.append(f"{n_tools} tool{'s' if n_tools != 1 else ''} ({n_ok} ok, {n_fail} fail)")
-        if t_in > 0 or t_out > 0:
+        cum = tokens.get("cumulative", 0)
+        if cum > 0:
+            parts.append(f"{cum:,} tokens")
+        elif t_in > 0 or t_out > 0:
             parts.append(f"{t_in:,}+{t_out:,} tokens")
         if elapsed > 0:
             parts.append(f"{elapsed:.1f}s")
@@ -235,7 +256,7 @@ class UIHelpers:
         if files:
             lines.append(f"Files: {', '.join(files)}")
 
-        box = Static("\n".join(lines), classes="summary-box")
+        box = Static("\n".join(lines), classes="summary-box", markup=False)
         self.query_one("#messages").mount(box)
         self.query_one("#messages").scroll_end()
 
@@ -249,14 +270,13 @@ class UIHelpers:
 
         # Clear and rebuild dashboard content
         dashboard.remove_children()
-        dashboard.mount(Static("Agent Dashboard", classes="dashboard-title"))
+        dashboard.mount(Static("Agent Dashboard", classes="dashboard-title", markup=False))
 
         active = sum(1 for t in tasks if t.status == AgentStatus.RUNNING)
         completed = sum(1 for t in tasks if t.status == AgentStatus.COMPLETED)
         failed = sum(1 for t in tasks if t.status == AgentStatus.FAILED)
 
         for info in tasks:
-            color = get_agent_color(info.agent_id)
             status_icon = {
                 AgentStatus.IDLE: "○",
                 AgentStatus.RUNNING: "⟳",
@@ -269,19 +289,22 @@ class UIHelpers:
             entry = Vertical(classes="agent-entry")
             entry.mount(
                 Static(
-                    f"[{color}]{status_icon} {info.agent_name}[/{color}]",
+                    f"{status_icon} {info.agent_name}",
                     classes="agent-name",
+                    markup=False,
                 )
             )
             if info.task:
-                entry.mount(Static(f"  {info.task[:50]}", classes="agent-task"))
+                entry.mount(Static(f"  {info.task[:50]}", classes="agent-task", markup=False))
             if info.current_tool and info.status == AgentStatus.RUNNING:
-                entry.mount(Static(f"  -> {info.current_tool}", classes="agent-tools"))
+                entry.mount(
+                    Static(f"  -> {info.current_tool}", classes="agent-tools", markup=False)
+                )
             if info.elapsed > 0:
-                entry.mount(Static(f"  {info.elapsed:.1f}s", classes="agent-tools"))
+                entry.mount(Static(f"  {info.elapsed:.1f}s", classes="agent-tools", markup=False))
             dashboard.mount(entry)
 
-        dashboard.mount(Static("---" * 15, classes="dashboard-separator"))
+        dashboard.mount(Static("---" * 15, classes="dashboard-separator", markup=False))
         parts = []
         if active:
             parts.append(f"{active} active")
@@ -291,7 +314,9 @@ class UIHelpers:
             parts.append(f"{failed} failed")
         if not parts:
             parts.append("No agents")
-        dashboard.mount(Static(f"Total: {', '.join(parts)}", classes="dashboard-stats"))
+        dashboard.mount(
+            Static(f"Total: {', '.join(parts)}", classes="dashboard-stats", markup=False)
+        )
 
     def _save_message(self: SagoApp, role: str, content: str) -> None:
         if self.current_session_id and self.current_session_id != "local":

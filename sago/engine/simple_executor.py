@@ -920,22 +920,22 @@ def execute_agent_task(
                     google_tools = []
                     for tool in openai_tools:
                         func = tool["function"]
+                        params = func.get("parameters", {})
+                        properties = {
+                            k: google_types.Schema(
+                                type=google_types.Type.STRING,
+                                description=v.get("description", ""),
+                            )
+                            for k, v in params.get("properties", {}).items()
+                        }
                         google_tools.append(
                             google_types.FunctionDeclaration(
                                 name=func["name"],
                                 description=func.get("description", ""),
                                 parameters=google_types.Schema(
-                                    type_=google_types.Type.OBJECT,
-                                    properties={
-                                        k: google_types.Schema(
-                                            type_=google_types.Type.STRING,
-                                            description=v.get("description", ""),
-                                        )
-                                        for k, v in func.get("parameters", {})
-                                        .get("properties", {})
-                                        .items()
-                                    },
-                                    required=func.get("parameters", {}).get("required", []),
+                                    type=google_types.Type.OBJECT,
+                                    properties=properties,
+                                    required=params.get("required", []),
                                 ),
                             )
                         )

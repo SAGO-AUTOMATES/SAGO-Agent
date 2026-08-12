@@ -119,6 +119,7 @@ Optional:
 | `/handoff` | — | Show handoff targets for current agent |
 | `/effort <level>` | — | Set effort: low/medium/high/max |
 | `/cost` | — | Token usage and costs |
+| `/summary` | — | Toggle task summary display |
 | `/save [name]` | — | Save session to file |
 | `/load <name>` | — | Load session from file |
 | `/compact` | — | Summarize context |

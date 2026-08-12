@@ -10,7 +10,7 @@ import threading
 import time as _time
 from typing import Any
 
-from textual import on, work
+from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
@@ -26,7 +26,6 @@ from sago.tui.widgets import (
     AgentStatus,
     BackgroundTaskManager,
     Spinner,
-    get_agent_color,
     get_task_manager,
 )
 
@@ -227,8 +226,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     pending_orchestration: dict | None = None
     approval_message: reactive[str] = reactive("")
     yolo_mode: reactive[bool] = reactive(False)
+    show_summary: reactive[bool] = reactive(False)
     # Pause/resume mechanism for todo confirmations
-    _executor_pause_event: object = None  # threading.Event
+    _executor_pause_event: threading.Event | None = None
     _executor_thread: object = None  # running thread reference
     _tool_approved: bool = False
     command_history: list[str] = []
@@ -250,7 +250,12 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 yield ScrollableContainer(id="messages")
                 yield Vertical(id="suggestions")
                 with Vertical(id="approval-bar"):
-                    yield Static("Pending action", id="approval-label", classes="approval-label")
+                    yield Static(
+                        "Pending action",
+                        id="approval-label",
+                        classes="approval-label",
+                        markup=False,
+                    )
                     with Horizontal(id="approval-buttons"):
                         yield Button(
                             "Approve [Y]",
@@ -258,11 +263,14 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             variant="success",
                             classes="approve-btn",
                         )
-                        yield Button(
-                            "Deny [N]", id="btn-deny", variant="error", classes="deny-btn"
-                        )
+                        yield Button("Deny [N]", id="btn-deny", variant="error", classes="deny-btn")
                 with Vertical(id="parallel-bar"):
-                    yield Static("Parallel Agents", id="parallel-title", classes="parallel-title")
+                    yield Static(
+                        "Parallel Agents",
+                        id="parallel-title",
+                        classes="parallel-title",
+                        markup=False,
+                    )
                     yield Vertical(id="parallel-agents")
                 with Vertical(id="input-area"):
                     yield Input(placeholder="/, @, # for autocomplete", id="msg-input")
@@ -288,21 +296,29 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         # Start dashboard update timer
         self._dashboard_timer = self.set_interval(2.0, self._periodic_dashboard_update)
 
+    _loading_settings: bool = True
+
     def _load_settings(self) -> None:
         """Load persisted settings (model, provider, effort, yolo, agent)."""
         try:
             from sago.settings import load_setting
 
+            self._loading_settings = True
             self.current_model = load_setting("model", self.current_model)
             self.current_provider = load_setting("provider", self.current_provider)
             self.current_effort = load_setting("effort", self.current_effort)
             self.current_agent = load_setting("agent", self.current_agent)
             self.yolo_mode = load_setting("yolo", self.yolo_mode)
+            self.show_summary = load_setting("show_summary", self.show_summary)
         except Exception:
             pass
+        finally:
+            self._loading_settings = False
 
     def _save_settings(self) -> None:
         """Persist current settings."""
+        if self._loading_settings:
+            return
         try:
             from sago.settings import save_setting
 
@@ -311,6 +327,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             save_setting("effort", self.current_effort)
             save_setting("agent", self.current_agent)
             save_setting("yolo", self.yolo_mode)
+            save_setting("show_summary", self.show_summary)
         except Exception:
             pass
 
@@ -321,7 +338,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         try:
             from sago.tui.models import auto_refresh_if_stale
 
+            # Only refresh if OpenRouter key is available
             api_key = os.environ.get("OPENROUTER_API_KEY", "")
+            if not api_key:
+                return
             msg = auto_refresh_if_stale(api_key)
             if msg:
                 self._add_system_message(f"[auto-refresh] {msg}")
@@ -337,6 +357,18 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         if p == "openai" and m.startswith("openai/"):
             return m[len("openai/") :]
         return m
+
+    def _get_provider_api_key(self) -> str:
+        """Get the API key for the current provider."""
+        import os
+
+        provider_key_map = {
+            "google": "GEMINI_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "openrouter": "OPENROUTER_API_KEY",
+        }
+        env_var = provider_key_map.get(self.current_provider, "OPENROUTER_API_KEY")
+        return os.environ.get(env_var, "")
 
     def watch_current_model(self, value: str) -> None:
         """Auto-save model when changed."""
@@ -356,6 +388,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
     def watch_yolo_mode(self, value: bool) -> None:
         """Auto-save yolo mode when changed."""
+        self._save_settings()
+
+    def watch_show_summary(self, value: bool) -> None:
+        """Auto-save summary visibility when changed."""
         self._save_settings()
 
     def _init_db(self) -> None:
@@ -747,6 +783,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             "/cancel": lambda: self._cancel_task(args),
             "/handoff": lambda: self._show_handoff(),
             "/agents-color": lambda: self._list_agents_color(),
+            "/summary": lambda: self._toggle_summary(),
         }
 
         if cmd in handlers:
@@ -763,21 +800,26 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self.messages.clear()
         self._add_system_message("Cleared.")
 
-    @work(thread=True)
     def _process_delegation(self, agent_name: str, task: str) -> None:
         self.is_thinking = True
+        t = threading.Thread(
+            target=self._process_delegation_thread, args=(agent_name, task), daemon=True
+        )
+        t.start()
+
+    def _process_delegation_thread(self, agent_name: str, task: str) -> None:
         tm = self._task_manager or get_task_manager()
         info = tm.create_task(agent_name, task)
         info.status = AgentStatus.RUNNING
         self.call_from_thread(self._update_dashboard)
         self.call_from_thread(self._show_spinner, f"Delegating to {agent_name}...")
         try:
-            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            api_key = self._get_provider_api_key()
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
                 self.call_from_thread(
                     self._add_system_message,
-                    "No API key. Set OPENROUTER_API_KEY or OPENAI_API_KEY.",
+                    f"No API key. Set {self.current_provider.upper()} API key.",
                 )
                 return
 
@@ -807,16 +849,22 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         finally:
             self.is_thinking = False
 
-    @work(thread=True)
     def _process_chain(self, agents: list[str], task: str) -> None:
         self.is_thinking = True
+        t = threading.Thread(target=self._process_chain_thread, args=(agents, task), daemon=True)
+        t.start()
+
+    def _process_chain_thread(self, agents: list[str], task: str) -> None:
         tm = self._task_manager or get_task_manager()
         self.call_from_thread(self._show_spinner, f"Chain: {' → '.join(agents)}")
         try:
-            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            api_key = self._get_provider_api_key()
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
-                self.call_from_thread(self._add_system_message, "No API key.")
+                self.call_from_thread(
+                    self._add_system_message,
+                    f"No API key. Set {self.current_provider.upper()} API key.",
+                )
                 return
 
             from sago.tools.file.spawn_agent import SpawnAgentTool
@@ -824,12 +872,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             tool = SpawnAgentTool()
             current_input = task
             for i, agent in enumerate(agents):
-                info = tm.create_task(agent, f"Chain step {i+1}: {task[:50]}")
+                info = tm.create_task(agent, f"Chain step {i + 1}: {task[:50]}")
                 info.status = AgentStatus.RUNNING
                 self.call_from_thread(self._update_dashboard)
-                self.call_from_thread(
-                    self._update_spinner, f"Step {i + 1}/{len(agents)}: {agent}"
-                )
+                self.call_from_thread(self._update_spinner, f"Step {i + 1}/{len(agents)}: {agent}")
                 result = tool.run(task=current_input, agent_name=agent)
                 info.status = AgentStatus.COMPLETED
                 info.result = result
@@ -837,24 +883,28 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 self.call_from_thread(self._update_dashboard)
                 current_input = f"Previous agent ({agent}) said:\n\n{result}\n\nNow continue."
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(
-                self._add_assistant_message, current_input, agent_name=agents[-1]
-            )
+            self.call_from_thread(self._add_assistant_message, current_input, agent_name=agents[-1])
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_system_message, f"Chain error: {e}")
         finally:
             self.is_thinking = False
 
-    @work(thread=True)
     def _process_orchestration(self, task: str) -> None:
         self.is_thinking = True
+        t = threading.Thread(target=self._process_orchestration_thread, args=(task,), daemon=True)
+        t.start()
+
+    def _process_orchestration_thread(self, task: str) -> None:
         self.call_from_thread(self._show_spinner, "Analyzing task for delegation...")
         try:
-            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            api_key = self._get_provider_api_key()
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
-                self.call_from_thread(self._add_system_message, "No API key.")
+                self.call_from_thread(
+                    self._add_system_message,
+                    f"No API key. Set {self.current_provider.upper()} API key.",
+                )
                 return
 
             from openai import OpenAI
@@ -933,9 +983,16 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self.is_thinking = False
 
     def _execute_orchestration_plan(self, plan: list[dict]) -> None:
-        """Execute an approved orchestration plan."""
+        """Execute an approved orchestration plan — dispatches to background thread."""
         self.is_thinking = True
-        self.call_from_thread(self._show_spinner, f"Executing {len(plan)} steps...")
+        self._show_spinner(f"Executing {len(plan)} steps...")
+        t = threading.Thread(
+            target=self._execute_orchestration_plan_thread, args=(plan,), daemon=True
+        )
+        t.start()
+
+    def _execute_orchestration_plan_thread(self, plan: list[dict]) -> None:
+        """Runs in a background thread — all call_from_thread calls are safe here."""
         try:
             from sago.tools.file.spawn_agent import SpawnAgentTool
 
@@ -957,10 +1014,14 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         finally:
             self.is_thinking = False
 
-    @work(thread=True)
     def _process_parallel(self, agents: list[str], task: str) -> None:
         """Run multiple agents in parallel on the same task."""
         self.is_thinking = True
+        t = threading.Thread(target=self._process_parallel_thread, args=(agents, task), daemon=True)
+        t.start()
+
+    def _process_parallel_thread(self, agents: list[str], task: str) -> None:
+        """Runs in a background thread."""
         tm = self._task_manager or get_task_manager()
 
         # Create task entries for each agent
@@ -982,9 +1043,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             tool = SpawnAgentTool()
             results: list[dict[str, Any]] = []
 
-            def execute_agent(
-                agent_name: str, subtask: str, info: Any
-            ) -> dict[str, Any]:
+            def execute_agent(agent_name: str, subtask: str, info: Any) -> dict[str, Any]:
                 """Execute a single agent, respecting cancellation."""
                 start = _time.time()
                 try:
@@ -1076,11 +1135,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         container = self.query_one("#parallel-agents")
         container.remove_children()
         for agent_name in agents:
-            color = get_agent_color(agent_name)
             container.mount(
                 Static(
-                    f"[{color}]○ {agent_name}[/{color}] Waiting...",
+                    f"{agent_name} Waiting...",
                     classes="parallel-agent",
+                    markup=False,
                 )
             )
         self.query_one("#parallel-bar").add_class("visible")
@@ -1089,10 +1148,15 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         """Hide the parallel agent status bar."""
         self.query_one("#parallel-bar").remove_class("visible")
 
-    @work(thread=True)
     def _process_message(self, message: str) -> None:
+        """Entry point — runs on main thread, dispatches work to a background thread."""
         self.is_thinking = True
-        self.call_from_thread(self._show_spinner)
+        self._show_spinner()
+        t = threading.Thread(target=self._process_message_thread, args=(message,), daemon=True)
+        t.start()
+
+    def _process_message_thread(self, message: str) -> None:
+        """Runs in a background thread — all call_from_thread calls are safe here."""
         try:
             effort = EFFORT_LEVELS.get(self.current_effort, EFFORT_LEVELS["medium"])
 
@@ -1245,11 +1309,22 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 files_created = []
                 total_tokens_in = 0
                 total_tokens_out = 0
+                cumulative_tokens = 0
                 content = ""
                 tool_call_counts: dict[str, int] = {}
                 failed_calls: set[str] = set()
+                executed_calls: set[str] = set()
+                MAX_CUMULATIVE_TOKENS = 40000  # hard cap per message
 
                 for iteration in range(effort["max_iterations"]):
+                    # Hard token cap — stop if budget exceeded
+                    if cumulative_tokens >= MAX_CUMULATIVE_TOKENS:
+                        self.call_from_thread(
+                            self._add_system_message,
+                            f"[STOP] Token budget exhausted ({cumulative_tokens:,} tokens used). Finishing up.",
+                        )
+                        break
+
                     # Update spinner
                     todo_info = ""
                     if task_plan and current_todo_index < len(task_plan.todos):
@@ -1280,22 +1355,22 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         google_tools = []
                         for tool in openai_tools:
                             func = tool["function"]
+                            params = func.get("parameters", {})
+                            properties = {
+                                k: google_types.Schema(
+                                    type=google_types.Type.STRING,
+                                    description=v.get("description", ""),
+                                )
+                                for k, v in params.get("properties", {}).items()
+                            }
                             google_tools.append(
                                 google_types.FunctionDeclaration(
                                     name=func["name"],
                                     description=func.get("description", ""),
                                     parameters=google_types.Schema(
-                                        type_=google_types.Type.OBJECT,
-                                        properties={
-                                            k: google_types.Schema(
-                                                type_=google_types.Type.STRING,
-                                                description=v.get("description", ""),
-                                            )
-                                            for k, v in func.get("parameters", {})
-                                            .get("properties", {})
-                                            .items()
-                                        },
-                                        required=func.get("parameters", {}).get("required", []),
+                                        type=google_types.Type.OBJECT,
+                                        properties=properties,
+                                        required=params.get("required", []),
                                     ),
                                 )
                             )
@@ -1352,6 +1427,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             if hasattr(chunk, "usage") and chunk.usage:
                                 total_tokens_in = chunk.usage.prompt_tokens or 0
                                 total_tokens_out = chunk.usage.completion_tokens or 0
+                                cumulative_tokens += total_tokens_out
                             if not chunk.choices:
                                 continue
                             delta = chunk.choices[0].delta
@@ -1380,7 +1456,17 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         # Convert accumulated deltas to tool calls
                         for idx in sorted(tool_call_deltas.keys()):
                             tc = tool_call_deltas[idx]
-                            native_tool_calls.append(tc)
+                            try:
+                                parsed_args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                            except json.JSONDecodeError:
+                                parsed_args = {}
+                            native_tool_calls.append(
+                                {
+                                    "id": tc["id"],
+                                    "name": tc["name"],
+                                    "args": parsed_args,
+                                }
+                            )
 
                     # Handle empty content with no tool calls
                     if not content and not native_tool_calls:
@@ -1494,14 +1580,35 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             )
                             continue
 
-                        # Loop protection
+                        # Loop protection — skip duplicate successful calls
                         call_key = f"{name}:{json.dumps(args, sort_keys=True)}"
+                        if call_key in executed_calls:
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tc_id,
+                                    "content": f"[SKIP] Already executed: {name} with identical args. Do not repeat the same call.",
+                                }
+                            )
+                            continue
                         if call_key in failed_calls:
                             messages.append(
                                 {
                                     "role": "tool",
                                     "tool_call_id": tc_id,
-                                    "content": f"[SKIP] Already failed: {name} with same args",
+                                    "content": f"[SKIP] Already failed: {name} with same args. Try a different approach.",
+                                }
+                            )
+                            continue
+
+                        # Per-tool call limit (max 3 per tool name)
+                        tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
+                        if tool_call_counts[name] > 3:
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tc_id,
+                                    "content": f"[SKIP] Tool '{name}' has been called {tool_call_counts[name] - 1} times already. Stop calling it and provide a final answer.",
                                 }
                             )
                             continue
@@ -1552,25 +1659,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                 )
                                 continue
 
-                        # Detect circular behavior
-                        tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
-                        recent_calls = [
-                            f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}"
-                            for c in tool_history[-5:]
-                        ]
-                        if len(recent_calls) >= 3:
-                            unique_recent = set(recent_calls[-3:])
-                            if len(unique_recent) == 1:
-                                messages.append(
-                                    {
-                                        "role": "tool",
-                                        "tool_call_id": tc_id,
-                                        "content": f"[HINT] You've called {name} with similar args 3 times. Try a different approach.",
-                                    }
-                                )
-                                continue
-
-                        self.call_from_thread(on_tool, name, args)
+                        on_tool(name, args)
                         tool_instance = tools[name]()
                         result = tool_instance.run(**args)
                         result_str = str(result)
@@ -1581,11 +1670,37 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         )
                         if is_error:
                             failed_calls.add(call_key)
+                        else:
+                            executed_calls.add(call_key)
 
                         if name == "write_file" and not is_error:
                             fp = args.get("file_path", "")
                             if fp and fp not in files_created:
                                 files_created.append(fp)
+                            # Nudge LLM to stop after successful file write
+                            if iteration < effort["max_iterations"] - 1:
+                                messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            "[SYSTEM] File operation succeeded. "
+                                            "Do NOT call any more tools. Provide your final answer now."
+                                        ),
+                                    }
+                                )
+
+                        if name == "edit_file" and not is_error:
+                            # Nudge LLM to stop after successful edit
+                            if iteration < effort["max_iterations"] - 1:
+                                messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            "[SYSTEM] Edit succeeded. "
+                                            "Do NOT call any more tools. Provide your final answer now."
+                                        ),
+                                    }
+                                )
 
                         tool_history.append(
                             {
@@ -1596,13 +1711,15 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             }
                         )
                         tools_used_in_iteration.append(name)
-                        self.call_from_thread(on_tool_result, name, args, result_str, not is_error)
+                        on_tool_result(name, args, result_str, not is_error)
 
                         messages.append(
                             {
                                 "role": "tool",
                                 "tool_call_id": tc_id,
-                                "content": result_str,
+                                "content": result_str[:500]
+                                if len(result_str) > 500
+                                else result_str,
                             }
                         )
 
@@ -1845,7 +1962,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     tool_history,
                     content,
                     elapsed,
-                    {"input": total_tokens_in, "output": total_tokens_out},
+                    {
+                        "input": total_tokens_in,
+                        "output": total_tokens_out,
+                        "cumulative": cumulative_tokens,
+                    },
                 )
 
                 # Show change summary

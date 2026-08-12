@@ -52,6 +52,7 @@ COMMANDS = {
     "/cancel": "Cancel a task (/cancel <task-id|all>)",
     "/handoff": "Show handoff graph for current chain",
     "/agents-color": "List agents with their colors",
+    "/summary": "Toggle summary display after each task",
 }
 
 BUILTIN_MODELS = [

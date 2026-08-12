@@ -453,7 +453,7 @@ class CommandHandlers:
                 self._executor_pause_event, threading.Event
             ):
                 self._tool_approved = True  # Mark tool as approved
-                self._executor_pause_event.clear()  # Resume executor
+                self._executor_pause_event.set()  # Resume executor (unblock wait)
                 self._add_system_message("Approved - continuing execution")
                 return
             self._add_system_message("Nothing to approve")
@@ -494,7 +494,8 @@ class CommandHandlers:
             return
         # Check if executor is paused - resume with skip
         if self._executor_pause_event and isinstance(self._executor_pause_event, threading.Event):
-            self._executor_pause_event.clear()  # Resume executor (it will skip the current step)
+            self._tool_approved = False  # Mark tool as denied
+            self._executor_pause_event.set()  # Resume executor (unblock wait)
             self._add_system_message("Skipped - continuing execution")
             return
         self.pending_action = {}
@@ -770,3 +771,11 @@ class CommandHandlers:
             self._add_system_message("\n".join(lines))
         except Exception as e:
             self._add_system_message(f"Error: {e}")
+
+    def _toggle_summary(self: SagoApp) -> None:
+        """Toggle summary display after each task."""
+        self.show_summary = not self.show_summary
+        if self.show_summary:
+            self._add_system_message("Summary: ON — tool usage summary will appear after each task")
+        else:
+            self._add_system_message("Summary: OFF")

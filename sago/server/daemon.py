@@ -13,13 +13,15 @@ import os
 import signal
 import sys
 import time
-from pathlib import Path
 from typing import Any
 
-PID_FILE = Path.home() / ".sago" / "daemon.pid"
-LOG_FILE = Path.home() / ".sago" / "daemon.log"
-SOCKET_FILE = Path.home() / ".sago" / "sago.sock"
-AUTH_FILE = Path.home() / ".sago" / "daemon.key"
+from sago.paths import get_sago_home
+
+_sago_home = get_sago_home()
+PID_FILE = _sago_home / "daemon.pid"
+LOG_FILE = _sago_home / "daemon.log"
+SOCKET_FILE = _sago_home / "sago.sock"
+AUTH_FILE = _sago_home / "daemon.key"
 
 # Default server config
 DEFAULT_HOST = "0.0.0.0"

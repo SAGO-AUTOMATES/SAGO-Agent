@@ -92,6 +92,7 @@ List all tools.
 |---------|-------------|
 | `/status` | System status with agent count |
 | `/cost` | Token usage and cost |
+| `/summary` | Toggle task summary display (hidden by default) |
 
 ### Permissions
 
