@@ -57,6 +57,9 @@ Issues = "https://github.com/SAGO-AUTOMATES/SAGO-Agent/issues"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["sago"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
