@@ -113,7 +113,9 @@ class AgentSpinner(Static):
         self.current_tool = ""
 
     def render(self) -> str:
-        icon = self.FRAMES[self.frame] if self.status == AgentStatus.RUNNING else self._status_icon()
+        icon = (
+            self.FRAMES[self.frame] if self.status == AgentStatus.RUNNING else self._status_icon()
+        )
         task_info = f" | {self.current_tool}" if self.current_tool else ""
         task_preview = f": {self.task[:40]}" if self.task else ""
         return f"[{self.color}]{icon} {self.agent_name}[/{self.color}]{task_preview}{task_info}"
@@ -256,7 +258,9 @@ class AgentDashboard(Widget):
                 bar_len = 20
                 filled = int(bar_len * info.progress)
                 bar = "█" * filled + "░" * (bar_len - filled)
-                entry.mount(Static(f"  {bar} {info.progress:.0%}", classes="agent-progress", markup=False))
+                entry.mount(
+                    Static(f"  {bar} {info.progress:.0%}", classes="agent-progress", markup=False)
+                )
 
             # Elapsed time
             if info.elapsed > 0:
@@ -383,7 +387,9 @@ class OrchestrationPlanWidget(Widget):
         self.plan = plan
 
     def compose(self) -> ComposeResult:
-        yield Static(f"Orchestration Plan ({len(self.plan)} steps)", classes="plan-title", markup=False)
+        yield Static(
+            f"Orchestration Plan ({len(self.plan)} steps)", classes="plan-title", markup=False
+        )
         yield Vertical(id="plan-steps")
 
     def update_plan(self, plan: list[dict]) -> None:
@@ -514,8 +520,7 @@ class BackgroundTaskManager:
             to_remove = [
                 tid
                 for tid, task in self._tasks.items()
-                if task.status
-                in (AgentStatus.COMPLETED, AgentStatus.FAILED, AgentStatus.CANCELLED)
+                if task.status in (AgentStatus.COMPLETED, AgentStatus.FAILED, AgentStatus.CANCELLED)
                 and (now - task.start_time) > max_age
             ]
             for tid in to_remove:

@@ -103,9 +103,7 @@ class SpawnAgentTool(BaseTool):
     ) -> str:
         """Execute the agent with proper prompts and context."""
         # Build the system prompt with full context
-        system_prompt = self._build_system_prompt(
-            agent_name, task, context, feedback, guard
-        )
+        system_prompt = self._build_system_prompt(agent_name, task, context, feedback, guard)
 
         # Use configured model from config, not hardcoded
         try:
@@ -284,7 +282,9 @@ Do NOT just say "I completed the task" — show evidence of your work.
             "cloud-engineer": "You are a senior cloud engineer. Design and manage cloud infrastructure with best practices.",
             "performance-engineer": "You are a senior performance engineer. Identify bottlenecks, optimize code, and measure improvements.",
         }
-        return prompts.get(agent_name, f"You are a senior {agent_name.replace('-', ' ')} specialist.")
+        return prompts.get(
+            agent_name, f"You are a senior {agent_name.replace('-', ' ')} specialist."
+        )
 
     def _format_response(
         self,

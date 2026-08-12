@@ -44,9 +44,7 @@ class HandoffContext:
         if not success:
             self.errors.append(f"{agent_name}: {result[:200]}")
 
-    def request_feedback(
-        self, from_agent: str, to_agent: str, question: str
-    ) -> FeedbackRequest:
+    def request_feedback(self, from_agent: str, to_agent: str, question: str) -> FeedbackRequest:
         """Request feedback from another agent."""
         req = FeedbackRequest(
             from_agent=from_agent,
@@ -73,9 +71,7 @@ class HandoffContext:
         for prev_agent in self.completed_agents[-2:]:
             if prev_agent in self.agent_results:
                 result = self.agent_results[prev_agent]
-                parts.append(
-                    f"## Previous Result ({prev_agent})\n{result[:2000]}"
-                )
+                parts.append(f"## Previous Result ({prev_agent})\n{result[:2000]}")
 
         # Files created so far
         if self.files_created:
@@ -83,17 +79,13 @@ class HandoffContext:
 
         # Errors to be aware of
         if self.errors:
-            parts.append(
-                "## Known Issues\n" + "\n".join(f"- {e}" for e in self.errors[-3:])
-            )
+            parts.append("## Known Issues\n" + "\n".join(f"- {e}" for e in self.errors[-3:]))
 
         # Pending feedback requests
         pending = [r for r in self.feedback_requests if r.to_agent == agent_name and not r.answered]
         if pending:
             for req in pending:
-                parts.append(
-                    f"## Feedback Request from {req.from_agent}\n{req.question}"
-                )
+                parts.append(f"## Feedback Request from {req.from_agent}\n{req.question}")
 
         # Depth warning
         if self.depth > 2:
@@ -182,8 +174,7 @@ class RecursionGuard:
             # Check total visits
             if self._total_visits >= self.max_total:
                 return False, (
-                    f"Max total visits ({self.max_total}) reached. "
-                    f"Cannot spawn more agents."
+                    f"Max total visits ({self.max_total}) reached. Cannot spawn more agents."
                 )
 
             # Check same-agent visits

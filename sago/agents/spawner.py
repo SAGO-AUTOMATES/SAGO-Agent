@@ -252,18 +252,14 @@ class AgentSpawner:
 
                 # Feedback loop: if agent requested feedback, handle it
                 if enable_feedback and handoff_ctx.feedback_requests:
-                    result = self._handle_feedback_loop(
-                        handoff_ctx, agent_name, result, session.id
-                    )
+                    result = self._handle_feedback_loop(handoff_ctx, agent_name, result, session.id)
 
             finally:
                 guard.exit(agent_name)
 
         return result
 
-    def _build_step_task(
-        self, original_task: str, ctx: HandoffContext, next_agent: str
-    ) -> str:
+    def _build_step_task(self, original_task: str, ctx: HandoffContext, next_agent: str) -> str:
         """Build a rich task prompt for the next agent in the chain."""
         parts = []
 
@@ -281,15 +277,12 @@ class AgentSpawner:
         # Files created
         if ctx.files_created:
             parts.append(
-                "## Files Created/Modified\n"
-                + "\n".join(f"- {f}" for f in ctx.files_created)
+                "## Files Created/Modified\n" + "\n".join(f"- {f}" for f in ctx.files_created)
             )
 
         # Errors to be aware of
         if ctx.errors:
-            parts.append(
-                "## Known Issues\n" + "\n".join(f"- {e}" for e in ctx.errors[-3:])
-            )
+            parts.append("## Known Issues\n" + "\n".join(f"- {e}" for e in ctx.errors[-3:]))
 
         # What this agent should focus on
         parts.append(
@@ -342,15 +335,12 @@ class AgentSpawner:
 
                 # Inject the answer into the current agent's context
                 current_result += (
-                    f"\n\n## Feedback from {request.to_agent}\n"
-                    f"Q: {request.question}\n"
-                    f"A: {answer}"
+                    f"\n\n## Feedback from {request.to_agent}\nQ: {request.question}\nA: {answer}"
                 )
             except Exception as e:
                 logger.warning(f"Feedback loop failed: {e}")
                 current_result += (
-                    f"\n\n## Feedback Failed\n"
-                    f"Could not get feedback from {request.to_agent}: {e}"
+                    f"\n\n## Feedback Failed\nCould not get feedback from {request.to_agent}: {e}"
                 )
 
         return current_result

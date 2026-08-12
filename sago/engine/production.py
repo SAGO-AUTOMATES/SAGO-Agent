@@ -320,9 +320,7 @@ class ProductionEngine:
             "context": handoff_ctx.to_dict(),
         }
 
-    def _build_chain_input(
-        self, original_task: str, ctx: Any, next_agent: str
-    ) -> str:
+    def _build_chain_input(self, original_task: str, ctx: Any, next_agent: str) -> str:
         """Build a rich input for the next agent in the chain."""
         parts = [f"## Original Task\n{original_task}"]
 
@@ -334,14 +332,10 @@ class ProductionEngine:
                     parts.append(f"### {prev_agent}\n{result_preview}")
 
         if ctx.files_created:
-            parts.append(
-                "## Files Created\n" + "\n".join(f"- {f}" for f in ctx.files_created)
-            )
+            parts.append("## Files Created\n" + "\n".join(f"- {f}" for f in ctx.files_created))
 
         if ctx.errors:
-            parts.append(
-                "## Known Issues\n" + "\n".join(f"- {e}" for e in ctx.errors[-3:])
-            )
+            parts.append("## Known Issues\n" + "\n".join(f"- {e}" for e in ctx.errors[-3:]))
 
         parts.append(
             f"## Your Turn as {next_agent}\n"
