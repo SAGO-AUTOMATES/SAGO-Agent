@@ -15,6 +15,7 @@ Execute with specific agent.
 
 ```bash
 sago run "task" --agent python-engineer
+sago run "task" --chain python-engineer,code-reviewer
 ```
 
 ### `sago tui`
@@ -22,6 +23,7 @@ Launch interactive TUI.
 
 ```bash
 sago tui
+sago tui --resume abc123  # Resume a session
 ```
 
 ### `sago agents`
@@ -39,38 +41,40 @@ List all tools.
 
 ### General
 
-| Command | Alias | Description |
-|---------|-------|-------------|
-| `/help` | `/h` | Show all commands |
-| `/version` | — | Show version |
-| `/exit` | `/q`, `/quit` | Quit |
+| Command | Description |
+|---------|-------------|
+| `/help` | Show all commands |
+| `/version` | Show version |
+| `/exit` | Save session and quit |
 
 ### Agents
 
-| Command | Alias | Description |
-|---------|-------|-------------|
-| `/agents` | `/a` | List all agents grouped by category |
-| `/agents <filter>` | `/a <filter>` | Filter agents by name/skill |
+| Command | Description |
+|---------|-------------|
+| `/agents [filter]` | List all agents, optionally filtered |
+| `/agent <name>` | Set current agent |
+| `/agents-color` | List agents with their assigned colors |
 
 ### Chat
 
-| Command | Alias | Description |
-|---------|-------|-------------|
-| `/clear` | `/c` | Clear chat |
-| `/history` | — | Show recent messages |
-| `/retry` | — | Retry last message |
-| `/compact` | — | Summarize context |
-| `/reset` | — | Reset session |
+| Command | Description |
+|---------|-------------|
+| `/clear` | Clear chat |
+| `/history` | Show recent messages |
+| `/retry` | Retry last message |
+| `/compact` | Summarize context |
+| `/reset` | Reset session |
 
 ### Model & Provider
 
 | Command | Description |
 |---------|-------------|
 | `/model` | Show current model |
-| `/model <name>` | Change model |
-| `/provider` | Show available providers |
-| `/provider <name>` | Change provider |
-| `/effort <level>` | Set effort: low/medium/high |
+| `/model <provider> <name>` | Change provider and model |
+| `/model refresh` | Refresh model list from OpenRouter |
+| `/model add <name>` | Add a custom model |
+| `/model remove <name>` | Remove a custom model |
+| `/effort <level>` | Set effort: low/medium/high/max |
 
 ### Sessions
 
@@ -88,7 +92,6 @@ List all tools.
 |---------|-------------|
 | `/status` | System status with agent count |
 | `/cost` | Token usage and cost |
-| `/chain <agents>` | Chain agents for task |
 
 ### Permissions
 
@@ -99,15 +102,25 @@ List all tools.
 | `/permissions allowed` | Show allowed tools |
 | `/allow <tool>` | Unblock a tool |
 | `/block <tool>` | Block a tool |
+| `/yolo` | Toggle YOLO mode (auto-approve all tools) |
 
 ### Multi-Agent
 
-| Command | Description |
-|---------|-------------|
-| `/agent <name>` | Set current agent |
-| `/delegate <agent> <task>` | Delegate task to specialist |
-| `/chain <a1,a2> <task>` | Chain agents sequentially |
-| `/orchestrate <task>` | Auto-delegate to specialists |
+| Command | Shortcut | Description |
+|---------|----------|-------------|
+| `/delegate <agent> <task>` | — | Delegate task to specialist |
+| `/chain <a1,a2> <task>` | — | Chain agents sequentially |
+| `/parallel <a1,a2> <task>` | — | Run agents in parallel on same task |
+| `/orchestrate <task>` | — | Auto-delegate to specialists |
+| `/handoff` | — | Show handoff targets for current agent |
+
+### Dashboard & Tasks
+
+| Command | Shortcut | Description |
+|---------|----------|-------------|
+| `/dashboard` | `Ctrl+D` | Toggle agent dashboard sidebar |
+| `/tasks` | `Ctrl+T` | Show background tasks |
+| `/cancel <id\|all>` | `Ctrl+C` | Cancel running task(s) |
 
 ### Git
 
@@ -118,6 +131,13 @@ List all tools.
 | `/commit <msg>` | Commit changes |
 | `/approve` | Approve pending action |
 | `/deny` | Deny pending action |
+
+### Undo & Changes
+
+| Command | Description |
+|---------|-------------|
+| `/undo` | Undo last file change |
+| `/changes` | Show all file changes this session |
 
 ### Autocomplete
 
@@ -135,7 +155,12 @@ Press Escape to dismiss suggestions.
 |----------|--------|
 | `Ctrl+Q` | Quit |
 | `Ctrl+L` | Clear chat |
-| `Escape` | Dismiss suggestions / Quit |
+| `Ctrl+D` | Toggle dashboard |
+| `Ctrl+T` | Show tasks |
+| `Ctrl+C` | Cancel task |
+| `Escape` | Dismiss suggestions |
+| `Y` | Approve pending action |
+| `N` | Deny pending action |
 
 ---
 
@@ -167,4 +192,6 @@ sago tui
 /a engineer     # Filter agents
 /model gpt      # Change model
 /sessions       # List sessions
+/parallel python-engineer,code-reviewer "Build a REST API with auth"
+/dashboard      # Toggle agent dashboard
 ```

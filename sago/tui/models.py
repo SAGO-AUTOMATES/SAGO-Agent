@@ -46,6 +46,12 @@ COMMANDS = {
     "/ask": "Ask user for input (/ask <question>)",
     "/exit": "Save session and exit",
     "/resume": "List sessions to resume",
+    "/parallel": "Run agents in parallel (/parallel <agent1,agent2> <task>)",
+    "/dashboard": "Toggle agent dashboard sidebar",
+    "/tasks": "Show background tasks",
+    "/cancel": "Cancel a task (/cancel <task-id|all>)",
+    "/handoff": "Show handoff graph for current chain",
+    "/agents-color": "List agents with their colors",
 }
 
 BUILTIN_MODELS = [

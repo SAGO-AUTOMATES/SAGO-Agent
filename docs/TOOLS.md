@@ -717,3 +717,120 @@ def on_error(tool_name: str, error: Exception, context: dict):
 
 recovery.on_error = on_error
 ```
+
+---
+
+## Agent Handoff Tool
+
+### `spawn_agent`
+
+Delegate tasks to specialized agents with recursion protection and structured handoffs.
+
+**Parameters:**
+- `task` (str): The task to delegate
+- `agent_name` (str): Target agent name (e.g., "python-engineer")
+- `context` (dict): Optional context to pass to the agent
+- `feedback` (FeedbackRequest): Optional feedback request
+
+**Features:**
+- **RecursionGuard**: Prevents infinite loops with depth limit (5), visit limit (15), cycle detection
+- **HandoffContext**: Structured context passing between agents
+- **FeedbackRequest**: Agent-to-agent feedback requests
+- **Error Propagation**: Breaks on failure instead of propagating error strings
+
+**Usage:**
+
+```python
+from sago.tools.file.spawn_agent import SpawnAgentTool
+
+tool = SpawnAgentTool()
+
+# Simple delegation
+result = tool.execute({
+    "task": "Fix the authentication bug",
+    "agent_name": "python-engineer"
+})
+
+# With context
+result = tool.execute({
+    "task": "Review this code",
+    "agent_name": "code-reviewer",
+    "context": {
+        "codebase": {...},
+        "previous_results": [...]
+    }
+})
+
+# With feedback request
+from sago.agents.handoff import FeedbackRequest
+
+feedback = FeedbackRequest(
+    from_agent="python-engineer",
+    to_agent="code-reviewer",
+    question="Review this code for security issues",
+    context={"file": "auth.py"}
+)
+
+result = tool.execute({
+    "task": "Review code for security",
+    "agent_name": "code-reviewer",
+    "feedback": feedback
+})
+```
+
+**Response Format:**
+
+```python
+{
+    "status": "success",
+    "agent": "python-engineer",
+    "agent_role": "Senior Python Engineer",
+    "result": "Fixed authentication bug...",
+    "handoff_to": "code-reviewer",
+    "context_sent": ["codebase", "previous_results"],
+    "recursion_depth": 2,
+    "visited_agents": ["python-engineer", "code-reviewer"],
+    "timestamp": "2025-01-15T10:30:00"
+}
+```
+
+**Recursion Protection:**
+
+The tool uses a `RecursionGuard` to prevent infinite loops:
+
+```python
+from sago.agents.handoff import RecursionGuard
+
+# Default limits
+guard = RecursionGuard(
+    depth_limit=5,        # Max chain depth
+    visits_limit=15,      # Max total agent visits
+    same_agent_limit=2    # Max visits to same agent
+)
+
+# Check before visiting
+if guard.can_visit("code-reviewer"):
+    guard.record_visit("code-reviewer")
+    # Execute agent
+else:
+    # Return error - recursion limit reached
+```
+
+**Error Handling:**
+
+```python
+# Catches and reports:
+# - Recursion limit exceeded
+# - Cycle detection (A->B->A)
+# - Same agent visited too many times
+# - Agent not found
+# - Execution timeout
+
+result = tool.execute({
+    "task": "Complex task",
+    "agent_name": "python-engineer"
+})
+
+if result.get("status") == "error":
+    print(f"Error: {result.get('error')}")
+```

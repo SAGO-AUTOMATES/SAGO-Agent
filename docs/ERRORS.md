@@ -21,6 +21,9 @@
 | `AgentExecutionError` | Agent failed | Check task description |
 | `AgentTimeoutError` | Agent timed out | Increase timeout |
 | `AgentDelegationError` | Delegation failed | Try different agent |
+| `RecursionLimitError` | Too many nested delegations | Reduce delegation depth |
+| `CycleDetectedError` | Agent cycle detected (A->B->A) | Break the cycle |
+| `SameAgentLimitError` | Same agent visited too many times | Use different agents |
 
 ### LLM Errors
 
@@ -176,7 +179,31 @@ pwd  # Check current directory
 tool.execute(command="long-running", timeout=300)
 ```
 
-### 8. Import Errors (LSP)
+### 8. Recursion Guard Errors
+
+```bash
+# Error: RecursionLimitError: Maximum recursion depth exceeded (5)
+# Cause: Too many nested agent delegations
+# Solution: Reduce the depth of agent chains
+
+# Error: CycleDetectedError: Agent cycle detected (A->B->A)
+# Cause: Agents are delegating to each other in a loop
+# Solution: Break the cycle by using different agents
+
+# Error: SameAgentLimitError: Same agent visited too many times
+# Cause: Agent is being called repeatedly
+# Solution: Use different agents or add feedback requests
+
+# Verify recursion guard status:
+from sago.agents.handoff import get_recursion_guard
+
+guard = get_recursion_guard()
+print(f"Depth: {guard.depth}/{guard.depth_limit}")
+print(f"Visits: {guard.visits}/{guard.visits_limit}")
+print(f"History: {guard.history}")
+```
+
+### 9. Import Errors (LSP)
 
 ```
 # Error: Import "pydantic" could not be resolved
@@ -237,8 +264,9 @@ tail -f ~/.sago/logs/sago.log
 4. **Check database**: `ls ~/.sago/data/`
 5. **Check cache**: `ls ~/.sago/cache.json`
 6. **Check logs**: `cat ~/.sago/logs/sago.log`
-7. **Reset state**: `rm -rf ~/.sago/`
-8. **Reinitialize**: `sago setup`
+7. **Check recursion guard**: `from sago.agents.handoff import get_recursion_guard; print(get_recursion_guard().history)`
+8. **Reset state**: `rm -rf ~/.sago/`
+9. **Reinitialize**: `sago setup`
 
 ## Getting Help
 

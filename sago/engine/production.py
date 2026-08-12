@@ -254,10 +254,13 @@ class ProductionEngine:
         effort: str | None = None,
         session_id: str | None = None,
     ) -> dict[str, Any]:
-        """Run a task through an agent chain.
+        """Run a task through an agent chain with structured context.
 
-        Each agent processes the output of the previous one.
+        Each agent processes the output of the previous one with full context.
+        Breaks on errors instead of propagating error strings.
         """
+        from sago.agents.handoff import HandoffContext
+
         session = (
             self.session_manager.get_session(session_id)
             if session_id
@@ -268,10 +271,20 @@ class ProductionEngine:
         results = []
         effort_level = EffortLevel(effort or self.config.default_effort)
 
+        # Track context across chain
+        handoff_ctx = HandoffContext(
+            original_task=task,
+            task_type="chain",
+        )
+
         for i, agent_name in enumerate(agent_chain):
             print(f"\n{'=' * 60}")
             print(f"Step {i + 1}/{len(agent_chain)}: {agent_name}")
             print(f"{'=' * 60}\n")
+
+            # Build context-rich input for subsequent agents
+            if i > 0 and handoff_ctx.completed_agents:
+                current_input = self._build_chain_input(task, handoff_ctx, agent_name)
 
             result = self.run_task(
                 current_input,
@@ -282,22 +295,60 @@ class ProductionEngine:
 
             results.append(result)
 
+            # Break chain on error — don't propagate error strings
             if not result.get("success"):
+                error_msg = result.get("error", "Unknown error")
+                handoff_ctx.add_result(agent_name, error_msg, success=False)
                 return {
                     "success": False,
-                    "error": f"Chain failed at step {i + 1} ({agent_name}): {result.get('error')}",
+                    "error": f"Chain failed at step {i + 1} ({agent_name}): {error_msg}",
                     "results": results,
                     "session_id": session.id,
+                    "context": handoff_ctx.to_dict(),
                 }
 
-            current_input = result.get("content", "")
+            # Record successful result
+            content = result.get("content", "")
+            handoff_ctx.add_result(agent_name, content, success=True)
+            current_input = content
 
         return {
             "success": True,
             "content": current_input,
             "chain_results": results,
             "session_id": session.id,
+            "context": handoff_ctx.to_dict(),
         }
+
+    def _build_chain_input(
+        self, original_task: str, ctx: Any, next_agent: str
+    ) -> str:
+        """Build a rich input for the next agent in the chain."""
+        parts = [f"## Original Task\n{original_task}"]
+
+        if ctx.completed_agents:
+            parts.append("## Previous Agent Results")
+            for prev_agent in ctx.completed_agents:
+                if prev_agent in ctx.agent_results:
+                    result_preview = ctx.agent_results[prev_agent][:800]
+                    parts.append(f"### {prev_agent}\n{result_preview}")
+
+        if ctx.files_created:
+            parts.append(
+                "## Files Created\n" + "\n".join(f"- {f}" for f in ctx.files_created)
+            )
+
+        if ctx.errors:
+            parts.append(
+                "## Known Issues\n" + "\n".join(f"- {e}" for e in ctx.errors[-3:])
+            )
+
+        parts.append(
+            f"## Your Turn as {next_agent}\n"
+            f"Continue the work. Review what has been done and provide your contribution."
+        )
+
+        return "\n\n".join(parts)
 
     def run_parallel(
         self,

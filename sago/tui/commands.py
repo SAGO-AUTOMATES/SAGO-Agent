@@ -653,3 +653,120 @@ class CommandHandlers:
         tracker = get_change_tracker()
         summary = tracker.get_diff_summary()
         self._add_system_message(summary)
+
+    # ========================================================================
+    # PARALLEL EXECUTION COMMANDS
+    # ========================================================================
+
+    def _run_parallel(self: SagoApp, args: str) -> None:
+        """Run multiple agents in parallel on the same task."""
+        parts = args.split(None, 1)
+        if len(parts) < 2:
+            self._add_system_message("Usage: /parallel <agent1,agent2,...> <task>")
+            return
+        agent_list, task = parts
+        agents = [a.strip() for a in agent_list.split(",")]
+        if len(agents) < 2:
+            self._add_system_message("Need at least 2 agents for /parallel")
+            return
+        self._add_user_message(f"/parallel {args}")
+        self._process_parallel(agents, task)
+
+    def _toggle_dashboard(self: SagoApp) -> None:
+        """Toggle the agent dashboard sidebar."""
+        if hasattr(self, "_dashboard_visible"):
+            self._dashboard_visible = not self._dashboard_visible
+        else:
+            self._dashboard_visible = True
+
+        dashboard = self.query_one("#agent-dashboard")
+        if self._dashboard_visible:
+            dashboard.remove_class("hidden")
+            if self._dashboard is None:
+                self._dashboard = dashboard
+            self._update_dashboard()
+            self._add_system_message("Dashboard: ON")
+        else:
+            dashboard.add_class("hidden")
+            self._add_system_message("Dashboard: OFF")
+
+    def _show_tasks(self: SagoApp) -> None:
+        """Show all background tasks."""
+        from sago.tui.widgets import AgentStatus, get_task_manager
+
+        tm = get_task_manager()
+        tasks = tm.get_all_tasks()
+        if not tasks:
+            self._add_system_message("No background tasks")
+            return
+
+        status_icons = {
+            AgentStatus.IDLE: "○",
+            AgentStatus.RUNNING: "⟳",
+            AgentStatus.WAITING: "◎",
+            AgentStatus.COMPLETED: "✓",
+            AgentStatus.FAILED: "✗",
+            AgentStatus.CANCELLED: "⊘",
+        }
+
+        lines = [f"Background Tasks ({len(tasks)}):"]
+        for t in tasks:
+            icon = status_icons.get(t.status, "?")
+            elapsed = f"{t.elapsed:.1f}s" if t.elapsed > 0 else "..."
+            tool_info = f" | {t.current_tool}" if t.current_tool else ""
+            lines.append(
+                f"  {icon} {t.agent_id} [{t.agent_name}] {t.status.value} {elapsed}{tool_info}"
+            )
+            lines.append(f"    Task: {t.task[:60]}")
+        self._add_system_message("\n".join(lines))
+
+    def _cancel_task(self: SagoApp, args: str) -> None:
+        """Cancel a background task."""
+        from sago.tui.widgets import get_task_manager
+
+        tm = get_task_manager()
+        if not args or args.strip() == "":
+            self._add_system_message("Usage: /cancel <task-id> or /cancel all")
+            return
+
+        if args.strip() == "all":
+            count = tm.cancel_all()
+            self._add_system_message(f"Cancelled {count} tasks")
+            return
+
+        task_id = args.strip()
+        if tm.cancel_task(task_id):
+            self._add_system_message(f"Cancelled: {task_id}")
+        else:
+            self._add_system_message(f"Task not found or not running: {task_id}")
+
+    def _show_handoff(self: SagoApp) -> None:
+        """Show handoff graph for current agent chain."""
+        from sago.agents.registry import get_agent
+
+        agent = get_agent(self.current_agent)
+        if agent and agent.handoff_to:
+            lines = [f"Handoff targets for {self.current_agent}:"]
+            for target in agent.handoff_to:
+                lines.append(f"  → {target}")
+            self._add_system_message("\n".join(lines))
+        else:
+            self._add_system_message(f"No handoff targets for {self.current_agent}")
+
+    def _list_agents_color(self: SagoApp) -> None:
+        """List agents with their assigned colors."""
+        from sago.tui.widgets import get_agent_color
+
+        try:
+            from sago.agents.registry import list_agents
+
+            agents = list_agents()
+            lines = [f"Agents ({len(agents)}):"]
+            for a in agents[:40]:
+                color = get_agent_color(a["name"])
+                lines.append(f"  [{color}]●[/{color}] {a['name']}")
+            if len(agents) > 40:
+                lines.append(f"  ... and {len(agents) - 40} more")
+            self._add_system_message("\n".join(lines))
+        except Exception as e:
+            self._add_system_message(f"Error: {e}")

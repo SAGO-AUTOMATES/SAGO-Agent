@@ -1,6 +1,7 @@
-"""Agent Spawner - Creates and manages CrewAI agent instances.
+"""Agent Spawner - Creates and manages agent instances with structured handoffs.
 
-Handles agent creation, context passing, and multi-agent orchestration.
+Handles agent creation, context passing, feedback loops, and multi-agent orchestration
+with recursion protection and cycle detection.
 """
 
 from __future__ import annotations
@@ -9,9 +10,8 @@ import logging
 import os
 from typing import Any
 
-from sago.agents.registry import (
-    get_agent,
-)
+from sago.agents.handoff import HandoffContext, get_recursion_guard
+from sago.agents.registry import get_agent
 from sago.config.loader import SagoConfig, get_config
 from sago.database import MessageStore, Session
 
@@ -23,9 +23,11 @@ class AgentSpawner:
 
     Handles:
     - Creating CrewAI agents from definitions
-    - Multi-agent handoffs and context passing
+    - Multi-agent handoffs with structured context
+    - Feedback loops between agents
     - Session persistence
     - Tool resolution
+    - Recursion protection
     """
 
     def __init__(self, config: SagoConfig | None = None) -> None:
@@ -38,7 +40,7 @@ class AgentSpawner:
         self,
         agent_name: str,
         session: Session | None = None,
-        context: dict[str, Any] | None = None,
+        context: HandoffContext | dict[str, Any] | None = None,
         provider: str | None = None,
         model_override: str | None = None,
     ) -> Any | None:
@@ -47,9 +49,9 @@ class AgentSpawner:
         Args:
             agent_name: Name of the agent to spawn.
             session: Optional session for persistence.
-            context: Optional context from previous agents.
-            provider: Optional LLM provider override (e.g., 'openrouter').
-            model_override: Optional model override (e.g., 'openrouter/free').
+            context: HandoffContext or dict with context from previous agents.
+            provider: Optional LLM provider override.
+            model_override: Optional model override.
 
         Returns:
             CrewAI Agent instance or None if not found.
@@ -64,9 +66,12 @@ class AgentSpawner:
         # Resolve tools via crewai_wrappers
         tools = self._resolve_tools(definition.tools)
 
-        # Build system prompt with context
+        # Build system prompt with structured context
         system_prompt = definition.system_prompt
-        if context:
+        if isinstance(context, HandoffContext):
+            context_str = context.get_context_for(agent_name)
+            system_prompt += f"\n\n{context_str}"
+        elif context:
             context_str = "\n\n".join(f"## {k}\n{v}" for k, v in context.items())
             system_prompt += f"\n\n## Context from Previous Agent\n{context_str}"
 
@@ -91,7 +96,7 @@ class AgentSpawner:
         agent_name: str,
         task: str,
         session_id: str | None = None,
-        parent_context: dict[str, Any] | None = None,
+        parent_context: HandoffContext | dict[str, Any] | None = None,
         provider: str | None = None,
         model_override: str | None = None,
     ) -> str:
@@ -101,9 +106,9 @@ class AgentSpawner:
             agent_name: Agent to use.
             task: Task description.
             session_id: Optional session ID for persistence.
-            parent_context: Context from parent agent.
-            provider: Optional LLM provider override (e.g., 'openrouter').
-            model_override: Optional model override (e.g., 'openrouter/free').
+            parent_context: HandoffContext or dict with context from parent agent.
+            provider: Optional LLM provider override.
+            model_override: Optional model override.
 
         Returns:
             Task result.
@@ -160,20 +165,24 @@ class AgentSpawner:
         session_id: str | None = None,
         agent_chain: list[str] | None = None,
         max_handoffs: int = 5,
+        enable_feedback: bool = True,
     ) -> str:
-        """Orchestrate a task through multiple agents with handoffs.
+        """Orchestrate a task through multiple agents with handoffs and feedback loops.
 
         This is the multi-agent loop that:
         1. Spawns the initial agent
         2. Executes the task
-        3. If the agent hands off, spawns the next agent
-        4. Continues until done or max handoffs reached
+        3. If the agent hands off, spawns the next agent with structured context
+        4. Supports feedback loops (agent B can request clarification from agent A)
+        5. Breaks chain on errors instead of propagating error strings
+        6. Detects cycles and prevents infinite recursion
 
         Args:
             task: Task description.
             session_id: Optional session ID.
             agent_chain: Optional predefined chain of agents.
             max_handoffs: Maximum number of agent handoffs.
+            enable_feedback: Whether to enable feedback loops.
 
         Returns:
             Final result.
@@ -183,11 +192,16 @@ class AgentSpawner:
         if not session_id:
             session.create(title=task[:100], agent_chain=agent_chain or [])
 
-        # Initialize context
-        context: dict[str, Any] = {
-            "original_task": task,
-            "completed_agents": [],
-        }
+        # Initialize structured context
+        handoff_ctx = HandoffContext(
+            original_task=task,
+            depth=0,
+            parent_chain=[],
+        )
+
+        # Get recursion guard for this thread
+        guard = get_recursion_guard()
+        guard.reset()
 
         # Use predefined chain or auto-route
         if agent_chain:
@@ -199,34 +213,147 @@ class AgentSpawner:
         for i, agent_name in enumerate(chain[: max_handoffs + 1]):
             logger.info(f"Agent {i + 1}/{len(chain)}: {agent_name}")
 
-            # Build context from previous steps
-            step_context = {
-                "original_task": task,
-                "completed_agents": context["completed_agents"],
-            }
-            if result:
-                step_context["previous_result"] = str(result)
-
-            # Execute
-            step_task = (
-                task
-                if i == 0
-                else f"Based on the previous work:\n\n{result}\n\nContinue with: {task}"
-            )
-            result = self.execute_with_agent(
-                agent_name=agent_name,
-                task=step_task,
-                session_id=session.id,
-                parent_context=step_context,
-            )
-
-            context["completed_agents"].append(agent_name)
-
-            # Check if we should continue (for now, just run the chain)
-            if i >= len(chain) - 1:
+            # Check recursion guard
+            allowed, reason = guard.can_spawn(agent_name)
+            if not allowed:
+                logger.warning(f"Recursion guard blocked {agent_name}: {reason}")
+                handoff_ctx.errors.append(f"Blocked: {reason}")
                 break
 
+            guard.enter(agent_name)
+
+            try:
+                # Build step task with structured context
+                if i == 0:
+                    step_task = task
+                else:
+                    # Provide rich context for subsequent agents
+                    step_task = self._build_step_task(task, handoff_ctx, agent_name)
+
+                # Execute
+                step_result = self.execute_with_agent(
+                    agent_name=agent_name,
+                    task=step_task,
+                    session_id=session.id,
+                    parent_context=handoff_ctx,
+                )
+
+                # Check for errors — break chain on failure
+                if step_result.startswith("Error:"):
+                    logger.error(f"Agent {agent_name} failed: {step_result}")
+                    handoff_ctx.add_result(agent_name, step_result, success=False)
+                    # Break chain on error — don't propagate error strings
+                    result = step_result
+                    break
+
+                # Record successful result
+                handoff_ctx.add_result(agent_name, step_result, success=True)
+                result = step_result
+
+                # Feedback loop: if agent requested feedback, handle it
+                if enable_feedback and handoff_ctx.feedback_requests:
+                    result = self._handle_feedback_loop(
+                        handoff_ctx, agent_name, result, session.id
+                    )
+
+            finally:
+                guard.exit(agent_name)
+
         return result
+
+    def _build_step_task(
+        self, original_task: str, ctx: HandoffContext, next_agent: str
+    ) -> str:
+        """Build a rich task prompt for the next agent in the chain."""
+        parts = []
+
+        # Original task
+        parts.append(f"## Original Task\n{original_task}")
+
+        # What previous agents did
+        if ctx.completed_agents:
+            parts.append("## What Has Been Done")
+            for prev_agent in ctx.completed_agents:
+                if prev_agent in ctx.agent_results:
+                    result_preview = ctx.agent_results[prev_agent][:500]
+                    parts.append(f"### {prev_agent}\n{result_preview}")
+
+        # Files created
+        if ctx.files_created:
+            parts.append(
+                "## Files Created/Modified\n"
+                + "\n".join(f"- {f}" for f in ctx.files_created)
+            )
+
+        # Errors to be aware of
+        if ctx.errors:
+            parts.append(
+                "## Known Issues\n" + "\n".join(f"- {e}" for e in ctx.errors[-3:])
+            )
+
+        # What this agent should focus on
+        parts.append(
+            f"## Your Task as {next_agent}\n"
+            f"Continue the work above. You are the {next_agent}. "
+            f"Review what has been done and provide your specialist contribution."
+        )
+
+        return "\n\n".join(parts)
+
+    def _handle_feedback_loop(
+        self,
+        ctx: HandoffContext,
+        current_agent: str,
+        current_result: str,
+        session_id: str,
+    ) -> str:
+        """Handle feedback requests between agents.
+
+        If agent B needs clarification from agent A, this method:
+        1. Finds the pending feedback request
+        2. Re-engages agent A with the question
+        3. Passes the answer back to agent B
+        """
+        pending = [
+            r
+            for r in ctx.feedback_requests
+            if r.to_agent in ctx.completed_agents and not r.answered
+        ]
+
+        if not pending:
+            return current_result
+
+        for request in pending:
+            # Ask the previous agent for clarification
+            feedback_task = (
+                f"The {request.from_agent} has a question for you:\n\n"
+                f"{request.question}\n\n"
+                f"Provide a concise, specific answer."
+            )
+
+            try:
+                answer = self.execute_with_agent(
+                    agent_name=request.to_agent,
+                    task=feedback_task,
+                    session_id=session_id,
+                    parent_context=ctx,
+                )
+                request.respond(answer)
+
+                # Inject the answer into the current agent's context
+                current_result += (
+                    f"\n\n## Feedback from {request.to_agent}\n"
+                    f"Q: {request.question}\n"
+                    f"A: {answer}"
+                )
+            except Exception as e:
+                logger.warning(f"Feedback loop failed: {e}")
+                current_result += (
+                    f"\n\n## Feedback Failed\n"
+                    f"Could not get feedback from {request.to_agent}: {e}"
+                )
+
+        return current_result
 
     def orchestrate_parallel(
         self,
@@ -252,15 +379,25 @@ class AgentSpawner:
         if not session_id:
             session.create(title="Parallel execution")
 
+        # Shared context for all parallel agents
+        shared_ctx = HandoffContext(
+            original_task=subtasks[0].get("task", "") if subtasks else "",
+            task_type="parallel",
+        )
+
         results: list[dict[str, Any]] = []
 
         def execute_subtask(subtask: dict[str, str]) -> dict[str, Any]:
             agent_name = subtask.get("agent", "sago-orchestrator")
             task = subtask.get("task", "")
             try:
+                # Build context for this subtask
+                ctx_str = shared_ctx.get_context_for(agent_name)
+
                 result = execute_agent_task(
                     task=task,
                     agent_role=agent_name.replace("-", " ").title(),
+                    system_prompt=self._get_parallel_prompt(agent_name, ctx_str),
                     model=self.config.llm.model,
                     api_key=os.environ.get(
                         "OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")
@@ -288,6 +425,26 @@ class AgentSpawner:
                 results.append(future.result())
 
         return results
+
+    def _get_parallel_prompt(self, agent_name: str, context: str) -> str:
+        """Get a prompt for parallel agent execution."""
+        base = self._get_agent_prompt_for_name(agent_name)
+        return (
+            f"{base}\n\n"
+            f"You are running in parallel with other agents. "
+            f"Focus on your specific task. Be self-contained.\n\n"
+            f"{context}"
+        )
+
+    def _get_agent_prompt_for_name(self, agent_name: str) -> str:
+        """Get the base prompt for an agent by name."""
+        try:
+            definition = get_agent(agent_name)
+            if definition:
+                return definition.system_prompt
+        except Exception:
+            pass
+        return f"You are a {agent_name.replace('-', ' ')} specialist."
 
     def _plan_chain(self, task: str) -> list[str]:
         """Plan an agent chain based on the task.
@@ -397,7 +554,7 @@ class AgentSpawner:
                 api_key=api_key,
                 base_url=base_url,
                 temperature=provider_config.temperature,
-                max_tokens=min(provider_config.max_tokens, 4096),  # Limit to avoid credit issues
+                max_tokens=min(provider_config.max_tokens, 4096),
             )
             return llm
         except Exception as e:

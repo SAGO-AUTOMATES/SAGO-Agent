@@ -1,4 +1,4 @@
-"""TUI Helpers - UI helper methods for displaying messages and tool calls."""
+"""TUI Helpers - Extended UI helper methods with agent-tagged messages."""
 
 from __future__ import annotations
 
@@ -6,7 +6,10 @@ import re
 from typing import TYPE_CHECKING
 
 from rich.syntax import Syntax
+from textual.containers import Vertical
 from textual.widgets import Collapsible, Static
+
+from sago.tui.widgets import AgentStatus, get_agent_color, get_task_manager
 
 if TYPE_CHECKING:
     from sago.tui.app import SagoApp
@@ -32,7 +35,6 @@ def _render_markdown(content: str) -> str:
     # Unordered list: - item → • item
     text = re.sub(r"^(\s*)[-*]\s+", r"\1• ", text, flags=re.MULTILINE)
 
-    # Ordered list: 1. item → 1. item (keep as-is)
     # Links: [text](url) → text (url)
     text = re.sub(r"\[(.+?)\]\((.+?)\)", r"\1 (\2)", text)
 
@@ -48,27 +50,38 @@ class UIHelpers:
         self.query_one("#messages").scroll_end()
         self._save_message("user", content)
 
-    def _add_assistant_message(self: SagoApp, content: str, meta: str = "") -> None:
-        self.messages.append({"role": "assistant", "content": content})
+    def _add_assistant_message(
+        self: SagoApp, content: str, meta: str = "", agent_name: str = ""
+    ) -> None:
+        self.messages.append({"role": "assistant", "content": content, "agent": agent_name})
         container = self.query_one("#messages")
 
         display = content
         if meta:
             display += f"\n\n{meta}"
 
+        # Prepend agent tag if specified
+        agent_prefix = ""
+        if agent_name:
+            color = get_agent_color(agent_name)
+            agent_prefix = f"[{color}]({agent_name})[/{color}] "
+
         if "```" not in display:
             # Plain text — render markdown formatting
             rendered = _render_markdown(display)
-            container.mount(Static(rendered, classes="msg-assistant"))
+            container.mount(Static(f"{agent_prefix}{rendered}", classes="msg-assistant"))
         else:
             # Has code blocks — render each part
             parts = display.split("```")
+            first_text = True
             for i, part in enumerate(parts):
                 if i % 2 == 0:
                     # Text outside code blocks
                     rendered = _render_markdown(part.strip())
                     if rendered.strip():
-                        container.mount(Static(rendered, classes="msg-assistant"))
+                        prefix = agent_prefix if first_text else ""
+                        first_text = False
+                        container.mount(Static(f"{prefix}{rendered}", classes="msg-assistant"))
                 else:
                     # Inside code block
                     lines = part.split("\n", 1)
@@ -95,7 +108,6 @@ class UIHelpers:
                             line_numbers=True,
                             word_wrap=True,
                         )
-                        # Mount syntax-highlighted code block
                         container.mount(
                             Collapsible(
                                 Static(syntax),
@@ -104,11 +116,14 @@ class UIHelpers:
                             )
                         )
                     except Exception:
-                        # Fallback to plain code block
                         container.mount(Static(code, classes="code-block"))
 
         container.scroll_end()
         self._save_message("assistant", content)
+
+    def _add_agent_message(self: SagoApp, agent_name: str, content: str) -> None:
+        """Add a message with explicit agent tagging."""
+        self._add_assistant_message(content, agent_name=agent_name)
 
     def _add_system_message(self: SagoApp, content: str) -> None:
         self.query_one("#messages").mount(Static(content, classes="msg-system"))
@@ -127,6 +142,51 @@ class UIHelpers:
         c = self.query_one("#messages")
         c.mount(Collapsible(Static(body, classes="msg-system"), title=title, collapsed=True))
         c.scroll_end()
+
+    def _add_parallel_result(
+        self: SagoApp, agent_name: str, result: str, elapsed: float, success: bool
+    ) -> None:
+        """Add a result from a parallel agent execution."""
+        color = get_agent_color(agent_name)
+        status_icon = "✓" if success else "✗"
+        header = f"[{color}]{status_icon} {agent_name}[/{color}] ({elapsed:.1f}s)"
+
+        container = self.query_one("#messages")
+        if "```" in result:
+            parts = result.split("```")
+            for i, part in enumerate(parts):
+                if i % 2 == 0:
+                    rendered = _render_markdown(part.strip())
+                    if rendered.strip():
+                        if i == 0:
+                            container.mount(
+                                Static(f"{header}\n{rendered}", classes="msg-assistant")
+                            )
+                        else:
+                            container.mount(Static(rendered, classes="msg-assistant"))
+                else:
+                    lines = part.split("\n", 1)
+                    lang = lines[0].strip() if len(lines) > 1 else ""
+                    code = lines[1] if len(lines) > 1 else lines[0]
+                    code = code.rstrip().removesuffix("```").rstrip()
+                    if code.strip():
+                        try:
+                            syntax = Syntax(
+                                code, lang or "text", theme="monokai", line_numbers=True
+                            )
+                            container.mount(
+                                Collapsible(
+                                    Static(syntax),
+                                    title=f"{agent_name} - Code ({lang or 'text'})",
+                                    collapsed=False,
+                                )
+                            )
+                        except Exception:
+                            container.mount(Static(code, classes="code-block"))
+        else:
+            rendered = _render_markdown(result)
+            container.mount(Static(f"{header}\n{rendered}", classes="msg-assistant"))
+        container.scroll_end()
 
     def _add_summary(
         self: SagoApp,
@@ -178,6 +238,60 @@ class UIHelpers:
         box = Static("\n".join(lines), classes="summary-box")
         self.query_one("#messages").mount(box)
         self.query_one("#messages").scroll_end()
+
+    def _update_dashboard(self: SagoApp) -> None:
+        """Update the agent dashboard with current task states."""
+        dashboard = self.query_one("#agent-dashboard")
+        if not dashboard or not self._dashboard_visible:
+            return
+        tm = get_task_manager()
+        tasks = tm.get_all_tasks()
+
+        # Clear and rebuild dashboard content
+        dashboard.remove_children()
+        dashboard.mount(Static("Agent Dashboard", classes="dashboard-title"))
+
+        active = sum(1 for t in tasks if t.status == AgentStatus.RUNNING)
+        completed = sum(1 for t in tasks if t.status == AgentStatus.COMPLETED)
+        failed = sum(1 for t in tasks if t.status == AgentStatus.FAILED)
+
+        for info in tasks:
+            color = get_agent_color(info.agent_id)
+            status_icon = {
+                AgentStatus.IDLE: "○",
+                AgentStatus.RUNNING: "⟳",
+                AgentStatus.WAITING: "◎",
+                AgentStatus.COMPLETED: "✓",
+                AgentStatus.FAILED: "✗",
+                AgentStatus.CANCELLED: "⊘",
+            }.get(info.status, "?")
+
+            entry = Vertical(classes="agent-entry")
+            entry.mount(
+                Static(
+                    f"[{color}]{status_icon} {info.agent_name}[/{color}]",
+                    classes="agent-name",
+                )
+            )
+            if info.task:
+                entry.mount(Static(f"  {info.task[:50]}", classes="agent-task"))
+            if info.current_tool and info.status == AgentStatus.RUNNING:
+                entry.mount(Static(f"  -> {info.current_tool}", classes="agent-tools"))
+            if info.elapsed > 0:
+                entry.mount(Static(f"  {info.elapsed:.1f}s", classes="agent-tools"))
+            dashboard.mount(entry)
+
+        dashboard.mount(Static("---" * 15, classes="dashboard-separator"))
+        parts = []
+        if active:
+            parts.append(f"{active} active")
+        if completed:
+            parts.append(f"{completed} done")
+        if failed:
+            parts.append(f"{failed} failed")
+        if not parts:
+            parts.append("No agents")
+        dashboard.mount(Static(f"Total: {', '.join(parts)}", classes="dashboard-stats"))
 
     def _save_message(self: SagoApp, role: str, content: str) -> None:
         if self.current_session_id and self.current_session_id != "local":

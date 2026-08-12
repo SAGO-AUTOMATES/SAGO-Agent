@@ -1,12 +1,14 @@
-"""Sago TUI - Production Terminal Interface with all features working."""
+"""Sago TUI - Production Terminal Interface with parallel agent support."""
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import os
 import re
 import threading
 import time as _time
+from typing import Any
 
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -18,12 +20,58 @@ from textual.widgets import Button, Footer, Input, Static
 from sago.tui.commands import CommandHandlers
 from sago.tui.helpers import UIHelpers
 from sago.tui.models import COMMANDS, EFFORT_LEVELS
-from sago.tui.widgets import Spinner
+from sago.tui.widgets import (
+    AgentDashboard,
+    AgentSpinner,
+    AgentStatus,
+    BackgroundTaskManager,
+    Spinner,
+    get_agent_color,
+    get_task_manager,
+)
 
 
 class SagoApp(App, CommandHandlers, UIHelpers):
     CSS = """
     Screen { background: #0d1117; }
+
+    #main-layout {
+        height: 1fr;
+    }
+
+    #messages-parent {
+        width: 1fr;
+        height: 1fr;
+    }
+
+    #agent-dashboard {
+        width: 35;
+        height: 1fr;
+        background: #161b22;
+        border: solid #30363d;
+        padding: 1;
+        overflow-y: auto;
+    }
+    #agent-dashboard.hidden { display: none; }
+
+    .dashboard-title {
+        color: #58a6ff;
+        text-style: bold;
+        padding: 0 0 1 0;
+        content-align: center middle;
+    }
+    .agent-entry { padding: 0 0 1 0; }
+    .agent-name { text-style: bold; }
+    .agent-status { color: #8b949e; padding: 0 0 0 1; }
+    .agent-task { color: #6e7681; text-style: italic; padding: 0 0 0 1; max-width: 32; }
+    .agent-tools { color: #6e7681; padding: 0 0 0 1; }
+    .agent-progress { padding: 0 0 0 1; }
+    .dashboard-separator { color: #30363d; padding: 0 0 1 0; }
+    .dashboard-stats { color: #8b949e; }
+    .active-color { color: #3fb950; }
+    .idle-color { color: #8b949e; }
+    .error-color { color: #f85149; }
+    .completed-color { color: #58a6ff; }
 
     #messages {
         height: 1fr;
@@ -36,6 +84,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .msg-assistant { color: #c9d1d9; padding: 0 0 1 0; }
     .msg-system { color: #8b949e; text-style: italic; padding: 0 0 1 0; }
     .msg-meta { color: #484f58; padding: 0 0 0 0; }
+    .msg-parallel { color: #d2a8ff; padding: 0 0 1 0; border-left: solid #d2a8ff; padding-left: 1; }
 
     Collapsible {
         background: #0d1117;
@@ -128,6 +177,24 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .deny-btn { background: #da3633; color: #ffffff; border: solid #f85149; }
     .deny-btn:hover { background: #f85149; }
     .deny-btn:focus { border: solid #ffffff; }
+
+    #parallel-bar {
+        display: none;
+        height: auto;
+        background: #161b22;
+        border: solid #d2a8ff;
+        margin: 0 1 0 1;
+        padding: 1;
+    }
+    #parallel-bar.visible { display: block; }
+    #parallel-bar .parallel-title {
+        color: #d2a8ff;
+        text-style: bold;
+        padding: 0 0 1 0;
+    }
+    #parallel-bar .parallel-agent {
+        padding: 0 0 0 1;
+    }
     """
 
     BINDINGS = [
@@ -138,6 +205,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         Binding("n", "deny_action", "Deny", show=True, priority=True),
         Binding("ctrl+y", "approve_action", "Approve", show=False),
         Binding("ctrl+n", "deny_action", "Deny", show=False),
+        Binding("ctrl+d", "toggle_dashboard", "Dashboard"),
+        Binding("ctrl+t", "show_tasks", "Tasks"),
+        Binding("ctrl+c", "cancel_task", "Cancel"),
     ]
 
     TITLE = "Sago"
@@ -167,22 +237,36 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     total_output_tokens: int = 0
     total_cache_hit_tokens: int = 0
     total_cache_miss_tokens: int = 0
+    # Parallel execution state
+    _dashboard: AgentDashboard | None = None
+    _dashboard_visible: reactive[bool] = reactive(False)
+    _parallel_spinners: dict[str, AgentSpinner] = {}
+    _task_manager: BackgroundTaskManager | None = None
+    _active_parallel_futures: dict[str, concurrent.futures.Future] = {}
 
     def compose(self) -> ComposeResult:
-        yield ScrollableContainer(id="messages")
-        yield Vertical(id="suggestions")
-        with Vertical(id="approval-bar"):
-            yield Static("Pending action", id="approval-label", classes="approval-label")
-            with Horizontal(id="approval-buttons"):
-                yield Button(
-                    "Approve [Y]",
-                    id="btn-approve",
-                    variant="success",
-                    classes="approve-btn",
-                )
-                yield Button("Deny [N]", id="btn-deny", variant="error", classes="deny-btn")
-        with Vertical(id="input-area"):
-            yield Input(placeholder="/, @, # for autocomplete", id="msg-input")
+        with Horizontal(id="main-layout"):
+            with Vertical(id="messages-parent"):
+                yield ScrollableContainer(id="messages")
+                yield Vertical(id="suggestions")
+                with Vertical(id="approval-bar"):
+                    yield Static("Pending action", id="approval-label", classes="approval-label")
+                    with Horizontal(id="approval-buttons"):
+                        yield Button(
+                            "Approve [Y]",
+                            id="btn-approve",
+                            variant="success",
+                            classes="approve-btn",
+                        )
+                        yield Button(
+                            "Deny [N]", id="btn-deny", variant="error", classes="deny-btn"
+                        )
+                with Vertical(id="parallel-bar"):
+                    yield Static("Parallel Agents", id="parallel-title", classes="parallel-title")
+                    yield Vertical(id="parallel-agents")
+                with Vertical(id="input-area"):
+                    yield Input(placeholder="/, @, # for autocomplete", id="msg-input")
+            yield Vertical(id="agent-dashboard", classes="hidden")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -192,6 +276,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self._init_db()
         self._init_session()
         self._load_settings()
+        self._task_manager = get_task_manager()
         self._add_system_message("Sago v0.1.0 — /help for commands")
         # Auto-resume if --resume flag was passed
         if self._pending_resume:
@@ -200,6 +285,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         # Auto-refresh models if stale
         self._auto_refresh_models()
         self.query_one("#msg-input").focus()
+        # Start dashboard update timer
+        self._dashboard_timer = self.set_interval(2.0, self._periodic_dashboard_update)
 
     def _load_settings(self) -> None:
         """Load persisted settings (model, provider, effort, yolo, agent)."""
@@ -430,6 +517,32 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     def on_click(self, event) -> None:
         self.query_one("#msg-input").focus()
 
+    def _periodic_dashboard_update(self) -> None:
+        """Periodically update the dashboard with current task states."""
+        if self._dashboard and self._dashboard_visible:
+            self._update_dashboard()
+
+    def action_toggle_dashboard(self) -> None:
+        """Toggle the agent dashboard sidebar."""
+        self._toggle_dashboard()
+
+    def action_show_tasks(self) -> None:
+        """Show background tasks."""
+        self._show_tasks()
+
+    def action_cancel_task(self) -> None:
+        """Cancel the most recent running task."""
+        from sago.tui.widgets import get_task_manager
+
+        tm = get_task_manager()
+        active = tm.get_active_tasks()
+        if active:
+            last = active[-1]
+            tm.cancel_task(last.agent_id)
+            self._add_system_message(f"Cancelled: {last.agent_name} ({last.agent_id})")
+        else:
+            self._add_system_message("No active tasks to cancel")
+
     def _show_cmd_suggestions(self, prefix: str) -> None:
         # "/model provider query" — show filtered models for that provider
         if prefix.startswith("/model "):
@@ -628,6 +741,12 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             "/changes": lambda: self._show_changes(),
             "/exit": lambda: self._exit_session(),
             "/resume": lambda: self._list_sessions(),
+            "/parallel": lambda: self._run_parallel(args),
+            "/dashboard": lambda: self._toggle_dashboard(),
+            "/tasks": lambda: self._show_tasks(),
+            "/cancel": lambda: self._cancel_task(args),
+            "/handoff": lambda: self._show_handoff(),
+            "/agents-color": lambda: self._list_agents_color(),
         }
 
         if cmd in handlers:
@@ -647,6 +766,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     @work(thread=True)
     def _process_delegation(self, agent_name: str, task: str) -> None:
         self.is_thinking = True
+        tm = self._task_manager or get_task_manager()
+        info = tm.create_task(agent_name, task)
+        info.status = AgentStatus.RUNNING
+        self.call_from_thread(self._update_dashboard)
         self.call_from_thread(self._show_spinner, f"Delegating to {agent_name}...")
         try:
             api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
@@ -663,6 +786,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             tool = SpawnAgentTool()
             result = tool.run(task=task, agent_name=agent_name)
 
+            info.status = AgentStatus.COMPLETED
+            info.result = result
+            info.elapsed = _time.time() - info.start_time
+            self.call_from_thread(self._update_dashboard)
             self.call_from_thread(self._hide_spinner)
             if "could not be spawned" in result or "Error:" in result:
                 self.call_from_thread(
@@ -670,8 +797,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     f"{result}\n\nTry running the task directly.",
                 )
             else:
-                self.call_from_thread(self._add_assistant_message, result)
+                self.call_from_thread(self._add_assistant_message, result, agent_name=agent_name)
         except Exception as e:
+            info.status = AgentStatus.FAILED
+            info.error = str(e)
+            self.call_from_thread(self._update_dashboard)
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_system_message, f"Delegation error: {e}")
         finally:
@@ -680,6 +810,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     @work(thread=True)
     def _process_chain(self, agents: list[str], task: str) -> None:
         self.is_thinking = True
+        tm = self._task_manager or get_task_manager()
         self.call_from_thread(self._show_spinner, f"Chain: {' → '.join(agents)}")
         try:
             api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
@@ -693,11 +824,22 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             tool = SpawnAgentTool()
             current_input = task
             for i, agent in enumerate(agents):
-                self.call_from_thread(self._update_spinner, f"Step {i + 1}/{len(agents)}: {agent}")
+                info = tm.create_task(agent, f"Chain step {i+1}: {task[:50]}")
+                info.status = AgentStatus.RUNNING
+                self.call_from_thread(self._update_dashboard)
+                self.call_from_thread(
+                    self._update_spinner, f"Step {i + 1}/{len(agents)}: {agent}"
+                )
                 result = tool.run(task=current_input, agent_name=agent)
+                info.status = AgentStatus.COMPLETED
+                info.result = result
+                info.elapsed = _time.time() - info.start_time
+                self.call_from_thread(self._update_dashboard)
                 current_input = f"Previous agent ({agent}) said:\n\n{result}\n\nNow continue."
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_assistant_message, current_input)
+            self.call_from_thread(
+                self._add_assistant_message, current_input, agent_name=agents[-1]
+            )
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_system_message, f"Chain error: {e}")
@@ -814,6 +956,138 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self.call_from_thread(self._add_system_message, f"Execution error: {e}")
         finally:
             self.is_thinking = False
+
+    @work(thread=True)
+    def _process_parallel(self, agents: list[str], task: str) -> None:
+        """Run multiple agents in parallel on the same task."""
+        self.is_thinking = True
+        tm = self._task_manager or get_task_manager()
+
+        # Create task entries for each agent
+        task_infos = []
+        for agent_name in agents:
+            info = tm.create_task(agent_name, task)
+            info.status = AgentStatus.RUNNING
+            task_infos.append(info)
+
+        # Show parallel bar
+        self.call_from_thread(self._show_parallel_bar, agents)
+
+        # Update dashboard
+        self.call_from_thread(self._update_dashboard)
+
+        try:
+            from sago.tools.file.spawn_agent import SpawnAgentTool
+
+            tool = SpawnAgentTool()
+            results: list[dict[str, Any]] = []
+
+            def execute_agent(
+                agent_name: str, subtask: str, info: Any
+            ) -> dict[str, Any]:
+                """Execute a single agent, respecting cancellation."""
+                start = _time.time()
+                try:
+                    # Check cancellation before starting
+                    if info.cancel_event.is_set():
+                        info.status = AgentStatus.CANCELLED
+                        return {
+                            "agent": agent_name,
+                            "result": "Cancelled",
+                            "elapsed": 0,
+                            "success": False,
+                        }
+
+                    result = tool.run(task=subtask, agent_name=agent_name)
+                    elapsed = _time.time() - start
+                    info.elapsed = elapsed
+                    info.status = AgentStatus.COMPLETED
+                    info.result = result
+                    self.call_from_thread(self._update_dashboard)
+                    return {
+                        "agent": agent_name,
+                        "result": result,
+                        "elapsed": elapsed,
+                        "success": True,
+                    }
+                except Exception as e:
+                    elapsed = _time.time() - start
+                    info.elapsed = elapsed
+                    info.status = AgentStatus.FAILED
+                    info.error = str(e)
+                    self.call_from_thread(self._update_dashboard)
+                    return {
+                        "agent": agent_name,
+                        "result": f"Error: {e}",
+                        "elapsed": elapsed,
+                        "success": False,
+                    }
+
+            # Execute all agents in parallel using ThreadPoolExecutor
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(agents)) as executor:
+                futures = {}
+                for info in task_infos:
+                    future = executor.submit(execute_agent, info.agent_name, task, info)
+                    futures[future] = info
+                    self._active_parallel_futures[info.agent_id] = future
+
+                for future in concurrent.futures.as_completed(futures):
+                    result = future.result()
+                    results.append(result)
+
+            # Show results
+            self.call_from_thread(self._hide_parallel_bar)
+            self.call_from_thread(self._hide_spinner)
+
+            # Sort results by agent name for consistent display
+            results.sort(key=lambda r: r["agent"])
+
+            for r in results:
+                self.call_from_thread(
+                    self._add_parallel_result,
+                    r["agent"],
+                    r["result"],
+                    r["elapsed"],
+                    r["success"],
+                )
+
+            # Summary
+            ok = sum(1 for r in results if r["success"])
+            fail = len(results) - ok
+            total_time = sum(r["elapsed"] for r in results)
+            max_time = max(r["elapsed"] for r in results) if results else 0
+            self.call_from_thread(
+                self._add_system_message,
+                f"Parallel complete: {ok} ok, {fail} failed | "
+                f"Total wall time: {max_time:.1f}s | Combined: {total_time:.1f}s",
+            )
+
+        except Exception as e:
+            self.call_from_thread(self._hide_parallel_bar)
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(self._add_system_message, f"Parallel error: {e}")
+        finally:
+            self.is_thinking = False
+            self._active_parallel_futures.clear()
+            self.call_from_thread(self._update_dashboard)
+
+    def _show_parallel_bar(self, agents: list[str]) -> None:
+        """Show the parallel agent status bar."""
+        container = self.query_one("#parallel-agents")
+        container.remove_children()
+        for agent_name in agents:
+            color = get_agent_color(agent_name)
+            container.mount(
+                Static(
+                    f"[{color}]○ {agent_name}[/{color}] Waiting...",
+                    classes="parallel-agent",
+                )
+            )
+        self.query_one("#parallel-bar").add_class("visible")
+
+    def _hide_parallel_bar(self) -> None:
+        """Hide the parallel agent status bar."""
+        self.query_one("#parallel-bar").remove_class("visible")
 
     @work(thread=True)
     def _process_message(self, message: str) -> None:

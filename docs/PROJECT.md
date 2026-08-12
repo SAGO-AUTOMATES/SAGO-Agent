@@ -1,10 +1,10 @@
 # Sago - Project Architecture
 
-> Production-grade multi-agent orchestration system with 339 agents, 45+ tools, and multi-LLM support.
+> Production-grade multi-agent orchestration system with 339 agents, 45+ tools, parallel execution, feedback loops, and multi-LLM support.
 
 ## Overview
 
-Sago is a CrewAI-based system that orchestrates specialized AI agents to handle complex software engineering tasks. It features dynamic task delegation, streaming responses, intelligent caching, and a modern Textual TUI.
+Sago is a CrewAI-based system that orchestrates specialized AI agents to handle complex software engineering tasks. It features dynamic task delegation, parallel agent execution, feedback loops between agents, streaming responses, intelligent caching, and a modern Textual TUI with a real-time agent dashboard.
 
 ## Directory Structure
 
@@ -190,7 +190,16 @@ sago/
 - `model_preference` - Preferred LLM
 - `max_iterations`, `temperature`
 
-**Spawner** executes agents using CrewAI framework.
+**Spawner** executes agents using CrewAI framework with:
+- **Feedback Loops**: Agents can request feedback from other agents
+- **RecursionGuard**: Prevents infinite loops (depth/visit/cycle limits)
+- **HandoffContext**: Structured context passing between agents
+- **Error Propagation**: Breaks on failure instead of propagating error strings
+
+**Handoff System** (`agents/handoff.py`) provides structured context passing:
+- `HandoffContext`: Manages originator, contexts, and results
+- `RecursionGuard`: Depth limit (5), visit limit (15), cycle detection
+- `FeedbackRequest`: Agent-to-agent feedback requests
 
 ### 2. Tool System (`sago/tools/`)
 
@@ -234,6 +243,18 @@ Model Context Protocol support for:
 - Tool exposure via MCP
 - External tool integration
 - Server/client architecture
+
+### 7. TUI System (`sago/tui/`)
+
+Modern Textual-based terminal UI with:
+- **AgentDashboard**: Real-time agent status with spinner, color coding
+- **HandoffFlow**: Visual handoff tracking between agents
+- **OrchestrationPlanWidget**: Orchestration plan display
+- **BackgroundTaskManager**: Parallel task tracking
+- **Parallel Execution**: `/parallel` command with ThreadPoolExecutor
+- **Agent Colors**: 12-color palette, deterministic per agent
+- **Feedback Loops**: Agent-to-agent feedback requests
+- **RecursionGuard**: Prevents infinite delegation loops
 
 ## Data Flow
 
@@ -288,12 +309,16 @@ OPENROUTER_API_KEY=...    # OpenRouter
 ## Key Features
 
 1. **Smart Delegation**: Auto-routes tasks based on language, file type, keywords
-2. **Input Summarization**: Long inputs (>500 words) auto-summarized
-3. **Collapsible UI**: Thinking blocks, tool usage, errors in panels
-4. **Token Tracking**: Cost estimation per provider
-5. **Intelligent Caching**: Content-based dedup, TTL, LRU
-6. **Session Persistence**: SQLite + JSON summaries
-7. **Multi-Language**: Python, JS, TS, Java, Go, Rust, etc.
-8. **MCP Support**: External tool integration
-9. **Error Recovery**: Automatic retry, fallback agents
-10. **Streaming**: Real-time response with thinking traces
+2. **Parallel Execution**: ThreadPoolExecutor for concurrent agent tasks
+3. **Feedback Loops**: Agent-to-agent feedback requests with structured handoffs
+4. **Recursion Protection**: Depth limit (5), visit limit (15), cycle detection
+5. **Input Summarization**: Long inputs (>500 words) auto-summarized
+6. **Collapsible UI**: Thinking blocks, tool usage, errors in panels
+7. **Agent Dashboard**: Real-time agent status with spinner and color coding
+8. **Token Tracking**: Cost estimation per provider
+9. **Intelligent Caching**: Content-based dedup, TTL, LRU
+10. **Session Persistence**: SQLite + JSON summaries
+11. **Multi-Language**: Python, JS, TS, Java, Go, Rust, etc.
+12. **MCP Support**: External tool integration
+13. **Error Recovery**: Automatic retry, fallback agents
+14. **Streaming**: Real-time response with thinking traces
