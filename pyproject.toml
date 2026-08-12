@@ -3,10 +3,24 @@ name = "sago"
 version = "0.1.0"
 description = "Sophisticated Multi-Agent Orchestration System with infinite tools, cross-platform support, and TUI interface"
 readme = "README.md"
+license = "GPL-3.0-only"
+requires-python = ">=3.11"
 authors = [
     { name = "CrimsonDevil333333", email = "satyaagoyal333333@gmail.com" }
 ]
-requires-python = ">=3.11"
+keywords = ["ai", "agents", "multi-agent", "orchestration", "tui", "llm", "tools"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "aiohttp>=3.14.3",
     "click>=8.4.2",
@@ -33,6 +47,11 @@ dev = ["ruff==0.16.2", "mypy>=1.13.0", "pytest>=8.0.0"]
 
 [project.scripts]
 sago = "sago.main:main"
+
+[project.urls]
+Homepage = "https://github.com/SAGO-AUTOMATES/SAGO-Agent"
+Repository = "https://github.com/SAGO-AUTOMATES/SAGO-Agent"
+Issues = "https://github.com/SAGO-AUTOMATES/SAGO-Agent/issues"
 
 [build-system]
 requires = ["hatchling"]
