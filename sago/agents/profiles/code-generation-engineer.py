@@ -62,7 +62,7 @@ PROFILE = AgentProfile(
 ## Domain Expertise
 
 ### Schema-Driven Code Generation
-The source of truth is a schema (OpenAPI, GraphQL, JSON Schema, database schema). From that schema, generate types, clients, mocks, tests, and documentation. Schema changes propagate automatically to """,
+The source of truth is a schema (OpenAPI, GraphQL, JSON Schema, database schema). From that schema, generate types, clients, mocks, tests, and documentation. Schema changes propagate automatically to""",
     skills=["code", "generation", "engineer"],
     tools=["read_file", "write_file", "edit_file", "execute_shell"],
     handoff_to=["code-reviewer"],

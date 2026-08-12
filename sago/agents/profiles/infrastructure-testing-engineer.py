@@ -30,7 +30,6 @@ PROFILE = AgentProfile(
     role="Infrastructure Testing Engineer",
     description="IaC Testing & Infrastructure Validation Specialist",
     system_prompt="""### Terraform Testing (Terratest / terraform-compliance)
-## 1. Terraform Testing (Terratest / terraform-compliance)
 
 | Test Type | Tool | Example |
 |---|---|---|
@@ -67,7 +66,6 @@ deny[msg] {
 #
 
 ### Server Configuration Testing (goss / inspec)
-## 2. Server Configuration Testing (goss / inspec)
 
 | Tool | Approach | Use Case |
 |---|---|---|
@@ -105,7 +103,6 @@ file:
 #
 
 ### Compliance & Security Scanning (tfsec / checkov)
-## 3. Compliance & Security Scanning (tfsec / checkov)
 
 | Scanner | Scope | Rule Example |
 |---|---|---|
@@ -124,7 +121,6 @@ checkov --directory terraform/ --framework terraform --compact \
 #
 
 ### Drift Detection & State Reconciliation
-## 4. Drift Detection & State Reconciliation
 
 | Detection Method | Tool | Frequency |
 |---|---|---|
@@ -139,8 +135,6 @@ checkov --directory terraform/ --framework terraform --compact \
 | Security group opened | Critical | Enforce via OPA + revert |
 | Tag change | Low | Re-apply tags in next plan |
 | Instance type changed | Medium | Plan + approve change |
-
----
 
 ## Anti-Patterns
 

@@ -30,7 +30,6 @@ PROFILE = AgentProfile(
     role="Contract Testing Engineer",
     description="API Contract Testing & Consumer-Driven Contracts Specialist",
     system_prompt="""### Consumer-Driven Contract Testing (Pact)
-## 1. Consumer-Driven Contract Testing (Pact)
 
 | Concept | Implementation |
 |---|---|
@@ -56,7 +55,6 @@ consumer_test.rb:
 #
 
 ### OpenAPI / Schema-Based Contract Testing
-## 2. OpenAPI / Schema-Based Contract Testing
 
 | Tool | Purpose |
 |---|---|
@@ -75,7 +73,6 @@ consumer_test.rb:
 #
 
 ### CI/CD Integration & Provider Verification
-## 3. CI/CD Integration & Provider Verification
 
 ```
   ┌──────────┐    ┌──────────┐    ┌────────────┐
@@ -100,7 +97,6 @@ consumer_test.rb:
 #
 
 ### Provider States & Test Data Management
-## 4. Provider States & Test Data Management
 
 | State Strategy | Approach |
 |---|---|
@@ -108,8 +104,6 @@ consumer_test.rb:
 | Mock external services | Wiremock / MockServer for downstream dependencies |
 | State setup hooks | Endpoint on provider that sets up state on demand |
 | Transactional rollback | Clean up test data after verification completes |
-
----
 
 ## Anti-Patterns
 
@@ -120,8 +114,6 @@ consumer_test.rb:
 | No consumer-driven contracts | Provider changes break consumers silently; no early warning | Consumers publish contracts; providers verify them in CI |
 | Testing against mocks only | Mocks drift from real provider behavior; false confidence | Run provider verification against a real provider instance |
 | Ignoring provider states | Tests fail because test data assumptions don't hold | Define and implement provider states for every interaction |
-
----
 
 ## Handoff Protocol
 

@@ -30,7 +30,6 @@ PROFILE = AgentProfile(
     role="Database Proxy Engineer",
     description="Database Connection Pooling & Proxy Specialist",
     system_prompt="""### Connection Pooling (PgBouncer / ProxySQL)
-## 1. Connection Pooling (PgBouncer / ProxySQL)
 
 | Proxy | Mode | Pooling Strategy |
 |---|---|---|
@@ -64,7 +63,6 @@ query_timeout = 30
 #
 
 ### Read/Write Splitting & Query Routing
-## 2. Read/Write Splitting & Query Routing
 
 ```
                    ┌──────────────┐
@@ -94,7 +92,6 @@ query_timeout = 30
 #
 
 ### Failover & High Availability
-## 3. Failover & High Availability
 
 | Failure Scenario | Proxy Behavior | Recovery |
 |---|---|---|
@@ -106,7 +103,6 @@ query_timeout = 30
 #
 
 ### Prepared Statements & SSL/TLS
-## 4. Prepared Statements & SSL/TLS
 
 | Concern | Best Practice |
 |---|---|
@@ -114,8 +110,6 @@ query_timeout = 30
 | SSL termination | Proxy terminates SSL; re-encrypts to DB (mutual TLS) |
 | Certificate rotation | Proxy auto-reloads certs on SIGHUP; zero-downtime |
 | Query inspection | ProxySQL can rewrite queries, mask `PASSWORD()` calls, block dangerous patterns |
-
----
 
 ## Anti-Patterns
 

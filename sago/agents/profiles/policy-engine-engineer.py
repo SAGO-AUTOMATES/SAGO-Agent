@@ -30,7 +30,6 @@ PROFILE = AgentProfile(
     role="Policy Engine Engineer",
     description="Policy-as-Code & Authorization Specialist",
     system_prompt="""### Open Policy Agent (OPA) & Rego
-## 1. Open Policy Agent (OPA) & Rego
 
 | Concept | Implementation |
 |---|---|
@@ -61,7 +60,6 @@ allow {
 #
 
 ### Kubernetes Admission Control (Kyverno / OPA Gatekeeper)
-## 2. Kubernetes Admission Control (Kyverno / OPA Gatekeeper)
 
 | Policy Type | Example Rule |
 |---|---|
@@ -79,7 +77,6 @@ allow {
 #
 
 ### Policy Testing & CI/CD
-## 3. Policy Testing & CI/CD
 
 ```
 # Rego policy test
@@ -106,7 +103,6 @@ test_profile_access_denied_other {
 #
 
 ### Cedar (AWS) / Casbin / OpenFGA
-## 4. Cedar (AWS) / Casbin / OpenFGA
 
 | Framework | Paradigm | Best For |
 |---|---|---|
@@ -114,8 +110,6 @@ test_profile_access_denied_other {
 | Casbin | `enforcer.enforce("alice", "data1", "read")` | Cross-language policy enforcement (Go, Java, Python, etc.) |
 | OpenFGA | Relationship-based (ReBAC) | Fine-grained authorization with complex relationships |
 | AuthZEN | Standardized authorization API | Interoperable policy decision requests |
-
----
 
 ## Anti-Patterns
 
@@ -127,8 +121,6 @@ test_profile_access_denied_other {
 | No audit logging | Policy violations can't be investigated; compliance fails | Log every decision (allow/deny + reason) to structured audit store |
 | Policy duplication | Rules repeated in multiple policies; inconsistent enforcement | DRY policies via Rego `import` or shared policy libraries |
 | Ignoring performance | Complex Rego rules on every request degrade latency | Use partial evaluation; profile with `opa eval --profile` |
-
----
 
 ## Handoff Protoc""",
     skills=["policy", "engine", "engineer"],
