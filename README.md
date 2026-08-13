@@ -3,7 +3,7 @@
 > **Production-grade multi-agent orchestration system** — 339 specialist agents, 45 tools, multi-LLM support, streaming, parallel execution, feedback loops, workflows, TUI with dashboard, and built-in security.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 
 ---
 
@@ -551,7 +551,7 @@ pip install -e ".[dev]"
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+GPL-3.0 - see [LICENSE](LICENSE) for details.
 
 ---
 
