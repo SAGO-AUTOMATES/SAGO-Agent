@@ -112,6 +112,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
     #suggestions {
         display: none;
+        height: auto;
         max-height: 14;
         overflow-y: auto;
         background: #161b22;
@@ -143,30 +144,69 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         margin: 0 0 1 0;
     }
 
+    #welcome-screen {
+        height: 1fr;
+        display: block;
+        content-align: center middle;
+        text-align: center;
+        background: #0d1117;
+    }
+    #welcome-screen.hidden { display: none; }
+
+    .welcome-logo {
+        color: #58a6ff;
+        text-style: bold;
+        text-align: center;
+        width: 100%;
+    }
+    .welcome-version {
+        color: #ffffff;
+        text-style: bold;
+        text-align: center;
+        width: 100%;
+        padding: 1 0 0 0;
+    }
+    .welcome-subtitle {
+        color: #8b949e;
+        text-align: center;
+        width: 100%;
+        padding: 1 0 0 0;
+    }
+    .welcome-hint {
+        color: #484f58;
+        text-align: center;
+        width: 100%;
+        padding: 2 0 0 0;
+    }
+
     #approval-bar {
         display: none;
         height: auto;
+        max-height: 4;
         background: #161b22;
         border: solid #f0883e;
+        border-left: solid #f0883e;
         margin: 0 1 0 1;
-        padding: 1;
+        padding: 0 1;
     }
     #approval-bar.visible { display: block; }
 
     #approval-bar .approval-label {
         color: #f0883e;
         text-style: bold;
-        padding: 0 0 1 0;
+        padding: 0 0 0 0;
+        max-width: 80;
     }
 
     #approval-bar .approval-buttons {
         layout: horizontal;
-        height: 3;
+        height: 1;
     }
 
     #approval-bar Button {
         margin: 0 1 0 0;
-        min-width: 12;
+        min-width: 10;
+        max-height: 1;
     }
 
     .approve-btn { background: #238636; color: #ffffff; border: solid #2ea043; }
@@ -248,6 +288,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         with Horizontal(id="main-layout"):
             with Vertical(id="messages-parent"):
                 yield ScrollableContainer(id="messages")
+                yield Vertical(id="welcome-screen")
                 yield Vertical(id="suggestions")
                 with Vertical(id="approval-bar"):
                     yield Static(
@@ -275,7 +316,6 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 with Vertical(id="input-area"):
                     yield Input(placeholder="/, @, # for autocomplete", id="msg-input")
             yield Vertical(id="agent-dashboard", classes="hidden")
-        yield Footer()
 
     def on_mount(self) -> None:
         self._spinner = None
@@ -285,7 +325,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self._init_session()
         self._load_settings()
         self._task_manager = get_task_manager()
-        self._add_system_message("Sago v0.1.0 — /help for commands")
+        # Populate welcome screen
+        self._populate_welcome_screen()
         # Auto-resume if --resume flag was passed
         if self._pending_resume:
             self._load_session(self._pending_resume)
@@ -295,6 +336,61 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self.query_one("#msg-input").focus()
         # Start dashboard update timer
         self._dashboard_timer = self.set_interval(2.0, self._periodic_dashboard_update)
+
+    def _populate_welcome_screen(self) -> None:
+        """Populate the welcome screen with SAGO logo and info."""
+        welcome = self.query_one("#welcome-screen")
+        logo_lines = [
+            "",
+            "  ██████╗  █████╗  ██████╗  ██████╗ ",
+            " ██╔════╝ ██╔══██╗██╔════╝ ██╔═══██╗",
+            " ╚█████╗  ███████║██║  ███╗██║   ██║",
+            "  ╚═══██╗ ██╔══██║██║   ██║██║   ██║",
+            " ██████╔╝ ██║  ██║╚██████╔╝╚██████╔╝",
+            " ╚═════╝  ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ",
+            "",
+        ]
+        for line in logo_lines:
+            welcome.mount(Static(line, classes="welcome-logo"))
+        welcome.mount(Static("Agent  v0.1.0", classes="welcome-version"))
+        welcome.mount(Static("AI-Powered Software Agent", classes="welcome-subtitle"))
+        welcome.mount(Static("Type a message to start, or use /help for commands", classes="welcome-hint"))
+
+    def _hide_welcome_screen(self) -> None:
+        """Hide the welcome screen and show messages."""
+        try:
+            welcome = self.query_one("#welcome-screen")
+            welcome.add_class("hidden")
+        except Exception:
+            pass
+
+    def _extract_file_context(self, message: str) -> str:
+        """Extract #file references from message and return their contents as context."""
+        import re
+        from pathlib import Path
+        
+        # Find all #filepath references (support #file, #./file, #~/.file, etc.)
+        file_refs = re.findall(r'#([^\s,#@/]+(?:/[^\s,#@/]+)*)', message)
+        
+        context_parts = []
+        for ref in file_refs:
+            try:
+                # Expand path
+                if ref.startswith("~"):
+                    path = Path.home() / ref[1:]
+                elif ref.startswith("./"):
+                    path = Path(ref)
+                else:
+                    path = Path(ref)
+                
+                if path.exists() and path.is_file():
+                    # Read file content (limit to 10KB per file)
+                    content = path.read_text(errors='replace')[:10240]
+                    context_parts.append(f"--- {path.name} ---\n{content}")
+            except Exception:
+                pass
+        
+        return "\n\n".join(context_parts)
 
     _loading_settings: bool = True
 
@@ -422,12 +518,28 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     @on(Input.Changed, "#msg-input")
     def on_input_changed(self, event: Input.Changed) -> None:
         v = event.value
-        if v.startswith("/"):
-            self._show_cmd_suggestions(v)
-        elif v.startswith("@"):
-            self._show_agent_suggestions(v)
-        elif v.startswith("#"):
-            self._show_file_suggestions(v)
+        
+        # Find the last space to determine current "word"
+        last_space = v.rfind(" ")
+        current_word = v[last_space + 1:] if last_space >= 0 else v
+        
+        # Check for triggers in the current word (not across spaces)
+        # Priority: # and @ take precedence over / for paths
+        if current_word.startswith("#"):
+            # File reference - support paths like #~/.sago/config
+            prefix = current_word[1:]  # remove #
+            self._show_file_suggestions(prefix)
+        elif current_word.startswith("@"):
+            # Agent reference
+            prefix = current_word[1:]  # remove @
+            self._show_agent_suggestions(prefix)
+        elif current_word.startswith("~"):
+            # Home directory reference
+            prefix = current_word[1:]  # remove ~
+            self._show_file_suggestions(prefix, home=True)
+        elif current_word.startswith("/") and not any(current_word.startswith(p) for p in ["#/", "#~", "@/", "@~"]):
+            # Command reference - but NOT if it's part of a path after # or @
+            self._show_cmd_suggestions(current_word)
         else:
             self._hide_suggestions()
 
@@ -445,9 +557,26 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 event.input.value = ""
                 self._handle_command(val)
                 return
-            # Otherwise just autocomplete
-            event.input.value = val + " "
-            event.input.cursor_position = len(event.input.value)
+            
+            # Find the current word being typed and replace it
+            v = event.value
+            last_space = v.rfind(" ")
+            current_word_start = last_space + 1 if last_space >= 0 else 0
+            
+            # For comma-separated values, append to existing list
+            if "," in v[current_word_start:] and (v[current_word_start:].startswith("@") or v[current_word_start:].startswith("#")):
+                # Get the base part (before current word)
+                base = v[:current_word_start] if last_space >= 0 else ""
+                # Get the new value (remove trigger char and add comma)
+                new_val = val + " "
+                event.input.value = base + new_val
+                event.input.cursor_position = len(event.input.value)
+            else:
+                # Replace current word with selection
+                new_value = v[:current_word_start] + val + " "
+                event.input.value = new_value
+                event.input.cursor_position = len(new_value)
+            
             # If selecting a model suggestion, set provider too
             if (
                 val.startswith("/model ")
@@ -625,18 +754,75 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             from sago.agents.registry import list_agents
 
             agents = list_agents()
-            matches = [a["name"] for a in agents if a["name"].startswith(prefix[1:])]
-            self._show_suggestions(matches, [f"@{m}" for m in matches])
+            # Support comma-separated multiple agents
+            # If prefix contains commas, suggest remaining agents
+            if "," in prefix:
+                already_selected = [a.strip() for a in prefix.split(",")]
+                last_selected = already_selected[-1] if already_selected else ""
+                matches = [a["name"] for a in agents if a["name"].startswith(last_selected) and a["name"] not in already_selected[:-1]]
+                # Format: show as comma-separated list
+                items = [f"{', '.join(already_selected[:-1])}, {a['name']}" for a in matches]
+                values = [f"@{', '.join(already_selected[:-1])}, {a['name']}" for a in matches]
+            else:
+                matches = [a["name"] for a in agents if a["name"].startswith(prefix)]
+                items = [f"{a['name']} - {a.get('description', '')[:30]}" for a in agents if a["name"].startswith(prefix)]
+                values = [f"@{a['name']}" for a in agents if a["name"].startswith(prefix)]
+            self._show_suggestions(items, values)
         except Exception:
             pass
 
-    def _show_file_suggestions(self, prefix: str) -> None:
+    def _show_file_suggestions(self, prefix: str, home: bool = False) -> None:
         from pathlib import Path
-
-        files = [f.name for f in Path(".").glob("*") if f.is_file()][:10]
-        self._show_suggestions(files, [f"#{f}" for f in files])
+        
+        # Determine base path and trigger
+        if home:
+            base = Path.home()
+            trigger = "~"
+        elif prefix.startswith("~"):
+            # Handle #~/.sago/config style paths
+            base = Path.home() / prefix[1:].split("/")[0] if "/" in prefix else Path.home()
+            trigger = "#"
+        else:
+            base = Path(".")
+            trigger = "#"
+        
+        # Build search path from prefix
+        search_prefix = prefix.lstrip("~/")
+        if search_prefix:
+            search_path = base / search_prefix
+            if search_path.is_dir():
+                # Searching inside a directory
+                items = []
+                values = []
+                for f in sorted(search_path.iterdir())[:15]:
+                    name = f.name + "/" if f.is_dir() else f.name
+                    items.append(name)
+                    # Reconstruct full path for the value
+                    if home:
+                        values.append(f"~{search_prefix}/{name}")
+                    else:
+                        values.append(f"#{search_prefix}/{name}")
+                self._show_suggestions(items, values)
+                return
+        
+        # Default: show root level files
+        items = []
+        values = []
+        for f in sorted(base.iterdir())[:15]:
+            if f.name.startswith(".") and not search_prefix.startswith("."):
+                continue  # Skip hidden files unless explicitly searching
+            name = f.name + "/" if f.is_dir() else f.name
+            items.append(name)
+            if home:
+                values.append(f"~{f.name}")
+            else:
+                values.append(f"#{f.name}")
+        self._show_suggestions(items, values)
 
     def _show_suggestions(self, items: list[str], values: list[str]) -> None:
+        if not items:
+            self._hide_suggestions()
+            return
         self.suggestion_items = items
         self.suggestion_values = values
         self.suggestion_index = 0
@@ -655,7 +841,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self.query_one("#suggestions").remove_class("visible")
 
     def action_dismiss_suggestions(self) -> None:
+        """Dismiss suggestions and approval bar."""
         self._hide_suggestions()
+        if self.approval_message:
+            self._hide_approval_bar()
 
     def action_approve_action(self) -> None:
         """Handle Y key or Approve button click."""
@@ -670,12 +859,14 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     @on(Button.Pressed, "#btn-approve")
     def on_approve_pressed(self, event: Button.Pressed) -> None:
         """Handle Approve button click."""
-        self._approve_action()
+        if self.approval_message:
+            self._approve_action()
 
     @on(Button.Pressed, "#btn-deny")
     def on_deny_pressed(self, event: Button.Pressed) -> None:
         """Handle Deny button click."""
-        self._deny_action()
+        if self.approval_message:
+            self._deny_action()
 
     def _show_approval_bar(self, message: str) -> None:
         """Show the approval bar with a message."""
@@ -688,20 +879,6 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         """Hide the approval bar."""
         self.approval_message = ""
         self.query_one("#approval-bar").remove_class("visible")
-
-    def _approve_action(self) -> None:
-        """Handle Y key or Approve button click."""
-        self._tool_approved = True
-        self._hide_approval_bar()
-        if self._executor_pause_event:
-            self._executor_pause_event.set()
-
-    def _deny_action(self) -> None:
-        """Handle N key or Deny button click."""
-        self._tool_approved = False
-        self._hide_approval_bar()
-        if self._executor_pause_event:
-            self._executor_pause_event.set()
 
     def _show_spinner(self, text: str = "Thinking") -> None:
         self._hide_spinner()
@@ -732,6 +909,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self._spinner = None
 
     def _handle_command(self, command: str) -> None:
+        self._hide_welcome_screen()
         parts = command.strip().split(None, 1)
         cmd = parts[0].lower()
         args = parts[1] if len(parts) > 1 else ""
@@ -745,7 +923,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             "/orchestrate": lambda: self._orchestrate_task(args),
             "/clear": lambda: self.action_clear_chat(),
             "/status": lambda: self._show_status(),
-            "/export": lambda: self._export_session(),
+            "/export": lambda: self._export_session(args),
             "/sessions": lambda: self._show_sessions(),
             "/session": lambda: self._switch_session(args),
             "/history": lambda: self._show_history(),
@@ -1215,6 +1393,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         f"\nDetected frameworks: {', '.join(project_context['frameworks'])}"
                     )
 
+                # Extract file references from message and add as context
+                file_context = self._extract_file_context(message)
+                if file_context:
+                    project_ctx += f"\n\nReferenced files:\n{file_context}"
+
                 # Load learning suggestions
                 learning_suggestion = None
                 try:
@@ -1315,6 +1498,22 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 failed_calls: set[str] = set()
                 executed_calls: set[str] = set()
                 MAX_CUMULATIVE_TOKENS = 40000  # hard cap per message
+
+                # Initialize DB stores for this session
+                _tool_usage_store = None
+                _token_tracker = None
+                if self.current_session_id and self.current_session_id != "local":
+                    try:
+                        from sago.database import ToolUsageStore, init_db
+                        init_db()
+                        _tool_usage_store = ToolUsageStore(self.current_session_id)
+                    except Exception:
+                        pass
+                try:
+                    from sago.tracking.token_tracker import get_token_tracker
+                    _token_tracker = get_token_tracker()
+                except Exception:
+                    pass
 
                 for iteration in range(effort["max_iterations"]):
                     # Hard token cap — stop if budget exceeded
@@ -1713,6 +1912,18 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         tools_used_in_iteration.append(name)
                         on_tool_result(name, args, result_str, not is_error)
 
+                        # Log tool usage to DB
+                        if _tool_usage_store:
+                            try:
+                                _tool_usage_store.log(
+                                    tool_name=name,
+                                    arguments=args,
+                                    result=result_str[:1000],
+                                    success=not is_error,
+                                )
+                            except Exception:
+                                pass
+
                         messages.append(
                             {
                                 "role": "tool",
@@ -1955,6 +2166,28 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                 elapsed = _time.time() - start_time
                 self.call_from_thread(self._hide_spinner)
+
+                # Record token usage to tracker
+                if _token_tracker and (total_tokens_in > 0 or total_tokens_out > 0):
+                    try:
+                        _token_tracker.record(
+                            provider=self.current_provider,
+                            model=self.current_model,
+                            input_tokens=total_tokens_in,
+                            output_tokens=total_tokens_out,
+                            latency_ms=elapsed * 1000,
+                            metadata={"session_id": self.current_session_id},
+                        )
+                        _token_tracker.save()
+                    except Exception:
+                        pass
+
+                # Flush tool usage store
+                if _tool_usage_store:
+                    try:
+                        _tool_usage_store.flush()
+                    except Exception:
+                        pass
 
                 # Show summary
                 self.call_from_thread(

@@ -115,10 +115,30 @@ class CommandHandlers:
                 if ses["id"].startswith(sid):
                     self.current_session_id = ses["id"]
                     ms = MessageStore(ses["id"])
-                    msgs = ms.get_history(limit=50)
+                    msgs = ms.get_history(limit=200)
                     ms.close()
-                    self.messages = [{"role": m["role"], "content": m["content"]} for m in msgs]
-                    self._add_system_message(f"Loaded session: {ses.get('title', 'Untitled')}")
+                    self.messages = [
+                        {
+                            "role": m["role"],
+                            "content": m["content"],
+                            "agent_name": m.get("agent_name"),
+                            "metadata": m.get("metadata", "{}"),
+                            "created_at": m.get("created_at"),
+                        }
+                        for m in msgs
+                    ]
+                    # Refresh the UI
+                    container = self.query_one("#messages")
+                    container.remove_children()
+                    for m in self.messages:
+                        if m["role"] == "user":
+                            container.mount(Static(f"> {m['content']}", classes="msg-user"))
+                        elif m["role"] == "assistant":
+                            agent = m.get("agent_name") or ""
+                            prefix = f"[{agent}] " if agent else ""
+                            container.mount(Static(f"{prefix}{m['content']}", classes="msg-assistant"))
+                    container.scroll_end()
+                    self._add_system_message(f"Loaded session: {ses.get('title', 'Untitled')} ({len(msgs)} messages)")
                     return
             self._add_system_message(f"Session not found: {sid}")
         except Exception as e:
@@ -306,6 +326,7 @@ class CommandHandlers:
             self._add_system_message(f"Save error: {e}")
 
     def _load_session(self: SagoApp, sid: str) -> None:
+        self._hide_welcome_screen()
         if not sid:
             self._add_system_message("Usage: /load <session-id>")
             return
@@ -322,7 +343,16 @@ class CommandHandlers:
                     ms = MessageStore(ses["id"])
                     msgs = ms.get_history(limit=200)
                     ms.close()
-                    self.messages = [{"role": m["role"], "content": m["content"]} for m in msgs]
+                    self.messages = [
+                        {
+                            "role": m["role"],
+                            "content": m["content"],
+                            "agent_name": m.get("agent_name"),
+                            "metadata": m.get("metadata", "{}"),
+                            "created_at": m.get("created_at"),
+                        }
+                        for m in msgs
+                    ]
                     # Refresh the UI
                     container = self.query_one("#messages")
                     container.remove_children()
@@ -330,7 +360,9 @@ class CommandHandlers:
                         if m["role"] == "user":
                             container.mount(Static(f"> {m['content']}", classes="msg-user"))
                         elif m["role"] == "assistant":
-                            container.mount(Static(m["content"], classes="msg-assistant"))
+                            agent = m.get("agent_name") or ""
+                            prefix = f"[{agent}] " if agent else ""
+                            container.mount(Static(f"{prefix}{m['content']}", classes="msg-assistant"))
                     container.scroll_end()
                     self._add_system_message(
                         f"Loaded: {ses.get('title', 'Untitled')} ({len(msgs)} messages)"
@@ -344,13 +376,19 @@ class CommandHandlers:
 
     def _exit_session(self: SagoApp) -> None:
         """Save session and exit, showing resume info."""
+        # Flush any pending messages
+        if hasattr(self, "_message_store") and self._message_store:
+            try:
+                self._message_store.flush()
+            except Exception:
+                pass
         try:
             from sago.database import Session, init_db
 
             init_db()
             # Save current session
             s = Session(self.current_session_id)
-            s.update(title=f"Session {self.current_session_id[:8]}")
+            s.update(title=f"Session {self.current_session_id[:8]}", status="closed")
             s.close()
         except Exception:
             pass
@@ -395,16 +433,139 @@ class CommandHandlers:
         except Exception as e:
             self._add_system_message(f"Sessions error: {e}")
 
-    def _export_session(self: SagoApp) -> None:
+    def _export_session(self: SagoApp, output_path: str = "") -> None:
+        """Export session to comprehensive markdown file.
+
+        Usage: /export [output_path]
+        Default: {session_id}_export.md in current directory
+        """
         from pathlib import Path
 
-        lines = []
+        from sago.database import MessageStore, ToolUsageStore, init_db
+
+        init_db()
+        sid = self.current_session_id
+
+        # Build header
+        lines = [
+            f"# Session Export: {sid[:12]}",
+            "",
+            f"- **Session ID:** {sid}",
+            f"- **Agent:** {self.current_agent}",
+            f"- **Model:** {self.current_provider}/{self.current_model}",
+            f"- **Exported:** {__import__('datetime').datetime.now().isoformat()[:19]}",
+            f"- **Messages:** {len(self.messages)}",
+            "",
+            "---",
+            "",
+            "## Conversation",
+            "",
+        ]
+
+        # Add messages with timestamps and metadata from DB
+        try:
+            ms = MessageStore(sid)
+            db_msgs = ms.get_history(limit=10000)
+            ms.close()
+        except Exception:
+            db_msgs = []
+
+        # Build lookup by content for timestamp matching
+        db_by_content: dict[str, dict] = {}
+        for dm in db_msgs:
+            key = dm.get("content", "")[:100]
+            db_by_content[key] = dm
+
         for msg in self.messages:
             role = msg["role"].upper()
-            lines.append(f"[{role}]\n{msg['content']}\n")
-        path = Path("session_export.md")
+            content = msg.get("content", "")
+
+            # Try to find matching DB record for timestamp/metadata
+            db_match = db_by_content.get(content[:100], {})
+            timestamp = db_match.get("created_at", "")
+            agent = db_match.get("agent_name", "")
+            meta_str = db_match.get("metadata", "{}")
+
+            try:
+                meta = __import__("json").loads(meta_str) if isinstance(meta_str, str) else meta_str
+            except Exception:
+                meta = {}
+
+            # Format header line
+            header_parts = [f"### {role}"]
+            if agent:
+                header_parts.append(f"Agent: {agent}")
+            if timestamp:
+                header_parts.append(f"Time: {timestamp[:19]}")
+            if meta:
+                meta_items = [f"{k}={v}" for k, v in meta.items() if k not in ("session_id",)]
+                if meta_items:
+                    header_parts.append(", ".join(meta_items[:3]))
+
+            lines.append(" | ".join(header_parts))
+            lines.append("")
+            lines.append(content)
+            lines.append("")
+
+        # Add tool usage section
+        lines.extend(["---", "", "## Tool Usage", ""])
+        try:
+            tus = ToolUsageStore(sid)
+            tool_logs = tus.get_all()
+            tus.close()
+        except Exception:
+            tool_logs = []
+
+        if tool_logs:
+            lines.append("| # | Tool | Duration | Status | Arguments |")
+            lines.append("|---|------|----------|--------|-----------|")
+            for i, log in enumerate(tool_logs, 1):
+                tool = log.get("tool_name", "?")
+                dur = f"{log.get('duration_ms', 0)}ms"
+                ok = "OK" if log.get("success", 1) else "FAIL"
+                args_raw = log.get("arguments", "{}")
+                try:
+                    args = __import__("json").loads(args_raw) if isinstance(args_raw, str) else args_raw
+                except Exception:
+                    args = {}
+                # Truncate long args
+                args_str = str(args)[:80]
+                lines.append(f"| {i} | {tool} | {dur} | {ok} | `{args_str}` |")
+            lines.append("")
+        else:
+            lines.append("_No tool usage recorded._")
+            lines.append("")
+
+        # Add token usage summary if available
+        lines.extend(["---", "", "## Token Usage", ""])
+        try:
+            from sago.tracking.token_tracker import get_token_tracker
+
+            tracker = get_token_tracker()
+            session_usages = tracker.get_for_session(sid)
+            if session_usages:
+                total_in = sum(u.get("input_tokens", 0) for u in session_usages)
+                total_out = sum(u.get("output_tokens", 0) for u in session_usages)
+                total_cost = sum(u.get("cost_usd", 0) for u in session_usages)
+                lines.extend([
+                    f"- **Total Requests:** {len(session_usages)}",
+                    f"- **Input Tokens:** {total_in:,}",
+                    f"- **Output Tokens:** {total_out:,}",
+                    f"- **Total Cost:** ${total_cost:.4f}",
+                ])
+            else:
+                lines.append("_No token usage data for this session._")
+        except Exception:
+            lines.append("_Token tracking unavailable._")
+        lines.append("")
+
+        # Write file
+        if output_path:
+            path = Path(output_path)
+        else:
+            path = Path(f"{sid[:12]}_export.md")
         path.write_text("\n".join(lines))
-        self._add_system_message(f"Exported to {path}")
+        self._add_system_message(f"Exported to {path} ({len(self.messages)} messages, {len(tool_logs)} tool calls)")
 
     def _git_status(self: SagoApp) -> None:
         try:
@@ -504,10 +665,17 @@ class CommandHandlers:
     def _toggle_yolo(self: SagoApp) -> None:
         """Toggle YOLO mode - auto-approve all tool calls."""
         self.yolo_mode = not self.yolo_mode
+        # Update permission manager YOLO state
+        try:
+            from sago.permissions import get_permission_manager
+            pm = get_permission_manager()
+            pm.set_yolo_mode(self.current_session_id, self.yolo_mode)
+        except Exception:
+            pass
         if self.yolo_mode:
             self._add_system_message(
                 "YOLO MODE ON - All tools will be auto-approved without asking\n"
-                "⚠️  Use with caution! Type /yolo again to disable"
+                "Use with caution! Type /yolo again to disable"
             )
         else:
             self._add_system_message("YOLO MODE OFF - Permissions restored")

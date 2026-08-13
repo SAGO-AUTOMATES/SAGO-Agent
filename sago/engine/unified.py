@@ -328,6 +328,23 @@ class UnifiedExecutor:
                     )
                     continue
 
+                # Permission check
+                try:
+                    from sago.permissions import get_permission_manager
+                    pm = get_permission_manager()
+                    allowed, reason = pm.check_permission(name, args)
+                    if not allowed:
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc_id,
+                                "content": f"Permission denied: {reason}",
+                            }
+                        )
+                        continue
+                except Exception:
+                    pass
+
                 if on_tool_call:
                     on_tool_call(name, args)
 
@@ -353,6 +370,21 @@ class UnifiedExecutor:
                     }
                 )
 
+                # Log tool usage to DB
+                try:
+                    from sago.database import ToolUsageStore, init_db
+                    init_db()
+                    _tus = ToolUsageStore("unified")
+                    _tus.log(
+                        tool_name=name,
+                        arguments=args,
+                        result=result_str[:1000],
+                        success=not is_error,
+                    )
+                    _tus.flush()
+                except Exception:
+                    pass
+
                 messages.append(
                     {
                         "role": "tool",
@@ -362,6 +394,23 @@ class UnifiedExecutor:
                 )
 
         elapsed = time.time() - start_time
+
+        # Record token usage
+        if total_tokens_in > 0 or total_tokens_out > 0:
+            try:
+                from sago.tracking.token_tracker import get_token_tracker
+                tracker = get_token_tracker()
+                tracker.record(
+                    provider="openai",
+                    model=self.model,
+                    input_tokens=total_tokens_in,
+                    output_tokens=total_tokens_out,
+                    latency_ms=elapsed * 1000,
+                    metadata={"session_id": "unified"},
+                )
+                tracker.save()
+            except Exception:
+                pass
 
         return {
             "success": True,

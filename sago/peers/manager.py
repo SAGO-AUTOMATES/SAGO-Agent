@@ -125,10 +125,11 @@ class PeerManager:
     """Manages connections to remote Sago peers."""
 
     def __init__(self, config_path: str | Path | None = None) -> None:
+        from sago.paths import get_sago_home
         self.peers: dict[str, PeerInfo] = {}
         self.tasks: list[RemoteTask] = []
         self.config_path = (
-            Path(config_path) if config_path else Path.home() / ".sago" / "peers.json"
+            Path(config_path) if config_path else get_sago_home() / "peers.json"
         )
         self._load_config()
 

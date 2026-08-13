@@ -193,12 +193,11 @@ class SagoOrchestrator:
 
     def _get_agent_config(self, agent_name: str) -> dict[str, Any] | None:
         """Get agent configuration from the agents config."""
-        agents_yaml = (
-            self.config._config_dir / "agents.yaml" if hasattr(self.config, "_config_dir") else None
-        )
+        from sago.paths import get_sago_home
+        agents_yaml = get_sago_home() / "agents.yaml"
 
         # Load from YAML if available
-        if agents_yaml and agents_yaml.exists():
+        if agents_yaml.exists():
             import yaml
 
             with open(agents_yaml) as f:

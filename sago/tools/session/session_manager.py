@@ -6,7 +6,6 @@ Stores and retrieves session data across tool calls.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -35,7 +34,8 @@ class SessionManagerTool(BaseTool):
     def __init__(self) -> None:
         super().__init__()
         self._sessions: dict[str, dict[str, Any]] = {}
-        self._session_dir = Path.home() / ".sago" / "sessions"
+        from sago.paths import get_sago_home
+        self._session_dir = get_sago_home() / "sessions"
         self._session_dir.mkdir(parents=True, exist_ok=True)
 
     def _run(

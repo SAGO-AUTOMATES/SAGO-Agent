@@ -214,6 +214,10 @@ def load_config(
     return SagoConfig(**raw_config)
 
 
+_config_cache: SagoConfig | None = None
+_config_cache_key: str | None = None
+
+
 def get_config() -> SagoConfig:
     """Get the global Sago configuration.
 
@@ -222,18 +226,29 @@ def get_config() -> SagoConfig:
     2. ~/.sago/config.yaml (user overrides)
     3. .sago.yaml in current directory (project overrides)
 
+    Results are cached. Call ``invalidate_config_cache()`` to force a reload.
+
     Returns:
         Validated SagoConfig instance.
     """
+    global _config_cache, _config_cache_key
+
     config_dir = Path(__file__).parent
-
-    # Check for user config
     user_config = Path.home() / ".sago" / "config.yaml"
-
-    # Check for project config
     project_config = Path.cwd() / ".sago.yaml"
-
-    # Prefer project config, then user config
     user_path = project_config if project_config.exists() else user_config
 
-    return load_config(config_dir=config_dir, user_config_path=user_path)
+    cache_key = f"{config_dir}:{user_path}"
+    if _config_cache is not None and _config_cache_key == cache_key:
+        return _config_cache
+
+    _config_cache = load_config(config_dir=config_dir, user_config_path=user_path)
+    _config_cache_key = cache_key
+    return _config_cache
+
+
+def invalidate_config_cache() -> None:
+    """Force config to be reloaded on next get_config() call."""
+    global _config_cache, _config_cache_key
+    _config_cache = None
+    _config_cache_key = None

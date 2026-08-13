@@ -5,6 +5,7 @@ Controls which tools can be executed based on risk level and user consent.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -97,6 +98,20 @@ class PermissionManager:
     def __init__(self) -> None:
         self.config = self._load_config()
         self._approvals: dict[str, bool] = {}
+        self._lock = threading.Lock()
+        self._yolo_sessions: set[str] = set()
+
+    def set_yolo_mode(self, session_id: str, enabled: bool) -> None:
+        """Enable/disable YOLO mode for a session."""
+        with self._lock:
+            if enabled:
+                self._yolo_sessions.add(session_id)
+            else:
+                self._yolo_sessions.discard(session_id)
+
+    def is_yolo(self, session_id: str = "default") -> bool:
+        """Check if YOLO mode is enabled for a session."""
+        return session_id in self._yolo_sessions
 
     def _load_config(self) -> PermissionConfig:
         """Load permission config from disk."""
@@ -127,6 +142,7 @@ class PermissionManager:
                     "require_approval_critical": self.config.require_approval_critical,
                     "allowed_tools": self.config.allowed_tools,
                     "blocked_tools": self.config.blocked_tools,
+                    "session_approvals": self.config.session_approvals,
                 },
                 indent=2,
             )
@@ -134,7 +150,7 @@ class PermissionManager:
 
     def get_risk_level(self, tool_name: str) -> RiskLevel:
         """Get the risk level for a tool."""
-        return TOOL_RISK_LEVELS.get(tool_name, RiskLevel.MEDIUM)
+        return TOOL_RISK_LEVELS.get(tool_name, RiskLevel.HIGH)
 
     def is_blocked(self, tool_name: str) -> bool:
         """Check if a tool is blocked."""
@@ -145,45 +161,54 @@ class PermissionManager:
         return False
 
     def requires_approval(self, tool_name: str, args: dict[str, Any] | None = None) -> bool:
-        """Check if a tool requires user approval before execution."""
+        """Check if a tool requires user approval before execution.
+
+        Explicitly handles every risk level to avoid fallthrough bugs.
+        """
         if self.is_blocked(tool_name):
             return True
 
         risk = self.get_risk_level(tool_name)
 
-        if risk == RiskLevel.SAFE and self.config.auto_approve_safe:
-            return False
-        if risk == RiskLevel.LOW and self.config.auto_approve_low:
-            return False
-        if risk == RiskLevel.MEDIUM and self.config.require_approval_medium:
-            return True
-        if risk == RiskLevel.HIGH and self.config.require_approval_high:
-            return True
-        if risk == RiskLevel.CRITICAL and self.config.require_approval_critical:
-            return True
+        if risk == RiskLevel.SAFE:
+            return not self.config.auto_approve_safe
+        if risk == RiskLevel.LOW:
+            return not self.config.auto_approve_low
+        if risk == RiskLevel.MEDIUM:
+            return self.config.require_approval_medium
+        if risk == RiskLevel.HIGH:
+            return self.config.require_approval_high
+        if risk == RiskLevel.CRITICAL:
+            return self.config.require_approval_critical
 
-        return False
+        return True  # unknown risk -> require approval
 
     def approve_tool(self, tool_name: str, session_id: str = "default") -> bool:
         """Approve a tool for execution."""
-        key = f"{tool_name}:{session_id}"
-        self._approvals[key] = True
-        self.config.session_approvals[key] = True
+        with self._lock:
+            key = f"{tool_name}:{session_id}"
+            self._approvals[key] = True
+            self.config.session_approvals[key] = True
+            self._save_config()
         return True
 
     def deny_tool(self, tool_name: str, session_id: str = "default") -> bool:
         """Deny a tool execution."""
-        key = f"{tool_name}:{session_id}"
-        self._approvals[key] = False
+        with self._lock:
+            key = f"{tool_name}:{session_id}"
+            self._approvals[key] = False
+            self.config.session_approvals[key] = False
+            self._save_config()
         return False
 
     def is_approved(self, tool_name: str, session_id: str = "default") -> bool | None:
         """Check if a tool has been approved. Returns None if not yet decided."""
         key = f"{tool_name}:{session_id}"
-        if key in self._approvals:
-            return self._approvals[key]
-        if key in self.config.session_approvals:
-            return self.config.session_approvals[key]
+        with self._lock:
+            if key in self._approvals:
+                return self._approvals[key]
+            if key in self.config.session_approvals:
+                return self.config.session_approvals[key]
         return None
 
     def check_permission(
@@ -194,6 +219,10 @@ class PermissionManager:
         Returns:
             Tuple of (allowed, reason).
         """
+        # YOLO mode bypasses all permission checks
+        if self.is_yolo(session_id):
+            return True, "YOLO mode"
+
         if self.is_blocked(tool_name):
             return False, f"Tool '{tool_name}' is blocked"
 
@@ -214,11 +243,14 @@ class PermissionManager:
 
 # Global instance
 _permission_manager: PermissionManager | None = None
+_permission_lock = threading.Lock()
 
 
 def get_permission_manager() -> PermissionManager:
     """Get the global permission manager."""
     global _permission_manager
     if _permission_manager is None:
-        _permission_manager = PermissionManager()
+        with _permission_lock:
+            if _permission_manager is None:
+                _permission_manager = PermissionManager()
     return _permission_manager

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -83,6 +84,7 @@ class Cache:
         self._entries: OrderedDict[str, CacheEntry] = OrderedDict()
         self._stats = CacheStats()
         self._access_times: list[float] = []
+        self._lock = threading.Lock()
 
         # Load persisted cache if exists
         if persist_path and persist_path.exists():
@@ -92,25 +94,26 @@ class Cache:
         """Get value from cache."""
         start = time.time()
 
-        entry = self._entries.get(key)
-        if entry is None:
-            self._stats.misses += 1
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                self._stats.misses += 1
+                self._record_access_time(start)
+                return None
+
+            if entry.is_expired():
+                self._remove(key)
+                self._stats.misses += 1
+                self._record_access_time(start)
+                return None
+
+            # Move to end (most recently used)
+            self._entries.move_to_end(key)
+            entry.touch()
+            self._stats.hits += 1
             self._record_access_time(start)
-            return None
 
-        if entry.is_expired():
-            self._remove(key)
-            self._stats.misses += 1
-            self._record_access_time(start)
-            return None
-
-        # Move to end (most recently used)
-        self._entries.move_to_end(key)
-        entry.touch()
-        self._stats.hits += 1
-        self._record_access_time(start)
-
-        return entry.value
+            return entry.value
 
     def set(
         self,
@@ -120,49 +123,52 @@ class Cache:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Set value in cache."""
-        # Remove existing entry if present
-        if key in self._entries:
-            self._remove(key)
+        with self._lock:
+            # Remove existing entry if present
+            if key in self._entries:
+                self._remove(key)
 
-        # Evict if at capacity
-        while len(self._entries) >= self.max_size:
-            self._evict()
+            # Evict if at capacity
+            while len(self._entries) >= self.max_size:
+                self._evict()
 
-        # Calculate size
-        try:
-            size_bytes = len(json.dumps(value, default=str).encode())
-        except Exception:
-            size_bytes = 0
+            # Calculate size
+            try:
+                size_bytes = len(json.dumps(value, default=str).encode())
+            except Exception:
+                size_bytes = 0
 
-        entry = CacheEntry(
-            key=key,
-            value=value,
-            created_at=time.time(),
-            ttl=ttl or self.default_ttl,
-            size_bytes=size_bytes,
-            metadata=metadata or {},
-        )
+            entry = CacheEntry(
+                key=key,
+                value=value,
+                created_at=time.time(),
+                ttl=ttl or self.default_ttl,
+                size_bytes=size_bytes,
+                metadata=metadata or {},
+            )
 
-        self._entries[key] = entry
-        self._stats.total_entries = len(self._entries)
-        self._stats.total_size_bytes += size_bytes
+            self._entries[key] = entry
+            self._stats.total_entries = len(self._entries)
+            self._stats.total_size_bytes += size_bytes
 
     def delete(self, key: str) -> bool:
         """Delete entry from cache."""
-        if key in self._entries:
-            self._remove(key)
-            return True
-        return False
+        with self._lock:
+            if key in self._entries:
+                self._remove(key)
+                return True
+            return False
 
     def has(self, key: str) -> bool:
         """Check if key exists and is not expired."""
-        entry = self._entries.get(key)
-        if entry is None:
-            return False
-        if entry.is_expired():
-            self._remove(key)
-            return False
-        return True
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                return False
+            if entry.is_expired():
+                self._remove(key)
+                return False
+            return True
 
     def clear(self) -> None:
         """Clear all entries."""

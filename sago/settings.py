@@ -6,7 +6,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-GLOBAL_SETTINGS = Path.home() / ".sago" / "settings.json"
+from sago.paths import get_sago_home
+
+GLOBAL_SETTINGS = get_sago_home() / "settings.json"
 
 
 def _find_project_root() -> Path | None:

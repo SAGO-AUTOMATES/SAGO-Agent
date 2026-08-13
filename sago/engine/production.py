@@ -10,6 +10,7 @@ Main orchestration engine that ties together:
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -27,6 +28,8 @@ from sago.streaming.handler import (
     StreamingResponse,
     StreamPrinter,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -179,7 +182,7 @@ class ProductionEngine:
                     if fallback_name:
                         agent_def = get_agent(fallback_name)
                         if agent_def:
-                            agent_name = agent_name
+                            agent_name = fallback_name
                             response.add_thinking(f"Fallback to agent: {agent_name}")
 
             if agent_def:
@@ -278,9 +281,7 @@ class ProductionEngine:
         )
 
         for i, agent_name in enumerate(agent_chain):
-            print(f"\n{'=' * 60}")
-            print(f"Step {i + 1}/{len(agent_chain)}: {agent_name}")
-            print(f"{'=' * 60}\n")
+            logger.info("Chain step %d/%d: %s", i + 1, len(agent_chain), agent_name)
 
             # Build context-rich input for subsequent agents
             if i > 0 and handoff_ctx.completed_agents:

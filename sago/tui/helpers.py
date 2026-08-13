@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from rich.syntax import Syntax
 from textual.containers import Vertical
 from textual.widgets import Collapsible, Static
 
-from sago.tui.widgets import AgentStatus, get_agent_color, get_task_manager
+from sago.tui.widgets import AgentStatus, get_agent_color
 
 if TYPE_CHECKING:
     from sago.tui.app import SagoApp
@@ -45,6 +45,7 @@ class UIHelpers:
     """Mixin class providing UI helper methods for SagoApp."""
 
     def _add_user_message(self: SagoApp, content: str) -> None:
+        self._hide_welcome_screen()
         self.messages.append({"role": "user", "content": content})
         self.query_one("#messages").mount(Static(f"> {content}", classes="msg-user", markup=False))
         self.query_one("#messages").scroll_end()
@@ -53,6 +54,7 @@ class UIHelpers:
     def _add_assistant_message(
         self: SagoApp, content: str, meta: str = "", agent_name: str = ""
     ) -> None:
+        self._hide_welcome_screen()
         self.messages.append({"role": "assistant", "content": content, "agent": agent_name})
         container = self.query_one("#messages")
 
@@ -261,70 +263,135 @@ class UIHelpers:
         self.query_one("#messages").scroll_end()
 
     def _update_dashboard(self: SagoApp) -> None:
-        """Update the agent dashboard with current task states."""
+        """Update the agent dashboard with current status."""
         dashboard = self.query_one("#agent-dashboard")
         if not dashboard or not self._dashboard_visible:
             return
-        tm = get_task_manager()
-        tasks = tm.get_all_tasks()
 
-        # Clear and rebuild dashboard content
-        dashboard.remove_children()
-        dashboard.mount(Static("Agent Dashboard", classes="dashboard-title", markup=False))
+        # Try to update in-place; fall back to rebuild if structure changed
+        existing_entries = dashboard.query(".agent-entry")
 
-        active = sum(1 for t in tasks if t.status == AgentStatus.RUNNING)
-        completed = sum(1 for t in tasks if t.status == AgentStatus.COMPLETED)
-        failed = sum(1 for t in tasks if t.status == AgentStatus.FAILED)
+        # Build current status entries
+        status_items = []
 
-        for info in tasks:
-            status_icon = {
-                AgentStatus.IDLE: "○",
-                AgentStatus.RUNNING: "⟳",
-                AgentStatus.WAITING: "◎",
-                AgentStatus.COMPLETED: "✓",
-                AgentStatus.FAILED: "✗",
-                AgentStatus.CANCELLED: "⊘",
-            }.get(info.status, "?")
+        # Always show current agent info
+        status_items.append(("agent", self.current_agent, "active"))
+        status_items.append(("model", f"{self.current_provider}/{self.current_model}", "info"))
+        status_items.append(("effort", self.current_effort, "info"))
+        status_items.append(("session", self.current_session_id[:8] if self.current_session_id else "none", "info"))
 
-            entry = Vertical(classes="agent-entry")
-            entry.mount(
-                Static(
-                    f"{status_icon} {info.agent_name}",
-                    classes="agent-name",
-                    markup=False,
-                )
-            )
-            if info.task:
-                entry.mount(Static(f"  {info.task[:50]}", classes="agent-task", markup=False))
-            if info.current_tool and info.status == AgentStatus.RUNNING:
+        # Show YOLO mode
+        yolo_status = "ON" if self.yolo_mode else "OFF"
+        status_items.append(("yolo", yolo_status, "active" if self.yolo_mode else "idle"))
+
+        # Show message count
+        status_items.append(("messages", str(len(self.messages)), "info"))
+
+        # Show background tasks if any
+        try:
+            from sago.tui.widgets import AgentStatus, get_task_manager
+            tm = get_task_manager()
+            tasks = tm.get_all_tasks()
+            running = [t for t in tasks if t.status == AgentStatus.RUNNING]
+            if running:
+                for t in running:
+                    status_items.append(("task", f"{t.agent_name}: {t.task[:30]}", "running"))
+        except Exception:
+            pass
+
+        # Show if thinking
+        if self.is_thinking:
+            status_items.append(("status", "Thinking...", "running"))
+
+        # Rebuild dashboard if structure changed
+        if len(existing_entries) != len(status_items):
+            dashboard.remove_children()
+            dashboard.mount(Static("Agent Dashboard", classes="dashboard-title", markup=False))
+            for key, value, status in status_items:
+                entry = Vertical(classes="agent-entry")
+                color_class = f"{status}-color"
                 entry.mount(
-                    Static(f"  -> {info.current_tool}", classes="agent-tools", markup=False)
+                    Static(
+                        f"{key}: {value}",
+                        classes=f"agent-name {color_class}",
+                        markup=False,
+                    )
                 )
-            if info.elapsed > 0:
-                entry.mount(Static(f"  {info.elapsed:.1f}s", classes="agent-tools", markup=False))
-            dashboard.mount(entry)
+                dashboard.mount(entry)
+            dashboard.mount(Static("---" * 15, classes="dashboard-separator", markup=False))
+        else:
+            # Update in-place
+            for idx, (key, value, status) in enumerate(status_items):
+                entry = existing_entries[idx]
+                entry.remove_children()
+                color_class = f"{status}-color"
+                entry.mount(
+                    Static(
+                        f"{key}: {value}",
+                        classes=f"agent-name {color_class}",
+                        markup=False,
+                    )
+                )
 
-        dashboard.mount(Static("---" * 15, classes="dashboard-separator", markup=False))
-        parts = []
-        if active:
-            parts.append(f"{active} active")
-        if completed:
-            parts.append(f"{completed} done")
-        if failed:
-            parts.append(f"{failed} failed")
-        if not parts:
-            parts.append("No agents")
-        dashboard.mount(
-            Static(f"Total: {', '.join(parts)}", classes="dashboard-stats", markup=False)
+        # Update stats
+        stats_widgets = dashboard.query(".dashboard-stats")
+        if stats_widgets:
+            parts = []
+            if self.is_thinking:
+                parts.append("active")
+            try:
+                from sago.tui.widgets import AgentStatus, get_task_manager
+                tm = get_task_manager()
+                tasks = tm.get_all_tasks()
+                running = sum(1 for t in tasks if t.status == AgentStatus.RUNNING)
+                if running:
+                    parts.append(f"{running} tasks")
+            except Exception:
+                pass
+            if not parts:
+                parts.append("idle")
+            stats_widgets[0].update(f"Status: {', '.join(parts)}")
+
+    def _render_agent_entry(self, entry: Vertical, info: Any) -> None:
+        """Render a single agent entry into a container."""
+        status_icon = {
+            AgentStatus.IDLE: "○",
+            AgentStatus.RUNNING: "⟳",
+            AgentStatus.WAITING: "◎",
+            AgentStatus.COMPLETED: "✓",
+            AgentStatus.FAILED: "✗",
+            AgentStatus.CANCELLED: "⊘",
+        }.get(info.status, "?")
+
+        entry.mount(
+            Static(
+                f"{status_icon} {info.agent_name}",
+                classes="agent-name",
+                markup=False,
+            )
         )
+        if info.task:
+            entry.mount(Static(f"  {info.task[:50]}", classes="agent-task", markup=False))
+        if info.current_tool and info.status == AgentStatus.RUNNING:
+            entry.mount(
+                Static(f"  -> {info.current_tool}", classes="agent-tools", markup=False)
+            )
+        if info.elapsed > 0:
+            entry.mount(Static(f"  {info.elapsed:.1f}s", classes="agent-tools", markup=False))
 
-    def _save_message(self: SagoApp, role: str, content: str) -> None:
+    def _save_message(self: SagoApp, role: str, content: str, metadata: dict | None = None) -> None:
         if self.current_session_id and self.current_session_id != "local":
             try:
                 from sago.database import MessageStore
 
-                ms = MessageStore(self.current_session_id)
-                ms.add(role=role, content=content, agent_name=self.current_agent)
-                ms.close()
+                # Reuse MessageStore instance for batched writes
+                if not hasattr(self, "_message_store") or self._message_store is None:
+                    self._message_store = MessageStore(self.current_session_id)
+                self._message_store.add(
+                    role=role,
+                    content=content,
+                    agent_name=self.current_agent,
+                    metadata=metadata,
+                )
             except Exception:
                 pass

@@ -4,6 +4,7 @@ Defines the config.sago.json schema for per-project customization.
 Users can enable/disable agents, tools, modify prompts, and configure settings.
 """
 
+import copy
 import json
 from pathlib import Path
 from typing import Any
@@ -85,7 +86,7 @@ def create_config_file(
     """
     from sago.agents.loader import load_all_profiles
 
-    config = DEFAULT_CONFIG.copy()
+    config = copy.deepcopy(DEFAULT_CONFIG)
     config["project"]["name"] = project_name or project_path.name
     config["project"]["languages"] = languages or []
     config["project"]["frameworks"] = frameworks or []
@@ -94,7 +95,7 @@ def create_config_file(
     # Add agent configs
     profiles = load_all_profiles()
     for agent_name in profiles:
-        agent_config = AGENT_CONFIG_TEMPLATE.copy()
+        agent_config = copy.deepcopy(AGENT_CONFIG_TEMPLATE)
         agent_config["enabled"] = enable_all_agents
         config["agents"][agent_name] = agent_config
 
@@ -121,18 +122,19 @@ def load_config(project_path: Path) -> dict[str, Any]:
         current = current.parent
 
     # Check home directory as final fallback
-    home_config = Path.home() / ".sago" / "config.sago.json"
+    from sago.paths import get_sago_home
+    home_config = get_sago_home() / "config.sago.json"
     if home_config.exists():
         with open(home_config) as f:
             return json.load(f)
 
     # Return default config
-    return DEFAULT_CONFIG.copy()
+    return copy.deepcopy(DEFAULT_CONFIG)
 
 
 def get_agent_config(config: dict[str, Any], agent_name: str) -> dict[str, Any]:
     """Get the effective configuration for an agent."""
-    base = AGENT_CONFIG_TEMPLATE.copy()
+    base = copy.deepcopy(AGENT_CONFIG_TEMPLATE)
     override = config.get("agents", {}).get(agent_name, {})
     base.update(override)
     return base

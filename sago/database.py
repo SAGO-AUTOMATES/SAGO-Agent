@@ -2,27 +2,72 @@
 
 Stores sessions, agent state, task history, and context.
 All data lives in ~/.sago/data/sago.db
+
+Features:
+- Connection pooling via module-level singleton
+- Context manager support for all stores
+- Batch commits for high-frequency operations
+- CASCADE foreign keys for data integrity
+- WAL mode for concurrent reads
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
 from sago.paths import get_db_path
 
+# ---------------------------------------------------------------------------
+# Connection pool - single shared connection per thread
+# ---------------------------------------------------------------------------
+
+_pool_lock = threading.Lock()
+_connections: dict[int, sqlite3.Connection] = {}
+
 
 def _get_connection() -> sqlite3.Connection:
-    """Get a database connection."""
+    """Get a thread-local database connection (pooled)."""
+    tid = threading.get_ident()
+    with _pool_lock:
+        conn = _connections.get(tid)
+        if conn is not None:
+            return conn
+
     db_path = get_db_path()
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=5000")
+
+    with _pool_lock:
+        _connections[tid] = conn
     return conn
+
+
+def close_thread_connection() -> None:
+    """Close the connection for the current thread."""
+    tid = threading.get_ident()
+    with _pool_lock:
+        conn = _connections.pop(tid, None)
+    if conn is not None:
+        conn.close()
+
+
+@contextmanager
+def get_db():
+    """Context manager that yields a connection and ensures cleanup."""
+    conn = _get_connection()
+    try:
+        yield conn
+    finally:
+        pass  # connection stays in pool; caller controls commit
 
 
 def init_db() -> None:
@@ -52,7 +97,8 @@ def init_db() -> None:
                 result TEXT,
                 context TEXT DEFAULT '{}',
                 priority INTEGER DEFAULT 5,
-                FOREIGN KEY (session_id) REFERENCES sessions(id)
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_task_id) REFERENCES tasks(id) ON DELETE SET NULL
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -64,8 +110,8 @@ def init_db() -> None:
                 agent_name TEXT,
                 content TEXT NOT NULL,
                 metadata TEXT DEFAULT '{}',
-                FOREIGN KEY (session_id) REFERENCES sessions(id),
-                FOREIGN KEY (task_id) REFERENCES tasks(id)
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
             );
 
             CREATE TABLE IF NOT EXISTS agent_state (
@@ -74,7 +120,7 @@ def init_db() -> None:
                 agent_name TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 state_data TEXT NOT NULL,
-                FOREIGN KEY (session_id) REFERENCES sessions(id)
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS tool_usage (
@@ -87,18 +133,22 @@ def init_db() -> None:
                 result TEXT,
                 duration_ms INTEGER,
                 success INTEGER DEFAULT 1,
-                FOREIGN KEY (session_id) REFERENCES sessions(id),
-                FOREIGN KEY (task_id) REFERENCES tasks(id)
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
             CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
             CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
+            CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
+            CREATE INDEX IF NOT EXISTS idx_messages_role ON messages(role);
             CREATE INDEX IF NOT EXISTS idx_tool_usage_session ON tool_usage(session_id);
+            CREATE INDEX IF NOT EXISTS idx_tool_usage_tool ON tool_usage(tool_name);
+            CREATE INDEX IF NOT EXISTS idx_agent_state_session ON agent_state(session_id);
         """)
         conn.commit()
     finally:
-        conn.close()
+        pass  # connection stays in pool
 
 
 class Session:
@@ -107,6 +157,12 @@ class Session:
     def __init__(self, session_id: str | None = None) -> None:
         self.id = session_id or str(uuid.uuid4())
         self.conn = _get_connection()
+
+    def __enter__(self) -> Session:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        pass  # connection stays in pool
 
     def create(self, title: str = "", agent_chain: list[str] | None = None) -> dict[str, Any]:
         """Create a new session."""
@@ -144,8 +200,29 @@ class Session:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def delete(self) -> None:
+        """Delete session and all cascaded data."""
+        self.conn.execute("DELETE FROM sessions WHERE id = ?", (self.id,))
+        self.conn.commit()
+
     def close(self) -> None:
-        self.conn.close()
+        """No-op - connection is pooled."""
+
+    def get_full_export(self) -> dict[str, Any]:
+        """Get complete session data for export."""
+        session = self.get() or {}
+        ms = MessageStore(self.id)
+        messages = ms.get_history(limit=10000)
+        tus = ToolUsageStore(self.id)
+        tool_usage = tus.get_all()
+        ts = TaskStore(self.id)
+        tasks = ts.get_all()
+        return {
+            "session": session,
+            "messages": messages,
+            "tool_usage": tool_usage,
+            "tasks": tasks,
+        }
 
 
 class TaskStore:
@@ -154,6 +231,12 @@ class TaskStore:
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
         self.conn = _get_connection()
+
+    def __enter__(self) -> TaskStore:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        pass
 
     def create(
         self,
@@ -202,6 +285,14 @@ class TaskStore:
         row = self.conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         return dict(row) if row else None
 
+    def get_all(self) -> list[dict[str, Any]]:
+        """Get all tasks for this session."""
+        rows = self.conn.execute(
+            "SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at",
+            (self.session_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_by_status(self, status: str) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             "SELECT * FROM tasks WHERE session_id = ? AND status = ? ORDER BY priority",
@@ -210,10 +301,15 @@ class TaskStore:
         return [dict(r) for r in rows]
 
     def get_chain(self, task_id: str) -> list[dict[str, Any]]:
-        """Get the full chain of tasks from root to this task."""
+        """Get the full chain of tasks from root to this task.
+        Guards against circular references."""
         chain = []
+        seen: set[str] = set()
         current = task_id
         while current:
+            if current in seen:
+                break  # circular reference guard
+            seen.add(current)
             task = self.get(current)
             if task:
                 chain.insert(0, task)
@@ -223,7 +319,7 @@ class TaskStore:
         return chain
 
     def close(self) -> None:
-        self.conn.close()
+        """No-op - connection is pooled."""
 
 
 class MessageStore:
@@ -232,6 +328,14 @@ class MessageStore:
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
         self.conn = _get_connection()
+        self._pending: list[tuple] = []
+        self._batch_size = 50
+
+    def __enter__(self) -> MessageStore:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.flush()
 
     def add(
         self,
@@ -241,28 +345,32 @@ class MessageStore:
         task_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Add a message."""
+        """Add a message (batched for performance)."""
         msg_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
-        self.conn.execute(
+        self._pending.append((
+            msg_id, self.session_id, task_id, now, role, agent_name,
+            content, json.dumps(metadata or {}),
+        ))
+        if len(self._pending) >= self._batch_size:
+            self.flush()
+        return {"id": msg_id, "role": role, "content": content}
+
+    def flush(self) -> None:
+        """Flush pending messages to disk."""
+        if not self._pending:
+            return
+        self.conn.executemany(
             """INSERT INTO messages (id, session_id, task_id, created_at, role, agent_name, content, metadata)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                msg_id,
-                self.session_id,
-                task_id,
-                now,
-                role,
-                agent_name,
-                content,
-                json.dumps(metadata or {}),
-            ),
+            self._pending,
         )
         self.conn.commit()
-        return {"id": msg_id, "role": role, "content": content}
+        self._pending.clear()
 
     def get_history(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get message history."""
+        self.flush()  # ensure pending are written
         rows = self.conn.execute(
             "SELECT * FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
             (self.session_id, limit),
@@ -277,8 +385,17 @@ class MessageStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def count(self) -> int:
+        """Count messages in session."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM messages WHERE session_id = ?",
+            (self.session_id,),
+        ).fetchone()
+        return row["cnt"] if row else 0
+
     def close(self) -> None:
-        self.conn.close()
+        """Flush and no-op - connection is pooled."""
+        self.flush()
 
 
 class ToolUsageStore:
@@ -287,6 +404,14 @@ class ToolUsageStore:
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
         self.conn = _get_connection()
+        self._pending: list[tuple] = []
+        self._batch_size = 20
+
+    def __enter__(self) -> ToolUsageStore:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.flush()
 
     def log(
         self,
@@ -297,29 +422,41 @@ class ToolUsageStore:
         success: bool = True,
         task_id: str | None = None,
     ) -> None:
-        """Log a tool usage."""
+        """Log a tool usage (batched for performance)."""
         usage_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
-        self.conn.execute(
+        self._pending.append((
+            usage_id, self.session_id, task_id, now, tool_name,
+            json.dumps(arguments or {}), result, duration_ms, 1 if success else 0,
+        ))
+        if len(self._pending) >= self._batch_size:
+            self.flush()
+
+    def flush(self) -> None:
+        """Flush pending tool usage logs to disk."""
+        if not self._pending:
+            return
+        self.conn.executemany(
             """INSERT INTO tool_usage (id, session_id, task_id, created_at, tool_name,
                arguments, result, duration_ms, success)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                usage_id,
-                self.session_id,
-                task_id,
-                now,
-                tool_name,
-                json.dumps(arguments or {}),
-                result,
-                duration_ms,
-                1 if success else 0,
-            ),
+            self._pending,
         )
         self.conn.commit()
+        self._pending.clear()
+
+    def get_all(self) -> list[dict[str, Any]]:
+        """Get all tool usage for this session."""
+        self.flush()
+        rows = self.conn.execute(
+            "SELECT * FROM tool_usage WHERE session_id = ? ORDER BY created_at",
+            (self.session_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def get_stats(self) -> dict[str, Any]:
         """Get tool usage statistics."""
+        self.flush()
         rows = self.conn.execute(
             """SELECT tool_name, COUNT(*) as count, AVG(duration_ms) as avg_ms,
                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successes
@@ -329,7 +466,8 @@ class ToolUsageStore:
         return {r["tool_name"]: dict(r) for r in rows}
 
     def close(self) -> None:
-        self.conn.close()
+        """Flush and no-op - connection is pooled."""
+        self.flush()
 
 
 def init() -> None:

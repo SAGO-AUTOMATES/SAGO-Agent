@@ -43,6 +43,7 @@ class TokenUsage:
             "cached": self.cached,
             "latency_ms": self.latency_ms,
             "cost_usd": self.cost_usd,
+            "metadata": self.metadata,
         }
 
 
@@ -89,6 +90,9 @@ class UsageSummary:
 COST_TABLE: dict[str, dict[str, tuple[float, float]]] = {
     "gemini": {
         "gemini-2.0-flash": (0.000075, 0.0003),
+        "gemini-2.0-flash-001": (0.000075, 0.0003),
+        "gemini-2.5-flash": (0.00015, 0.0006),
+        "gemini-2.5-pro": (0.00125, 0.005),
         "gemini-1.5-pro": (0.00125, 0.005),
         "gemini-1.5-flash": (0.000075, 0.0003),
     },
@@ -97,11 +101,23 @@ COST_TABLE: dict[str, dict[str, tuple[float, float]]] = {
         "gpt-4o-mini": (0.00015, 0.0006),
         "gpt-4-turbo": (0.01, 0.03),
         "gpt-3.5-turbo": (0.0005, 0.0015),
+        "o1": (0.015, 0.06),
+        "o1-mini": (0.003, 0.012),
+        "o3": (0.01, 0.04),
+        "o3-mini": (0.0011, 0.0044),
     },
     "claude": {
+        "claude-sonnet-4-20250514": (0.003, 0.015),
+        "claude-3-5-sonnet-20241022": (0.003, 0.015),
         "claude-3-5-sonnet": (0.003, 0.015),
+        "claude-3-5-haiku-20241022": (0.0008, 0.004),
         "claude-3-haiku": (0.00025, 0.00125),
         "claude-3-opus": (0.015, 0.075),
+        "claude-3-sonnet": (0.003, 0.015),
+    },
+    "deepseek": {
+        "deepseek-chat": (0.00014, 0.00028),
+        "deepseek-reasoner": (0.00055, 0.00219),
     },
     "openrouter": {
         "default": (0.001, 0.003),
@@ -118,7 +134,7 @@ class TokenTracker:
     def __init__(self, persist_path: Path | None = None) -> None:
         self.persist_path = persist_path
         self._usages: list[TokenUsage] = []
-        self._daily_usage: dict[str, dict[str, int]] = defaultdict(
+        self._daily_usage: dict[str, dict[str, float]] = defaultdict(
             lambda: {"requests": 0, "tokens": 0, "cost": 0.0}
         )
 
@@ -253,6 +269,13 @@ class TokenTracker:
     def get_recent(self, count: int = 10) -> list[dict[str, Any]]:
         """Get recent token usages."""
         return [u.to_dict() for u in self._usages[-count:]]
+
+    def get_for_session(self, session_id: str) -> list[dict[str, Any]]:
+        """Get token usages for a specific session (filtered by metadata)."""
+        return [
+            u.to_dict() for u in self._usages
+            if u.metadata.get("session_id") == session_id
+        ]
 
     def _calculate_cost(
         self,

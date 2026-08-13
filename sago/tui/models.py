@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+
+from sago.paths import get_sago_home
 
 COMMANDS = {
     "/help": "Show all commands",
@@ -90,7 +91,7 @@ BUILTIN_COSTS = {
 # Keep as dict for backward compat (used in status display)
 MODEL_COSTS = BUILTIN_COSTS
 
-MODELS_FILE = Path.home() / ".sago" / "models.json"
+MODELS_FILE = get_sago_home() / "models.json"
 MODELS_CACHE_MAX_AGE = 86400  # 24 hours
 
 

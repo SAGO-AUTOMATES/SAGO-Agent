@@ -6,6 +6,7 @@ import importlib
 import json
 import os
 import re
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -249,12 +250,27 @@ def _run_tests_if_exist(
     return None
 
 
+_project_context_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_project_context_lock = threading.Lock()
+_PROJECT_CONTEXT_TTL = 300  # 5 minutes
+
+
 def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
     """Detect existing project language, framework, and structure from files.
 
     Returns a dict with detected info that helps the LLM understand the project.
+    Results are cached for 5 minutes to avoid repeated subprocess calls.
     """
     import subprocess
+
+    work_dir = cwd or os.getcwd()
+
+    # Check cache
+    now = time.time()
+    with _project_context_lock:
+        cached = _project_context_cache.get(work_dir)
+        if cached and (now - cached[0]) < _PROJECT_CONTEXT_TTL:
+            return cached[1]
 
     context: dict[str, Any] = {
         "languages": [],
@@ -392,6 +408,9 @@ def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
     except Exception:
         pass
 
+    # Cache the result
+    with _project_context_lock:
+        _project_context_cache[work_dir] = (time.time(), context)
     return context
 
 
@@ -973,9 +992,15 @@ def execute_agent_task(
 
                     # If Gemini made tool calls, store them for processing
                     if gemini_tool_calls:
-                        # Store as a special attribute on content for the loop below
-                        # We'll process them after the API call
-                        pass
+                        # Return tool calls so the caller can execute them
+                        return {
+                            "success": True,
+                            "content": content,
+                            "tool_calls": tool_history + gemini_tool_calls,
+                            "iterations": i + 1,
+                            "tokens": {"input": total_tokens_in, "output": total_tokens_out},
+                            "pending_gemini_tools": gemini_tool_calls,
+                        }
 
                 except ImportError:
                     return {
@@ -1305,6 +1330,21 @@ def execute_agent_task(
 
             tools_used_in_iteration.append(name)
 
+            # Log tool usage to DB
+            try:
+                from sago.database import ToolUsageStore, init_db
+                init_db()
+                _tus = ToolUsageStore("simple_executor")
+                _tus.log(
+                    tool_name=name,
+                    arguments=args,
+                    result=result_str[:1000],
+                    success=not is_error,
+                )
+                _tus.flush()
+            except Exception:
+                pass
+
             # Notify caller of tool result immediately
             if on_tool_result:
                 on_tool_result(name, args, result_str, not is_error)
@@ -1601,6 +1641,23 @@ def execute_agent_task(
     except Exception:
         pass
 
+    # Record token usage
+    if total_tokens_in > 0 or total_tokens_out > 0:
+        try:
+            from sago.tracking.token_tracker import get_token_tracker
+            tracker = get_token_tracker()
+            tracker.record(
+                provider="openai",
+                model=model,
+                input_tokens=total_tokens_in,
+                output_tokens=total_tokens_out,
+                latency_ms=(time.time() - start_time) * 1000,
+                metadata={"session_id": "simple_executor"},
+            )
+            tracker.save()
+        except Exception:
+            pass
+
     return {
         "success": True,
         "output": content,
@@ -1618,93 +1675,3 @@ def execute_agent_task(
         "test_fixes_applied": test_fix_attempts,
         "change_summary": change_summary,
     }
-
-
-def _extract_tool_calls(content: str) -> list[str]:
-    """DEPRECATED: Extract tool calls from LLM text output.
-
-    This is kept for backward compatibility with the TUI and tests.
-    The main executor now uses native OpenAI function calling instead.
-    """
-    matches = []
-
-    # Format 1: Single JSON object on its own line
-    for line in content.splitlines():
-        line = line.strip()
-        if line.startswith("{") and line.endswith("}"):
-            try:
-                data = json.loads(line)
-                if "name" in data and "args" in data:
-                    matches.append(line)
-            except json.JSONDecodeError:
-                pass
-
-    if matches:
-        return matches
-
-    # Format 2: Inside code blocks
-    for pattern in [r"```json\s*\n(.*?)\n```", r"```\s*\n(\{.*?\})\n```"]:
-        for f in re.findall(pattern, content, re.DOTALL):
-            try:
-                data = json.loads(f.strip())
-                if "name" in data and "args" in data:
-                    matches.append(f.strip())
-            except json.JSONDecodeError:
-                pass
-
-    if matches:
-        return matches
-
-    # Format 3: XML-style tags
-    for tool_name, args_str in re.findall(r"<tool_call>(\w+)(.*?)</tool_call>", content, re.DOTALL):
-        args = {}
-        for m in re.finditer(
-            r"<arg_key>(\w+)</arg_key><arg_value>(.*?)</arg_value>", args_str, re.DOTALL
-        ):
-            args[m.group(1)] = m.group(2)
-        if args:
-            matches.append(json.dumps({"name": tool_name, "args": args}))
-
-    if matches:
-        return matches
-
-    # Format 4: Try to find any JSON-like structure with tool call patterns
-    for m in re.finditer(
-        r'\{[^{}]*"name"\s*:\s*"(\w+)"[^{}]*"args"\s*:\s*\{[^{}]*\}[^{}]*\}', content, re.DOTALL
-    ):
-        try:
-            data = json.loads(m.group(0))
-            if "name" in data and "args" in data:
-                matches.append(m.group(0))
-        except json.JSONDecodeError:
-            pass
-
-    if matches:
-        return matches
-
-    # Format 5: Free model format — <|tool_call>call:tool_name{arg: val, ...}<tool_call|>
-    for m in re.finditer(r"<\|tool_call\>call:(\w+)\{(.*?)\}<tool_call\|>", content, re.DOTALL):
-        tool_name = m.group(1)
-        kwargs_str = m.group(2)
-        args = {}
-        for kv in re.finditer(r"(\w+):\s*\"([^\"]*)\"", kwargs_str):
-            args[kv.group(1)] = kv.group(2)
-        for kv in re.finditer(r"(\w+):\s*([^,\}]+)", kwargs_str):
-            if kv.group(1) not in args:
-                val = kv.group(2).strip()
-                if val.lower() == "true":
-                    args[kv.group(1)] = True
-                elif val.lower() == "false":
-                    args[kv.group(1)] = False
-                else:
-                    try:
-                        args[kv.group(1)] = int(val)
-                    except ValueError:
-                        try:
-                            args[kv.group(1)] = float(val)
-                        except ValueError:
-                            args[kv.group(1)] = val
-        if args:
-            matches.append(json.dumps({"name": tool_name, "args": args}))
-
-    return matches
