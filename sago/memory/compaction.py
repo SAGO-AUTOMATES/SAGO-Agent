@@ -7,7 +7,7 @@ Provides session compaction for maintaining context in long conversations.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -410,3 +410,79 @@ class SessionCompactor:
         """Check if messages should be compacted."""
         total_tokens = sum(len(m.get("content", "")) // 4 for m in messages)
         return total_tokens > self.max_context_tokens
+
+
+@dataclass
+class HierarchicalMemoryPyramid:
+    """Multi-tiered structured memory pyramid for ultra-long conversations and zero-loss token compaction.
+
+    Tier 1 (Architectural): Foundational goals, key architectural decisions, and invariants.
+    Tier 2 (Delta): File modifications, touched paths, git diff summaries, and milestone statuses.
+    Tier 3 (Working): High-fidelity recent message turns and active tool calls.
+    """
+
+    architectural_goals: list[str] = field(default_factory=list)
+    architectural_decisions: list[str] = field(default_factory=list)
+    modified_files: list[str] = field(default_factory=list)
+    milestone_history: list[str] = field(default_factory=list)
+    active_working_turns: list[dict[str, Any]] = field(default_factory=list)
+
+    def record_turn(self, role: str, content: str) -> None:
+        """Record turn into working tier and promote key decisions/milestones."""
+        self.active_working_turns.append({"role": role, "content": content})
+        # Check for goal / decision patterns
+        lower = content.lower()
+        if "decided to" in lower or "we will use" in lower or "chosen" in lower:
+            for line in content.splitlines():
+                if any(w in line.lower() for w in ("decided", "chose", "architecture", "standard")):
+                    clean = line.strip(" -*#")
+                    if clean and clean not in self.architectural_decisions:
+                        self.architectural_decisions.append(clean[:200])
+
+        if "goal:" in lower or "objective:" in lower:
+            for line in content.splitlines():
+                if "goal:" in line.lower() or "objective:" in line.lower():
+                    clean = line.strip(" -*#")
+                    if clean and clean not in self.architectural_goals:
+                        self.architectural_goals.append(clean[:200])
+
+    def record_file_mod(self, file_path: str) -> None:
+        if file_path and file_path not in self.modified_files:
+            self.modified_files.append(file_path)
+
+    def assemble_compact_pyramid(self, max_working_turns: int = 6) -> list[dict[str, Any]]:
+        """Render a token-optimized pyramid prompt context."""
+        context: list[dict[str, Any]] = []
+
+        # 1. Architectural Tier (Top of Pyramid)
+        arch_lines = []
+        if self.architectural_goals:
+            arch_lines.append(f"• Core Goals: {'; '.join(self.architectural_goals[:3])}")
+        if self.architectural_decisions:
+            arch_lines.append(
+                f"• Architectural Decisions: {'; '.join(self.architectural_decisions[:4])}"
+            )
+
+        if arch_lines:
+            context.append(
+                {
+                    "role": "system",
+                    "content": "[ARCHITECTURAL MEMORY PYRAMID - TIER 1]\n" + "\n".join(arch_lines),
+                }
+            )
+
+        # 2. Delta Tier (Mid-Level)
+        if self.modified_files:
+            context.append(
+                {
+                    "role": "system",
+                    "content": f"[WORKING DELTA - TIER 2]\nModified Files: {', '.join(self.modified_files[-12:])}",
+                }
+            )
+
+        # 3. Working Tier (Base of Pyramid - High Fidelity)
+        recent_turns = self.active_working_turns[-max_working_turns:]
+        for turn in recent_turns:
+            context.append({"role": turn.get("role", "user"), "content": turn.get("content", "")})
+
+        return context

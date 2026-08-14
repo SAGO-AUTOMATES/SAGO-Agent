@@ -1458,11 +1458,19 @@ def execute_agent_task(
             if is_error:
                 failed_calls.add(call_key)
 
-            # Track created files
-            if name == "write_file" and not is_error:
-                fp = args.get("file_path", "")
+            # Track created and modified files, enqueue for background verification
+            if name in ("write_file", "edit_file", "file_operations") and not is_error:
+                fp = (
+                    args.get("file_path", "") or args.get("target_file", "") or args.get("path", "")
+                )
                 if fp and fp not in files_created:
                     files_created.append(fp)
+                try:
+                    from sago.engine.verifier import get_continuous_verifier
+
+                    get_continuous_verifier().enqueue_files([fp] if fp else [])
+                except Exception:
+                    pass
 
             tool_history.append(
                 {

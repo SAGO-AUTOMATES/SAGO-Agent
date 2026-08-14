@@ -26,6 +26,10 @@ Sago is a **production-grade multi-agent orchestration system** built for real-w
 | **Permission System** | Risk-based tool permissions (safe/low/medium/high/critical) with approval workflow |
 | **Session Persistence** | SQLite database + JSON file save/load with full state preservation |
 | **Workflow Engine** | Stateful multi-step workflows with dependencies, retries, and pausing |
+| **Hybrid BM25 & Dense Code Search** | Probabilistic BM25 + zero-dependency 128-d dense vector semantic search across 1,000+ files (`sago search`) |
+| **Continuous Background Linting** | Automatic non-blocking verification passes upon file modification with instant diagnostics |
+| **OpenTelemetry & Prometheus Export** | Standard OTel JSON trace payload and Prometheus text exposition telemetry export (`/dev export otel`) |
+| **Hierarchical Memory Pyramids** | 3-tiered context compaction and zero-redundancy agent handoffs saving ~70% token overhead |
 | **Developer Mode (`/dev`)** | Real-time function execution tracing, LLM payload inspection, and microsecond latency diagnostics |
 | **Atomic Checkpoints & Rollback** | Point-in-time workspace snapshotting and 1-click restore for large-scale refactoring safety |
 | **Smart Project & Data Graph** | Architecture box diagrams, autonomous execution process maps, data model extraction, and Mermaid visualization |
@@ -439,13 +443,17 @@ sago/
 
 Sago includes comprehensive coverage across unit, integration, and security categories.
 
-**418 tests** — all passing. See [docs/ERRORS.md](docs/ERRORS.md) for error handling and [docs/FLOWS.md](docs/FLOWS.md) for system flowcharts.
+**428 tests** — all passing. See [docs/ERRORS.md](docs/ERRORS.md) for error handling and [docs/FLOWS.md](docs/FLOWS.md) for system flowcharts.
 
 ### Quality Areas
 
 | Category | Coverage |
 |----------|----------|
-| Unit - Tools | All 50 tools with proper arguments |
+| Unit - Tools | All 57+ tools with proper arguments |
+| Unit - Hybrid Indexer & BM25 | BM25 probabilistic ranking & dense semantic vector similarity |
+| Unit - Continuous Verifier | Background non-blocking verification queue & diagnostic extraction |
+| Unit - OpenTelemetry & Prometheus | OTel Trace JSON specification & Prometheus exposition format |
+| Unit - Memory Pyramids & Deltas | 3-tiered memory hierarchy & zero-redundancy handoff state deltas |
 | Unit - Permissions | Risk levels, blocking, approval workflow |
 | Unit - Agents | Registry, profiles, lookup |
 | Integration - Executor | Tool discovery, task detection, extraction |

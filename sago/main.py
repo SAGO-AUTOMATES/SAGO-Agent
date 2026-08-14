@@ -35,7 +35,7 @@ def _get_configured_model() -> str:
 
 
 @click.group()
-@click.version_option(version="0.1.1", prog_name="sago")
+@click.version_option(version="0.1.3", prog_name="sago")
 def cli() -> None:
     """Sago - Sophisticated Multi-Agent Orchestration System.
 
@@ -1430,6 +1430,94 @@ def checkpoint_cmd(action: str, target: str | None) -> None:
             )
         else:
             console.print(f"[bold red]Failed to restore:[/bold red] {res.get('error')}")
+
+
+@cli.command()
+@click.argument("query")
+@click.option("--limit", "-l", default=6, help="Maximum search results to display")
+@click.option("--json-out", is_flag=True, help="Output in raw JSON format")
+def search(query: str, limit: int, json_out: bool) -> None:
+    """Natural language semantic & BM25 hybrid codebase search.
+
+    Example:
+        sago search "Where are database models defined?"
+        sago search "JWT authentication handler" --limit 10
+    """
+    import json
+
+    from sago.memory.hybrid_indexer import get_hybrid_code_indexer
+
+    indexer = get_hybrid_code_indexer()
+    results = indexer.search(query=query, limit=limit)
+
+    if json_out:
+        console.print(json.dumps([r.to_dict() for r in results], indent=2))
+        return
+
+    if not results:
+        console.print(f"[yellow]No matching code snippets found for: '{query}'[/yellow]")
+        return
+
+    console.print(f"[bold cyan]Hybrid Code Search Results ({len(results)} matches):[/bold cyan]\n")
+    for i, r in enumerate(results, 1):
+        chunk = r.chunk
+        title = f"{chunk.file_path}:{chunk.start_line}-{chunk.end_line}"
+        if chunk.name:
+            title += f" ({chunk.chunk_type} {chunk.name})"
+        console.print(
+            Panel(
+                f"```{chunk.language}\n{chunk.content[:500]}\n```",
+                title=f"#{i} {title}",
+                subtitle=f"Score: {r.combined_score:.2f} | BM25: {r.bm25_score:.2f} | Dense Vec: {r.semantic_score:.2f}",
+                border_style="cyan",
+            )
+        )
+
+
+@cli.command()
+@click.option(
+    "--export",
+    "-e",
+    type=click.Choice(["otel", "prometheus", "json", "md"], case_sensitive=False),
+    default="otel",
+    help="Export telemetry format",
+)
+@click.option("--output", "-o", default=None, help="Output destination file")
+def telemetry(export: str, output: str | None) -> None:
+    """Export developer execution telemetry and OpenTelemetry/Prometheus metrics.
+
+    Example:
+        sago telemetry --export otel --output traces.json
+        sago telemetry --export prometheus --output metrics.prom
+    """
+    import json
+
+    from sago.tracking.dev_tracer import get_dev_tracer
+    from sago.tracking.otel_exporter import OTelExporter, PrometheusExporter
+
+    tracer = get_dev_tracer()
+    events = tracer.get_events()
+
+    if export == "otel":
+        payload = OTelExporter().export_traces(events)
+        out_file = Path(output or "sago_otel_traces.json").resolve()
+        out_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        console.print(
+            f"[bold green]✓ OpenTelemetry traces exported to:[/bold green] [cyan]{out_file}[/cyan]"
+        )
+    elif export == "prometheus":
+        text = PrometheusExporter().export_metrics(events)
+        out_file = Path(output or "sago_metrics.prom").resolve()
+        out_file.write_text(text, encoding="utf-8")
+        console.print(
+            f"[bold green]✓ Prometheus metrics exported to:[/bold green] [cyan]{out_file}[/cyan]"
+        )
+    else:
+        success, res = tracer.export_traces(file_path=output, format=export)
+        if success:
+            console.print(f"[bold green]✓ Traces exported to:[/bold green] [cyan]{res}[/cyan]")
+        else:
+            console.print(f"[bold red]Export failed:[/bold red] {res}")
 
 
 def main() -> None:

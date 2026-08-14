@@ -1581,14 +1581,39 @@ class CommandHandlers:
             tracer.set_enabled(False)
             self._add_system_message("⚡ [dim][DEV MODE OFF][/dim] Developer diagnostics disabled.")
         elif action in ("export", "save"):
-            fmt = "md" if subarg.endswith(".md") else "json"
-            success, res = tracer.export_traces(file_path=subarg or None, format=fmt)
-            if success:
+            parts_export = subarg.split()
+            export_type = parts_export[0].lower() if parts_export else "json"
+            target_path = parts_export[1] if len(parts_export) > 1 else None
+
+            if export_type in ("otel", "opentelemetry"):
+                import json
+
+                from sago.tracking.otel_exporter import OTelExporter
+
+                payload = OTelExporter().export_traces(tracer.get_events())
+                out_path = Path(target_path or "sago_otel_traces.json").resolve()
+                out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
                 self._add_system_message(
-                    f"● [bold green]Traces Exported Successfully[/bold green]:\n  `{res}`"
+                    f"● [bold green]OpenTelemetry Traces Exported[/bold green]:\n  `{out_path}`"
+                )
+            elif export_type in ("prometheus", "metrics", "prom"):
+                from sago.tracking.otel_exporter import PrometheusExporter
+
+                metrics_text = PrometheusExporter().export_metrics(tracer.get_events())
+                out_path = Path(target_path or "sago_metrics.prom").resolve()
+                out_path.write_text(metrics_text, encoding="utf-8")
+                self._add_system_message(
+                    f"● [bold green]Prometheus Metrics Exported[/bold green]:\n  `{out_path}`"
                 )
             else:
-                self._add_system_message(f"● [bold red]Export Failed[/bold red]: {res}")
+                fmt = "md" if subarg.endswith(".md") else "json"
+                success, res = tracer.export_traces(file_path=subarg or None, format=fmt)
+                if success:
+                    self._add_system_message(
+                        f"● [bold green]Traces Exported Successfully[/bold green]:\n  `{res}`"
+                    )
+                else:
+                    self._add_system_message(f"● [bold red]Export Failed[/bold red]: {res}")
         elif action in ("clear", "reset"):
             tracer.clear()
             self._add_system_message("⚡ Developer trace telemetry buffer cleared.")
@@ -1680,7 +1705,8 @@ class CommandHandlers:
                 "  • [bold white]Tab / Enter[/bold white]    : Accept autocomplete suggestion\n"
                 "  • [bold white]y / n[/bold white]          : Approve or Deny permission requests\n\n"
                 "  [bold magenta]Core Commands:[/bold magenta]\n"
-                "  • `/dev on|off|export`  : Developer mode & JSON/MD trace exporter\n"
+                "  • `/search <query>`    : Hybrid BM25 & dense vector semantic code search\n"
+                "  • `/dev on|off|export`  : Developer mode & OTel/Prometheus trace exporter\n"
                 "  • `/theme <name>`      : Switch between 11 terminal themes\n"
                 "  • `/collapse all`      : Collapse or expand conversational cards\n"
                 "  • `/checkpoint`        : Instant project snapshots & rollback\n"
@@ -1689,3 +1715,45 @@ class CommandHandlers:
                 "  • `@agent / #file`     : Mention agent or reference file"
             )
             self._add_system_message(msg)
+
+    def _handle_search_command(self: SagoApp, args: str = "") -> None:
+        """Handle /search or /semantic codebase natural language search."""
+        if not args.strip():
+            self._add_system_message("Usage: `/search <natural language query or symbol>`")
+            return
+
+        from sago.memory.hybrid_indexer import get_hybrid_code_indexer
+        from sago.tui.helpers import create_collapsible
+
+        try:
+            indexer = get_hybrid_code_indexer()
+            results = indexer.search(query=args.strip(), limit=6)
+            if not results:
+                self._add_system_message(f"No semantic code matches found for: '{args}'")
+                return
+
+            lines = [
+                f"[bold cyan]═══ HYBRID SEMANTIC SEARCH RESULTS for '{args}' ═══[/bold cyan]\n"
+            ]
+            for i, r in enumerate(results, 1):
+                chunk = r.chunk
+                title = f"{chunk.file_path}:{chunk.start_line}-{chunk.end_line}"
+                if chunk.name:
+                    title += f" ({chunk.chunk_type} {chunk.name})"
+                lines.append(
+                    f"[bold yellow]#{i} {title}[/bold yellow] "
+                    f"[dim](Score: {r.combined_score:.2f} | BM25: {r.bm25_score:.2f} | Vec: {r.semantic_score:.2f})[/dim]\n"
+                    f"```{chunk.language}\n{chunk.content[:400]}\n```\n"
+                )
+
+            container = self.query_one("#messages")
+            container.mount(
+                create_collapsible(
+                    Static("\n".join(lines)),
+                    title=f"Search: {args.strip()[:30]} ({len(results)} matches)",
+                    collapsed=False,
+                )
+            )
+            container.scroll_end()
+        except Exception as e:
+            self._add_system_message(f"Error during search: {e}")

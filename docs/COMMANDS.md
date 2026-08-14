@@ -50,6 +50,23 @@ sago map
 sago map --dir ./src --query UserService --max-files 100
 ```
 
+### `sago search`
+Natural language semantic & BM25 hybrid codebase search across 1,000+ files without external cloud vector DBs.
+
+```bash
+sago search "Where are database models defined?"
+sago search "JWT authentication handler" --limit 10
+sago search "retry logic on network failure" --json-out
+```
+
+### `sago telemetry`
+Export microsecond execution telemetry into standard OpenTelemetry (`OTEL`) Trace JSON or Prometheus metrics exposition format.
+
+```bash
+sago telemetry --export otel --output traces.json
+sago telemetry --export prometheus --output metrics.prom
+```
+
 ### `sago verify`
 Run multi-language automated verification (linters, type checks, and test suites) with diagnostic reports.
 

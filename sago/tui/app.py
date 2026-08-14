@@ -1511,6 +1511,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             "/checkpoint": lambda: self._handle_checkpoint_command(args),
             "/project_graph": lambda: self._show_project_graph(args),
             "/graph": lambda: self._show_project_graph(args),
+            "/search": lambda: self._handle_search_command(args),
+            "/semantic": lambda: self._handle_search_command(args),
             "/detach": lambda: self._detach_session(),
         }
 
@@ -2577,10 +2579,22 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             duration_ms=tool_dur_ms,
                         )
 
-                        if name == "write_file" and not is_error:
-                            fp = args.get("file_path", "")
+                        if name in ("write_file", "edit_file", "file_operations") and not is_error:
+                            fp = (
+                                args.get("file_path", "")
+                                or args.get("target_file", "")
+                                or args.get("path", "")
+                            )
                             if fp and fp not in files_created:
                                 files_created.append(fp)
+                            try:
+                                from sago.engine.verifier import get_continuous_verifier
+
+                                get_continuous_verifier().enqueue_files([fp] if fp else [])
+                            except Exception:
+                                pass
+
+                        if name == "write_file" and not is_error:
                             # Nudge LLM to stop after successful file write
                             if iteration < effort["max_iterations"] - 1:
                                 messages.append(

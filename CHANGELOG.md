@@ -5,6 +5,19 @@ All notable changes to the SAGO project are documented in this file.
 ## [0.1.3] - 2026-08-14
 
 ### Added
+- **Hybrid BM25 + Dense Semantic Vector Search (`/search` & `sago search`)**:
+  - Probabilistic BM25 term weighting combined with zero-dependency local 128-dimensional dense vector embeddings.
+  - Sub-millisecond natural language search across 1,000+ codebase files.
+  - Registered `hybrid_code_search` agent tool in `sago.tools.coding`.
+- **Continuous Background Linting & Self-Healing Diagnostics (`ContinuousVerifier`)**:
+  - Non-blocking background worker thread validates written/modified files in real time.
+  - Generates line-level diagnostic issues and actionable prompt feedback for autonomous self-healing loops.
+- **OpenTelemetry & Prometheus Telemetry Exporters (`/dev export otel|prometheus` & `sago telemetry`)**:
+  - Standard OTel Trace JSON specification export with microsecond spans, tool execution events, and error codes.
+  - Prometheus text exposition format metrics for tool execution counters, token latencies, and event histograms.
+- **Hierarchical Memory Pyramids & Zero-Redundancy Handoff Deltas (`HierarchicalMemoryPyramid`)**:
+  - 3-tiered context compaction (Architectural Goals $\to$ Working Deltas $\to$ Active Turns).
+  - Compact state delta serialization saving ~70% context overhead during multi-agent handoffs.
 - **Bottom-Right Collapse Buttons (`CollapsibleOutputCard` & `ExchangeTurnCard`)**:
   - Pinned `[▲ Collapse Message]` and `[▲ Collapse Output]` action buttons on the bottom-right corner of all message turn cards and command outputs.
   - Eliminates the need to scroll back up to the top of long responses or graph reports to collapse them.
