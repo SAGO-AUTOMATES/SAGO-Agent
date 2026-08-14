@@ -35,6 +35,8 @@ Generate a deep architecture box diagram, autonomous execution process map, data
 sago project-graph                           # Curated full architecture dashboard
 sago project-graph --view arch               # Layered system architecture box diagram
 sago project-graph --view process            # End-to-end execution pipeline & flywheel map
+sago project-graph --view er                 # Entity-Relationship & data model diagram
+sago project-graph --view flow               # Terminal-native component flow pipeline
 sago project-graph --view tree               # Formatted file dependency & symbol tree
 sago project-graph --view mermaid            # Visual Mermaid flowchart
 sago project-graph --dir ./services --view arch
@@ -109,7 +111,7 @@ Show system and connection status.
 | Command | Description |
 |---------|-------------|
 | `/help` | Show categorized command reference |
-| `/project_graph [view] [path]` | Generate architecture box diagram, process flywheel, and data graph (`dashboard`, `arch`, `process`, `tree`, `mermaid`) |
+| `/project_graph [view] [path]` | Generate architecture box diagram, process flywheel, data graph, and flow pipelines (`dashboard`, `arch`, `process`, `er`, `flow`, `tree`, `mermaid`, `json`, `llm`) |
 | `/graph` | Alias for `/project_graph` |
 | `/map [query]` | Generate compact AST symbol repo map |
 | `/verify` | Run automated linters, type checks, and test suites |
@@ -204,8 +206,10 @@ Show system and connection status.
 | Shortcut | Action |
 | :--- | :--- |
 | `F1` or `?` | Open interactive Keyboard Shortcuts & Quick Reference Modal |
-| `PageUp` / `Shift+Up` | Scroll messages pane up |
-| `PageDown` / `Shift+Down` | Scroll messages pane down |
+| `PageUp` / `Shift+Up` | Scroll messages pane page / line up |
+| `PageDown` / `Shift+Down` | Scroll messages pane page / line down |
+| `Ctrl+Up` / `Ctrl+Down` | Line-by-line smooth viewport scroll |
+| `Ctrl+Home` / `Ctrl+End` | Jump to top / bottom of chat messages |
 | `Ctrl+D` | Toggle agent dashboard sidebar |
 | `Ctrl+T` | Show background tasks |
 | `Ctrl+C` | Cancel current task |
@@ -215,3 +219,4 @@ Show system and connection status.
 | `Tab` / `Enter` | Accept autocomplete suggestion |
 | `Escape` | Close autocomplete suggestions / dismiss modals |
 | `y` / `n` | Approve or Deny permission requests |
+| `[▲ Collapse Message]` / `[▲ Collapse Output]` | Bottom-right buttons to collapse messages without scrolling to the top |
