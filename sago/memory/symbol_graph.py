@@ -155,14 +155,25 @@ class SymbolGraph:
         symbols: list[SymbolInfo] = []
         lines = content.splitlines()
 
-        # Simple high-precision patterns
+        # Comprehensive high-precision patterns across languages
         patterns = [
-            (r"^(?:export\s+)?class\s+([A-Za-z0-9_]+)", "class"),
+            (r"^(?:export\s+)?(?:default\s+)?class\s+([A-Za-z0-9_]+)", "class"),
             (r"^(?:export\s+)?interface\s+([A-Za-z0-9_]+)", "interface"),
-            (r"^(?:export\s+)?type\s+([A-Za-z0-9_]+)", "type"),
+            (r"^(?:export\s+)?(?:type|enum)\s+([A-Za-z0-9_]+)", "type"),
             (r"^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*\((.*?)\)", "function"),
-            (r"^(?:pub\s+)?fn\s+([A-Za-z0-9_]+)\s*\((.*?)\)", "function"),  # Rust
-            (r"^func\s+(?:\(.*?\)\s+)?([A-Za-z0-9_]+)\s*\((.*?)\)", "function"),  # Go
+            (r"^(?:const|let)\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?\((.*?)\)\s*=>", "function"),
+            # Rust patterns
+            (r"^(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)\s*(?:<.*?>)?\s*\((.*?)\)", "function"),
+            (r"^(?:pub\s+)?(?:struct|enum|union)\s+([A-Za-z0-9_]+)", "type"),
+            (r"^(?:pub\s+)?trait\s+([A-Za-z0-9_]+)", "interface"),
+            (r"^impl(?:\s*<.*?>)?\s+([A-Za-z0-9_]+)", "impl"),
+            # Go patterns
+            (r"^type\s+([A-Za-z0-9_]+)\s+struct", "class"),
+            (r"^type\s+([A-Za-z0-9_]+)\s+interface", "interface"),
+            (r"^func\s+(?:\(.*?\)\s+)?([A-Za-z0-9_]+)\s*\((.*?)\)", "function"),
+            # C/C++/Java patterns
+            (r"^(?:public|private|protected)?\s*(?:static)?\s*class\s+([A-Za-z0-9_]+)", "class"),
+            (r"^(?:struct|class)\s+([A-Za-z0-9_]+)\s*\{?", "class"),
         ]
 
         for i, line in enumerate(lines, 1):

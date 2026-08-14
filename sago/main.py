@@ -35,7 +35,7 @@ def _get_configured_model() -> str:
 
 
 @click.group()
-@click.version_option(version="0.1.1", prog_name="sago")
+@click.version_option(version="0.1.3", prog_name="sago")
 def cli() -> None:
     """Sago - Sophisticated Multi-Agent Orchestration System.
 
@@ -55,21 +55,74 @@ def cli() -> None:
     help="Comma-separated agent chain (e.g. python-pro,code-reviewer)",
 )
 @click.option("--interactive", "-i", is_flag=True, help="Interactive mode with agent selection")
-def run(task: str, agent: str | None, chain: str | None, interactive: bool) -> None:
+@click.option(
+    "--detach",
+    "-d",
+    is_flag=True,
+    help="Run task in detached background mode (safe to close terminal)",
+)
+def run(task: str, agent: str | None, chain: str | None, interactive: bool, detach: bool) -> None:
     """Execute a task using Sago agents.
 
     Examples:
         sago run "Write a Python web scraper"
+        sago run "Run integration tests" --detach
         sago run "Debug this error" --agent debugger
         sago run "Build a REST API" --chain system-architect,fullstack-dev,code-reviewer
-        sago run "Fix security issues" --interactive
     """
     import os
+    import subprocess
+    import sys
+    import time
 
     from sago.database import init
     from sago.engine.simple_executor import execute_agent_task
+    from sago.paths import get_sago_home
 
     init()
+
+    agent_name = agent or "python-engineer"
+
+    if detach:
+        sago_home = get_sago_home()
+        logs_dir = sago_home / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        task_id = f"task_{int(time.time())}_{os.getpid()}"
+        log_file = logs_dir / f"{task_id}.log"
+
+        # Launch detached worker in background
+        cmd = [
+            sys.executable,
+            "-m",
+            "sago.main",
+            "run",
+            task,
+            "--agent",
+            agent_name,
+        ]
+        with open(log_file, "w") as out_f:
+            subprocess.Popen(
+                cmd,
+                stdout=out_f,
+                stderr=subprocess.STDOUT,
+                cwd=os.getcwd(),
+                start_new_session=True,
+            )
+
+        console.print(
+            Panel(
+                f"[bold green]✓ Task started in detached background mode![/]\n\n"
+                f"[bold]Task ID:[/] [cyan]{task_id}[/]\n"
+                f"[bold]Agent:[/]   [yellow]{agent_name}[/]\n"
+                f"[bold]Log:[/]     [dim]{log_file}[/]\n\n"
+                f"[green]You can safely close this terminal tab now.[/]\n\n"
+                f"[dim]• Check status:[/]  [bold]sago status[/]\n"
+                f"[dim]• Reattach & tail:[/] [bold cyan]sago attach {task_id}[/bold cyan]",
+                title="[bold]Sago Detached Worker[/]",
+                border_style="green",
+            )
+        )
+        return
 
     console.print(
         Panel.fit(
@@ -85,7 +138,6 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool) -> N
         console.print("[red]Error: No API key found. Set OPENROUTER_API_KEY or OPENAI_API_KEY[/]")
         return
 
-    agent_name = agent or "python-engineer"
     console.print(f"[green]Using agent: {agent_name}[/]\n")
 
     result = execute_agent_task(
@@ -911,6 +963,91 @@ def tui(resume: str | None) -> None:
     app.run()
 
 
+@cli.command("attach")
+@click.argument("target", required=False)
+def attach_cmd(target: str | None) -> None:
+    """Attach to a running detached session or background task log.
+
+    Examples:
+        sago attach                  # List and choose active sessions / tasks
+        sago attach a62c0922         # Reattach to TUI session
+        sago attach task_1700000000  # Stream detached task log
+    """
+    import os
+    import time
+
+    from sago.paths import get_sago_home
+    from sago.tui.app import SagoApp
+
+    sago_home = get_sago_home()
+    logs_dir = sago_home / "logs"
+
+    # If no target, list available sessions and background tasks
+    if not target:
+        from sago.database import Session, init_db
+
+        init_db()
+        s = Session()
+        sessions = s.list_all(limit=10)
+        s.close()
+
+        table = Table(title="[bold green]Available Detached Sessions & Tasks[/]")
+        table.add_column("Type", style="cyan")
+        table.add_column("ID", style="yellow")
+        table.add_column("Title / Info", style="white")
+        table.add_column("Status", style="green")
+
+        if sessions:
+            for ses in sessions:
+                table.add_row(
+                    "Session",
+                    ses["id"][:8],
+                    ses.get("title", "Session")[:35],
+                    ses.get("status", "open"),
+                )
+
+        if logs_dir.exists():
+            log_files = sorted(logs_dir.glob("*.log"), key=os.path.getmtime, reverse=True)[:5]
+            for lf in log_files:
+                table.add_row("Task Log", lf.stem, f"Log: {lf.name}", "background")
+
+        console.print(table)
+        console.print("\n[dim]To attach, run:[/] [bold cyan]sago attach <id>[/bold cyan]\n")
+        return
+
+    # Check if target is a background task log
+    log_candidates = [
+        logs_dir / f"{target}.log",
+        logs_dir / f"task_{target}.log",
+    ]
+    matched_log = next((p for p in log_candidates if p.exists()), None)
+
+    if matched_log:
+        console.print(f"[bold green]Streaming detached task log:[/] {matched_log}")
+        console.print("[dim]Press Ctrl+C to detach without killing the background job...[/]\n")
+        try:
+            with open(matched_log) as f:
+                # Read existing content
+                content = f.read()
+                if content:
+                    console.print(content, end="")
+                # Tail new content
+                while True:
+                    line = f.readline()
+                    if line:
+                        console.print(line, end="")
+                    else:
+                        time.sleep(0.5)
+        except KeyboardInterrupt:
+            console.print("\n\n[yellow]✓ Detached from log. Task continues in background.[/]")
+            return
+
+    # Otherwise, attach to TUI session
+    app = SagoApp()
+    app._pending_resume = target
+    app.run()
+
+
 @cli.command()
 @click.option("--host", "-h", default="0.0.0.0", help="Bind host (0.0.0.0 for all interfaces)")
 @click.option("--port", "-p", default=7654, help="Port number")
@@ -1087,6 +1224,89 @@ def repo_map_cmd(dir: str, query: str | None, max_files: int) -> None:
     console.print(Panel(rmap, title="[bold]Symbol Map[/]", border_style="cyan"))
 
 
+@cli.command("project-graph")
+@click.option("--dir", "-d", default=".", help="Directory to graph")
+@click.option(
+    "--view",
+    "-v",
+    type=click.Choice(["dashboard", "arch", "process", "er", "tree", "mermaid", "json", "llm"]),
+    default="dashboard",
+    help="Graph output view: dashboard (curated), arch (box diagram), process (pipeline), er (data models), tree, mermaid, json, llm",
+)
+@click.option("--focus", default=None, help="Focus filter (e.g. database, auth, file name)")
+@click.option("--max-files", "-m", default=400, help="Max files to include")
+def project_graph_cmd(dir: str, view: str, focus: str | None, max_files: int) -> None:
+    """Generate deep architecture diagram, process execution map, and data models graph."""
+    from sago.memory.project_graph import ProjectGraph
+
+    root_path = Path(dir).resolve()
+    console.print(f"[bold green]Building Project & Architecture Graph for:[/] {root_path}")
+    pg = ProjectGraph(root_dir=root_path)
+    pg.build_graph(max_files=max_files)
+
+    if view == "arch":
+        console.print(
+            Panel(
+                pg.to_architecture_diagram(),
+                title="[bold]System Architecture Map[/]",
+                border_style="cyan",
+            )
+        )
+    elif view == "process":
+        console.print(
+            Panel(
+                pg.to_process_map(),
+                title="[bold]Execution & Process Pipeline[/]",
+                border_style="yellow",
+            )
+        )
+    elif view == "er":
+        console.print(
+            Panel(
+                pg.to_er_diagram(),
+                title="[bold]Entity Relationship & Data Models[/]",
+                border_style="magenta",
+            )
+        )
+    elif view == "tree":
+        console.print(
+            Panel(
+                pg.to_ascii_tree(), title="[bold]Project & Data Graph Tree[/]", border_style="blue"
+            )
+        )
+    elif view == "mermaid":
+        console.print(pg.to_mermaid(focus_filter=focus))
+    elif view == "json":
+        import json
+
+        console.print(json.dumps(pg.to_dict(), indent=2))
+    elif view == "llm":
+        console.print(
+            Panel(
+                pg.to_llm_context(), title="[bold]Project Topology Context[/]", border_style="green"
+            )
+        )
+    else:
+        # Curated Dashboard
+        console.print(pg.to_curated_dashboard(focus_filter=focus))
+
+
+@cli.command("graph")
+@click.option("--dir", "-d", default=".", help="Directory to graph")
+@click.option(
+    "--view",
+    "-v",
+    type=click.Choice(["dashboard", "arch", "process", "er", "tree", "mermaid", "json", "llm"]),
+    default="dashboard",
+    help="Graph output view",
+)
+@click.option("--focus", default=None, help="Focus filter")
+@click.option("--max-files", "-m", default=400, help="Max files to include")
+def graph_alias_cmd(dir: str, view: str, focus: str | None, max_files: int) -> None:
+    """Alias for project-graph."""
+    project_graph_cmd.callback(dir=dir, view=view, focus=focus, max_files=max_files)
+
+
 @cli.command("verify")
 @click.option("--dir", "-d", default=".", help="Project directory to verify")
 def verify_cmd(dir: str) -> None:
@@ -1210,6 +1430,94 @@ def checkpoint_cmd(action: str, target: str | None) -> None:
             )
         else:
             console.print(f"[bold red]Failed to restore:[/bold red] {res.get('error')}")
+
+
+@cli.command()
+@click.argument("query")
+@click.option("--limit", "-l", default=6, help="Maximum search results to display")
+@click.option("--json-out", is_flag=True, help="Output in raw JSON format")
+def search(query: str, limit: int, json_out: bool) -> None:
+    """Natural language semantic & BM25 hybrid codebase search.
+
+    Example:
+        sago search "Where are database models defined?"
+        sago search "JWT authentication handler" --limit 10
+    """
+    import json
+
+    from sago.memory.hybrid_indexer import get_hybrid_code_indexer
+
+    indexer = get_hybrid_code_indexer()
+    results = indexer.search(query=query, limit=limit)
+
+    if json_out:
+        console.print(json.dumps([r.to_dict() for r in results], indent=2))
+        return
+
+    if not results:
+        console.print(f"[yellow]No matching code snippets found for: '{query}'[/yellow]")
+        return
+
+    console.print(f"[bold cyan]Hybrid Code Search Results ({len(results)} matches):[/bold cyan]\n")
+    for i, r in enumerate(results, 1):
+        chunk = r.chunk
+        title = f"{chunk.file_path}:{chunk.start_line}-{chunk.end_line}"
+        if chunk.name:
+            title += f" ({chunk.chunk_type} {chunk.name})"
+        console.print(
+            Panel(
+                f"```{chunk.language}\n{chunk.content[:500]}\n```",
+                title=f"#{i} {title}",
+                subtitle=f"Score: {r.combined_score:.2f} | BM25: {r.bm25_score:.2f} | Dense Vec: {r.semantic_score:.2f}",
+                border_style="cyan",
+            )
+        )
+
+
+@cli.command()
+@click.option(
+    "--export",
+    "-e",
+    type=click.Choice(["otel", "prometheus", "json", "md"], case_sensitive=False),
+    default="otel",
+    help="Export telemetry format",
+)
+@click.option("--output", "-o", default=None, help="Output destination file")
+def telemetry(export: str, output: str | None) -> None:
+    """Export developer execution telemetry and OpenTelemetry/Prometheus metrics.
+
+    Example:
+        sago telemetry --export otel --output traces.json
+        sago telemetry --export prometheus --output metrics.prom
+    """
+    import json
+
+    from sago.tracking.dev_tracer import get_dev_tracer
+    from sago.tracking.otel_exporter import OTelExporter, PrometheusExporter
+
+    tracer = get_dev_tracer()
+    events = tracer.get_events()
+
+    if export == "otel":
+        payload = OTelExporter().export_traces(events)
+        out_file = Path(output or "sago_otel_traces.json").resolve()
+        out_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        console.print(
+            f"[bold green]✓ OpenTelemetry traces exported to:[/bold green] [cyan]{out_file}[/cyan]"
+        )
+    elif export == "prometheus":
+        text = PrometheusExporter().export_metrics(events)
+        out_file = Path(output or "sago_metrics.prom").resolve()
+        out_file.write_text(text, encoding="utf-8")
+        console.print(
+            f"[bold green]✓ Prometheus metrics exported to:[/bold green] [cyan]{out_file}[/cyan]"
+        )
+    else:
+        success, res = tracer.export_traces(file_path=output, format=export)
+        if success:
+            console.print(f"[bold green]✓ Traces exported to:[/bold green] [cyan]{res}[/cyan]")
+        else:
+            console.print(f"[bold red]Export failed:[/bold red] {res}")
 
 
 def main() -> None:

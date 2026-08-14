@@ -16,7 +16,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.reactive import reactive
-from textual.widgets import Button, Input, Static
+from textual.widgets import Button, Collapsible, Input, Static
 
 from sago.tui.commands import CommandHandlers
 from sago.tui.helpers import UIHelpers
@@ -175,13 +175,102 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         border-left: solid #3fb950;
         margin: 1 0;
     }
+    .exchange-footer {
+        height: auto;
+        padding: 0 1 1 0;
+    }
+    .exchange-footer-spacer {
+        width: 1fr;
+    }
+    .btn-collapse-turn {
+        min-width: 18;
+        height: 1;
+        background: #161b22;
+        color: #8b949e;
+        border: solid #21262d;
+        padding: 0 1;
+    }
+    .btn-collapse-turn:hover {
+        background: #21262d;
+        color: #58a6ff;
+        border: solid #58a6ff;
+    }
 
+    .collapsible-card-box {
+        background: #0d1117;
+        border: solid #21262d;
+        border-left: solid #388bfd;
+        padding: 0;
+        margin: 1 0;
+        height: auto;
+    }
+    .card-header {
+        background: #161f2e;
+        color: #58a6ff;
+        text-style: bold;
+        padding: 0 2;
+        border-bottom: solid #21262d;
+    }
+    .card-header:hover {
+        background: #212b3b;
+        color: #79c0ff;
+    }
+    .card-body {
+        padding: 1 2;
+        height: auto;
+    }
+    .card-footer {
+        height: auto;
+        padding: 1 0 0 0;
+    }
+    .card-footer-spacer {
+        width: 1fr;
+    }
+    .btn-collapse-card {
+        min-width: 18;
+        height: 1;
+        background: #161b22;
+        color: #58a6ff;
+        border: solid #21262d;
+        padding: 0 1;
+    }
+    .btn-collapse-card:hover {
+        background: #21262d;
+        color: #ffffff;
+        border: solid #58a6ff;
+    }
+
+    .collapse-footer {
+        height: auto;
+        padding: 1 0 0 0;
+    }
+    .collapse-footer-spacer {
+        width: 1fr;
+    }
+    .btn-collapse-bottom {
+        min-width: 18;
+        height: 1;
+        background: #161b22;
+        color: #58a6ff;
+        border: solid #21262d;
+        padding: 0 1;
+    }
+    .btn-collapse-bottom:hover {
+        background: #21262d;
+        color: #ffffff;
+        border: solid #58a6ff;
+    }
+
+    /* Nord Theme */
     /* Nord Theme */
     .theme-nord { background: #242933; }
     .theme-nord #agent-dashboard { background: #2e3440; border-left: solid #434c5e; }
     .theme-nord .exchange-box { background: #2e3440; border: solid #434c5e; border-left: solid #88c0d0; }
     .theme-nord .exchange-prompt-header { background: #3b4252; color: #88c0d0; border-bottom: solid #434c5e; }
     .theme-nord .msg-system { background: #2e3440; border: solid #434c5e; border-left: solid #ebcb8b; }
+    .theme-nord #input-area { background: #242933; border-top: solid #434c5e; }
+    .theme-nord #msg-input { background: #2e3440; border: solid #434c5e; color: #eceff4; }
+    .theme-nord #msg-input:focus { border: solid #88c0d0; }
 
     /* Dracula Theme */
     .theme-dracula { background: #1e1f29; }
@@ -189,6 +278,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-dracula .exchange-box { background: #282a36; border: solid #44475a; border-left: solid #bd93f9; }
     .theme-dracula .exchange-prompt-header { background: #44475a; color: #bd93f9; border-bottom: solid #6272a4; }
     .theme-dracula .msg-system { background: #282a36; border: solid #44475a; border-left: solid #f1fa8c; }
+    .theme-dracula #input-area { background: #1e1f29; border-top: solid #44475a; }
+    .theme-dracula #msg-input { background: #282a36; border: solid #44475a; color: #f8f8f2; }
+    .theme-dracula #msg-input:focus { border: solid #bd93f9; }
 
     /* Monokai Theme */
     .theme-monokai { background: #1e1f1c; }
@@ -196,6 +288,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-monokai .exchange-box { background: #272822; border: solid #3e3d32; border-left: solid #a6e22e; }
     .theme-monokai .exchange-prompt-header { background: #3e3d32; color: #a6e22e; border-bottom: solid #49483e; }
     .theme-monokai .msg-system { background: #272822; border: solid #3e3d32; border-left: solid #e6db74; }
+    .theme-monokai #input-area { background: #1e1f1c; border-top: solid #3e3d32; }
+    .theme-monokai #msg-input { background: #272822; border: solid #3e3d32; color: #f8f8f2; }
+    .theme-monokai #msg-input:focus { border: solid #a6e22e; }
 
     /* Tokyo Night Theme */
     .theme-tokyo-night { background: #16161e; }
@@ -203,6 +298,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-tokyo-night .exchange-box { background: #1a1b26; border: solid #292e42; border-left: solid #7aa2f7; }
     .theme-tokyo-night .exchange-prompt-header { background: #292e42; color: #7aa2f7; border-bottom: solid #3b4261; }
     .theme-tokyo-night .msg-system { background: #1a1b26; border: solid #292e42; border-left: solid #e0af68; }
+    .theme-tokyo-night #input-area { background: #16161e; border-top: solid #292e42; }
+    .theme-tokyo-night #msg-input { background: #1a1b26; border: solid #292e42; color: #c0caf5; }
+    .theme-tokyo-night #msg-input:focus { border: solid #7aa2f7; }
 
     /* Solarized Dark Theme */
     .theme-solarized-dark { background: #00212b; }
@@ -210,6 +308,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-solarized-dark .exchange-box { background: #002b36; border: solid #073642; border-left: solid #268bd2; }
     .theme-solarized-dark .exchange-prompt-header { background: #073642; color: #268bd2; border-bottom: solid #586e75; }
     .theme-solarized-dark .msg-system { background: #002b36; border: solid #073642; border-left: solid #b58900; }
+    .theme-solarized-dark #input-area { background: #00212b; border-top: solid #073642; }
+    .theme-solarized-dark #msg-input { background: #002b36; border: solid #073642; color: #839496; }
+    .theme-solarized-dark #msg-input:focus { border: solid #268bd2; }
 
     /* Cyberpunk Theme */
     .theme-cyberpunk { background: #08090f; }
@@ -217,6 +318,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-cyberpunk .exchange-box { background: #10121d; border: solid #202637; border-left: solid #ffee00; }
     .theme-cyberpunk .exchange-prompt-header { background: #181d2e; color: #00f0ff; border-bottom: solid #00f0ff; }
     .theme-cyberpunk .msg-system { background: #10121d; border: solid #202637; border-left: solid #00f0ff; }
+    .theme-cyberpunk #input-area { background: #08090f; border-top: solid #202637; }
+    .theme-cyberpunk #msg-input { background: #10121d; border: solid #202637; color: #00f0ff; }
+    .theme-cyberpunk #msg-input:focus { border: solid #00f0ff; }
 
     /* Catppuccin Mocha Theme */
     .theme-catppuccin-mocha { background: #1e1e2e; }
@@ -224,6 +328,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-catppuccin-mocha .exchange-box { background: #181825; border: solid #313244; border-left: solid #cba6f7; }
     .theme-catppuccin-mocha .exchange-prompt-header { background: #313244; color: #cba6f7; border-bottom: solid #45475a; }
     .theme-catppuccin-mocha .msg-system { background: #181825; border: solid #313244; border-left: solid #f9e2af; }
+    .theme-catppuccin-mocha #input-area { background: #1e1e2e; border-top: solid #313244; }
+    .theme-catppuccin-mocha #msg-input { background: #181825; border: solid #313244; color: #cdd6f4; }
+    .theme-catppuccin-mocha #msg-input:focus { border: solid #cba6f7; }
 
     /* Gruvbox Dark Theme */
     .theme-gruvbox-dark { background: #1d2021; }
@@ -231,6 +338,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-gruvbox-dark .exchange-box { background: #282828; border: solid #3c3836; border-left: solid #fabd2f; }
     .theme-gruvbox-dark .exchange-prompt-header { background: #3c3836; color: #fabd2f; border-bottom: solid #504945; }
     .theme-gruvbox-dark .msg-system { background: #282828; border: solid #3c3836; border-left: solid #fabd2f; }
+    .theme-gruvbox-dark #input-area { background: #1d2021; border-top: solid #3c3836; }
+    .theme-gruvbox-dark #msg-input { background: #282828; border: solid #3c3836; color: #ebdbb2; }
+    .theme-gruvbox-dark #msg-input:focus { border: solid #fabd2f; }
 
     /* Rosé Pine Theme */
     .theme-rose-pine { background: #191724; }
@@ -238,6 +348,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-rose-pine .exchange-box { background: #1f1d2e; border: solid #26233a; border-left: solid #eb6f92; }
     .theme-rose-pine .exchange-prompt-header { background: #26233a; color: #eb6f92; border-bottom: solid #393552; }
     .theme-rose-pine .msg-system { background: #1f1d2e; border: solid #26233a; border-left: solid #f6c177; }
+    .theme-rose-pine #input-area { background: #191724; border-top: solid #26233a; }
+    .theme-rose-pine #msg-input { background: #1f1d2e; border: solid #26233a; color: #e0def4; }
+    .theme-rose-pine #msg-input:focus { border: solid #eb6f92; }
 
     /* Clean Light Theme */
     .theme-light { background: #f6f8fa; }
@@ -246,6 +359,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-light .exchange-prompt-header { background: #f1f3f5; color: #0969da; border-bottom: solid #d0d7de; }
     .theme-light .msg-system { background: #ffffff; border: solid #d0d7de; border-left: solid #9a6700; color: #24292f; }
     .theme-light .exchange-assistant { color: #24292f; }
+    .theme-light #input-area { background: #f6f8fa; border-top: solid #d0d7de; }
+    .theme-light #msg-input { background: #ffffff; border: solid #d0d7de; color: #24292f; }
+    .theme-light #msg-input:focus { border: solid #0969da; }
 
     .dev-trace-text {
         color: #79c0ff;
@@ -280,8 +396,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
     #input-area {
         height: auto;
-        padding: 0 1;
-        background: #0f1217;
+        padding: 0 2 1 2;
+        background: #0a0d12;
         border-top: solid #21262d;
         margin: 0;
     }
@@ -293,7 +409,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         margin: 0;
         padding: 0 1;
     }
-    #msg-input:focus { border: solid #58a6ff; }
+    #msg-input:focus {
+        border: solid #58a6ff;
+        color: #ffffff;
+    }
 
     #suggestions {
         display: none;
@@ -302,7 +421,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         overflow-y: auto;
         background: #161b22;
         border: solid #30363d;
-        margin: 0 1 0 1;
+        margin: 0 2 0 2;
         padding: 0;
         scrollbar-size: 0 0;
     }
@@ -446,6 +565,14 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         Binding("ctrl+d", "toggle_dashboard", "Dashboard"),
         Binding("ctrl+t", "show_tasks", "Tasks"),
         Binding("ctrl+c", "cancel_task", "Cancel"),
+        Binding("pageup", "scroll_page_up", "Scroll Up", show=False),
+        Binding("pagedown", "scroll_page_down", "Scroll Down", show=False),
+        Binding("ctrl+up", "scroll_line_up", "Scroll Up", show=False),
+        Binding("ctrl+down", "scroll_line_down", "Scroll Down", show=False),
+        Binding("shift+up", "scroll_page_up", "Scroll Up", show=False),
+        Binding("shift+down", "scroll_page_down", "Scroll Down", show=False),
+        Binding("ctrl+home", "scroll_home", "Top", show=False),
+        Binding("ctrl+end", "scroll_end", "Bottom", show=False),
     ]
 
     TITLE = "Sago"
@@ -784,6 +911,42 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 target.toggle_collapse()
                 break
             target = target.parent
+
+    @on(Button.Pressed, ".btn-collapse-bottom")
+    def on_collapse_bottom_button(self, event: Button.Pressed) -> None:
+        """Collapse the parent native Collapsible widget from bottom-right button."""
+        event.stop()
+        try:
+            curr = event.button.parent
+            while curr is not None:
+                if isinstance(curr, Collapsible):
+                    curr.collapsed = True
+                    try:
+                        curr.scroll_visible()
+                    except Exception:
+                        pass
+                    break
+                curr = curr.parent
+            self.query_one("#msg-input").focus()
+        except Exception:
+            pass
+
+    @on(Button.Pressed, ".btn-collapse-turn")
+    def on_collapse_turn_button(self, event: Button.Pressed) -> None:
+        """Collapse the parent ExchangeTurnCard from bottom-right button."""
+        from sago.tui.helpers import ExchangeTurnCard
+
+        event.stop()
+        try:
+            curr = event.button.parent
+            while curr is not None:
+                if isinstance(curr, ExchangeTurnCard):
+                    curr.toggle_collapse()
+                    break
+                curr = curr.parent
+            self.query_one("#msg-input").focus()
+        except Exception:
+            pass
 
     @on(Input.Submitted, "#msg-input")
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -1346,6 +1509,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             "/developer": lambda: self._handle_developer_command(args),
             "/dev": lambda: self._handle_developer_command(args),
             "/checkpoint": lambda: self._handle_checkpoint_command(args),
+            "/project_graph": lambda: self._show_project_graph(args),
+            "/graph": lambda: self._show_project_graph(args),
+            "/search": lambda: self._handle_search_command(args),
+            "/semantic": lambda: self._handle_search_command(args),
+            "/detach": lambda: self._detach_session(),
         }
 
         if cmd in handlers:
@@ -1361,6 +1529,48 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self.query_one("#messages").remove_children()
         self.messages.clear()
         self._add_system_message("Cleared.")
+
+    def action_scroll_page_up(self) -> None:
+        """Scroll message viewport page up."""
+        try:
+            self.query_one("#messages").scroll_page_up(animate=True)
+        except Exception:
+            pass
+
+    def action_scroll_page_down(self) -> None:
+        """Scroll message viewport page down."""
+        try:
+            self.query_one("#messages").scroll_page_down(animate=True)
+        except Exception:
+            pass
+
+    def action_scroll_line_up(self) -> None:
+        """Scroll message viewport line up."""
+        try:
+            self.query_one("#messages").scroll_up(animate=False)
+        except Exception:
+            pass
+
+    def action_scroll_line_down(self) -> None:
+        """Scroll message viewport line down."""
+        try:
+            self.query_one("#messages").scroll_down(animate=False)
+        except Exception:
+            pass
+
+    def action_scroll_home(self) -> None:
+        """Scroll message viewport to top."""
+        try:
+            self.query_one("#messages").scroll_home(animate=True)
+        except Exception:
+            pass
+
+    def action_scroll_end(self) -> None:
+        """Scroll message viewport to bottom."""
+        try:
+            self.query_one("#messages").scroll_end(animate=True)
+        except Exception:
+            pass
 
     def _process_delegation(self, agent_name: str, task: str) -> None:
         self.is_thinking = True
@@ -1881,10 +2091,31 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         logger.debug("Task plan creation failed: %s", e)
                         task_plan = None
 
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": message},
-                ]
+                # Assemble multi-turn conversational history from prior messages
+                history: list[dict[str, Any]] = []
+                for m in self.messages[:-1]:
+                    r = m.get("role")
+                    c = m.get("content")
+                    if r in ("user", "assistant") and c:
+                        # Clean out reasoning tags from context history
+                        cleaned_c = re.sub(
+                            r"<(?:thinking|thought)>.*?</(?:thinking|thought)>",
+                            "",
+                            c,
+                            flags=re.DOTALL,
+                        ).strip()
+                        if cleaned_c:
+                            history.append({"role": r, "content": cleaned_c})
+
+                # Retain up to last 16 turns to maintain complete conversational memory
+                if len(history) > 16:
+                    history = history[-16:]
+
+                messages = (
+                    [{"role": "system", "content": system_prompt}]
+                    + history
+                    + [{"role": "user", "content": message}]
+                )
 
                 # Build OpenAI function calling tool definitions
                 openai_tools = _build_openai_tools(tools)
@@ -2348,10 +2579,22 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             duration_ms=tool_dur_ms,
                         )
 
-                        if name == "write_file" and not is_error:
-                            fp = args.get("file_path", "")
+                        if name in ("write_file", "edit_file", "file_operations") and not is_error:
+                            fp = (
+                                args.get("file_path", "")
+                                or args.get("target_file", "")
+                                or args.get("path", "")
+                            )
                             if fp and fp not in files_created:
                                 files_created.append(fp)
+                            try:
+                                from sago.engine.verifier import get_continuous_verifier
+
+                                get_continuous_verifier().enqueue_files([fp] if fp else [])
+                            except Exception:
+                                pass
+
+                        if name == "write_file" and not is_error:
                             # Nudge LLM to stop after successful file write
                             if iteration < effort["max_iterations"] - 1:
                                 messages.append(

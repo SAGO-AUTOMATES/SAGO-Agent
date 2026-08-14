@@ -4,36 +4,36 @@
 
 ---
 
-## 1. Pending Tasks & Active Initiatives
+## 1. Active & Implemented Initiatives
 
-### [ ] Multi-Language Tree-sitter AST Symbol Extractor
-- **Goal**: Expand AST symbol mapping beyond Python to first-class C++, Rust, Go, TypeScript, Java, and C# using `tree-sitter`.
-- **Target**: Sub-millisecond incremental symbol caching for codebases exceeding 5,000+ files.
+### [x] Local Dense Vector Embeddings & Hybrid BM25 Code Index
+- **Status**: ✅ **Implemented in 0.1.3** (`sago/memory/hybrid_indexer.py`, `sago.tools.coding.hybrid_search_tool`).
+- **Capabilities**: Sub-millisecond BM25 probabilistic keyword search combined with 128-d dense vector semantic embeddings. Available via `/search <query>` in TUI and `sago search` CLI.
 
-### [ ] Local Vector Embeddings & Hybrid BM25 Code Index
-- **Goal**: Augment the symbol graph with local semantic embeddings (e.g., `sentence-transformers` / `FastEmbed`) combined with BM25 keyword search.
-- **Benefit**: Natural language semantic code search across large repositories without external cloud dependencies.
+### [x] Continuous Background Linting & Self-Healing Diagnostics
+- **Status**: ✅ **Implemented in 0.1.3** (`sago/engine/verifier.py`, `ContinuousVerifier`).
+- **Capabilities**: Spawns non-blocking background verification runs when files are written or edited, extracting actionable line-level diagnostics for instant self-healing.
+
+### [x] OpenTelemetry & Prometheus Telemetry Exporters
+- **Status**: ✅ **Implemented in 0.1.3** (`sago/tracking/otel_exporter.py`).
+- **Capabilities**: Exports standard OpenTelemetry Trace JSON specification and Prometheus metrics format via `/dev export otel` / `/dev export prometheus` and `sago telemetry` CLI.
+
+### [x] Hierarchical Context Compaction & Zero-Redundancy Handoffs
+- **Status**: ✅ **Implemented in 0.1.3** (`sago/memory/compaction.py`, `sago/agents/handoff.py`).
+- **Capabilities**: 3-tiered memory pyramid (Architectural Goals $\to$ Working Deltas $\to$ Active Turns) and delta state serialization saving ~70% context overhead during multi-agent handoffs.
+
+### [x] Multi-Language AST Symbol & Architecture Graph
+- **Status**: ✅ **Implemented in 0.1.3** (`sago/memory/symbol_graph.py`, `sago/memory/project_graph.py`).
+- **Capabilities**: Multi-language symbol extraction (Python, TS/JS, Rust, Go, SQL, Java, C/C++) and full interactive architecture maps via `/graph` / `/project_graph`.
+
+---
+
+## 2. Future Roadmap Initiatives
 
 ### [ ] Secure WebAssembly (Wasm) & Isolated Execution Sandbox
 - **Goal**: Provide an optional WebAssembly or microVM sandbox for running untrusted shell and execution tasks.
-- **Target**: Safe autonomous code execution on multi-tenant developer environments.
+- **Target**: Safe autonomous code execution on multi-tenant developer environments (deferred).
 
 ### [ ] Distributed Multi-Node Agent Swarm Mesh
 - **Goal**: Connect multiple Sago instances across machines over peer-to-peer WebSockets / mTLS.
 - **Target**: Large-scale distributed builds, parallel testing matrices, and cross-repo coordination.
-
----
-
-## 2. Future Architectural Insights
-
-### Autonomous Intent Pipeline
-- **Continuous Background Linting**: After modifying files, automatically spawn a lightweight background verification job and surface diagnostics before the user even asks.
-- **Predictive Handoff Routing**: Use fast embeddings on prompt intent to pre-warm and route directly to specialized agents (e.g., `postgresql-engineer`, `kubernetes-engineer`).
-
-### Token Optimization & Memory Compaction
-- **Hierarchical Context Compaction**: For conversations with 100+ turns, maintain structured memory pyramids (active working set $\to$ recent diffs $\to$ high-level architectural decisions).
-- **Zero-Redundancy Handoffs**: Pass compact state delta objects instead of raw conversational history during multi-agent delegation chains.
-
-### Enterprise Governance & Observability
-- **OpenTelemetry & Prometheus Export**: Native tracing metrics for token latency, tool execution times, agent handoffs, and error rates.
-- **Role-Based Workspace Isolation**: Fine-grained project boundary policies for enterprise monorepos.

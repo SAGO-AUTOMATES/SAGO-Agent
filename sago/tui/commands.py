@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from textual.widgets import Collapsible, Static
@@ -20,7 +21,17 @@ class CommandHandlers:
         container = self.query_one("#messages")
 
         categories = {
-            "CORE": ["/help", "/map", "/verify", "/plan", "/todos", "/done", "/compact", "/reset"],
+            "CORE": [
+                "/help",
+                "/map",
+                "/project_graph",
+                "/verify",
+                "/plan",
+                "/todos",
+                "/done",
+                "/compact",
+                "/reset",
+            ],
             "AGENT ORCHESTRATION": [
                 "/agents",
                 "/agent",
@@ -530,6 +541,36 @@ class CommandHandlers:
         print(f"Or: /load {sid}", file=sys.stderr)
         self.exit()
 
+    def _detach_session(self: SagoApp) -> None:
+        """Detach from session cleanly without stopping background tasks."""
+        if hasattr(self, "_message_store") and self._message_store:
+            try:
+                self._message_store.flush()
+            except Exception:
+                pass
+        try:
+            from sago.database import Session, init_db
+
+            init_db()
+            s = Session(self.current_session_id)
+            s.update(title=f"Session {self.current_session_id[:8]}", status="detached")
+            s.close()
+        except Exception:
+            pass
+
+        sid = self.current_session_id[:8]
+        import sys
+
+        print("\n" + "=" * 60, file=sys.stderr)
+        print(f"[bold green]✓ SAGO DETACHED SUCCESSFULLY[/] (Session: {sid})", file=sys.stderr)
+        print("All background agent tasks and processes remain running.", file=sys.stderr)
+        print("You can safely close this terminal tab.", file=sys.stderr)
+        print("-" * 60, file=sys.stderr)
+        print(f"To reattach anytime, run:  sago attach {sid}", file=sys.stderr)
+        print(f"                      or:  sago tui --resume {sid}", file=sys.stderr)
+        print("=" * 60 + "\n", file=sys.stderr)
+        self.exit()
+
     def _list_sessions(self: SagoApp) -> None:
         """List recent sessions for easy resume."""
         try:
@@ -580,7 +621,6 @@ class CommandHandlers:
         Usage: /export [output_path]
         Default: {session_id}_export.md in current directory
         """
-        from pathlib import Path
 
         from sago.database import MessageStore, ToolUsageStore, init_db
 
@@ -1196,9 +1236,11 @@ class CommandHandlers:
         try:
             graph = SymbolGraph()
             rmap = graph.generate_repo_map(filter_query=query.strip() or None)
+            from sago.tui.helpers import create_collapsible
+
             container = self.query_one("#messages")
             container.mount(
-                Collapsible(
+                create_collapsible(
                     Static(f"```text\n{rmap}\n```"),
                     title="Symbol Repo Map",
                     collapsed=False,
@@ -1206,6 +1248,140 @@ class CommandHandlers:
             )
         except Exception as e:
             self._add_system_message(f"Error generating repo map: {e}")
+
+    def _show_project_graph(self: SagoApp, args: str = "") -> None:
+        """Generate and display comprehensive architecture, process map & data graph asynchronously."""
+        import threading
+
+        from sago.memory.project_graph import get_cached_project_graph
+
+        try:
+            parts = args.strip().split()
+            view = "dashboard"
+            focus = None
+            target_dir = None
+
+            for p in parts:
+                p_lower = p.lower()
+                if p_lower in (
+                    "dashboard",
+                    "all",
+                    "arch",
+                    "architecture",
+                    "process",
+                    "pipeline",
+                    "er",
+                    "data",
+                    "models",
+                    "tree",
+                    "ascii",
+                    "flow",
+                    "flowchart",
+                    "mermaid",
+                    "json",
+                    "llm",
+                ):
+                    view = p_lower
+                else:
+                    expanded = Path(p).expanduser().resolve()
+                    if expanded.is_dir():
+                        target_dir = expanded
+                    else:
+                        focus = p
+
+            root_path = target_dir or Path.cwd()
+            self._add_system_message(
+                f"⚡ Analyzing codebase architecture & topology in background for '{root_path.name}' (view: {view})..."
+            )
+            self.is_thinking = True
+
+            def _worker() -> None:
+                try:
+                    pg = get_cached_project_graph(root_dir=root_path, max_files=1500)
+
+                    if view in ("arch", "architecture"):
+                        content = pg.to_architecture_diagram()
+                        title = f"System Architecture Map — Layered Box Diagram ({len(pg.nodes)} components)"
+                        render_text = f"```text\n{content}\n```"
+                    elif view in ("process", "pipeline"):
+                        content = pg.to_process_map()
+                        title = "Autonomous Process & Execution Flywheel Map"
+                        render_text = f"```text\n{content}\n```"
+                    elif view in ("er", "data", "models"):
+                        content = pg.to_er_diagram()
+                        title = f"Entity Relationship & Data Model Map ({len(pg.data_models)} models/schemas)"
+                        render_text = f"```text\n{content}\n```"
+                    elif view in ("flow", "flowchart"):
+                        content = pg.to_visual_flowchart(focus_filter=focus)
+                        title = (
+                            f"Component Dependency & Data Flow Pipeline ({len(pg.edges)} relations)"
+                        )
+                        render_text = f"```text\n{content}\n```"
+                    elif view in ("tree", "ascii"):
+                        content = pg.to_ascii_tree()
+                        title = f"File Dependency & Data Model Tree ({len(pg.nodes)} nodes, {len(pg.edges)} relations)"
+                        render_text = f"```text\n{content}\n```"
+                    elif view == "mermaid":
+                        render_text = pg.to_mermaid(focus_filter=focus)
+                        title = f"Project Graph (Mermaid Flowchart - {len(pg.nodes)} components)"
+                    elif view == "json":
+                        import json
+
+                        raw_json = json.dumps(pg.to_dict(), indent=2)
+                        render_text = f"```json\n{raw_json}\n```"
+                        title = (
+                            f"Project Graph (JSON - {len(pg.nodes)} nodes, {len(pg.edges)} edges)"
+                        )
+                    elif view == "llm":
+                        render_text = pg.to_llm_context()
+                        title = "Project Topology & Hub Summary"
+                    else:
+                        # Curated Consolidated Dashboard
+                        render_text = pg.to_curated_dashboard(focus_filter=focus)
+                        title = f"SAGO Architecture & Process Graph Dashboard ({len(pg.nodes)} components)"
+
+                    def _mount_result() -> None:
+                        from rich.markdown import Markdown
+
+                        from sago.tui.helpers import create_collapsible
+
+                        container = self.query_one("#messages")
+                        md_widget = Markdown(render_text, code_theme="monokai")
+                        c = create_collapsible(
+                            Static(md_widget),
+                            title=title,
+                            collapsed=False,
+                        )
+                        container.mount(c)
+                        try:
+                            container.scroll_end(animate=False)
+                            self.query_one("#msg-input").focus()
+                        except Exception:
+                            pass
+                        self.is_thinking = False
+
+                    self.call_from_thread(_mount_result)
+                except Exception as ex:
+                    err_msg = str(ex)
+
+                    def _mount_error() -> None:
+                        self._add_system_message(f"Error generating graph: {err_msg}")
+                        try:
+                            self.query_one("#msg-input").focus()
+                        except Exception:
+                            pass
+                        self.is_thinking = False
+
+                    self.call_from_thread(_mount_error)
+
+            threading.Thread(target=_worker, daemon=True).start()
+        except Exception as e:
+            self.is_thinking = False
+            try:
+                self.query_one("#msg-input").focus()
+            except Exception:
+                pass
+            self._add_system_message(f"Error generating project graph: {e}")
 
     def _run_verify(self: SagoApp) -> None:
         """Run automated multi-language verifier."""
@@ -1405,14 +1581,39 @@ class CommandHandlers:
             tracer.set_enabled(False)
             self._add_system_message("⚡ [dim][DEV MODE OFF][/dim] Developer diagnostics disabled.")
         elif action in ("export", "save"):
-            fmt = "md" if subarg.endswith(".md") else "json"
-            success, res = tracer.export_traces(file_path=subarg or None, format=fmt)
-            if success:
+            parts_export = subarg.split()
+            export_type = parts_export[0].lower() if parts_export else "json"
+            target_path = parts_export[1] if len(parts_export) > 1 else None
+
+            if export_type in ("otel", "opentelemetry"):
+                import json
+
+                from sago.tracking.otel_exporter import OTelExporter
+
+                payload = OTelExporter().export_traces(tracer.get_events())
+                out_path = Path(target_path or "sago_otel_traces.json").resolve()
+                out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
                 self._add_system_message(
-                    f"● [bold green]Traces Exported Successfully[/bold green]:\n  `{res}`"
+                    f"● [bold green]OpenTelemetry Traces Exported[/bold green]:\n  `{out_path}`"
+                )
+            elif export_type in ("prometheus", "metrics", "prom"):
+                from sago.tracking.otel_exporter import PrometheusExporter
+
+                metrics_text = PrometheusExporter().export_metrics(tracer.get_events())
+                out_path = Path(target_path or "sago_metrics.prom").resolve()
+                out_path.write_text(metrics_text, encoding="utf-8")
+                self._add_system_message(
+                    f"● [bold green]Prometheus Metrics Exported[/bold green]:\n  `{out_path}`"
                 )
             else:
-                self._add_system_message(f"● [bold red]Export Failed[/bold red]: {res}")
+                fmt = "md" if subarg.endswith(".md") else "json"
+                success, res = tracer.export_traces(file_path=subarg or None, format=fmt)
+                if success:
+                    self._add_system_message(
+                        f"● [bold green]Traces Exported Successfully[/bold green]:\n  `{res}`"
+                    )
+                else:
+                    self._add_system_message(f"● [bold red]Export Failed[/bold red]: {res}")
         elif action in ("clear", "reset"):
             tracer.clear()
             self._add_system_message("⚡ Developer trace telemetry buffer cleared.")
@@ -1504,7 +1705,8 @@ class CommandHandlers:
                 "  • [bold white]Tab / Enter[/bold white]    : Accept autocomplete suggestion\n"
                 "  • [bold white]y / n[/bold white]          : Approve or Deny permission requests\n\n"
                 "  [bold magenta]Core Commands:[/bold magenta]\n"
-                "  • `/dev on|off|export`  : Developer mode & JSON/MD trace exporter\n"
+                "  • `/search <query>`    : Hybrid BM25 & dense vector semantic code search\n"
+                "  • `/dev on|off|export`  : Developer mode & OTel/Prometheus trace exporter\n"
                 "  • `/theme <name>`      : Switch between 11 terminal themes\n"
                 "  • `/collapse all`      : Collapse or expand conversational cards\n"
                 "  • `/checkpoint`        : Instant project snapshots & rollback\n"
@@ -1513,3 +1715,45 @@ class CommandHandlers:
                 "  • `@agent / #file`     : Mention agent or reference file"
             )
             self._add_system_message(msg)
+
+    def _handle_search_command(self: SagoApp, args: str = "") -> None:
+        """Handle /search or /semantic codebase natural language search."""
+        if not args.strip():
+            self._add_system_message("Usage: `/search <natural language query or symbol>`")
+            return
+
+        from sago.memory.hybrid_indexer import get_hybrid_code_indexer
+        from sago.tui.helpers import create_collapsible
+
+        try:
+            indexer = get_hybrid_code_indexer()
+            results = indexer.search(query=args.strip(), limit=6)
+            if not results:
+                self._add_system_message(f"No semantic code matches found for: '{args}'")
+                return
+
+            lines = [
+                f"[bold cyan]═══ HYBRID SEMANTIC SEARCH RESULTS for '{args}' ═══[/bold cyan]\n"
+            ]
+            for i, r in enumerate(results, 1):
+                chunk = r.chunk
+                title = f"{chunk.file_path}:{chunk.start_line}-{chunk.end_line}"
+                if chunk.name:
+                    title += f" ({chunk.chunk_type} {chunk.name})"
+                lines.append(
+                    f"[bold yellow]#{i} {title}[/bold yellow] "
+                    f"[dim](Score: {r.combined_score:.2f} | BM25: {r.bm25_score:.2f} | Vec: {r.semantic_score:.2f})[/dim]\n"
+                    f"```{chunk.language}\n{chunk.content[:400]}\n```\n"
+                )
+
+            container = self.query_one("#messages")
+            container.mount(
+                create_collapsible(
+                    Static("\n".join(lines)),
+                    title=f"Search: {args.strip()[:30]} ({len(results)} matches)",
+                    collapsed=False,
+                )
+            )
+            container.scroll_end()
+        except Exception as e:
+            self._add_system_message(f"Error during search: {e}")

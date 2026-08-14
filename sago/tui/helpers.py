@@ -6,8 +6,9 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from rich.syntax import Syntax
-from textual.containers import Vertical
-from textual.widgets import Collapsible, Static
+from textual import events, on
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Button, Collapsible, Static
 
 from sago.tui.widgets import AgentStatus, get_agent_color
 
@@ -44,6 +45,20 @@ def _render_markdown(content: str) -> str:
     return text
 
 
+def create_collapsible(
+    *content: Any,
+    title: str = "",
+    collapsed: bool = False,
+) -> Collapsible:
+    """Create a native Textual Collapsible with a bottom-right collapse button."""
+    footer = Horizontal(
+        Static("", classes="collapse-footer-spacer"),
+        Button("▲ Collapse Output", variant="default", classes="btn-collapse-bottom"),
+        classes="collapse-footer",
+    )
+    return Collapsible(*content, footer, title=title, collapsed=collapsed)
+
+
 class ExchangeTurnCard(Vertical):
     """Container for a single unified conversational turn (Prompt, Reasoning, Tools, Response)."""
 
@@ -61,14 +76,31 @@ class ExchangeTurnCard(Vertical):
             markup=True,
         )
         yield Vertical(classes="exchange-body")
+        yield Horizontal(
+            Static("", classes="exchange-footer-spacer"),
+            Button("▲ Collapse Message", variant="default", classes="btn-collapse-turn"),
+            classes="exchange-footer",
+        )
+
+    @on(events.Click, ".exchange-prompt-header")
+    def on_header_clicked(self, event: events.Click) -> None:
+        event.stop()
+        self.toggle_collapse()
+
+    @on(Button.Pressed, ".btn-collapse-turn")
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        self.toggle_collapse()
 
     def toggle_collapse(self) -> None:
-        """Toggle collapsed state of entire exchange body."""
+        """Toggle collapsed state of entire exchange body and footer."""
         try:
             body = self.query_one(".exchange-body")
+            footer = self.query_one(".exchange-footer")
             hdr = self.query_one(".exchange-prompt-header", Static)
             self.is_turn_collapsed = not self.is_turn_collapsed
             body.display = not self.is_turn_collapsed
+            footer.display = not self.is_turn_collapsed
 
             preview = self.prompt.replace("\n", " ").strip()
             title_snippet = f"{preview[:75]}..." if len(preview) > 75 else preview
@@ -91,6 +123,59 @@ class ExchangeTurnCard(Vertical):
             body.mount(widget)
         except Exception:
             self.mount(widget)
+
+
+class CollapsibleOutputCard(Vertical):
+    """Universal collapsible card for command outputs with top header and bottom-right collapse button."""
+
+    def __init__(
+        self,
+        content_widget: Any,
+        title: str,
+        collapsed: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(classes="collapsible-card-box", **kwargs)
+        self.card_title = title
+        self.is_collapsed = collapsed
+        self._content_widget = content_widget
+
+    def compose(self):
+        icon = "▶" if self.is_collapsed else "▼"
+        hint = " [dim]─ (click to expand)[/dim]" if self.is_collapsed else ""
+        yield Static(
+            f"[bold cyan]{icon}[/bold cyan] [bold white]{self.card_title}[/bold white]{hint}",
+            classes="card-header",
+            markup=True,
+        )
+        with Vertical(classes="card-body"):
+            yield self._content_widget
+            yield Horizontal(
+                Static("", classes="card-footer-spacer"),
+                Button("▲ Collapse Output", variant="default", classes="btn-collapse-card"),
+                classes="card-footer",
+            )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if "btn-collapse-card" in event.button.classes:
+            event.stop()
+            self.toggle_collapse()
+
+    def toggle_collapse(self) -> None:
+        try:
+            body = self.query_one(".card-body")
+            hdr = self.query_one(".card-header", Static)
+            self.is_collapsed = not self.is_collapsed
+            body.display = not self.is_collapsed
+
+            if self.is_collapsed:
+                hdr.update(
+                    f"[bold cyan]▶[/bold cyan] [bold white]{self.card_title}[/bold white] [dim]─ (click to expand)[/dim]"
+                )
+            else:
+                hdr.update(f"[bold cyan]▼[/bold cyan] [bold white]{self.card_title}[/bold white]")
+        except Exception:
+            pass
 
 
 class UIHelpers:

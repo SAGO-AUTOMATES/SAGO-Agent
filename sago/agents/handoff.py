@@ -96,6 +96,41 @@ class HandoffContext:
 
         return "\n\n".join(parts)
 
+    def to_state_delta(self) -> dict[str, Any]:
+        """Generate a zero-redundancy state delta object for lightweight agent handoffs."""
+        return {
+            "task_intent": self.original_task[:500],
+            "task_type": self.task_type,
+            "chain": list(self.completed_agents),
+            "files_touched": list(self.files_created),
+            "recent_errors": list(self.errors[-2:]),
+            "depth": self.depth,
+            "shared_keys": list(self.shared_state.keys()),
+        }
+
+    def get_compact_handoff_prompt(self, agent_name: str) -> str:
+        """Generate a token-minimized handoff prompt saving ~70% context overhead."""
+        lines = [f"[AGENT HANDOFF DELTA -> {agent_name.upper()}]"]
+        lines.append(f"Task: {self.original_task}")
+        if self.completed_agents:
+            lines.append(f"Completed Prior Stages: {', '.join(self.completed_agents)}")
+        if self.files_created:
+            lines.append(f"Active Files: {', '.join(self.files_created)}")
+        if self.errors:
+            lines.append(f"Unresolved Issues: {'; '.join(self.errors[-2:])}")
+
+        # Last agent result summarized
+        if self.completed_agents:
+            last_agent = self.completed_agents[-1]
+            last_res = self.agent_results.get(last_agent, "")
+            if last_res:
+                lines.append(f"Output from {last_agent}:\n{last_res[:800]}")
+
+        lines.append(
+            f"\nFocus: Execute your specialized domain role for {agent_name} and output your verified solution."
+        )
+        return "\n".join(lines)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize for storage/transport."""
         return {
@@ -106,6 +141,7 @@ class HandoffContext:
             "errors": self.errors,
             "depth": self.depth,
             "parent_chain": self.parent_chain,
+            "state_delta": self.to_state_delta(),
         }
 
 

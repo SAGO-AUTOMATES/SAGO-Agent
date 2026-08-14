@@ -15,7 +15,31 @@ Execute with specific agent or sequential chain.
 
 ```bash
 sago run "task" --agent python-engineer
+sago run "Run long test suite" --detach   # Detach immediately; safe to close terminal tab
 sago run "task" --chain system-architect,backend-engineer,code-reviewer
+```
+
+### `sago attach`
+Attach to a running detached session or stream a background task log.
+
+```bash
+sago attach                   # Interactive list of running sessions & background tasks
+sago attach a62c0922          # Reattach to TUI session
+sago attach task_1700000000   # Live tail background task log
+```
+
+### `sago project-graph` / `sago graph`
+Generate a deep architecture box diagram, autonomous execution process map, data model schema topology, and file dependency graph across multi-language codebases.
+
+```bash
+sago project-graph                           # Curated full architecture dashboard
+sago project-graph --view arch               # Layered system architecture box diagram
+sago project-graph --view process            # End-to-end execution pipeline & flywheel map
+sago project-graph --view er                 # Entity-Relationship & data model diagram
+sago project-graph --view flow               # Terminal-native component flow pipeline
+sago project-graph --view tree               # Formatted file dependency & symbol tree
+sago project-graph --view mermaid            # Visual Mermaid flowchart
+sago project-graph --dir ./services --view arch
 ```
 
 ### `sago map`
@@ -24,6 +48,23 @@ Generate an AST-parsed compact symbol repository map (classes, methods, signatur
 ```bash
 sago map
 sago map --dir ./src --query UserService --max-files 100
+```
+
+### `sago search`
+Natural language semantic & BM25 hybrid codebase search across 1,000+ files without external cloud vector DBs.
+
+```bash
+sago search "Where are database models defined?"
+sago search "JWT authentication handler" --limit 10
+sago search "retry logic on network failure" --json-out
+```
+
+### `sago telemetry`
+Export microsecond execution telemetry into standard OpenTelemetry (`OTEL`) Trace JSON or Prometheus metrics exposition format.
+
+```bash
+sago telemetry --export otel --output traces.json
+sago telemetry --export prometheus --output metrics.prom
 ```
 
 ### `sago verify`
@@ -87,6 +128,8 @@ Show system and connection status.
 | Command | Description |
 |---------|-------------|
 | `/help` | Show categorized command reference |
+| `/project_graph [view] [path]` | Generate architecture box diagram, process flywheel, data graph, and flow pipelines (`dashboard`, `arch`, `process`, `er`, `flow`, `tree`, `mermaid`, `json`, `llm`) |
+| `/graph` | Alias for `/project_graph` |
 | `/map [query]` | Generate compact AST symbol repo map |
 | `/verify` | Run automated linters, type checks, and test suites |
 | `/plan` | Show current multi-step task execution plan |
@@ -95,6 +138,7 @@ Show system and connection status.
 | `/done <id>` | Mark a todo item as completed |
 | `/compact` | Semantic context compression (prunes verbose tool outputs) |
 | `/reset` | Reset active session |
+| `/detach` | Cleanly detach from session while keeping background tasks running (safe to close terminal) |
 | `/version` | Show Sago version info |
 | `/exit` | Save session and quit |
 
@@ -179,8 +223,10 @@ Show system and connection status.
 | Shortcut | Action |
 | :--- | :--- |
 | `F1` or `?` | Open interactive Keyboard Shortcuts & Quick Reference Modal |
-| `PageUp` / `Shift+Up` | Scroll messages pane up |
-| `PageDown` / `Shift+Down` | Scroll messages pane down |
+| `PageUp` / `Shift+Up` | Scroll messages pane page / line up |
+| `PageDown` / `Shift+Down` | Scroll messages pane page / line down |
+| `Ctrl+Up` / `Ctrl+Down` | Line-by-line smooth viewport scroll |
+| `Ctrl+Home` / `Ctrl+End` | Jump to top / bottom of chat messages |
 | `Ctrl+D` | Toggle agent dashboard sidebar |
 | `Ctrl+T` | Show background tasks |
 | `Ctrl+C` | Cancel current task |
@@ -190,3 +236,4 @@ Show system and connection status.
 | `Tab` / `Enter` | Accept autocomplete suggestion |
 | `Escape` | Close autocomplete suggestions / dismiss modals |
 | `y` / `n` | Approve or Deny permission requests |
+| `[▲ Collapse Message]` / `[▲ Collapse Output]` | Bottom-right buttons to collapse messages without scrolling to the top |
