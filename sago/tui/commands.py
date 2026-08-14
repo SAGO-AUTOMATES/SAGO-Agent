@@ -6,7 +6,9 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from textual.widgets import Collapsible, Static
+from textual.widgets import Static
+
+from sago.tui.helpers import CollapsibleOutputCard as Collapsible
 
 if TYPE_CHECKING:
     from sago.tui.app import SagoApp
@@ -1236,9 +1238,11 @@ class CommandHandlers:
         try:
             graph = SymbolGraph()
             rmap = graph.generate_repo_map(filter_query=query.strip() or None)
+            from sago.tui.helpers import CollapsibleOutputCard
+
             container = self.query_one("#messages")
             container.mount(
-                Collapsible(
+                CollapsibleOutputCard(
                     Static(f"```text\n{rmap}\n```"),
                     title="Symbol Repo Map",
                     collapsed=False,
@@ -1341,9 +1345,11 @@ class CommandHandlers:
                     def _mount_result() -> None:
                         from rich.markdown import Markdown
 
+                        from sago.tui.helpers import CollapsibleOutputCard
+
                         container = self.query_one("#messages")
                         md_widget = Markdown(render_text, code_theme="monokai")
-                        c = Collapsible(
+                        c = CollapsibleOutputCard(
                             Static(md_widget),
                             title=title,
                             collapsed=False,

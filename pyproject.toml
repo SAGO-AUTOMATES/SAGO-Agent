@@ -1,6 +1,6 @@
 [project]
 name = "sago-agent"
-version = "0.1.1"
+version = "0.1.3"
 description = "Sophisticated Multi-Agent Orchestration System with infinite tools, cross-platform support, and TUI interface"
 readme = "README.md"
 license = "GPL-3.0-only"

@@ -140,12 +140,27 @@ class ShortcutsScreen(ModalScreen[None]):
                     markup=True,
                 )
                 yield Static(
-                    "  [bold cyan]Escape[/bold cyan]         : Dismiss suggestions / Close modals",
+                    "  [bold cyan]PageUp / PageDown[/bold cyan] : Fast page viewport scroll",
                     classes="shortcut-row",
                     markup=True,
                 )
                 yield Static(
-                    "  [bold cyan]y[/bold cyan] / [bold cyan]n[/bold cyan]          : Quick Approve / Deny tool permission prompt",
+                    "  [bold cyan]Shift+Up / Down[/bold cyan]   : Line-by-line smooth viewport scroll",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold cyan]Ctrl+Home / End[/bold cyan]   : Jump to top / bottom of chat messages",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold cyan]Escape[/bold cyan]            : Dismiss suggestions / Close modals",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold cyan]y[/bold cyan] / [bold cyan]n[/bold cyan]             : Quick Approve / Deny tool permission prompt",
                     classes="shortcut-row",
                     markup=True,
                 )
@@ -156,27 +171,37 @@ class ShortcutsScreen(ModalScreen[None]):
                     markup=True,
                 )
                 yield Static(
-                    "  [bold magenta]/dev on|off[/bold magenta]      : Real-time function tracing & deep LLM telemetry",
+                    "  [bold magenta]/graph [view][/bold magenta]     : Architecture & Data Flow Graph (arch, process, er, flow, tree)",
                     classes="shortcut-row",
                     markup=True,
                 )
                 yield Static(
-                    "  [bold magenta]/dev export[/bold magenta]      : Export full trace payloads to JSON or Markdown",
+                    "  [bold magenta]/detach[/bold magenta]           : Detach from session safely leaving background jobs active",
                     classes="shortcut-row",
                     markup=True,
                 )
                 yield Static(
-                    "  [bold magenta]/theme <name>[/bold magenta]    : Switch color theme (11 built-in themes)",
+                    "  [bold magenta]/dev on|off[/bold magenta]       : Real-time function tracing & deep LLM telemetry",
                     classes="shortcut-row",
                     markup=True,
                 )
                 yield Static(
-                    "  [bold magenta]/collapse all[/bold magenta]    : Collapse/expand all conversational turns",
+                    "  [bold magenta]/dev export[/bold magenta]       : Export full trace payloads to JSON or Markdown",
                     classes="shortcut-row",
                     markup=True,
                 )
                 yield Static(
-                    "  [bold magenta]/checkpoint[/bold magenta]      : Save or restore complete session & workspace snapshots",
+                    "  [bold magenta]/theme <name>[/bold magenta]     : Switch color theme (11 built-in themes)",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold magenta]/collapse all[/bold magenta]     : Collapse/expand all conversational turns",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold magenta]/checkpoint[/bold magenta]       : Save or restore complete session & workspace snapshots",
                     classes="shortcut-row",
                     markup=True,
                 )

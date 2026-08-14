@@ -196,6 +196,50 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         border: solid #58a6ff;
     }
 
+    .collapsible-card-box {
+        background: #0d1117;
+        border: solid #21262d;
+        border-left: solid #388bfd;
+        padding: 0;
+        margin: 1 0;
+        height: auto;
+    }
+    .card-header {
+        background: #161f2e;
+        color: #58a6ff;
+        text-style: bold;
+        padding: 0 2;
+        border-bottom: solid #21262d;
+    }
+    .card-header:hover {
+        background: #212b3b;
+        color: #79c0ff;
+    }
+    .card-body {
+        padding: 1 2;
+        height: auto;
+    }
+    .card-footer {
+        height: auto;
+        padding: 1 0 0 0;
+    }
+    .card-footer-spacer {
+        width: 1fr;
+    }
+    .btn-collapse-card {
+        min-width: 18;
+        height: 1;
+        background: #161b22;
+        color: #58a6ff;
+        border: solid #21262d;
+        padding: 0 1;
+    }
+    .btn-collapse-card:hover {
+        background: #21262d;
+        color: #ffffff;
+        border: solid #58a6ff;
+    }
+
     /* Nord Theme */
     .theme-nord { background: #242933; }
     .theme-nord #agent-dashboard { background: #2e3440; border-left: solid #434c5e; }

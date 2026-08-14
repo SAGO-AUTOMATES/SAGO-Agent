@@ -105,6 +105,59 @@ class ExchangeTurnCard(Vertical):
             self.mount(widget)
 
 
+class CollapsibleOutputCard(Vertical):
+    """Universal collapsible card for command outputs with top header and bottom-right collapse button."""
+
+    def __init__(
+        self,
+        content_widget: Any,
+        title: str,
+        collapsed: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(classes="collapsible-card-box", **kwargs)
+        self.card_title = title
+        self.is_collapsed = collapsed
+        self._content_widget = content_widget
+
+    def compose(self):
+        icon = "▶" if self.is_collapsed else "▼"
+        hint = " [dim]─ (click to expand)[/dim]" if self.is_collapsed else ""
+        yield Static(
+            f"[bold cyan]{icon}[/bold cyan] [bold white]{self.card_title}[/bold white]{hint}",
+            classes="card-header",
+            markup=True,
+        )
+        with Vertical(classes="card-body"):
+            yield self._content_widget
+            yield Horizontal(
+                Static("", classes="card-footer-spacer"),
+                Button("▲ Collapse Output", variant="default", classes="btn-collapse-card"),
+                classes="card-footer",
+            )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if "btn-collapse-card" in event.button.classes:
+            event.stop()
+            self.toggle_collapse()
+
+    def toggle_collapse(self) -> None:
+        try:
+            body = self.query_one(".card-body")
+            hdr = self.query_one(".card-header", Static)
+            self.is_collapsed = not self.is_collapsed
+            body.display = not self.is_collapsed
+
+            if self.is_collapsed:
+                hdr.update(
+                    f"[bold cyan]▶[/bold cyan] [bold white]{self.card_title}[/bold white] [dim]─ (click to expand)[/dim]"
+                )
+            else:
+                hdr.update(f"[bold cyan]▼[/bold cyan] [bold white]{self.card_title}[/bold white]")
+        except Exception:
+            pass
+
+
 class UIHelpers:
     """Mixin class providing UI helper methods for SagoApp."""
 

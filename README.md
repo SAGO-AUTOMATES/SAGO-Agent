@@ -439,7 +439,7 @@ sago/
 
 Sago includes comprehensive coverage across unit, integration, and security categories.
 
-**374 tests** — all passing. See [docs/ERRORS.md](docs/ERRORS.md) for error handling and recovery.
+**418 tests** — all passing. See [docs/ERRORS.md](docs/ERRORS.md) for error handling and [docs/FLOWS.md](docs/FLOWS.md) for system flowcharts.
 
 ### Quality Areas
 
