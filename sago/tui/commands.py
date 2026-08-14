@@ -67,28 +67,53 @@ class CommandHandlers:
 
     def _show_agents(self: SagoApp, f: str = "") -> None:
         try:
-            from sago.agents.registry import list_agents
-
-            agents = list_agents()
-            if f:
-                agents = [a for a in agents if f.lower() in a["name"].lower()]
-            lines = [f"[bold]Agents ({len(agents)}):[/bold]"]
             from rich.markup import escape
 
-            for a in agents[:30]:
-                skills = ", ".join(a.get("skills", [])[:3])
-                lines.append(f"  [cyan]{a['name']:<25}[/cyan] [dim]{escape(skills)}[/dim]")
-            if len(agents) > 30:
-                lines.append(f"  [dim]... and {len(agents) - 30} more[/dim]")
+            from sago.agents.registry import get_agents_by_category, list_categories
+
+            categories = list_categories()
+            total_agents = sum(len(v) for v in categories.values())
+
+            if not f:
+                lines = [
+                    f"[bold]Specialist Agent Categories ({total_agents} agents across {len(categories)} domains):[/bold]\n"
+                ]
+                for cat, agent_list in sorted(categories.items()):
+                    sample = ", ".join(a.name for a in agent_list[:3])
+                    if len(agent_list) > 3:
+                        sample += f", +{len(agent_list) - 3} more"
+                    lines.append(
+                        f"  [bold yellow]{cat:<26}[/bold yellow] [green]({len(agent_list):>2})[/green]  [dim]{escape(sample)}[/dim]"
+                    )
+                lines.append(
+                    "\n[dim]To view agents in a category, run: [/dim][bold cyan]/agents <category>[/bold cyan]"
+                )
+                lines.append(
+                    "[dim]Example: [/dim][bold]/agents database[/bold]  or  [bold]/agents security[/bold]"
+                )
+                title = f"Agent Categories ({len(categories)})"
+            else:
+                matched = get_agents_by_category(f)
+                lines = [f"[bold]Specialist Agents matching '{f}' ({len(matched)}):[/bold]\n"]
+                for a in matched[:40]:
+                    tools = ", ".join(a.tools[:3])
+                    lines.append(
+                        f"  [cyan]{a.name:<26}[/cyan] [yellow][{a.category}][/yellow] [dim]{escape(tools)}[/dim]"
+                    )
+                if len(matched) > 40:
+                    lines.append(f"\n  [dim]... and {len(matched) - 40} more[/dim]")
+                title = f"Agents matching '{f}' ({len(matched)})"
+
             body = "\n".join(lines)
             container = self.query_one("#messages")
             container.mount(
                 Collapsible(
                     Static(body),
-                    title=f"Agents ({len(agents)})",
-                    collapsed=True,
+                    title=title,
+                    collapsed=False,
                 )
             )
+            container.scroll_end()
         except Exception as e:
             self._add_system_message(f"Error listing agents: {e}")
 

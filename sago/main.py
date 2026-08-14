@@ -129,41 +129,82 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool) -> N
 
 
 @cli.command()
-def agents() -> None:
-    """List all available specialist agents."""
-    from sago.agents.registry import list_agents
+@click.argument("query", required=False, default=None)
+@click.option("--all", "show_all", is_flag=True, help="List all agents unconditionally")
+def agents(query: str | None = None, show_all: bool = False) -> None:
+    """List agent categories or filter agents by category/name.
 
-    agents_list = list_agents()
+    Examples:
+      sago agents                     # Show all categories
+      sago agents database            # List agents in database category
+      sago agents security            # List agents in security category
+      sago agents python              # Search for agents matching 'python'
+      sago agents --all               # List all 339 agents
+    """
+    from sago.agents.registry import get_agents_by_category, list_categories
 
-    console.print(
-        Panel.fit(
-            "[bold]Sago Specialist Agents[/]",
-            border_style="blue",
+    categories = list_categories()
+    total_agents = sum(len(v) for v in categories.values())
+
+    # Case 1: No query and not --all -> Show Category Overview
+    if not query and not show_all:
+        console.print(
+            Panel.fit(
+                f"[bold]Sago Specialist Agent Categories[/]  [dim]({total_agents} agents across {len(categories)} domains)[/]",
+                border_style="blue",
+            )
         )
-    )
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("Category / Domain", style="bold yellow")
+        table.add_column("Count", justify="right", style="green")
+        table.add_column("Example Specialist Agents", style="dim")
+
+        for cat, agent_list in sorted(categories.items()):
+            sample = ", ".join(a.name for a in agent_list[:4])
+            if len(agent_list) > 4:
+                sample += f", ... (+{len(agent_list) - 4} more)"
+            table.add_row(cat, str(len(agent_list)), sample)
+
+        console.print(table)
+        console.print(
+            "\n[dim]To view agents in a category, run:[/] [bold cyan]sago agents <category_or_search>[/]"
+        )
+        console.print(
+            "[dim]Example:[/] [bold]sago agents database[/]  or  [bold]sago agents python[/]\n"
+        )
+        return
+
+    # Case 2: Filtered by query or --all
+    if show_all:
+        matched_agents = [a for group in categories.values() for a in group]
+        header_title = f"All Specialist Agents ({len(matched_agents)})"
+    else:
+        matched_agents = get_agents_by_category(query)
+        header_title = f"Specialist Agents matching '{query}' ({len(matched_agents)})"
+
+    if not matched_agents:
+        console.print(f"[yellow]No agents found matching '{query}'.[/]")
+        console.print("[dim]Run 'sago agents' to see all available categories.[/]")
+        return
+
+    console.print(Panel.fit(f"[bold]{header_title}[/]", border_style="blue"))
 
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Name", style="cyan")
-    table.add_column("Codename", style="yellow")
+    table.add_column("Category", style="yellow")
     table.add_column("Role")
-    table.add_column("Skills")
+    table.add_column("Key Tools", style="dim")
     table.add_column("Handoff To", style="dim")
 
-    from sago.agents.registry import get_agent
-
-    for a in agents_list:
-        agent_def = get_agent(a["name"])
-        handoff = ", ".join(agent_def.handoff_to) if agent_def else ""
-        table.add_row(
-            a["name"],
-            a["codename"],
-            a["role"],
-            ", ".join(a["skills"][:4]),
-            handoff,
-        )
+    for a in matched_agents:
+        tools_str = ", ".join(a.tools[:3]) + (f" (+{len(a.tools) - 3})" if len(a.tools) > 3 else "")
+        handoff_str = ", ".join(a.handoff_to[:3]) if a.handoff_to else "None"
+        table.add_row(a.name, a.category, a.role, tools_str, handoff_str)
 
     console.print(table)
-    console.print(f"\n[dim]Total: {len(agents_list)} agents[/]")
+    console.print(
+        f"\n[dim]Total: {len(matched_agents)} agents shown. Use 'sago info <name>' for details.[/]\n"
+    )
 
 
 @cli.command()

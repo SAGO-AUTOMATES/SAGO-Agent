@@ -26,6 +26,7 @@ class AgentDefinition:
     system_prompt: str
     skills: list[str]
     tools: list[str]
+    category: str = "general"
     handoff_to: list[str] = field(default_factory=list)
     model_preference: str | None = None
     max_iterations: int = 15
@@ -62,6 +63,12 @@ def _load_profiles() -> None:
             module = module_from_spec(spec)
             spec.loader.exec_module(module)
 
+            # Determine category from docstring
+            category = "general"
+            doc = getattr(module, "__doc__", "") or ""
+            if "Category:" in doc:
+                category = doc.split("Category:")[1].splitlines()[0].strip()
+
             # Get profile from module
             profile = None
             if hasattr(module, "get_profile"):
@@ -70,7 +77,6 @@ def _load_profiles() -> None:
                 profile = module.PROFILE
 
             if profile and hasattr(profile, "name"):
-                # Convert to AgentDefinition
                 agent = AgentDefinition(
                     name=profile.name,
                     codename=profile.codename,
@@ -79,6 +85,7 @@ def _load_profiles() -> None:
                     system_prompt=profile.system_prompt,
                     skills=profile.skills,
                     tools=profile.tools,
+                    category=getattr(profile, "category", category),
                     handoff_to=profile.handoff_to,
                     model_preference=getattr(profile, "model_preference", None),
                     max_iterations=getattr(profile, "max_iterations", 15),
@@ -108,8 +115,27 @@ def list_agents() -> list[dict[str, Any]]:
             "role": a.role,
             "description": a.description,
             "skills": a.skills,
+            "category": a.category,
         }
         for a in AGENTS.values()
+    ]
+
+
+def list_categories() -> dict[str, list[AgentDefinition]]:
+    """Get all agents grouped by category."""
+    cats: dict[str, list[AgentDefinition]] = {}
+    for a in sorted(AGENTS.values(), key=lambda x: (x.category, x.name)):
+        cats.setdefault(a.category, []).append(a)
+    return cats
+
+
+def get_agents_by_category(category: str) -> list[AgentDefinition]:
+    """Find agents in a specific category (case-insensitive fuzzy match)."""
+    target = category.lower().strip()
+    return [
+        a
+        for a in AGENTS.values()
+        if target in a.category.lower() or target in a.name.lower() or target in a.role.lower()
     ]
 
 
