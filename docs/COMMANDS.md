@@ -50,7 +50,30 @@ sago workflow "Build a complete REST API with auth and tests"
 ```
 
 ### `sago agents`
-List and search all 339 specialist agents.
+List specialist agent categories or filter agents by category/name.
+
+```bash
+sago agents                     # Display category overview and agent counts across all 22 domains
+sago agents database            # List all database specialist agents (SQLite, PostgreSQL, MySQL, Redis, etc.)
+sago agents security            # List all security and compliance specialist agents
+sago agents python              # Search for agents matching 'python'
+sago agents --all               # List all 339 specialist agents
+```
+
+### `sago skills`
+List available skills across workspace and user directories.
+
+```bash
+sago skills
+sago skills --filter security
+```
+
+### `sago plugins`
+List loaded custom plugins and active lifecycle hooks.
+
+```bash
+sago plugins
+```
 
 ### `sago status`
 Show system and connection status.

@@ -834,3 +834,73 @@ result = tool.execute({
 if result.get("status") == "error":
     print(f"Error: {result.get('error')}")
 ```
+
+---
+
+### Database & Platform Tools
+
+#### `sql_schema`
+Introspects tables, columns, indexes, foreign keys, and views across SQLite, PostgreSQL, MySQL, and DuckDB.
+
+```python
+from sago.tools.database.sql_schema import SqlSchemaTool
+
+tool = SqlSchemaTool()
+result = tool.run(database_path="./app.db", table_name="users")
+```
+
+#### `sql_migration`
+Generates safe, idempotent forward (`UP`) and rollback (`DOWN`) DDL migration scripts.
+
+```python
+from sago.tools.database.sql_migration import SqlMigrationTool
+
+tool = SqlMigrationTool()
+result = tool.run(
+    dialect="postgresql",
+    operation="create_table",
+    table_name="orders",
+    details="user_id INT REFERENCES users(id), total NUMERIC(10,2)",
+)
+```
+
+#### `platform_diagnostics`
+Inspects host OS, kernel, CPU, disk usage, Python environment, Docker daemon availability, and developer toolchain binaries.
+
+```python
+from sago.tools.system.platform_diagnostics import PlatformDiagnosticsTool
+
+tool = PlatformDiagnosticsTool()
+result = tool.run(check_docker=True, check_git=True)
+```
+
+#### `git_blame`
+Inspects line-by-line commit history, author provenance, and timestamps.
+
+```python
+from sago.tools.coding.git_blame import GitBlameTool
+
+tool = GitBlameTool()
+result = tool.run(path="sago/main.py", start_line=1, end_line=30)
+```
+
+#### `secret_scanner`
+Scans codebases for API keys, AWS credentials, JWT tokens, and private keys.
+
+```python
+from sago.tools.security.secret_scanner import SecretScannerTool
+
+tool = SecretScannerTool()
+result = tool.run(directory=".")
+```
+
+#### `ast_grep`
+Performs structural AST code pattern search across functions, classes, imports, and decorators.
+
+```python
+from sago.tools.coding.ast_grep import AstGrepTool
+
+tool = AstGrepTool()
+result = tool.run(pattern_type="class", name_pattern="UserService", directory=".")
+```
+
