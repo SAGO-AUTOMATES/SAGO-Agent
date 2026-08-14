@@ -6,7 +6,10 @@ Enables automatic peer detection and task routing.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import os
 import socket
 import time
 from dataclasses import dataclass, field
@@ -25,7 +28,7 @@ class MeshNode:
     hostname: str
     ip_address: str
     port: int = MESH_PORT
-    sago_version: str = "0.1.1"
+    sago_version: str = "0.1.5"
     capabilities: list[str] = field(default_factory=list)
     load: float = 0.0  # 0-100%
     last_heartbeat: float = 0.0
@@ -55,6 +58,28 @@ class MeshMessage:
     receiver: str | None = None
     payload: dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
+    signature: str | None = None
+
+    def sign(self, secret: str) -> None:
+        """Sign this message with an HMAC-SHA256 secret key."""
+        if not secret:
+            return
+        payload_str = json.dumps(self.payload, sort_keys=True)
+        raw = f"{self.type}:{self.sender}:{self.receiver or ''}:{self.timestamp}:{payload_str}"
+        self.signature = hmac.new(
+            secret.encode("utf-8"), raw.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+
+    def verify(self, secret: str) -> bool:
+        """Verify HMAC signature against the secret."""
+        if not secret:
+            return True
+        if not self.signature:
+            return False
+        payload_str = json.dumps(self.payload, sort_keys=True)
+        raw = f"{self.type}:{self.sender}:{self.receiver or ''}:{self.timestamp}:{payload_str}"
+        expected = hmac.new(secret.encode("utf-8"), raw.encode("utf-8"), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(self.signature, expected)
 
     def to_json(self) -> str:
         return json.dumps(
@@ -64,6 +89,7 @@ class MeshMessage:
                 "receiver": self.receiver,
                 "payload": self.payload,
                 "timestamp": self.timestamp,
+                "signature": self.signature,
             }
         )
 
@@ -76,9 +102,15 @@ class MeshMessage:
 class MeshNetwork:
     """Peer-to-peer mesh network for Sago nodes."""
 
-    def __init__(self, node_id: str, port: int = MESH_PORT) -> None:
+    def __init__(
+        self,
+        node_id: str,
+        port: int = MESH_PORT,
+        auth_secret: str | None = None,
+    ) -> None:
         self.node_id = node_id
         self.port = port
+        self.auth_secret = auth_secret or os.environ.get("SAGO_MESH_SECRET", "")
         self.nodes: dict[str, MeshNode] = {}
         self._running = False
         self._socket: socket.socket | None = None
@@ -107,6 +139,8 @@ class MeshNetwork:
             sender=self.node_id,
             payload={"hostname": socket.gethostname()},
         )
+        if self.auth_secret:
+            msg.sign(self.auth_secret)
         self._broadcast(msg.to_json())
 
     def send_heartbeat(self) -> None:
@@ -116,6 +150,8 @@ class MeshNetwork:
             sender=self.node_id,
             payload={"load": self._get_load()},
         )
+        if self.auth_secret:
+            msg.sign(self.auth_secret)
         self._broadcast(msg.to_json())
 
     def send_task_request(
@@ -131,6 +167,8 @@ class MeshNetwork:
             receiver=target,
             payload={"task": task, "agent": agent},
         )
+        if self.auth_secret:
+            msg.sign(self.auth_secret)
         self._unicast(target, msg.to_json())
 
     def send_task_result(
@@ -151,6 +189,8 @@ class MeshNetwork:
                 "success": success,
             },
         )
+        if self.auth_secret:
+            msg.sign(self.auth_secret)
         self._unicast(target, msg.to_json())
 
     def get_best_node(self, task: str | None = None) -> MeshNode | None:
@@ -211,6 +251,14 @@ class MeshNetwork:
                 msg = MeshMessage.from_json(data.decode())
 
                 if msg.sender == self.node_id:
+                    continue
+
+                # Verify HMAC signature if auth_secret is set
+                if self.auth_secret and not msg.verify(self.auth_secret):
+                    continue
+
+                # Replay protection: reject packets older than 300 seconds
+                if abs(time.time() - msg.timestamp) > 300:
                     continue
 
                 # Update node registry

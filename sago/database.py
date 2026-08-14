@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sago.paths import get_db_path
+from sago.utils.errors import log_error
 
 # ---------------------------------------------------------------------------
 # Connection pool - single shared connection per thread
@@ -41,7 +42,7 @@ def _get_connection() -> sqlite3.Connection:
             return conn
 
     db_path = get_db_path()
-    conn = sqlite3.connect(str(db_path), timeout=30.0)
+    conn = sqlite3.connect(str(db_path), timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -60,8 +61,10 @@ def close_all_connections() -> None:
     for conn in conns:
         try:
             conn.close()
-        except Exception:
+        except (sqlite3.ProgrammingError, sqlite3.OperationalError):
             pass
+        except Exception as e:
+            log_error("Failed to close database connection", e)
 
 
 atexit.register(close_all_connections)

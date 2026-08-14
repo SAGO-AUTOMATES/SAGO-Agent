@@ -476,12 +476,14 @@ class TaskDelegator:
         """Group agents that can run in parallel."""
         # Simple grouping: agents without dependencies can run together
         independent = ["code-reviewer", "security-reviewer", "technical-writer"]
-        dependent = [a for a in chain if a not in independent]
+
+        indep_group = [a for a in chain if a in independent]
+        dep_group = [a for a in chain if a not in independent]
 
         groups = []
-        if independent:
-            groups.append([a for a in chain if a in independent])
-        if dependent:
-            groups.append(dependent)
+        if indep_group:
+            groups.append(indep_group)
+        if dep_group:
+            groups.append(dep_group)
 
         return groups

@@ -46,13 +46,15 @@ logs/
 .env.local
 .env.*.local
 
-# Sago
+# Sago runtime data
 .sago/
-sessions/
-prompts/
+/sessions/
+/prompts/
 
 # Testing
 .coverage
+coverage.xml
+*.xml
 htmlcov/
 .pytest_cache/
 .mypy_cache/

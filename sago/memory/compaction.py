@@ -7,6 +7,7 @@ Provides session compaction for maintaining context in long conversations.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -371,6 +372,13 @@ class SessionCompactor:
         # Compact older messages
         compacted = self.compact_messages(messages)
 
+        # Preserve architectural goals/decisions and modified files across
+        # compaction via the hierarchical memory pyramid (tiers 1 & 2), so
+        # long-range context is not lost when naive summarization runs.
+        structural = self._pyramid_structural_context(messages)
+        if structural:
+            context.append(structural)
+
         # Add compacted context
         if compacted.summary:
             context.append(
@@ -406,6 +414,33 @@ class SessionCompactor:
 
         return context
 
+    def _pyramid_structural_context(self, messages: list[dict[str, Any]]) -> dict[str, str] | None:
+        """Build a structural (tier 1 + tier 2) memory block from the conversation.
+
+        Uses the hierarchical memory pyramid to retain architectural goals, key
+        decisions, and modified files across compaction. Working-tier turns are
+        intentionally excluded here to avoid duplicating the recent messages that
+        are appended separately.
+        """
+        try:
+            pyramid = HierarchicalMemoryPyramid()
+            for msg in messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    pyramid.record_turn(role, content)
+
+            tier = pyramid.assemble_compact_pyramid(max_working_turns=0)
+            if not tier:
+                return None
+
+            return {
+                "role": "system",
+                "content": "\n".join(block["content"] for block in tier),
+            }
+        except Exception:
+            return None
+
     def should_compact(self, messages: list[dict[str, Any]]) -> bool:
         """Check if messages should be compacted."""
         total_tokens = sum(len(m.get("content", "")) // 4 for m in messages)
@@ -418,7 +453,11 @@ class HierarchicalMemoryPyramid:
 
     Tier 1 (Architectural): Foundational goals, key architectural decisions, and invariants.
     Tier 2 (Delta): File modifications, touched paths, git diff summaries, and milestone statuses.
-    Tier 3 (Working): High-fidelity recent message turns and active tool calls.
+    Tier 3 (Semantic Summary): Extractive / LLM summarization of working turns into a compact
+        narrative of "what happened" — the first real distillation layer.
+    Tier 4 (Deep Distillation): A synthesized, coherent distillation combining tiers 1-3 into a
+        single long-range context paragraph that survives aggressive compaction.
+    Base (Working): High-fidelity recent message turns and active tool calls.
     """
 
     architectural_goals: list[str] = field(default_factory=list)
@@ -426,10 +465,27 @@ class HierarchicalMemoryPyramid:
     modified_files: list[str] = field(default_factory=list)
     milestone_history: list[str] = field(default_factory=list)
     active_working_turns: list[dict[str, Any]] = field(default_factory=list)
+    semantic_summary: str = ""
+    deep_distillation: str = ""
+    summarizer: Callable[[str, str], str] | None = field(default=None, repr=False)
+
+    # Stopwords used by the deterministic extractive fallback summarizer.
+    _STOPWORDS: frozenset[str] = frozenset(
+        (
+            "the a an and or but to of in on for with is are was were be been this that it as "
+            "at by from we you i he she they them his her our your their will would should could "
+            "can may might must do does did has have had not no yes if then else when while about "
+            "into out up down over under again more most other some such only own same than too "
+            "very can't don't won't"
+        ).split()
+    )
 
     def record_turn(self, role: str, content: str) -> None:
         """Record turn into working tier and promote key decisions/milestones."""
         self.active_working_turns.append({"role": role, "content": content})
+        # Invalidate any cached distillation so the next assemble re-derives it.
+        self.semantic_summary = ""
+        self.deep_distillation = ""
         # Check for goal / decision patterns
         lower = content.lower()
         if "decided to" in lower or "we will use" in lower or "chosen" in lower:
@@ -446,12 +502,110 @@ class HierarchicalMemoryPyramid:
                     if clean and clean not in self.architectural_goals:
                         self.architectural_goals.append(clean[:200])
 
+        # Promote milestone / completion markers to the delta tier.
+        if any(kw in lower for kw in ("milestone:", "completed", "done:", "finished", "shipped")):
+            for line in content.splitlines():
+                if any(
+                    kw in line.lower()
+                    for kw in ("milestone:", "completed", "done:", "finished", "shipped")
+                ):
+                    clean = line.strip(" -*#")
+                    if clean and clean not in self.milestone_history:
+                        self.milestone_history.append(clean[:200])
+
     def record_file_mod(self, file_path: str) -> None:
         if file_path and file_path not in self.modified_files:
             self.modified_files.append(file_path)
 
+    def distill(self) -> None:
+        """Populate the upper-tier (semantic + deep) distillation layers.
+
+        Uses ``self.summarizer`` (an LLM-backed callable if provided) and otherwise
+        falls back to a deterministic, network-free extractive summarizer so the
+        output is stable and testable.
+        """
+        if self.semantic_summary and self.deep_distillation:
+            return
+
+        turns_text = "\n".join(str(t.get("content", "")) for t in self.active_working_turns).strip()
+        if not turns_text:
+            return
+
+        if self.summarizer is not None:
+            self.semantic_summary = self.summarizer(turns_text, "semantic")
+            source = self._deep_distill_source()
+            self.deep_distillation = self.summarizer(source, "deep")
+        else:
+            self.semantic_summary = self._extractive_summarize(turns_text)
+            self.deep_distillation = self._deep_distill()
+
+    @staticmethod
+    def _extractive_summarize(text: str, max_sentences: int = 6, max_chars: int = 800) -> str:
+        """Deterministic extractive summarizer: keep the highest-signal sentences.
+
+        Scores sentences by summed content-word frequency across the turn text so
+        the result is reproducible without any network or model dependency.
+        """
+        sentences = re.split(r"(?<=[.!?])\s+|\n+", text)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        if not sentences:
+            return ""
+
+        if len(sentences) <= max_sentences:
+            summary = " ".join(sentences)
+        else:
+            words = re.findall(r"[a-zA-Z0-9_]+", text.lower())
+            freq: dict[str, int] = {}
+            for w in words:
+                if w not in HierarchicalMemoryPyramid._STOPWORDS and len(w) > 2:
+                    freq[w] = freq.get(w, 0) + 1
+
+            def score(sentence: str) -> int:
+                return sum(
+                    freq.get(w, 0)
+                    for word in re.findall(r"[a-zA-Z0-9_]+", sentence.lower())
+                    for w in (word,)
+                )
+
+            ranked = sorted(sentences, key=score, reverse=True)
+            summary = " ".join(ranked[:max_sentences])
+
+        return summary[:max_chars].strip()
+
+    def _deep_distill_source(self) -> str:
+        """Assemble the source text fed into the deep-distillation layer."""
+        parts: list[str] = []
+        if self.architectural_goals:
+            parts.append("Goals: " + "; ".join(self.architectural_goals[:3]))
+        if self.architectural_decisions:
+            parts.append("Decisions: " + "; ".join(self.architectural_decisions[:4]))
+        if self.semantic_summary:
+            parts.append("Semantic summary: " + self.semantic_summary)
+        if self.modified_files:
+            parts.append("Files: " + ", ".join(self.modified_files[-8:]))
+        if self.milestone_history:
+            parts.append("Milestones: " + "; ".join(self.milestone_history[:4]))
+        return "\n".join(parts)
+
+    def _deep_distill(self) -> str:
+        """Build a coherent single-paragraph deep distillation from lower tiers."""
+        parts: list[str] = []
+        if self.architectural_goals:
+            parts.append("Project aims to " + "; ".join(self.architectural_goals[:3]) + ".")
+        if self.architectural_decisions:
+            parts.append("Key decisions: " + "; ".join(self.architectural_decisions[:4]) + ".")
+        if self.semantic_summary:
+            parts.append("Recent work: " + self.semantic_summary)
+        if self.modified_files:
+            parts.append("Files in play: " + ", ".join(self.modified_files[-8:]) + ".")
+        if self.milestone_history:
+            parts.append("Milestones reached: " + "; ".join(self.milestone_history[:3]) + ".")
+        return " ".join(parts).strip()
+
     def assemble_compact_pyramid(self, max_working_turns: int = 6) -> list[dict[str, Any]]:
-        """Render a token-optimized pyramid prompt context."""
+        """Render a token-optimized pyramid prompt context including upper tiers."""
+        self.distill()
+
         context: list[dict[str, Any]] = []
 
         # 1. Architectural Tier (Top of Pyramid)
@@ -462,6 +616,8 @@ class HierarchicalMemoryPyramid:
             arch_lines.append(
                 f"• Architectural Decisions: {'; '.join(self.architectural_decisions[:4])}"
             )
+        if self.milestone_history:
+            arch_lines.append(f"• Milestones: {'; '.join(self.milestone_history[:4])}")
 
         if arch_lines:
             context.append(
@@ -480,7 +636,25 @@ class HierarchicalMemoryPyramid:
                 }
             )
 
-        # 3. Working Tier (Base of Pyramid - High Fidelity)
+        # 3. Semantic Summary Tier (first real distillation layer)
+        if self.semantic_summary:
+            context.append(
+                {
+                    "role": "system",
+                    "content": f"[SEMANTIC SUMMARY - TIER 3]\n{self.semantic_summary}",
+                }
+            )
+
+        # 4. Deep Distillation Tier (coherent long-range context)
+        if self.deep_distillation:
+            context.append(
+                {
+                    "role": "system",
+                    "content": f"[DEEP DISTILLATION - TIER 4]\n{self.deep_distillation}",
+                }
+            )
+
+        # Base: Working Tier (High Fidelity recent turns)
         recent_turns = self.active_working_turns[-max_working_turns:]
         for turn in recent_turns:
             context.append({"role": turn.get("role", "user"), "content": turn.get("content", "")})

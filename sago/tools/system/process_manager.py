@@ -105,6 +105,8 @@ class ProcessManagerTool(BaseTool):
 
     def _kill_process(self, pid_str: str, signal: str) -> str:
         """Kill a process by PID."""
+        import signal as signal_module
+
         import psutil
 
         try:
@@ -112,14 +114,15 @@ class ProcessManagerTool(BaseTool):
         except ValueError:
             return f"Error: Invalid PID: {pid_str}"
 
+        sig = getattr(signal_module, f"SIG{signal.upper()}", None)
+        if sig is None:
+            return f"Error: Invalid signal: {signal}"
+
         try:
             proc = psutil.Process(pid)
             proc_name = proc.name()
 
-            if signal.upper() == "KILL":
-                proc.kill()
-            else:
-                proc.terminate()
+            proc.send_signal(sig)
 
             return f"Sent {signal} to process {pid} ({proc_name})"
 

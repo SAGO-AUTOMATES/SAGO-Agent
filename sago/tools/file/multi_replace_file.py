@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
 from sago.tools.file.resilient_editor import ResilientEditor
+from sago.utils.errors import log_error
 
 
 class ReplacementChunk(BaseModel):
@@ -38,11 +39,15 @@ class MultiReplaceTool(BaseTool):
 
     def _run(
         self,
-        file_path: str,
-        chunks: list[dict[str, str]],
+        file_path: str = "",
+        chunks: list[dict[str, str]] | None = None,
         encoding: str = "utf-8",
         **kwargs: Any,
     ) -> str:
+        if not file_path:
+            return "Error: file_path is required"
+        if not chunks:
+            return "Error: chunks list is required"
         path = self._expand_path(file_path)
 
         if not path.exists():
@@ -62,7 +67,7 @@ class MultiReplaceTool(BaseTool):
             new_s = c.get("new_string") or c.get("new") or ""
             standardized_chunks.append({"old": old_s, "new": new_s})
 
-        success, new_content, logs = ResilientEditor.apply_multi_replace(
+        success, new_content, logs, total_replaced = ResilientEditor.apply_multi_replace(
             content=content, chunks=standardized_chunks
         )
 
@@ -75,11 +80,11 @@ class MultiReplaceTool(BaseTool):
 
                 tracker = get_change_tracker()
                 tracker.track_modify(str(path), content, new_content)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("Failed to track multi-replace change", e, context={"path": str(path)})
 
             path.write_text(new_content, encoding=encoding)
-            return f"Successfully applied {len(chunks)} replacement(s) to {path}:\n" + "\n".join(
+            return f"Successfully applied {total_replaced} replacement(s) to {path}:\n" + "\n".join(
                 logs
             )
         except Exception as e:

@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+from sago.utils.errors import log_error
 
 
 class OSDetectorArgs(BaseModel):
@@ -75,8 +76,8 @@ class OSDetectorTool(BaseTool):
                 disk = psutil.disk_usage("/")
                 info.append(f"Disk total: {disk.total // (1024**3)} GB")
                 info.append(f"Disk free: {disk.free // (1024**3)} GB")
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("Failed to gather disk usage info", e)
 
             # Environment
             info.append(f"\nShell: {os.environ.get('SHELL', os.environ.get('COMSPEC', 'N/A'))}")

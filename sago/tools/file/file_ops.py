@@ -26,6 +26,10 @@ class FileOperationsArgs(BaseModel):
     )
     recursive: bool = Field(default=False, description="Operate recursively on directories")
     force: bool = Field(default=False, description="Force overwrite existing files")
+    dirs_exist_ok: bool = Field(
+        default=False,
+        description="For mkdir: do not error if the directory already exists",
+    )
 
 
 class FileOperationsTool(BaseTool):
@@ -44,6 +48,7 @@ class FileOperationsTool(BaseTool):
         destination: str | None = None,
         recursive: bool = False,
         force: bool = False,
+        dirs_exist_ok: bool = False,
         **kwargs: Any,
     ) -> str:
         """Execute a file operation.
@@ -64,7 +69,18 @@ class FileOperationsTool(BaseTool):
             return self._list_directory(src)
 
         if operation == "mkdir":
-            src.mkdir(parents=True, exist_ok=True)
+            if src.exists() and not (force or dirs_exist_ok):
+                return (
+                    f"Error: Directory exists: {src}. "
+                    "Use force=true or dirs_exist_ok=true to ignore."
+                )
+            try:
+                src.mkdir(parents=True, exist_ok=force or dirs_exist_ok)
+            except FileExistsError:
+                return (
+                    f"Error: Directory exists: {src}. "
+                    "Use force=true or dirs_exist_ok=true to ignore."
+                )
             return f"Created directory: {src}"
 
         if operation == "delete":

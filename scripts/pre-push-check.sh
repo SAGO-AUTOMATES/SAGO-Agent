@@ -7,9 +7,12 @@ set -e
 
 echo "🚀 [SAGO Hook] Running full pre-push pipeline verification..."
 
-# Runner selection
-if command -v uv &> /dev/null; then
-    RUNNER="uv run --with ruff --with pytest"
+# Runner selection: prefer the project venv, then `uv run`, then system python.
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+if [ -x "$REPO_ROOT/.venv/bin/python" ]; then
+    RUNNER="$REPO_ROOT/.venv/bin/python -m"
+elif command -v uv &> /dev/null; then
+    RUNNER="uv run --with ruff --with pytest python -m"
 else
     RUNNER="python -m"
 fi
@@ -32,7 +35,7 @@ fi
 
 # 3. Unit & Integration Tests
 echo "  [3/4] Running unit and integration test suite..."
-$RUNNER python -m pytest tests/unit tests/integration -q --tb=short
+$RUNNER pytest tests/unit tests/integration -q --tb=short
 if [ $? -ne 0 ]; then
     echo "❌ [SAGO Hook] Unit / Integration tests failed. Push aborted."
     exit 1
@@ -40,7 +43,7 @@ fi
 
 # 4. Security Tests
 echo "  [4/4] Running security regression suite..."
-$RUNNER python -m pytest tests/security -q --tb=short
+$RUNNER pytest tests/security -q --tb=short
 if [ $? -ne 0 ]; then
     echo "❌ [SAGO Hook] Security tests failed. Push aborted."
     exit 1

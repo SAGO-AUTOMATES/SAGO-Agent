@@ -22,9 +22,17 @@
 - **Status**: ✅ **Implemented in 0.1.3** (`sago/memory/compaction.py`, `sago/agents/handoff.py`).
 - **Capabilities**: 3-tiered memory pyramid (Architectural Goals $\to$ Working Deltas $\to$ Active Turns) and delta state serialization saving ~70% context overhead during multi-agent handoffs.
 
-### [x] Multi-Language AST Symbol & Architecture Graph
-- **Status**: ✅ **Implemented in 0.1.3** (`sago/memory/symbol_graph.py`, `sago/memory/project_graph.py`).
-- **Capabilities**: Multi-language symbol extraction (Python, TS/JS, Rust, Go, SQL, Java, C/C++) and full interactive architecture maps via `/graph` / `/project_graph`.
+### [x] Dynamic Model & Provider Inheritance for Multi-Agent Swarms
+- **Status**: ✅ **Implemented in 0.1.5** (`sago/llm/tui_providers.py`, `sago/tools/file/agent_delegator.py`, `sago/tools/file/spawn_agent.py`).
+- **Capabilities**: Subagents and delegation tasks inherit the user's active session model and provider (e.g. Gemini, OpenAI, Claude, OpenRouter) and respective API keys instead of falling back to default models.
+
+### [x] Instant `@` Agent Autocompletion & Delegation Auto-Suggest
+- **Status**: ✅ **Implemented in 0.1.5** (`sago/tui/app.py`).
+- **Capabilities**: Typing `@` immediately displays ranked specialist agents with role descriptions; autocomplete support for `/delegate <agent>`, `@delegate <agent>`, and `/chain <agents>`.
+
+### [x] Distributed Multi-Node Agent Swarm Mesh Security
+- **Status**: ✅ **Implemented in 0.1.5** (`sago/peers/mesh.py`).
+- **Capabilities**: HMAC-SHA256 cryptographic message signing, signature verification with `SAGO_MESH_SECRET`, and replay attack prevention (300s window).
 
 ---
 
@@ -32,8 +40,8 @@
 
 ### [ ] Secure WebAssembly (Wasm) & Isolated Execution Sandbox
 - **Goal**: Provide an optional WebAssembly or microVM sandbox for running untrusted shell and execution tasks.
-- **Target**: Safe autonomous code execution on multi-tenant developer environments (deferred).
+- **Target**: Safe autonomous code execution on multi-tenant developer environments.
 
-### [ ] Distributed Multi-Node Agent Swarm Mesh
-- **Goal**: Connect multiple Sago instances across machines over peer-to-peer WebSockets / mTLS.
-- **Target**: Large-scale distributed builds, parallel testing matrices, and cross-repo coordination.
+### [ ] Autonomous Cross-Repository Mesh Orchestration
+- **Goal**: Multi-repository coordination and automated dependency upgrades across distributed organizations.
+- **Target**: Multi-repo PR synchronization and cross-codebase refactoring.

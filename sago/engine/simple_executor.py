@@ -733,6 +733,25 @@ def execute_agent_task(
     """
     tools = _discover_tools()
 
+    # Auto-resolve active model, key, and base_url if defaults or empty
+    if not api_key or model == "openrouter/free":
+        try:
+            from sago.llm.tui_providers import resolve_active_llm_config
+
+            active_cfg = resolve_active_llm_config(
+                model=None if model == "openrouter/free" else model,
+                api_key=api_key or None,
+                base_url=base_url,
+            )
+            if not api_key:
+                api_key = active_cfg["api_key"]
+            if model == "openrouter/free" and active_cfg["model"]:
+                model = active_cfg["model"]
+            if base_url is None:
+                base_url = active_cfg["base_url"]
+        except Exception:
+            pass
+
     # Auto-detect base_url from model/provider if not provided
     if base_url is None:
         if model.startswith("gemini"):
@@ -938,6 +957,27 @@ def execute_agent_task(
             return distilled
 
     for i in range(max_iterations):
+        # --- OPT-IN observability (no-op unless a trace was started) ---
+        # To capture a full per-step span tree around each LLM+tool iteration,
+        # uncomment the following block (control flow is unchanged):
+        #
+        #     from sago.observability.tracing import span as _trace_span
+        #     _step_ctx = _trace_span(f"step:{i}")
+        #     _step_ctx.__enter__()
+        #     try:
+        #         ... existing loop body ...
+        #     finally:
+        #         _step_ctx.__exit__(None, None, None)
+        #
+        # For now we record a lightweight step marker so the trace still shows
+        # each agent turn without restructuring the large loop body.
+        try:
+            from sago.observability.tracing import record_marker
+
+            record_marker("step", str(i), model=model)
+        except Exception:
+            pass
+
         # Check if execution is paused (user input needed)
         if pause_event and pause_event.is_set():
             if on_thinking:
@@ -961,6 +1001,10 @@ def execute_agent_task(
             files_info = f" ({len(files_created)} files created)" if files_created else ""
             on_thinking(f"{phase}... (step {i + 1}/{max_iterations}{todo_info}{files_info})")
 
+        # Native tool calls extracted from the model response (OpenAI or Gemini).
+        # The gemini branch populates this so the shared execution loop below runs.
+        native_tool_calls: list[dict[str, Any]] = []
+
         try:
             temp = profile.get("temperature", 0.3) if profile else 0.3
 
@@ -976,10 +1020,56 @@ def execute_agent_task(
                     for msg in messages:
                         if msg["role"] == "system":
                             sys_msg = msg["content"]
-                        elif msg["role"] in ("user", "assistant"):
-                            contents.append(msg["content"])
+                            continue
+                        if msg["role"] == "user":
+                            contents.append(
+                                google_types.Content(
+                                    role="user",
+                                    parts=[google_types.Part(text=msg["content"])],
+                                )
+                            )
+                        elif msg["role"] == "assistant":
+                            parts = []
+                            if msg.get("content"):
+                                parts.append(google_types.Part(text=msg["content"]))
+                            for tc in msg.get("tool_calls", []):
+                                fn = tc["function"]
+                                try:
+                                    args = (
+                                        json.loads(fn["arguments"]) if fn.get("arguments") else {}
+                                    )
+                                except json.JSONDecodeError:
+                                    args = {}
+                                parts.append(
+                                    google_types.Part(
+                                        function_call=google_types.FunctionCall(
+                                            name=fn["name"], args=args
+                                        )
+                                    )
+                                )
+                            if parts:
+                                contents.append(google_types.Content(role="model", parts=parts))
+                        elif msg["role"] == "tool":
+                            # Gemini receives tool results as function responses.
+                            contents.append(
+                                google_types.Content(
+                                    role="user",
+                                    parts=[
+                                        google_types.Part(
+                                            function_response=google_types.FunctionResponse(
+                                                name=msg.get("name", "tool"),
+                                                response={"result": msg["content"]},
+                                            )
+                                        )
+                                    ],
+                                )
+                            )
                     if not contents:
-                        contents = ["Hello"]
+                        contents = [
+                            google_types.Content(
+                                role="user", parts=[google_types.Part(text="Hello")]
+                            )
+                        ]
 
                     # Convert OpenAI tools to Google format
                     google_tools = []
@@ -1023,12 +1113,18 @@ def execute_agent_task(
 
                     # Extract tool calls from Gemini response
                     gemini_tool_calls = []
-                    content = response.text or ""
+                    # response.text raises if the response only contains function
+                    # calls, so guard against that.
+                    try:
+                        content = response.text or ""
+                    except Exception:
+                        content = ""
                     if response.candidates:
                         for part in response.candidates[0].content.parts:
                             if part.function_call:
                                 gemini_tool_calls.append(
                                     {
+                                        "id": f"gemini_{len(gemini_tool_calls)}",
                                         "name": part.function_call.name,
                                         "args": dict(part.function_call.args)
                                         if part.function_call.args
@@ -1036,17 +1132,12 @@ def execute_agent_task(
                                     }
                                 )
 
-                    # If Gemini made tool calls, store them for processing
+                    # Mirror the OpenAI path: feed the Gemini tool calls into the
+                    # shared execution loop below (which runs them via the same
+                    # tool registry and appends results for the next turn) instead
+                    # of returning early.
                     if gemini_tool_calls:
-                        # Return tool calls so the caller can execute them
-                        return {
-                            "success": True,
-                            "content": content,
-                            "tool_calls": tool_history + gemini_tool_calls,
-                            "iterations": i + 1,
-                            "tokens": {"input": total_tokens_in, "output": total_tokens_out},
-                            "pending_gemini_tools": gemini_tool_calls,
-                        }
+                        native_tool_calls = gemini_tool_calls
 
                 except ImportError:
                     return {
@@ -1114,7 +1205,6 @@ def execute_agent_task(
             }
 
         # Parse response content and extract native tool calls
-        native_tool_calls: list[dict[str, Any]] = []
         message_obj = None
 
         if not model.startswith("gemini"):
@@ -1168,6 +1258,18 @@ def execute_agent_task(
                     total_cache_miss += (response.usage.prompt_tokens or 0) - (
                         details.cached_tokens or 0
                     )
+            # OPT-IN observability: record LLM token usage into the active trace
+            # (no-op when no trace is active; never changes control flow).
+            try:
+                from sago.observability.tracing import record_token_usage
+
+                record_token_usage(
+                    prompt_tokens=response.usage.prompt_tokens or 0,
+                    completion_tokens=response.usage.completion_tokens or 0,
+                    model=model,
+                )
+            except Exception:
+                pass
 
         # Append assistant message (with tool_calls if present)
         assistant_msg: dict[str, Any] = {"role": "assistant", "content": content or None}
@@ -1284,6 +1386,7 @@ def execute_agent_task(
                     {
                         "role": "tool",
                         "tool_call_id": tc_id,
+                        "name": name,
                         "content": f"[SKIP] Already failed: {name} with same args",
                     }
                 )
@@ -1295,6 +1398,7 @@ def execute_agent_task(
                     {
                         "role": "tool",
                         "tool_call_id": tc_id,
+                        "name": name,
                         "content": f"Unknown tool '{name}'. Available: {avail}",
                     }
                 )
@@ -1328,6 +1432,7 @@ def execute_agent_task(
                             {
                                 "role": "tool",
                                 "tool_call_id": tc_id,
+                                "name": name,
                                 "content": f"Permission denied: {name} requires approval (risk: {risk.value})",
                             }
                         )
@@ -1336,6 +1441,7 @@ def execute_agent_task(
                             {
                                 "role": "tool",
                                 "tool_call_id": tc_id,
+                                "name": name,
                                 "content": f"Permission denied: {reason}",
                             }
                         )
@@ -1355,6 +1461,7 @@ def execute_agent_task(
                         {
                             "role": "tool",
                             "tool_call_id": tc_id,
+                            "name": name,
                             "content": (
                                 f"[HINT] You've called {name} with similar args 3 times in a row. "
                                 f"If this isn't working, try a completely different approach or finish the task."
@@ -1387,6 +1494,21 @@ def execute_agent_task(
                     get_continuous_verifier().enqueue_files([fp] if fp else [])
                 except Exception:
                     pass
+
+                # Close the self-healing loop: synchronously verify the just-written
+                # Python file and surface actionable diagnostics back into the tool
+                # result so the agent can immediately correct errors instead of
+                # discovering them only on a later full-project verification pass.
+                if fp and fp.endswith(".py"):
+                    try:
+                        from sago.engine.verifier import ProjectVerifier
+
+                        report = ProjectVerifier(root_dir=os.getcwd()).verify_files([fp])
+                        if not report.passed and report.issues:
+                            feedback = report.to_prompt_feedback()
+                            result_str = (result_str + "\n\n" + feedback)[:4000]
+                    except Exception:
+                        pass
 
             tool_history.append(
                 {
@@ -1429,6 +1551,7 @@ def execute_agent_task(
                 {
                     "role": "tool",
                     "tool_call_id": tc_id,
+                    "name": name,
                     "content": tool_result_content,
                 }
             )

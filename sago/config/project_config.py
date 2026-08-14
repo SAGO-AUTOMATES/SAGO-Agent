@@ -4,10 +4,17 @@ Defines the config.sago.json schema for per-project customization.
 Users can enable/disable agents, tools, modify prompts, and configure settings.
 """
 
+from __future__ import annotations
+
 import copy
 import json
+import logging
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+logger = logging.getLogger(__name__)
 
 # Default configuration template
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -63,6 +70,82 @@ AGENT_CONFIG_TEMPLATE: dict[str, Any] = {
 }
 
 
+class _ProjectSection(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    name: str = ""
+    description: str = ""
+    languages: list[str] = Field(default_factory=list)
+    frameworks: list[str] = Field(default_factory=list)
+
+
+class _AgentSection(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    enabled: bool = True
+    system_prompt_override: str | None = None
+    tools: list[str] | None = None
+    tools_add: list[str] = Field(default_factory=list)
+    tools_remove: list[str] = Field(default_factory=list)
+    handoff_to: str | None = None
+    model_preference: str | None = None
+    max_iterations: int | None = None
+    temperature: float | None = None
+    custom_skills: list[str] = Field(default_factory=list)
+
+
+class _OrchestratorSection(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    default_provider: str = "gemini"
+    default_model: str | None = None
+    max_iterations: int = Field(default=15, ge=1)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    auto_route: bool = True
+
+
+class _PermissionsSection(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    allow_file_write: bool = True
+    allow_shell_execute: bool = True
+    allow_ssh: bool = False
+    allowed_paths: list[str] = Field(default_factory=list)
+    blocked_paths: list[str] = Field(default_factory=list)
+
+
+class _FeaturesSection(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    tui_enabled: bool = True
+    session_history: bool = True
+    auto_save: bool = True
+    verbose_logging: bool = False
+
+
+class ProjectConfig(BaseModel):
+    """Validated representation of a config.sago.json document.
+
+    Missing fields fall back to sane defaults (backward compatible); only
+    structurally malformed documents (e.g. wrong types, out-of-range values,
+    or a non-object root) fail validation with a clear error.
+    """
+
+    model_config = ConfigDict(extra="allow")
+    version: str = "1.0.0"
+    project: _ProjectSection = Field(default_factory=_ProjectSection)
+    agents: dict[str, _AgentSection] = Field(default_factory=dict)
+    tools: dict[str, Any] = Field(default_factory=dict)
+    orchestrator: _OrchestratorSection = Field(default_factory=_OrchestratorSection)
+    permissions: _PermissionsSection = Field(default_factory=_PermissionsSection)
+    features: _FeaturesSection = Field(default_factory=_FeaturesSection)
+
+
+def _validate_config(raw: Any, source: Path) -> dict[str, Any]:
+    """Validate a decoded config document, raising ValueError on failure."""
+    try:
+        model = ProjectConfig.model_validate(raw)
+    except ValidationError as exc:
+        logger.error("Invalid project config in %s", source)
+        raise ValueError(f"Invalid project config in {source}: {exc}") from exc
+    return model.model_dump()
+
+
 def create_config_file(
     project_path: Path,
     project_name: str = "",
@@ -99,10 +182,13 @@ def create_config_file(
         agent_config["enabled"] = enable_all_agents
         config["agents"][agent_name] = agent_config
 
+    # Validate before writing so a broken template can never be persisted.
+    _validate_config(config, project_path / "config.sago.json")
+
     # Write config file
     config_path = project_path / "config.sago.json"
     with open(config_path, "w") as f:
-        json.dump(config, f, indent=2, default=str)
+        json.dump(config, f, indent=2)
 
     return config_path
 
@@ -110,15 +196,21 @@ def create_config_file(
 def load_config(project_path: Path) -> dict[str, Any]:
     """Load config.sago.json from the project directory.
 
-    Falls back to parent directories if not found in current directory.
+    Falls back to parent directories, then home, and finally the built-in
+    defaults when no file exists. A present-but-malformed file raises a clear
+    ValueError instead of silently returning defaults.
     """
     current = project_path.resolve()
 
     while current != current.parent:
         config_path = current / "config.sago.json"
         if config_path.exists():
-            with open(config_path) as f:
-                return json.load(f)
+            try:
+                raw = json.loads(config_path.read_text())
+            except json.JSONDecodeError as exc:
+                logger.error("Failed to parse config %s: %s", config_path, exc)
+                raise ValueError(f"Malformed project config JSON in {config_path}: {exc}") from exc
+            return _validate_config(raw, config_path)
         current = current.parent
 
     # Check home directory as final fallback
@@ -126,31 +218,15 @@ def load_config(project_path: Path) -> dict[str, Any]:
 
     home_config = get_sago_home() / "config.sago.json"
     if home_config.exists():
-        with open(home_config) as f:
-            return json.load(f)
+        try:
+            raw = json.loads(home_config.read_text())
+        except json.JSONDecodeError as exc:
+            logger.error("Failed to parse config %s: %s", home_config, exc)
+            raise ValueError(f"Malformed project config JSON in {home_config}: {exc}") from exc
+        return _validate_config(raw, home_config)
 
     # Return default config
     return copy.deepcopy(DEFAULT_CONFIG)
-
-
-def get_agent_config(config: dict[str, Any], agent_name: str) -> dict[str, Any]:
-    """Get the effective configuration for an agent."""
-    base = copy.deepcopy(AGENT_CONFIG_TEMPLATE)
-    override = config.get("agents", {}).get(agent_name, {})
-    base.update(override)
-    return base
-
-
-def is_agent_enabled(config: dict[str, Any], agent_name: str) -> bool:
-    """Check if an agent is enabled in the config."""
-    agent_config = get_agent_config(config, agent_name)
-    return agent_config.get("enabled", True)
-
-
-def is_tool_enabled(config: dict[str, Any], tool_name: str) -> bool:
-    """Check if a tool is enabled in the config."""
-    disabled_tools = config.get("tools", {}).get("disabled", [])
-    return tool_name not in disabled_tools
 
 
 def detect_project_languages(project_path: Path) -> list[str]:

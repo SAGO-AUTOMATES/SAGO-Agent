@@ -6,12 +6,15 @@ for tool execution and agent operations.
 
 from __future__ import annotations
 
+import logging
 import time
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class ErrorSeverity(StrEnum):
@@ -139,6 +142,19 @@ class ErrorHandler:
         )
         self.errors.append(context)
 
+        log_msg = (
+            "Error in tool '%s' (attempt %d/%d, severity=%s): %s",
+            context.tool_name,
+            context.attempt,
+            context.max_attempts,
+            context.severity.value,
+            context.error,
+        )
+        if context.severity in (ErrorSeverity.HIGH, ErrorSeverity.CRITICAL):
+            logger.error(*log_msg)
+        else:
+            logger.warning(*log_msg)
+
         if self.on_error:
             self.on_error(context)
 
@@ -199,7 +215,7 @@ class RecoveryManager:
                 duration = (time.time() - start_time) * 1000
                 return RecoveryResult(
                     success=True,
-                    strategy_used=RecoveryStrategy.RETRY if attempt > 1 else RecoveryStrategy.RETRY,
+                    strategy_used=RecoveryStrategy.RETRY if attempt > 1 else RecoveryStrategy.SKIP,
                     result=result,
                     attempts_made=attempt,
                     duration_ms=duration,
@@ -269,7 +285,7 @@ class RecoveryManager:
         duration = (time.time() - start_time) * 1000
         return RecoveryResult(
             success=False,
-            strategy_used=RecoveryStrategy.RETRY,
+            strategy_used=RecoveryStrategy.ABORT,
             error=last_error,
             attempts_made=self.max_retries,
             duration_ms=duration,

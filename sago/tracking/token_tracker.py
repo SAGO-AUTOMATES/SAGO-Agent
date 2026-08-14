@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sago.utils.errors import log_error
+
 
 @dataclass
 class TokenUsage:
@@ -322,8 +324,8 @@ class TokenTracker:
                     lambda: {"requests": 0, "tokens": 0, "cost": 0.0},
                     data.get("daily", {}),
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("Failed to load token usage data", e)
 
     def save(self) -> None:
         """Persist usage data to disk."""

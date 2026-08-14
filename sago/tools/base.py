@@ -10,10 +10,38 @@ import os
 import platform
 import subprocess
 from abc import ABC, abstractmethod
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
+
+
+class ToolCategory(StrEnum):
+    """High-level functional category for a tool."""
+
+    CODING = "coding"
+    FILE = "file"
+    SHELL = "shell"
+    NETWORK = "network"
+    SYSTEM = "system"
+    WEB = "web"
+    SSH = "ssh"
+    DATABASE = "database"
+    SESSION = "session"
+    SECURITY = "security"
+    AGENT = "agent"
+    ADMIN = "admin"
+    GENERAL = "general"
+
+
+class ToolResult(BaseModel):
+    """Structured result returned by tools that opt into rich output."""
+
+    output: str = ""
+    success: bool = True
+    error: str | None = None
+    metadata: dict[str, Any] = {}
 
 
 class BaseTool(ABC):
@@ -34,11 +62,12 @@ class BaseTool(ABC):
         self._os_type = platform.system().lower()
 
     @abstractmethod
-    def _run(self, **kwargs: Any) -> str:
+    def _run(self, *args: Any, **kwargs: Any) -> str:
         """Execute the tool with the given arguments.
 
         Args:
-            **kwargs: Tool-specific arguments.
+            *args: Positional tool arguments.
+            **kwargs: Tool-specific keyword arguments.
 
         Returns:
             String result of the tool execution.
@@ -58,7 +87,27 @@ class BaseTool(ABC):
             String result of the tool execution.
         """
         try:
-            return self._run(**kwargs)
+            from sago.observability.tracing import end_span, record_tool_call, start_span
+
+            _span = start_span(f"tool:{self.name}", tool=self.name)
+            try:
+                result = self._run(**kwargs)
+                try:
+                    record_tool_call(self.name, duration=_span.duration, success=True)
+                except Exception:
+                    pass
+                return result
+            except Exception:
+                try:
+                    record_tool_call(self.name, duration=_span.duration, success=False)
+                except Exception:
+                    pass
+                raise
+            finally:
+                try:
+                    end_span(_span)
+                except Exception:
+                    pass
         except Exception as e:
             error_msg = f"{type(e).__name__}: {e}"
 
