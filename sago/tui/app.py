@@ -446,6 +446,14 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         Binding("ctrl+d", "toggle_dashboard", "Dashboard"),
         Binding("ctrl+t", "show_tasks", "Tasks"),
         Binding("ctrl+c", "cancel_task", "Cancel"),
+        Binding("pageup", "scroll_page_up", "Scroll Up", show=False),
+        Binding("pagedown", "scroll_page_down", "Scroll Down", show=False),
+        Binding("ctrl+up", "scroll_line_up", "Scroll Up", show=False),
+        Binding("ctrl+down", "scroll_line_down", "Scroll Down", show=False),
+        Binding("shift+up", "scroll_page_up", "Scroll Up", show=False),
+        Binding("shift+down", "scroll_page_down", "Scroll Down", show=False),
+        Binding("ctrl+home", "scroll_home", "Top", show=False),
+        Binding("ctrl+end", "scroll_end", "Bottom", show=False),
     ]
 
     TITLE = "Sago"
@@ -1364,6 +1372,48 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self.query_one("#messages").remove_children()
         self.messages.clear()
         self._add_system_message("Cleared.")
+
+    def action_scroll_page_up(self) -> None:
+        """Scroll message viewport page up."""
+        try:
+            self.query_one("#messages").scroll_page_up(animate=True)
+        except Exception:
+            pass
+
+    def action_scroll_page_down(self) -> None:
+        """Scroll message viewport page down."""
+        try:
+            self.query_one("#messages").scroll_page_down(animate=True)
+        except Exception:
+            pass
+
+    def action_scroll_line_up(self) -> None:
+        """Scroll message viewport line up."""
+        try:
+            self.query_one("#messages").scroll_up(animate=False)
+        except Exception:
+            pass
+
+    def action_scroll_line_down(self) -> None:
+        """Scroll message viewport line down."""
+        try:
+            self.query_one("#messages").scroll_down(animate=False)
+        except Exception:
+            pass
+
+    def action_scroll_home(self) -> None:
+        """Scroll message viewport to top."""
+        try:
+            self.query_one("#messages").scroll_home(animate=True)
+        except Exception:
+            pass
+
+    def action_scroll_end(self) -> None:
+        """Scroll message viewport to bottom."""
+        try:
+            self.query_one("#messages").scroll_end(animate=True)
+        except Exception:
+            pass
 
     def _process_delegation(self, agent_name: str, task: str) -> None:
         self.is_thinking = True

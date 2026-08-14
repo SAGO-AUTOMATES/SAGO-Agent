@@ -1332,13 +1332,16 @@ class CommandHandlers:
 
                     def _mount_result() -> None:
                         container = self.query_one("#messages")
-                        container.mount(
-                            Collapsible(
-                                Static(render_text),
-                                title=title,
-                                collapsed=False,
-                            )
+                        c = Collapsible(
+                            Static(render_text),
+                            title=title,
+                            collapsed=False,
                         )
+                        container.mount(c)
+                        try:
+                            container.scroll_end(animate=False)
+                        except Exception:
+                            pass
                         self.is_thinking = False
 
                     self.call_from_thread(_mount_result)
