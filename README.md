@@ -1,6 +1,6 @@
 # SAGO-Agent
 
-> **Production-grade multi-agent orchestration system** — 339 specialist agents, 50 tools, multi-LLM support, streaming, parallel execution, feedback loops, workflows, TUI with dashboard, and built-in security.
+> **Production-grade multi-agent orchestration system** — 339 specialist agents, 56+ production tools, multi-LLM support, streaming, parallel execution, feedback loops, workflows, containerized card TUI with dashboard, and built-in security.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
@@ -9,14 +9,14 @@
 
 ## What is Sago?
 
-Sago is a **production-grade multi-agent orchestration system** built for real-world software engineering tasks. It goes beyond simple code generation — it autonomously delegates work to **339 specialist agents**, uses **50 production tools**, streams responses token-by-token, runs agents in parallel, manages sessions, enforces permissions, and runs workflows.
+Sago is a **production-grade multi-agent orchestration system** built for real-world software engineering tasks. It goes beyond simple code generation — it autonomously delegates work to **339 specialist agents**, uses **56+ production tools**, streams responses token-by-token, runs agents in parallel, manages sessions, enforces permissions, and runs workflows.
 
 ### Key Capabilities
 
 | Feature | Description |
 |---------|-------------|
-| **339 Specialist Agents** | Agents across 22 categories (engineering, security, data, cloud, compliance, etc.) |
-| **50 Production Tools** | File ops, shell, networking, SSH, coding, Docker, and more |
+| **339 Specialist Agents** | Agents across 22 domains (engineering, security, data, cloud, compliance, etc.) with domain-specific tool suites |
+| **56+ Production Tools** | File ops, AST symbol graphs, database query/schema/migration, shell, networking, SSH, Docker, and more |
 | **Parallel Agent Execution** | Run multiple agents simultaneously on the same task |
 | **Feedback Loops** | Agents can request clarification from previous agents in a chain |
 | **Recursion Protection** | Depth tracking, cycle detection, and visited-agent guards |
@@ -26,10 +26,10 @@ Sago is a **production-grade multi-agent orchestration system** built for real-w
 | **Permission System** | Risk-based tool permissions (safe/low/medium/high/critical) with approval workflow |
 | **Session Persistence** | SQLite database + JSON file save/load with full state preservation |
 | **Workflow Engine** | Stateful multi-step workflows with dependencies, retries, and pausing |
-| **TUI Interface** | Rich terminal UI with agent dashboard, autocomplete, collapsible tool calls, and command history |
+| **Containerized Card TUI** | Rich terminal UI with exchange turn cards, live agent dashboard, autocomplete, and smooth scrolling |
 | **Multi-LLM Support** | OpenRouter, OpenAI, Gemini, Claude, Ollama |
 | **Token Cost Tracking** | Per-model pricing with cache hit/miss analytics |
-| **Security Audit** | Path traversal protection, input validation, sensitive data filtering |
+| **Security Audit** | Path traversal protection, secret scanner, input validation, sensitive data filtering |
 
 ---
 
@@ -106,6 +106,8 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for full CLI and TUI command reference.
 | `sago run "task" --effort high` | Control execution depth (low/medium/high/max) |
 | `sago map [--dir .]` | **Symbol Repo Map** — Compact AST symbol map across 1,000+ files |
 | `sago verify [--dir .]` | **Self-Healing Verification** — Automated linters, type checks & tests |
+| `sago skills [--filter X]` | List workspace & built-in skills and capabilities |
+| `sago plugins` | List loaded third-party plugins and lifecycle hooks |
 
 ### Interactive TUI
 
@@ -113,8 +115,10 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for full CLI and TUI command reference.
 |---------|----------|-------------|
 | `sago tui` | — | Launch interactive terminal UI |
 | `/help` | — | Show all commands |
-| `/agents [filter]` | — | List/search 339 agents |
+| `/agents [category]` | — | List/search agents by category or name |
 | `/agent <name>` | — | Set current agent |
+| `/skills [filter]` | — | List workspace & custom skills |
+| `/plugins` | — | List third-party plugins |
 | `/delegate <agent> <task>` | — | Delegate to specialist |
 | `/chain <a1,a2> <task>` | — | Chain agents sequentially |
 | `/parallel <a1,a2> <task>` | — | Run agents in parallel on same task |
@@ -150,7 +154,7 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for full CLI and TUI command reference.
 | Command | Description |
 |---------|-------------|
 | `sago status` | System status |
-| `sago agents` | List all agents |
+| `sago agents [category]` | List all categories or drill down into a category |
 | `sago info <agent>` | Agent details |
 | `sago init` | Initialize project |
 | `sago daemon start` | Start background server |
