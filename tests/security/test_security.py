@@ -1,6 +1,14 @@
-"""Security audit tests for Sago."""
+import pytest
 
-from sago.permissions import get_permission_manager
+from sago.permissions import get_permission_manager, reset_permission_manager
+
+
+@pytest.fixture(autouse=True)
+def clean_permissions():
+    """Ensure clean isolated permissions for every test."""
+    pm = reset_permission_manager()
+    yield pm
+    reset_permission_manager()
 
 
 class TestPathTraversal:

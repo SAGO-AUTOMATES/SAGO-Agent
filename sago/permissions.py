@@ -98,7 +98,7 @@ class PermissionConfig:
 
     auto_approve_safe: bool = True
     auto_approve_low: bool = True
-    require_approval_medium: bool = True
+    require_approval_medium: bool = False
     require_approval_high: bool = True
     require_approval_critical: bool = True
     allowed_tools: list[str] = field(default_factory=list)
@@ -251,14 +251,15 @@ class PermissionManager:
         if self.is_blocked(tool_name):
             return False, f"Tool '{tool_name}' is blocked"
 
-        if not self.requires_approval(tool_name, args):
-            return True, "Auto-approved"
-
+        # Explicit user approvals or denials take highest priority
         approved = self.is_approved(tool_name, session_id)
         if approved is True:
             return True, "User approved"
         if approved is False:
             return False, "User denied"
+
+        if not self.requires_approval(tool_name, args):
+            return True, "Auto-approved"
 
         return (
             False,
@@ -278,4 +279,12 @@ def get_permission_manager() -> PermissionManager:
         with _permission_lock:
             if _permission_manager is None:
                 _permission_manager = PermissionManager()
+    return _permission_manager
+
+
+def reset_permission_manager() -> PermissionManager:
+    """Reset the global permission manager."""
+    global _permission_manager
+    with _permission_lock:
+        _permission_manager = PermissionManager()
     return _permission_manager

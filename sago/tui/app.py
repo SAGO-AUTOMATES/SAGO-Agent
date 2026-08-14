@@ -702,8 +702,17 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self._save_settings()
 
     def watch_yolo_mode(self, value: bool) -> None:
-        """Auto-save yolo mode when changed."""
+        """Auto-save yolo mode and sync permission manager when changed."""
         self._save_settings()
+        try:
+            from sago.permissions import get_permission_manager
+
+            pm = get_permission_manager()
+            pm.set_global_yolo(value)
+            if hasattr(self, "current_session_id") and self.current_session_id:
+                pm.set_yolo_mode(self.current_session_id, value)
+        except Exception:
+            pass
 
     def watch_show_summary(self, value: bool) -> None:
         """Auto-save summary visibility when changed."""

@@ -67,6 +67,13 @@ class TestPermissionManager:
         assert "Auto-approved" in reason
 
     def test_check_permission_medium(self, pm):
+        # Auto-approved by default for smooth workflow
+        allowed, reason = pm.check_permission("execute_shell")
+        assert allowed is True
+        assert "Auto-approved" in reason
+
+        # When explicitly configured to require approval
+        pm.config.require_approval_medium = True
         allowed, reason = pm.check_permission("execute_shell")
         assert allowed is False
         assert "requires approval" in reason
@@ -111,6 +118,6 @@ class TestPermissionConfig:
     def test_default_config(self, pm):
         assert pm.config.auto_approve_safe is True
         assert pm.config.auto_approve_low is True
-        assert pm.config.require_approval_medium is True
+        assert pm.config.require_approval_medium is False
         assert pm.config.require_approval_high is True
         assert pm.config.require_approval_critical is True
