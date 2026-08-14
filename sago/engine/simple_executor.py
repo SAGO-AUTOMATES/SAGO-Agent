@@ -19,6 +19,7 @@ from sago.tools.base import BaseTool
 # Auto-discover all tools
 _TOOL_CLASSES: dict[str, type[BaseTool]] = {}
 _TOOL_DESCRIPTIONS = ""
+_tool_discovery_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -198,8 +199,9 @@ def _auto_install_deps(files_created: list[str], on_thinking: Callable | None = 
             on_thinking(f"Installing dependencies: {cmd[:50]}...")
         try:
             shell_tool.run(command=cmd, timeout=60)
-        except Exception:
-            pass
+        except Exception as e:
+            if on_thinking:
+                on_thinking(f"Dependency install failed: {type(e).__name__}: {e}")
 
 
 def _run_tests_if_exist(
@@ -441,12 +443,22 @@ def _generate_plan_with_llm(
             temperature=0.3,
         )
         content = response.choices[0].message.content or ""
-        # Extract JSON array from response
-        match = re.search(r"\[.*\]", content, re.DOTALL)
-        if match:
-            steps = json.loads(match.group())
+        # Extract JSON array from response - try strict parsing first, then regex fallback
+        try:
+            steps = json.loads(content.strip())
             if isinstance(steps, list) and all(isinstance(s, str) for s in steps):
                 return steps
+        except (json.JSONDecodeError, ValueError):
+            pass
+        # Regex fallback: find first complete JSON array
+        match = re.search(r"\[(?:[^\[\]]*(?:\"[^\"]*\")[^\[\]]*)*\]", content, re.DOTALL)
+        if match:
+            try:
+                steps = json.loads(match.group())
+                if isinstance(steps, list) and all(isinstance(s, str) for s in steps):
+                    return steps
+            except (json.JSONDecodeError, ValueError):
+                pass
     except Exception:
         pass
     # Fallback: create generic steps
@@ -463,43 +475,48 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
     if _TOOL_CLASSES and _TOOL_DESCRIPTIONS:
         return _TOOL_CLASSES
 
-    import logging
+    with _tool_discovery_lock:
+        # Double-check after acquiring lock
+        if _TOOL_CLASSES and _TOOL_DESCRIPTIONS:
+            return _TOOL_CLASSES
 
-    _log = logging.getLogger("sago.tools")
+        import logging
 
-    tools_dir = Path(__file__).parent.parent / "tools"
-    for py_file in tools_dir.rglob("*.py"):
-        if py_file.name.startswith("_") or py_file.name == "base.py":
-            continue
-        try:
-            parts = py_file.relative_to(tools_dir).with_suffix("").as_posix().split("/")
-            mod = importlib.import_module(f"sago.tools.{'.'.join(parts)}")
-            for attr in dir(mod):
-                obj = getattr(mod, attr)
-                if (
-                    isinstance(obj, type)
-                    and issubclass(obj, BaseTool)
-                    and obj is not BaseTool
-                    and getattr(obj, "name", None)
-                ):
-                    _TOOL_CLASSES[obj.name] = obj
-        except Exception as e:
-            _log.debug(f"Failed to load tool from {py_file.name}: {e}")
+        _log = logging.getLogger("sago.tools")
 
-    lines = []
-    for name, cls in sorted(_TOOL_CLASSES.items()):
-        desc = cls.description or name
-        args = ""
-        if cls.args_model:
-            fields = cls.args_model.model_fields
-            parts = []
-            for fn, fi in fields.items():
-                req = "REQ" if fi.is_required() else f"={fi.default}"
-                parts.append(f"{fn}({req})")
-            args = ", ".join(parts)
-        lines.append(f"- {name}({args}): {desc}")
-    _TOOL_DESCRIPTIONS = "\n".join(lines)
-    return _TOOL_CLASSES
+        tools_dir = Path(__file__).parent.parent / "tools"
+        for py_file in tools_dir.rglob("*.py"):
+            if py_file.name.startswith("_") or py_file.name == "base.py":
+                continue
+            try:
+                parts = py_file.relative_to(tools_dir).with_suffix("").as_posix().split("/")
+                mod = importlib.import_module(f"sago.tools.{'.'.join(parts)}")
+                for attr in dir(mod):
+                    obj = getattr(mod, attr)
+                    if (
+                        isinstance(obj, type)
+                        and issubclass(obj, BaseTool)
+                        and obj is not BaseTool
+                        and getattr(obj, "name", None)
+                    ):
+                        _TOOL_CLASSES[obj.name] = obj
+            except Exception as e:
+                _log.debug(f"Failed to load tool from {py_file.name}: {e}")
+
+        lines = []
+        for name, cls in sorted(_TOOL_CLASSES.items()):
+            desc = cls.description or name
+            args = ""
+            if cls.args_model:
+                fields = cls.args_model.model_fields
+                parts = []
+                for fn, fi in fields.items():
+                    req = "REQ" if fi.is_required() else f"={fi.default}"
+                    parts.append(f"{fn}({req})")
+                args = ", ".join(parts)
+            lines.append(f"- {name}({args}): {desc}")
+        _TOOL_DESCRIPTIONS = "\n".join(lines)
+        return _TOOL_CLASSES
 
 
 def _get_context(cwd: str | None = None) -> str:
@@ -814,15 +831,16 @@ def execute_agent_task(
                 tools = agent_tools
 
     # Auto-detect task type and use appropriate prompt
+    # NOTE: project_ctx goes in USER message, not system prompt, to prevent prompt injection
     if not system_prompt:
         task_type = _detect_task_type(task)
         template = PROMPTS.get(task_type, PROMPTS["create"])
         system_prompt = template.format(
             agent_role=agent_role,
-            project_ctx=project_ctx,
+            project_ctx="",  # Intentionally empty — context goes in user message
         )
 
-    # Add learning suggestion if available
+    # Add learning suggestion if available (safe — it's our own data)
     if learning_suggestion:
         system_prompt += (
             f"\n\n=== PAST SUCCESSFUL APPROACH ===\n"
@@ -831,7 +849,7 @@ def execute_agent_task(
             f"Consider using a similar approach, but adapt to the current context."
         )
 
-    # Add project context hints
+    # Add project context hints (safe — controlled strings)
     if project_context["frameworks"]:
         system_prompt += (
             f"\n\n=== EXISTING PROJECT DETECTED ===\n"
@@ -862,9 +880,14 @@ def execute_agent_task(
     current_todo_index = 0
     todo_tool_counts: dict[str, int] = {}  # track tools per todo
 
+    # Build user message with project context as DATA (not instructions)
+    user_content = task
+    if project_ctx:
+        user_content = f"## Project Context (read-only reference data)\n{project_ctx}\n\n## Task\n{task}"
+
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": task},
+        {"role": "user", "content": user_content},
     ]
 
     # Build OpenAI function calling tool definitions
@@ -1567,11 +1590,23 @@ def execute_agent_task(
                     except json.JSONDecodeError:
                         fix_args = {}
                     fix_name = ftc.function.name
+                    fix_call_key = f"{fix_name}:{json.dumps(fix_args, sort_keys=True)}"
+                    if fix_call_key in failed_calls:
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": ftc.id,
+                                "content": f"[SKIP] Already failed: {fix_name} with same args",
+                            }
+                        )
+                        continue
                     if fix_name in tools:
                         tool_instance = tools[fix_name]()
                         result = tool_instance.run(**fix_args)
                         result_str = str(result)
-                        is_error_result = result_str.lower().startswith("error")
+                        is_error_result = result_str.lower().startswith("error") or "traceback" in result_str.lower()
+                        if is_error_result:
+                            failed_calls.add(fix_call_key)
                         tool_history.append(
                             {
                                 "tool": fix_name,
@@ -1593,7 +1628,9 @@ def execute_agent_task(
                         )
             elif fix_content:
                 messages.append({"role": "assistant", "content": fix_content})
-        except Exception:
+        except Exception as e:
+            if on_thinking:
+                on_thinking(f"Fix attempt error: {type(e).__name__}: {e}")
             break
 
     # Record learning from this execution

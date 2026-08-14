@@ -8,6 +8,7 @@ Includes API key authentication, connection limits, and graceful shutdown.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import signal
@@ -71,10 +72,12 @@ class SagoDaemon:
         return key
 
     def _verify_api_key(self, provided_key: str) -> bool:
-        """Verify API key."""
+        """Verify API key using constant-time comparison to prevent timing attacks."""
         if not self._api_key:
             return True  # No auth required if no key set
-        return provided_key == self._api_key
+        if not provided_key:
+            return False
+        return hmac.compare_digest(provided_key, self._api_key)
 
     def is_running(self) -> bool:
         """Check if daemon is running."""
@@ -124,8 +127,13 @@ class SagoDaemon:
         self.pid_file.parent.mkdir(parents=True, exist_ok=True)
         self.pid_file.write_text(str(os.getpid()))
 
-        sys.stdout = open(self.log_file, "w")
-        sys.stderr = sys.stdout
+        log_fd = open(self.log_file, "w")
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = log_fd
+        sys.stderr = log_fd
+        old_stdout.close()
+        old_stderr.close()
 
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
@@ -165,7 +173,12 @@ class SagoDaemon:
             while self._running:
                 try:
                     if self._active_connections >= self._max_connections:
-                        print(f"Connection limit reached ({self._max_connections}), rejecting")
+                        try:
+                            client, addr = server.accept()
+                            client.send(json.dumps({"error": "Connection limit reached"}).encode() + b"\n")
+                            client.close()
+                        except (TimeoutError, OSError):
+                            pass
                         time.sleep(0.1)
                         continue
 
@@ -222,10 +235,12 @@ class SagoDaemon:
             client.send(json.dumps({"error": "Invalid JSON"}).encode() + b"\n")
         except TimeoutError:
             client.send(json.dumps({"error": "Request timeout"}).encode() + b"\n")
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # Client disconnected, nothing to send
         except Exception as e:
             try:
                 client.send(json.dumps({"error": str(e)}).encode() + b"\n")
-            except Exception:
+            except (BrokenPipeError, ConnectionResetError, OSError):
                 pass
 
     def _process_request(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -400,7 +415,16 @@ class SagoClient:
                 if b"\n" in data:
                     break
 
-            return json.loads(data.decode().strip())
+            if not data:
+                raise ConnectionError("Daemon returned empty response")
+
+            response_str = data.decode().strip()
+            if not response_str:
+                raise ConnectionError("Daemon returned empty response")
+
+            return json.loads(response_str)
+        except json.JSONDecodeError as e:
+            raise ConnectionError(f"Invalid response from daemon: {e}") from e
         except ConnectionRefusedError:
             raise ConnectionError("Daemon not running")
         finally:

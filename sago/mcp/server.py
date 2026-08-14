@@ -151,6 +151,12 @@ class MCPClient:
         self.tools: list[dict[str, Any]] = []
         self._connected = False
         self._process: subprocess.Popen | None = None
+        self._request_id = 0
+
+    def _next_id(self) -> int:
+        """Get next unique request ID."""
+        self._request_id += 1
+        return self._request_id
 
     def connect(self) -> bool:
         """Connect to MCP server via stdio subprocess."""
@@ -173,7 +179,7 @@ class MCPClient:
             # Send initialize request
             init_request = {
                 "jsonrpc": "2.0",
-                "id": 1,
+                "id": self._next_id(),
                 "method": "initialize",
                 "params": {
                     "protocolVersion": "2024-11-05",
@@ -216,8 +222,11 @@ class MCPClient:
         if self._process and self._process.stdout:
             line = self._process.stdout.readline()
             if line:
-                return json.loads(line)
-        return {}
+                try:
+                    return json.loads(line)
+                except json.JSONDecodeError as e:
+                    raise RuntimeError(f"Invalid JSON-RPC response: {e}") from e
+        raise RuntimeError("No response from MCP server (EOF or empty)")
 
     def list_tools(self) -> list[dict[str, Any]]:
         """List tools from connected server."""
@@ -226,7 +235,7 @@ class MCPClient:
 
         request = {
             "jsonrpc": "2.0",
-            "id": 2,
+            "id": self._next_id(),
             "method": "tools/list",
             "params": {},
         }
@@ -242,7 +251,7 @@ class MCPClient:
 
         request = {
             "jsonrpc": "2.0",
-            "id": 3,
+            "id": self._next_id(),
             "method": "tools/call",
             "params": {
                 "name": name,
@@ -264,10 +273,21 @@ class MCPClient:
     def disconnect(self) -> None:
         """Disconnect from MCP server."""
         if self._process:
-            self._process.terminate()
-            self._process.wait(timeout=5)
+            try:
+                self._process.terminate()
+                try:
+                    self._process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self._process.kill()
+                    self._process.wait(timeout=2)
+            except (OSError, ProcessLookupError):
+                pass  # Process already dead
             self._process = None
         self._connected = False
+
+    def __del__(self) -> None:
+        """Ensure cleanup on garbage collection."""
+        self.disconnect()
 
 
 def create_sago_mcp_server() -> MCPServer:

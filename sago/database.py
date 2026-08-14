@@ -13,6 +13,7 @@ Features:
 
 from __future__ import annotations
 
+import atexit
 import json
 import sqlite3
 import threading
@@ -49,6 +50,21 @@ def _get_connection() -> sqlite3.Connection:
     with _pool_lock:
         _connections[tid] = conn
     return conn
+
+
+def close_all_connections() -> None:
+    """Close all pooled connections. Use at process exit."""
+    with _pool_lock:
+        conns = list(_connections.values())
+        _connections.clear()
+    for conn in conns:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+atexit.register(close_all_connections)
 
 
 def close_thread_connection() -> None:
@@ -139,11 +155,14 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
             CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+            CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id);
             CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
             CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
             CREATE INDEX IF NOT EXISTS idx_messages_role ON messages(role);
+            CREATE INDEX IF NOT EXISTS idx_messages_task ON messages(task_id);
             CREATE INDEX IF NOT EXISTS idx_tool_usage_session ON tool_usage(session_id);
             CREATE INDEX IF NOT EXISTS idx_tool_usage_tool ON tool_usage(tool_name);
+            CREATE INDEX IF NOT EXISTS idx_tool_usage_task ON tool_usage(task_id);
             CREATE INDEX IF NOT EXISTS idx_agent_state_session ON agent_state(session_id);
         """)
         conn.commit()
@@ -212,7 +231,12 @@ class Session:
         """Get complete session data for export."""
         session = self.get() or {}
         ms = MessageStore(self.id)
-        messages = ms.get_history(limit=10000)
+        ms.flush()
+        rows = ms.conn.execute(
+            "SELECT * FROM messages WHERE session_id = ? ORDER BY created_at",
+            (self.id,),
+        ).fetchall()
+        messages = [dict(r) for r in rows]
         tus = ToolUsageStore(self.id)
         tool_usage = tus.get_all()
         ts = TaskStore(self.id)
@@ -473,3 +497,24 @@ class ToolUsageStore:
 def init() -> None:
     """Initialize the database."""
     init_db()
+
+
+def vacuum() -> None:
+    """Reclaim disk space and optimize the database."""
+    conn = _get_connection()
+    conn.execute("VACUUM")
+
+
+def get_db_stats() -> dict[str, Any]:
+    """Get database size and row counts."""
+    conn = _get_connection()
+    stats: dict[str, Any] = {}
+    for table in ("sessions", "tasks", "messages", "agent_state", "tool_usage"):
+        row = conn.execute(f"SELECT COUNT(*) as cnt FROM {table}").fetchone()
+        stats[table] = row["cnt"]
+    row = conn.execute("PRAGMA page_count").fetchone()
+    page_count = row[0]
+    row = conn.execute("PRAGMA page_size").fetchone()
+    page_size = row[0]
+    stats["size_bytes"] = page_count * page_size
+    return stats

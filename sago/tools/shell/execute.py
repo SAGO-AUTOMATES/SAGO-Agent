@@ -60,6 +60,11 @@ class ExecuteShellTool(BaseTool):
             if not work_dir.exists():
                 return f"Error: Working directory not found: {work_dir}"
 
+        # Validate timeout
+        if timeout <= 0:
+            timeout = 300
+        timeout = min(timeout, 3600)  # Cap at 1 hour
+
         try:
             result = self._run_command(
                 command if self._is_windows() else full_command,

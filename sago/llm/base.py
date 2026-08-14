@@ -60,7 +60,8 @@ class BaseLLMProvider(ABC):
         Yields:
             Chunks of the generated response.
         """
-        ...
+        ...  # pragma: no cover
+        yield  # Make this a generator
 
     @abstractmethod
     def is_available(self) -> bool:

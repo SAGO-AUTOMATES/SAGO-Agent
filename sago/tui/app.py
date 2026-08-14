@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import logging
 import os
 import re
 import threading
@@ -15,19 +16,20 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.reactive import reactive
-from textual.widgets import Button, Footer, Input, Static
+from textual.widgets import Button, Input, Static
 
 from sago.tui.commands import CommandHandlers
 from sago.tui.helpers import UIHelpers
 from sago.tui.models import COMMANDS, EFFORT_LEVELS
 from sago.tui.widgets import (
     AgentDashboard,
-    AgentSpinner,
     AgentStatus,
     BackgroundTaskManager,
     Spinner,
     get_task_manager,
 )
+
+logger = logging.getLogger("sago.tui.app")
 
 
 class SagoApp(App, CommandHandlers, UIHelpers):
@@ -81,18 +83,20 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
     .msg-user { color: #58a6ff; padding: 0 0 1 0; }
     .msg-assistant { color: #c9d1d9; padding: 0 0 1 0; }
-    .msg-system { color: #8b949e; text-style: italic; padding: 0 0 1 0; }
+    .msg-system { color: #8b949e; padding: 0 0 1 0; }
     .msg-meta { color: #484f58; padding: 0 0 0 0; }
     .msg-parallel { color: #d2a8ff; padding: 0 0 1 0; border-left: solid #d2a8ff; padding-left: 1; }
 
     Collapsible {
-        background: #0d1117;
-        border: solid #21262d;
+        background: transparent;
+        border: solid #30363d;
         margin: 0 0 1 0;
         padding: 0;
+        height: auto;
+        max-height: 25;
     }
-    Collapsible .collapsible-title { background: #161b22; color: #58a6ff; padding: 0 1; }
-    Collapsible .collapsible-body { background: #0d1117; color: #8b949e; padding: 0 1; }
+    Collapsible .collapsible-title { background: #161b22; color: #58a6ff; padding: 0 1; text-style: bold; }
+    Collapsible .collapsible-body { background: transparent; color: #c9d1d9; padding: 0; overflow-y: auto; scrollbar-size: 1 0; }
 
     #input-area {
         height: auto;
@@ -146,37 +150,50 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
     #welcome-screen {
         height: 1fr;
-        display: block;
+        align: center middle;
         content-align: center middle;
         text-align: center;
         background: #0d1117;
     }
     #welcome-screen.hidden { display: none; }
 
+    #messages-parent.has-welcome #messages { display: none; }
+
     .welcome-logo {
         color: #58a6ff;
         text-style: bold;
         text-align: center;
         width: 100%;
+        height: auto;
     }
     .welcome-version {
         color: #ffffff;
         text-style: bold;
         text-align: center;
         width: 100%;
-        padding: 1 0 0 0;
+        height: 1;
+        margin: 1 0 0 0;
     }
     .welcome-subtitle {
         color: #8b949e;
         text-align: center;
         width: 100%;
-        padding: 1 0 0 0;
+        height: 1;
+        margin: 0 0 0 0;
     }
     .welcome-hint {
         color: #484f58;
         text-align: center;
         width: 100%;
-        padding: 2 0 0 0;
+        height: 1;
+        margin: 2 0 0 0;
+    }
+    .welcome-separator {
+        color: #30363d;
+        text-align: center;
+        width: 100%;
+        height: 1;
+        margin: 1 0 0 0;
     }
 
     #approval-bar {
@@ -264,6 +281,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     is_thinking: reactive[bool] = reactive(False)
     pending_action: reactive[dict] = reactive(dict)
     pending_orchestration: dict | None = None
+    _orchestration_lock: threading.Lock | None = None
     approval_message: reactive[str] = reactive("")
     yolo_mode: reactive[bool] = reactive(False)
     show_summary: reactive[bool] = reactive(False)
@@ -271,8 +289,6 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     _executor_pause_event: threading.Event | None = None
     _executor_thread: object = None  # running thread reference
     _tool_approved: bool = False
-    command_history: list[str] = []
-    history_index: int = -1
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     total_cache_hit_tokens: int = 0
@@ -280,9 +296,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     # Parallel execution state
     _dashboard: AgentDashboard | None = None
     _dashboard_visible: reactive[bool] = reactive(False)
-    _parallel_spinners: dict[str, AgentSpinner] = {}
     _task_manager: BackgroundTaskManager | None = None
     _active_parallel_futures: dict[str, concurrent.futures.Future] = {}
+    _parallel_lock: threading.Lock | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="main-layout"):
@@ -317,10 +333,16 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     yield Input(placeholder="/, @, # for autocomplete", id="msg-input")
             yield Vertical(id="agent-dashboard", classes="hidden")
 
+    MAX_COMMAND_HISTORY = 200
+
     def on_mount(self) -> None:
         self._spinner = None
         self._spinner_timer = None
         self._pending_resume = getattr(self, "_pending_resume", None)
+        self.command_history: list[str] = []
+        self.history_index: int = -1
+        self._orchestration_lock = threading.Lock()
+        self._parallel_lock = threading.Lock()
         self._init_db()
         self._init_session()
         self._load_settings()
@@ -340,38 +362,41 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     def _populate_welcome_screen(self) -> None:
         """Populate the welcome screen with SAGO logo and info."""
         welcome = self.query_one("#welcome-screen")
+        parent = self.query_one("#messages-parent")
+        parent.add_class("has-welcome")
         logo_lines = [
-            "",
-            "  ██████╗  █████╗  ██████╗  ██████╗ ",
-            " ██╔════╝ ██╔══██╗██╔════╝ ██╔═══██╗",
-            " ╚█████╗  ███████║██║  ███╗██║   ██║",
-            "  ╚═══██╗ ██╔══██║██║   ██║██║   ██║",
-            " ██████╔╝ ██║  ██║╚██████╔╝╚██████╔╝",
-            " ╚═════╝  ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ",
-            "",
+            "██████╗  █████╗  ██████╗  ██████╗",
+            "██╔════╝ ██╔══██╗██╔════╝ ██╔═══██╗",
+            "╚█████╗  ███████║██║  ███╗██║   ██║",
+            " ╚═══██╗ ██╔══██║██║   ██║██║   ██║",
+            "██████╔╝ ██║  ██║╚██████╔╝╚██████╔╝",
+            "╚═════╝  ╚═╝  ╚═╝ ╚═════╝  ╚═════╝",
         ]
         for line in logo_lines:
             welcome.mount(Static(line, classes="welcome-logo"))
-        welcome.mount(Static("Agent  v0.1.0", classes="welcome-version"))
-        welcome.mount(Static("AI-Powered Software Agent", classes="welcome-subtitle"))
-        welcome.mount(Static("Type a message to start, or use /help for commands", classes="welcome-hint"))
+        welcome.mount(Static("─" * 40, classes="welcome-separator"))
+        welcome.mount(Static("v0.1.0 — Multi-Agent Orchestration", classes="welcome-version"))
+        welcome.mount(Static("AI-Powered Software Engineering Agent", classes="welcome-subtitle"))
+        welcome.mount(Static("Type a message or use /help for commands", classes="welcome-hint"))
 
     def _hide_welcome_screen(self) -> None:
         """Hide the welcome screen and show messages."""
         try:
             welcome = self.query_one("#welcome-screen")
             welcome.add_class("hidden")
-        except Exception:
-            pass
+            parent = self.query_one("#messages-parent")
+            parent.remove_class("has-welcome")
+        except Exception as e:
+            logger.debug("Could not hide welcome screen: %s", e)
 
     def _extract_file_context(self, message: str) -> str:
         """Extract #file references from message and return their contents as context."""
         import re
         from pathlib import Path
-        
+
         # Find all #filepath references (support #file, #./file, #~/.file, etc.)
         file_refs = re.findall(r'#([^\s,#@/]+(?:/[^\s,#@/]+)*)', message)
-        
+
         context_parts = []
         for ref in file_refs:
             try:
@@ -382,14 +407,14 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     path = Path(ref)
                 else:
                     path = Path(ref)
-                
+
                 if path.exists() and path.is_file():
                     # Read file content (limit to 10KB per file)
                     content = path.read_text(errors='replace')[:10240]
                     context_parts.append(f"--- {path.name} ---\n{content}")
             except Exception:
                 pass
-        
+
         return "\n\n".join(context_parts)
 
     _loading_settings: bool = True
@@ -406,8 +431,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self.current_agent = load_setting("agent", self.current_agent)
             self.yolo_mode = load_setting("yolo", self.yolo_mode)
             self.show_summary = load_setting("show_summary", self.show_summary)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to load settings: %s", e)
         finally:
             self._loading_settings = False
 
@@ -424,8 +449,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             save_setting("agent", self.current_agent)
             save_setting("yolo", self.yolo_mode)
             save_setting("show_summary", self.show_summary)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to save settings: %s", e)
 
     def _auto_refresh_models(self) -> None:
         """Refresh model list from OpenRouter if cache is stale."""
@@ -441,8 +466,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             msg = auto_refresh_if_stale(api_key)
             if msg:
                 self._add_system_message(f"[auto-refresh] {msg}")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Auto-refresh models failed: %s", e)
 
     def _resolve_api_model(self) -> str:
         """Strip provider prefix for API calls. google/gemini-2.0-flash -> gemini-2.0-flash."""
@@ -465,6 +490,15 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         }
         env_var = provider_key_map.get(self.current_provider, "OPENROUTER_API_KEY")
         return os.environ.get(env_var, "")
+
+    def _get_provider_key_name(self) -> str:
+        """Get the environment variable name for the current provider's API key."""
+        provider_key_map = {
+            "google": "GEMINI_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "openrouter": "OPENROUTER_API_KEY",
+        }
+        return provider_key_map.get(self.current_provider, "OPENROUTER_API_KEY")
 
     def watch_current_model(self, value: str) -> None:
         """Auto-save model when changed."""
@@ -518,11 +552,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     @on(Input.Changed, "#msg-input")
     def on_input_changed(self, event: Input.Changed) -> None:
         v = event.value
-        
+
         # Find the last space to determine current "word"
         last_space = v.rfind(" ")
         current_word = v[last_space + 1:] if last_space >= 0 else v
-        
+
         # Check for triggers in the current word (not across spaces)
         # Priority: # and @ take precedence over / for paths
         if current_word.startswith("#"):
@@ -557,12 +591,12 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 event.input.value = ""
                 self._handle_command(val)
                 return
-            
+
             # Find the current word being typed and replace it
             v = event.value
             last_space = v.rfind(" ")
             current_word_start = last_space + 1 if last_space >= 0 else 0
-            
+
             # For comma-separated values, append to existing list
             if "," in v[current_word_start:] and (v[current_word_start:].startswith("@") or v[current_word_start:].startswith("#")):
                 # Get the base part (before current word)
@@ -576,7 +610,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 new_value = v[:current_word_start] + val + " "
                 event.input.value = new_value
                 event.input.cursor_position = len(new_value)
-            
+
             # If selecting a model suggestion, set provider too
             if (
                 val.startswith("/model ")
@@ -661,6 +695,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     def _add_to_history(self, cmd: str) -> None:
         if cmd and (not self.command_history or self.command_history[-1] != cmd):
             self.command_history.append(cmd)
+            if len(self.command_history) > self.MAX_COMMAND_HISTORY:
+                self.command_history = self.command_history[-self.MAX_COMMAND_HISTORY:]
         self.history_index = len(self.command_history)
 
     def _navigate_history(self, key: str) -> None:
@@ -768,24 +804,21 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 items = [f"{a['name']} - {a.get('description', '')[:30]}" for a in agents if a["name"].startswith(prefix)]
                 values = [f"@{a['name']}" for a in agents if a["name"].startswith(prefix)]
             self._show_suggestions(items, values)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Agent suggestions failed: %s", e)
 
     def _show_file_suggestions(self, prefix: str, home: bool = False) -> None:
         from pathlib import Path
-        
+
         # Determine base path and trigger
         if home:
             base = Path.home()
-            trigger = "~"
         elif prefix.startswith("~"):
             # Handle #~/.sago/config style paths
             base = Path.home() / prefix[1:].split("/")[0] if "/" in prefix else Path.home()
-            trigger = "#"
         else:
             base = Path(".")
-            trigger = "#"
-        
+
         # Build search path from prefix
         search_prefix = prefix.lstrip("~/")
         if search_prefix:
@@ -804,7 +837,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         values.append(f"#{search_prefix}/{name}")
                 self._show_suggestions(items, values)
                 return
-        
+
         # Default: show root level files
         items = []
         values = []
@@ -904,8 +937,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         if self._spinner:
             try:
                 self._spinner.remove()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Could not remove spinner: %s", e)
             self._spinner = None
 
     def _handle_command(self, command: str) -> None:
@@ -997,7 +1030,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 self.call_from_thread(self._hide_spinner)
                 self.call_from_thread(
                     self._add_system_message,
-                    f"No API key. Set {self.current_provider.upper()} API key.",
+                    f"No API key. Set {self._get_provider_key_name()} environment variable.",
                 )
                 return
 
@@ -1041,7 +1074,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 self.call_from_thread(self._hide_spinner)
                 self.call_from_thread(
                     self._add_system_message,
-                    f"No API key. Set {self.current_provider.upper()} API key.",
+                    f"No API key. Set {self._get_provider_key_name()} environment variable.",
                 )
                 return
 
@@ -1081,7 +1114,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 self.call_from_thread(self._hide_spinner)
                 self.call_from_thread(
                     self._add_system_message,
-                    f"No API key. Set {self.current_provider.upper()} API key.",
+                    f"No API key. Set {self._get_provider_key_name()} environment variable.",
                 )
                 return
 
@@ -1266,7 +1299,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 for info in task_infos:
                     future = executor.submit(execute_agent, info.agent_name, task, info)
                     futures[future] = info
-                    self._active_parallel_futures[info.agent_id] = future
+                    if self._parallel_lock:
+                        with self._parallel_lock:
+                            self._active_parallel_futures[info.agent_id] = future
 
                 for future in concurrent.futures.as_completed(futures):
                     result = future.result()
@@ -1305,7 +1340,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self.call_from_thread(self._add_system_message, f"Parallel error: {e}")
         finally:
             self.is_thinking = False
-            self._active_parallel_futures.clear()
+            if self._parallel_lock:
+                with self._parallel_lock:
+                    self._active_parallel_futures.clear()
             self.call_from_thread(self._update_dashboard)
 
     def _show_parallel_bar(self, agents: list[str]) -> None:
@@ -1405,8 +1442,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                     ls = get_learning_store()
                     learning_suggestion = ls.suggest_approach("general", list(tools.keys()))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Learning suggestion failed: %s", e)
 
                 # Load profile and build prompt
                 profile = _load_agent_profile(self.current_agent.replace("-", " ").title())
@@ -1439,8 +1476,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     instructions_prompt = pi.get_for_prompt()
                     if instructions_prompt:
                         system_prompt += instructions_prompt
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Project instructions failed: %s", e)
 
                 # TODO system
                 task_plan = None
@@ -1477,7 +1514,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                 self._update_spinner,
                                 f"Step 1/{len(task_plan.todos)}: {task_plan.todos[0].description[:50]}",
                             )
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("Task plan creation failed: %s", e)
                         task_plan = None
 
                 messages = [
@@ -1507,13 +1545,13 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         from sago.database import ToolUsageStore, init_db
                         init_db()
                         _tool_usage_store = ToolUsageStore(self.current_session_id)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("ToolUsageStore init failed: %s", e)
                 try:
                     from sago.tracking.token_tracker import get_token_tracker
                     _token_tracker = get_token_tracker()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Token tracker init failed: %s", e)
 
                 for iteration in range(effort["max_iterations"]):
                     # Hard token cap — stop if budget exceeded
@@ -1591,8 +1629,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         )
                         content = response.text or ""
                         # Extract tool calls from Gemini response
-                        if response.candidates:
-                            for part in response.candidates[0].content.parts:
+                        if response.candidates and response.candidates[0].content:
+                            for part in response.candidates[0].content.parts or []:
                                 if part.function_call:
                                     native_tool_calls.append(
                                         {
@@ -1835,7 +1873,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                 pause_event = threading.Event()
                                 self._executor_pause_event = pause_event
                                 self._pending_tool_approval = {"name": name, "args": args}
-                                pause_event.wait()
+                                pause_event.wait(timeout=300)
                                 self._executor_pause_event = None
                                 self._pending_tool_approval = None
                                 if not self._tool_approved:
@@ -1956,7 +1994,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                     )
                                     pause_event = threading.Event()
                                     self._executor_pause_event = pause_event
-                                    pause_event.wait()
+                                    pause_event.wait(timeout=300)
                                     self._executor_pause_event = None
 
                                 successful_tools = [
@@ -1994,8 +2032,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                                 "content": "[PROGRESS] All steps completed. Provide final summary.",
                                             }
                                         )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("TODO progress update failed: %s", e)
 
                     continue  # Loop back for next LLM call with tool results as role:tool messages
 
@@ -2140,7 +2178,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                         )
                             elif fix_content:
                                 messages.append({"role": "assistant", "content": fix_content})
-                        except Exception:
+                        except Exception as e:
+                            logger.debug("Test-fix loop failed: %s", e)
                             break
 
                 # Final todo cleanup
@@ -2161,8 +2200,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                     result="Task completed",
                                 )
                         self.call_from_thread(self._add_system_message, tm.format_plan(task_plan))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Final todo cleanup failed: %s", e)
 
                 elapsed = _time.time() - start_time
                 self.call_from_thread(self._hide_spinner)
@@ -2179,15 +2218,15 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             metadata={"session_id": self.current_session_id},
                         )
                         _token_tracker.save()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Token tracker save failed: %s", e)
 
                 # Flush tool usage store
                 if _tool_usage_store:
                     try:
                         _tool_usage_store.flush()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Tool usage store flush failed: %s", e)
 
                 # Show summary
                 self.call_from_thread(
@@ -2214,8 +2253,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                 self._add_system_message,
                                 f"📝 {change_summary}",
                             )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Change tracker failed: %s", e)
 
                 # Record learning
                 try:
@@ -2233,8 +2272,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         ls.record_tool_effectiveness(
                             tool_record["tool"], tool_record.get("success", False)
                         )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Learning record failed: %s", e)
 
                 # Show response — if tools were executed, show results not raw JSON
                 if tool_history:

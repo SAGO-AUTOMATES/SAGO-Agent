@@ -275,6 +275,7 @@ class Cache:
                     "metadata": e.metadata,
                 }
                 for key, e in self._entries.items()
+                if not e.is_expired()
             },
             "stats": {
                 "hits": self._stats.hits,

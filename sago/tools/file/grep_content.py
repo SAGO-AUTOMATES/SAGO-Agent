@@ -22,6 +22,7 @@ class GrepContentArgs(BaseModel):
     exclude: str | None = Field(default=None, description="File pattern to exclude")
     max_results: int = Field(default=100, description="Maximum matches to return")
     context_lines: int = Field(default=0, description="Number of context lines around matches")
+    max_file_size: int = Field(default=1048576, description="Maximum file size in bytes to search (default: 1MB)")
 
 
 class GrepContentTool(BaseTool):
@@ -39,6 +40,7 @@ class GrepContentTool(BaseTool):
         exclude: str | None = None,
         max_results: int = 100,
         context_lines: int = 0,
+        max_file_size: int = 1048576,
         **kwargs: Any,
     ) -> str:
         """Search file contents using regex.
@@ -77,6 +79,13 @@ class GrepContentTool(BaseTool):
 
         for file_path in files_to_search:
             if exclude and file_path.match(exclude):
+                continue
+
+            # Skip files that are too large
+            try:
+                if file_path.stat().st_size > max_file_size:
+                    continue
+            except (OSError, PermissionError):
                 continue
 
             files_searched += 1

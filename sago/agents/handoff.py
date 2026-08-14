@@ -42,7 +42,7 @@ class HandoffContext:
         self.agent_results[agent_name] = result
         self.completed_agents.append(agent_name)
         if not success:
-            self.errors.append(f"{agent_name}: {result[:200]}")
+            self.errors.append(f"{agent_name}: {result[:500]}")
 
     def request_feedback(self, from_agent: str, to_agent: str, question: str) -> FeedbackRequest:
         """Request feedback from another agent."""

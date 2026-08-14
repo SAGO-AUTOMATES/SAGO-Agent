@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any
 
+import httpx
+
 from sago.llm.base import BaseLLMProvider
+from sago.llm.retry import retry_with_backoff
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaProvider(BaseLLMProvider):
@@ -21,8 +28,6 @@ class OllamaProvider(BaseLLMProvider):
         **kwargs: Any,
     ) -> str:
         """Generate response using Ollama API."""
-        import httpx
-
         payload: dict[str, Any] = {
             "model": self.model,
             "prompt": prompt,
@@ -35,13 +40,16 @@ class OllamaProvider(BaseLLMProvider):
         if system_prompt:
             payload["system"] = system_prompt
 
-        response = httpx.post(
-            f"{self.base_url}/api/generate",
-            json=payload,
-            timeout=120.0,
-        )
-        response.raise_for_status()
-        return response.json().get("response", "")
+        def _call() -> str:
+            response = httpx.post(
+                f"{self.base_url}/api/generate",
+                json=payload,
+                timeout=120.0,
+            )
+            response.raise_for_status()
+            return response.json().get("response", "")
+
+        return retry_with_backoff(_call)
 
     def generate_stream(
         self,
@@ -50,10 +58,6 @@ class OllamaProvider(BaseLLMProvider):
         **kwargs: Any,
     ):
         """Generate streaming response using Ollama API."""
-        import json
-
-        import httpx
-
         payload: dict[str, Any] = {
             "model": self.model,
             "prompt": prompt,
@@ -66,23 +70,29 @@ class OllamaProvider(BaseLLMProvider):
         if system_prompt:
             payload["system"] = system_prompt
 
-        with httpx.stream(
-            "POST",
-            f"{self.base_url}/api/generate",
-            json=payload,
-            timeout=120.0,
-        ) as response:
-            response.raise_for_status()
-            for line in response.iter_lines():
-                if line:
-                    data = json.loads(line)
-                    if "response" in data:
-                        yield data["response"]
+        try:
+            with httpx.stream(
+                "POST",
+                f"{self.base_url}/api/generate",
+                json=payload,
+                timeout=120.0,
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if line:
+                        try:
+                            data = json.loads(line)
+                            if "response" in data:
+                                yield data["response"]
+                        except json.JSONDecodeError as exc:
+                            logger.warning("Ollama stream JSON decode error: %s", exc)
+                            continue
+        except Exception as exc:
+            logger.error("Ollama streaming failed: %s", exc)
+            raise
 
     def is_available(self) -> bool:
         """Check if Ollama server is reachable."""
-        import httpx
-
         try:
             response = httpx.get(f"{self.base_url}/api/tags", timeout=5.0)
             return response.status_code == 200

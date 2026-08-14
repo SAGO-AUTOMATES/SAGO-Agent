@@ -1,8 +1,5 @@
 """Unit tests for Sago tools."""
 
-import os
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -51,14 +48,14 @@ class TestWriteFileTool:
     def test_write_file(self, tools, tmp_path):
         tool = tools["write_file"]()
         out = tmp_path / "output.txt"
-        result = tool.run(file_path=str(out), content="test content")
+        tool.run(file_path=str(out), content="test content")
         assert out.exists()
         assert out.read_text() == "test content"
 
     def test_write_file_creates_dirs(self, tools, tmp_path):
         tool = tools["write_file"]()
         out = tmp_path / "nested" / "dir" / "file.txt"
-        result = tool.run(file_path=str(out), content="nested")
+        tool.run(file_path=str(out), content="nested")
         assert out.exists()
 
 

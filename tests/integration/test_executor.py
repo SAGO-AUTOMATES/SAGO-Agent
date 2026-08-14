@@ -3,9 +3,9 @@
 from sago.engine.simple_executor import (
     _detect_task_type,
     _discover_tools,
-    _extract_tool_calls,
     _get_context,
 )
+from sago.workflow.langgraph_engine import _extract_tool_calls
 
 
 class TestToolDiscovery:

@@ -340,6 +340,9 @@ class TaskDelegator:
         # Build execution chain
         chain = self._build_chain(task_type, complexity)
 
+        # Build parallel groups
+        parallel_groups = self.get_parallel_groups(chain)
+
         # Estimate tokens
         estimated_tokens = self._estimate_tokens(complexity, effort)
 
@@ -351,6 +354,7 @@ class TaskDelegator:
             primary_agent=primary,
             supporting_agents=supporting,
             chain=chain,
+            parallel_groups=parallel_groups,
             estimated_tokens=estimated_tokens,
             effort=effort,
             reasoning=reasoning,

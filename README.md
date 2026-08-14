@@ -1,6 +1,6 @@
 # SAGO-Agent
 
-> **Production-grade multi-agent orchestration system** — 339 specialist agents, 45 tools, multi-LLM support, streaming, parallel execution, feedback loops, workflows, TUI with dashboard, and built-in security.
+> **Production-grade multi-agent orchestration system** — 339 specialist agents, 50 tools, multi-LLM support, streaming, parallel execution, feedback loops, workflows, TUI with dashboard, and built-in security.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
@@ -9,14 +9,14 @@
 
 ## What is Sago?
 
-Sago is a **production-grade multi-agent orchestration system** built for real-world software engineering tasks. It goes beyond simple code generation — it autonomously delegates work to **339 specialist agents**, uses **45 production tools**, streams responses token-by-token, runs agents in parallel, manages sessions, enforces permissions, and runs workflows.
+Sago is a **production-grade multi-agent orchestration system** built for real-world software engineering tasks. It goes beyond simple code generation — it autonomously delegates work to **339 specialist agents**, uses **50 production tools**, streams responses token-by-token, runs agents in parallel, manages sessions, enforces permissions, and runs workflows.
 
 ### Key Capabilities
 
 | Feature | Description |
 |---------|-------------|
 | **339 Specialist Agents** | Agents across 22 categories (engineering, security, data, cloud, compliance, etc.) |
-| **45 Production Tools** | File ops, shell, networking, SSH, coding, Docker, and more |
+| **50 Production Tools** | File ops, shell, networking, SSH, coding, Docker, and more |
 | **Parallel Agent Execution** | Run multiple agents simultaneously on the same task |
 | **Feedback Loops** | Agents can request clarification from previous agents in a chain |
 | **Recursion Protection** | Depth tracking, cycle detection, and visited-agent guards |
@@ -76,6 +76,8 @@ uv pip install -e .
 
 ### Dependencies
 
+See [docs/BUILD.md](docs/BUILD.md) for detailed build instructions and [docs/PROJECT.md](docs/PROJECT.md) for project structure.
+
 - Python 3.11+
 - openai (for LLM calls)
 - textual (for TUI)
@@ -90,6 +92,8 @@ Optional:
 ---
 
 ## CLI Commands
+
+See [docs/COMMANDS.md](docs/COMMANDS.md) for full CLI and TUI command reference.
 
 ### Core Execution
 
@@ -181,7 +185,9 @@ Optional:
 
 ---
 
-## 45 Production Tools
+## 50 Production Tools
+
+See [docs/TOOLS.md](docs/TOOLS.md) for complete tool documentation with usage examples.
 
 ### File Operations
 - `read_file` — Read file contents
@@ -352,6 +358,8 @@ sago workflow-run <id> --stream
 
 ## Architecture
 
+See [docs/PROJECT.md](docs/PROJECT.md) for detailed project structure. MCP server documented in [docs/MCP.md](docs/MCP.md).
+
 ```
 sago/
 ├── agents/              # 339 agent profiles
@@ -359,7 +367,7 @@ sago/
 │   ├── registry.py      # Agent loading and lookup
 │   ├── spawner.py       # Agent execution with feedback loops
 │   └── handoff.py       # HandoffContext, RecursionGuard, FeedbackRequest
-├── tools/               # 45 production tools
+├── tools/               # 50 production tools
 │   ├── base.py          # BaseTool with permission checks
 │   ├── file/            # File operations (12 tools)
 │   ├── shell/           # Shell execution
@@ -378,7 +386,7 @@ sago/
 ├── server/              # TCP daemon server
 │   └── daemon.py        # Background daemon with client
 ├── mcp/                 # Model Context Protocol
-│   └── server.py        # MCP server with 45 tools
+│   └── server.py        # MCP server with 50 tools
 ├── tui/                 # Terminal UI
 │   ├── app.py           # Textual TUI with dashboard
 │   ├── widgets/         # AgentDashboard, AgentSpinner, HandoffFlow
@@ -416,11 +424,13 @@ sago/
 
 Sago includes comprehensive coverage across unit, integration, and security categories.
 
+**374 tests** — all passing. See [docs/ERRORS.md](docs/ERRORS.md) for error handling and recovery.
+
 ### Quality Areas
 
 | Category | Coverage |
 |----------|----------|
-| Unit - Tools | All 45 tools with proper arguments |
+| Unit - Tools | All 50 tools with proper arguments |
 | Unit - Permissions | Risk levels, blocking, approval workflow |
 | Unit - Agents | Registry, profiles, lookup |
 | Integration - Executor | Tool discovery, task detection, extraction |
@@ -546,6 +556,19 @@ git clone https://github.com/SAGO-AUTOMATES/SAGO-Agent.git
 cd SAGO-Agent
 pip install -e ".[dev]"
 ```
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [docs/BUILD.md](docs/BUILD.md) | Build and installation instructions |
+| [docs/COMMANDS.md](docs/COMMANDS.md) | CLI and TUI command reference |
+| [docs/TOOLS.md](docs/TOOLS.md) | All 50 tools with examples |
+| [docs/ERRORS.md](docs/ERRORS.md) | Error handling and recovery |
+| [docs/MCP.md](docs/MCP.md) | MCP server integration |
+| [docs/PROJECT.md](docs/PROJECT.md) | Project structure and architecture |
 
 ---
 

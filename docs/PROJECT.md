@@ -1,6 +1,6 @@
 # Sago - Project Architecture
 
-> Production-grade multi-agent orchestration system with 339 agents, 45+ tools, parallel execution, feedback loops, and multi-LLM support.
+> Production-grade multi-agent orchestration system with 339 agents, 50 tools, parallel execution, feedback loops, and multi-LLM support.
 
 ## Overview
 
@@ -268,7 +268,7 @@ TUI / CLI
 Production Engine
     ├── Task Delegator (classify, route)
     ├── Agent Spawner (CrewAI execution)
-    ├── Tool Execution (45+ tools)
+    ├── Tool Execution (50 tools)
     ├── LLM Provider (streaming)
     └── Cache (hit/miss)
     ↓

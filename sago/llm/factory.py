@@ -5,9 +5,12 @@ Creates and manages LLM provider instances based on configuration.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from sago.llm.base import BaseLLMProvider
+
+logger = logging.getLogger(__name__)
 
 _PROVIDER_MAP: dict[str, type[BaseLLMProvider]] = {}
 
@@ -35,7 +38,7 @@ def _register_providers() -> None:
 
         _PROVIDER_MAP["gemini"] = GeminiProvider
     except ImportError:
-        pass
+        logger.debug("Gemini provider not available (google-generativeai not installed)")
 
 
 def create_provider(
@@ -93,6 +96,10 @@ def get_provider(
         provider = create_provider(provider_name, config)
         if provider.is_available():
             return provider
+        logger.warning(
+            "Provider %r is not available (missing API key or unreachable)", provider_name
+        )
         return None
-    except (ValueError, Exception):
+    except ValueError as exc:
+        logger.warning("Failed to create provider %r: %s", provider_name, exc)
         return None

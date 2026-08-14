@@ -74,8 +74,8 @@ class ProductionEngine:
                 updated_at = session_data.get("updated_at", 0)
                 if now - updated_at > self._session_ttl:
                     self.session_manager.delete_session(session_id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Session cleanup error: {e}")
 
     def on_task_start(self, callback: Callable[..., None]) -> None:
         """Register callback for task start."""
@@ -382,9 +382,10 @@ class ProductionEngine:
         # Execute all threads in parallel
         futures = []
         for thread, task_info in threads:
+            task_text = task_info["task"]  # Capture by value, not reference
             future = self.session_manager.execute_thread(
                 thread.id,
-                lambda t: self._execute_thread_task(t, task_info["task"]),
+                lambda t: self._execute_thread_task(t, task_text),
             )
             if future:
                 futures.append((thread, future))
@@ -452,7 +453,16 @@ class ProductionEngine:
 
         if provider:
             response.add_thinking("Generating response...")
-            result = provider.generate(full_prompt)
+            try:
+                result = provider.generate(full_prompt)
+            except Exception as e:
+                import logging
+
+                logging.getLogger(__name__).error(
+                    "LLM provider failed: %s: %s", type(e).__name__, e
+                )
+                result = f"Error generating response: {type(e).__name__}: {e}"
+                response.add_error(result)
             response.add_text(result)
             return result
 

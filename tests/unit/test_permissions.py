@@ -1,19 +1,21 @@
 """Unit tests for permission system."""
 
+from unittest.mock import patch
+
 import pytest
 
 from sago.permissions import (
+    TOOL_RISK_LEVELS,
     PermissionManager,
     RiskLevel,
-    TOOL_RISK_LEVELS,
-    get_permission_manager,
 )
 
 
 @pytest.fixture
-def pm():
-    """Get a fresh permission manager."""
-    return PermissionManager()
+def pm(tmp_path):
+    """Get a fresh permission manager with isolated config."""
+    with patch("sago.permissions.get_sago_home", return_value=tmp_path):
+        yield PermissionManager()
 
 
 class TestRiskLevels:
@@ -52,7 +54,7 @@ class TestPermissionManager:
         assert pm.get_risk_level("sudo_executor") == RiskLevel.HIGH
 
     def test_default_risk_level(self, pm):
-        assert pm.get_risk_level("unknown_tool") == RiskLevel.MEDIUM
+        assert pm.get_risk_level("unknown_tool") == RiskLevel.HIGH
 
     def test_is_blocked(self, pm):
         assert not pm.is_blocked("read_file")

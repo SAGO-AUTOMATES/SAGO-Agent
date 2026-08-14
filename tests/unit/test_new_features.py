@@ -1,10 +1,7 @@
 """Tests for new features: learning, change_tracker, indexer, ast_editor, project_instructions, lsp_client, compaction."""
 
+
 import pytest
-import json
-import os
-import time
-from pathlib import Path
 
 
 class TestLearningStore:
@@ -401,7 +398,7 @@ class TestProjectInstructions:
         assert "Contributing" in result
 
     def test_priority_files_loaded_first(self, tmp_path):
-        from sago.memory.project_instructions import ProjectInstructions, PRIORITY_FILES
+        from sago.memory.project_instructions import ProjectInstructions
 
         # Create files in reverse order
         (tmp_path / "README.md").write_text("README content")

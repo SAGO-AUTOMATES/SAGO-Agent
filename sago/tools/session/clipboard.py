@@ -107,8 +107,10 @@ class ClipboardTool(BaseTool):
                 process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
                 process.communicate(input=content.encode("utf-8"))
             elif self._is_windows():
+                import shlex
+                safe_content = shlex.quote(content)
                 subprocess.run(
-                    ["powershell", "-NoProfile", "-Command", f"Set-Clipboard -Value '{content}'"],
+                    ["powershell", "-NoProfile", "-Command", f"Set-Clipboard -Value {safe_content}"],
                     timeout=10,
                 )
             else:

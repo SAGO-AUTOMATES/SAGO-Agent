@@ -100,30 +100,34 @@ class WorkflowState:
     variables: dict[str, Any] = field(default_factory=dict)
     context: dict[str, Any] = field(default_factory=dict)
     history: list[dict[str, Any]] = field(default_factory=list)
+    _lock: Any = field(default_factory=__import__("threading").Lock, repr=False, compare=False)
 
     def set(self, key: str, value: Any) -> None:
-        self.variables[key] = value
-        self.history.append(
-            {
-                "action": "set",
-                "key": key,
-                "value": str(value)[:200],
-                "timestamp": time.time(),
-            }
-        )
+        with self._lock:
+            self.variables[key] = value
+            self.history.append(
+                {
+                    "action": "set",
+                    "key": key,
+                    "value": str(value)[:200],
+                    "timestamp": time.time(),
+                }
+            )
 
     def get(self, key: str, default: Any = None) -> Any:
-        return self.variables.get(key, default)
+        with self._lock:
+            return self.variables.get(key, default)
 
     def update_context(self, data: dict[str, Any]) -> None:
-        self.context.update(data)
-        self.history.append(
-            {
-                "action": "context_update",
-                "keys": list(data.keys()),
-                "timestamp": time.time(),
-            }
-        )
+        with self._lock:
+            self.context.update(data)
+            self.history.append(
+                {
+                    "action": "context_update",
+                    "keys": list(data.keys()),
+                    "timestamp": time.time(),
+                }
+            )
 
 
 @dataclass
@@ -169,14 +173,18 @@ class Workflow:
             "description": self.description,
             "status": self.status.value,
             "trigger": self.trigger.value,
+            "trigger_config": self.trigger_config,
             "steps": [s.to_dict() for s in self.steps],
             "state": {
                 "variables": self.state.variables,
-                "context_keys": list(self.state.context.keys()),
+                "context": self.state.context,
+                "history": self.state.history[-100:],  # Keep last 100 entries
             },
             "created_at": self.created_at,
+            "updated_at": self.updated_at,
             "started_at": self.started_at,
             "completed_at": self.completed_at,
+            "metadata": self.metadata,
             "progress": f"{len(self.completed_steps())}/{len(self.steps)}",
         }
 
@@ -525,8 +533,15 @@ class WorkflowEngine:
                     name=data["name"],
                     description=data.get("description", ""),
                     status=WorkflowStatus(data.get("status", "draft")),
+                    trigger=TriggerType(data.get("trigger", "manual")),
+                    trigger_config=data.get("trigger_config", {}),
+                    created_at=data.get("created_at", 0),
+                    updated_at=data.get("updated_at", 0),
+                    started_at=data.get("started_at"),
+                    completed_at=data.get("completed_at"),
+                    metadata=data.get("metadata", {}),
                 )
-                # Restore steps
+                # Restore steps with all fields
                 for step_data in data.get("steps", []):
                     step = WorkflowStep(
                         id=step_data["id"],
@@ -534,12 +549,21 @@ class WorkflowEngine:
                         type=step_data["type"],
                         config=step_data.get("config", {}),
                         status=StepStatus(step_data.get("status", "pending")),
+                        result=step_data.get("result"),
+                        error=step_data.get("error"),
+                        started_at=step_data.get("started_at"),
+                        completed_at=step_data.get("completed_at"),
+                        retry_count=step_data.get("retry_count", 0),
+                        max_retries=step_data.get("max_retries", 3),
+                        timeout=step_data.get("timeout", 300.0),
+                        depends_on=step_data.get("depends_on", []),
                     )
                     workflow.steps.append(step)
-                # Restore state
+                # Restore state (context as dict, not just keys)
                 state_data = data.get("state", {})
                 workflow.state.variables = state_data.get("variables", {})
                 workflow.state.context = state_data.get("context", {})
+                workflow.state.history = state_data.get("history", [])
                 self.workflows[workflow.id] = workflow
             except Exception as e:
                 _log.debug(f"Failed to load workflow from {path.name}: {e}")

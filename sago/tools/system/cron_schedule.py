@@ -64,10 +64,19 @@ class CronSchedule(BaseTool):
                     existing = "\n".join(lines)
 
                 new_crontab = f"{existing}\n{job_line}\n".strip()
-                result = self._run_command(
-                    f"echo '{new_crontab}' | crontab -",
-                    timeout=10,
-                )
+                # Use a temp file approach to avoid shell injection
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.crontab', delete=False) as f:
+                    f.write(new_crontab + "\n")
+                    tmpfile = f.name
+                try:
+                    result = self._run_command(
+                        f"crontab {tmpfile}",
+                        timeout=10,
+                    )
+                finally:
+                    import os
+                    os.unlink(tmpfile)
 
                 if result.returncode == 0:
                     return f"Added scheduled job:\n  Schedule: {schedule}\n  Command: {command}\n  Name: {name or 'unnamed'}"
@@ -88,10 +97,19 @@ class CronSchedule(BaseTool):
                     filtered = [line for line in lines if job_id not in line]
 
                 new_crontab = "\n".join(filtered)
-                result = self._run_command(
-                    f"echo '{new_crontab}' | crontab -",
-                    timeout=10,
-                )
+                # Use a temp file approach to avoid shell injection
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.crontab', delete=False) as f:
+                    f.write(new_crontab + "\n" if new_crontab else "")
+                    tmpfile = f.name
+                try:
+                    result = self._run_command(
+                        f"crontab {tmpfile}",
+                        timeout=10,
+                    )
+                finally:
+                    import os
+                    os.unlink(tmpfile)
 
                 if result.returncode == 0:
                     return f"Removed job: {name or job_id}"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from typing import TYPE_CHECKING
 
-from textual.widgets import Static
+from textual.widgets import Collapsible, Static
 
 if TYPE_CHECKING:
     from sago.tui.app import SagoApp
@@ -17,10 +17,41 @@ class CommandHandlers:
     def _show_help(self: SagoApp) -> None:
         from sago.tui.models import COMMANDS
 
-        lines = ["Commands:"]
-        for cmd, desc in COMMANDS.items():
-            lines.append(f"  {cmd:<18} {desc}")
-        self._add_system_message("\n".join(lines))
+        container = self.query_one("#messages")
+
+        # Group commands by category
+        categories = {
+            "Chat": ["/help", "/retry", "/compact", "/reset"],
+            "Agents": ["/agents", "/agent", "/delegate", "/chain", "/orchestrate", "/parallel", "/handoff"],
+            "Models": ["/model", "/provider", "/effort"],
+            "Sessions": ["/sessions", "/load", "/save", "/export", "/history"],
+            "Tasks": ["/plan", "/todo", "/todos", "/done", "/ask"],
+            "System": ["/status", "/version", "/cost", "/yolo", "/summary", "/undo", "/changes"],
+            "Git": ["/git", "/diff", "/commit"],
+            "Permissions": ["/permissions", "/allow", "/block"],
+            "UI": ["/dashboard", "/tasks", "/cancel"],
+        }
+
+        # Build formatted help with Textual markup
+        lines = []
+        for cat, cmds in categories.items():
+            lines.append(f"[bold cyan]{cat}[/bold cyan]")
+            for cmd in cmds:
+                desc = COMMANDS.get(cmd, "")
+                lines.append(f"  [yellow]{cmd:<18}[/yellow] {desc}")
+            lines.append("")
+
+        lines.append("[dim]Tip: Use @agent-name to tag agents, #file to reference files[/dim]")
+
+        # Render as collapsible
+        body = "\n".join(lines)
+        container.mount(
+            Collapsible(
+                Static(body),
+                title="Commands Reference",
+                collapsed=False,
+            )
+        )
 
     def _show_agents(self: SagoApp, f: str = "") -> None:
         try:
@@ -29,13 +60,22 @@ class CommandHandlers:
             agents = list_agents()
             if f:
                 agents = [a for a in agents if f.lower() in a["name"].lower()]
-            lines = [f"Agents ({len(agents)}):"]
+            lines = [f"[bold]Agents ({len(agents)}):[/bold]"]
+            from rich.markup import escape
             for a in agents[:30]:
                 skills = ", ".join(a.get("skills", [])[:3])
-                lines.append(f"  {a['name']:<25} {skills}")
+                lines.append(f"  [cyan]{a['name']:<25}[/cyan] [dim]{escape(skills)}[/dim]")
             if len(agents) > 30:
-                lines.append(f"  ... and {len(agents) - 30} more")
-            self._add_system_message("\n".join(lines))
+                lines.append(f"  [dim]... and {len(agents) - 30} more[/dim]")
+            body = "\n".join(lines)
+            container = self.query_one("#messages")
+            container.mount(
+                Collapsible(
+                    Static(body),
+                    title=f"Agents ({len(agents)})",
+                    collapsed=True,
+                )
+            )
         except Exception as e:
             self._add_system_message(f"Error listing agents: {e}")
 
@@ -75,7 +115,6 @@ class CommandHandlers:
     def _show_status(self: SagoApp) -> None:
         try:
             from sago.agents.registry import list_agents
-
             n = len(list_agents())
         except Exception:
             n = 0
@@ -83,18 +122,26 @@ class CommandHandlers:
 
         sid = self.current_session_id[:8] if self.current_session_id else "none"
         effort = EFFORT_LEVELS.get(self.current_effort, {})
-        yolo_status = "ON" if self.yolo_mode else "off"
+        yolo_status = "[yellow]ON[/yellow]" if self.yolo_mode else "off"
         provider = getattr(self, "current_provider", "openrouter")
-        self._add_system_message(
-            f"Sago v0.1.0\n"
-            f"  Agent:    {self.current_agent}\n"
-            f"  Provider: {provider}\n"
-            f"  Model:    {self.current_model}\n"
-            f"  Effort:   {self.current_effort} ({effort.get('desc', '')})\n"
-            f"  YOLO:     {yolo_status}\n"
-            f"  Session:  {sid}\n"
-            f"  Agents:   {n} available\n"
-            f"  Messages: {len(self.messages)}"
+        summary = getattr(self, "show_summary", False)
+
+        lines = [
+            "[bold cyan]System Status[/bold cyan]",
+            f"  Agent:     [cyan]{self.current_agent}[/cyan]",
+            f"  Provider:  {provider}",
+            f"  Model:     [green]{self.current_model}[/green]",
+            f"  Effort:    {self.current_effort} ({effort.get('desc', '')})",
+            f"  YOLO:      {yolo_status}",
+            f"  Summary:   {'ON' if summary else 'off'}",
+            f"  Session:   [dim]{sid}[/dim]",
+            f"  Agents:    {n} available",
+            f"  Messages:  {len(self.messages)}",
+        ]
+        body = "\n".join(lines)
+        container = self.query_one("#messages")
+        container.mount(
+            Collapsible(Static(body), title="System Status", collapsed=False)
         )
 
     def _show_sessions(self: SagoApp) -> None:
@@ -132,11 +179,11 @@ class CommandHandlers:
                     container.remove_children()
                     for m in self.messages:
                         if m["role"] == "user":
-                            container.mount(Static(f"> {m['content']}", classes="msg-user"))
+                            container.mount(Static(f"> {m['content']}", classes="msg-user", markup=False))
                         elif m["role"] == "assistant":
                             agent = m.get("agent_name") or ""
                             prefix = f"[{agent}] " if agent else ""
-                            container.mount(Static(f"{prefix}{m['content']}", classes="msg-assistant"))
+                            container.mount(Static(f"{prefix}{m['content']}", classes="msg-assistant", markup=False))
                     container.scroll_end()
                     self._add_system_message(f"Loaded session: {ses.get('title', 'Untitled')} ({len(msgs)} messages)")
                     return
@@ -146,10 +193,14 @@ class CommandHandlers:
 
     def _show_history(self: SagoApp) -> None:
         if not self.command_history:
-            self._add_system_message("No history")
+            self._add_system_message("[dim]No history[/dim]")
             return
-        lines = [f"  {i + 1}. {cmd}" for i, cmd in enumerate(self.command_history[-20:])]
-        self._add_system_message("History:\n" + "\n".join(lines))
+        lines = [f"  [dim]{i + 1}.[/dim] [cyan]{cmd}[/cyan]" for i, cmd in enumerate(self.command_history[-20:])]
+        body = "[bold]History:[/bold]\n" + "\n".join(lines)
+        container = self.query_one("#messages")
+        container.mount(
+            Collapsible(Static(body), title="History", collapsed=True)
+        )
 
     def _change_model(self: SagoApp, m: str) -> None:
         from sago.tui.models import (
@@ -164,26 +215,34 @@ class CommandHandlers:
         # /model — show all grouped by provider
         if not parts:
             models = get_all_models()
-            # Group by first part of model ID
             providers: dict[str, list[str]] = {}
             for model in models:
                 provider = model.split("/")[0]
                 providers.setdefault(provider, []).append(model)
             cur = getattr(self, "current_model", "?")
             prov = getattr(self, "current_provider", "?")
-            lines = [f"Current: {prov} / {cur}\n"]
-            lines.append("Usage: /model <provider> <model>")
-            lines.append("  e.g. /model google gemini-2.0-flash")
-            lines.append("  e.g. /model openrouter openrouter/free")
-            lines.append("  e.g. /model openai gpt-4o\n")
+
+            container = self.query_one("#messages")
+            # Header
+            container.mount(
+                Static(f"Current: {prov} / {cur}", classes="msg-system", markup=False)
+            )
+            container.mount(
+                Static("Usage: /model <provider> <model>", classes="msg-system", markup=False)
+            )
+            # Each provider as a collapsible section
             for provider, pmodels in sorted(providers.items()):
-                lines.append(f"  [{provider}] ({len(pmodels)})")
-                for model in pmodels[:10]:
-                    lines.append(f"    {model}")
-                if len(pmodels) > 10:
-                    lines.append(f"    ... +{len(pmodels) - 10} more")
-                lines.append("")
-            self._add_system_message("\n".join(lines))
+                model_list = "\n".join(f"  {model}" for model in pmodels[:15])
+                if len(pmodels) > 15:
+                    model_list += f"\n  ... +{len(pmodels) - 15} more"
+                container.mount(
+                    Collapsible(
+                        Static(model_list, markup=False),
+                        title=f"[{provider}] ({len(pmodels)} models)",
+                        collapsed=True,
+                    )
+                )
+            container.scroll_end()
             return
 
         # /model refresh
@@ -243,7 +302,16 @@ class CommandHandlers:
             for k, v in EFFORT_LEVELS.items():
                 marker = " *" if k == self.current_effort else ""
                 lines.append(f"  {marker} {k:<8} {v['desc']}")
-            self._add_system_message("\n".join(lines))
+            body = "\n".join(lines)
+            container = self.query_one("#messages")
+            container.mount(
+                Collapsible(
+                    Static(body, markup=False),
+                    title="Effort Levels",
+                    collapsed=True,
+                )
+            )
+            container.scroll_end()
             return
         if level in EFFORT_LEVELS:
             self.current_effort = level
@@ -269,14 +337,18 @@ class CommandHandlers:
         total_cost = cost_in + cost_out
 
         lines = [
-            f"Model: {self.current_model}",
-            f"Input:  {total_in:,} tokens (${cost_in:.4f})",
-            f"Output: {total_out:,} tokens (${cost_out:.4f})",
-            f"Total:  ${total_cost:.4f}",
+            f"[bold]Model:[/bold] [cyan]{self.current_model}[/cyan]",
+            f"[bold]Input:[/bold]  {total_in:,} tokens [green](${cost_in:.4f})[/green]",
+            f"[bold]Output:[/bold] {total_out:,} tokens [green](${cost_out:.4f})[/green]",
+            f"[bold]Total:[/bold]  [green]${total_cost:.4f}[/green]",
         ]
         if cache_hit > 0:
-            lines.append(f"Cache: {cache_hit:,} hit, {cache_miss:,} miss")
-        self._add_system_message("\n".join(lines))
+            lines.append(f"[dim]Cache: {cache_hit:,} hit, {cache_miss:,} miss[/dim]")
+        body = "\n".join(lines)
+        container = self.query_one("#messages")
+        container.mount(
+            Collapsible(Static(body), title="Token Usage", collapsed=True)
+        )
 
     def _compact(self: SagoApp) -> None:
         if len(self.messages) < 5:
@@ -358,11 +430,11 @@ class CommandHandlers:
                     container.remove_children()
                     for m in self.messages:
                         if m["role"] == "user":
-                            container.mount(Static(f"> {m['content']}", classes="msg-user"))
+                            container.mount(Static(f"> {m['content']}", classes="msg-user", markup=False))
                         elif m["role"] == "assistant":
                             agent = m.get("agent_name") or ""
                             prefix = f"[{agent}] " if agent else ""
-                            container.mount(Static(f"{prefix}{m['content']}", classes="msg-assistant"))
+                            container.mount(Static(f"{prefix}{m['content']}", classes="msg-assistant", markup=False))
                     container.scroll_end()
                     self._add_system_message(
                         f"Loaded: {ses.get('title', 'Untitled')} ({len(msgs)} messages)"
@@ -394,11 +466,11 @@ class CommandHandlers:
             pass
         sid = self.current_session_id[:8]
         msg_count = len(self.messages)
-        self._add_system_message(
-            f"\nSession saved: {sid} ({msg_count} messages)\n"
-            f"Resume: sago tui --resume {sid}\n"
-            f"Or: /load {sid}"
-        )
+        # Print to stdout before exit so user sees the info
+        import sys
+        print(f"\nSession saved: {sid} ({msg_count} messages)", file=sys.stderr)
+        print(f"Resume: sago tui --resume {sid}", file=sys.stderr)
+        print(f"Or: /load {sid}", file=sys.stderr)
         self.exit()
 
     def _list_sessions(self: SagoApp) -> None:
@@ -413,7 +485,7 @@ class CommandHandlers:
             if not sessions:
                 self._add_system_message("No saved sessions")
                 return
-            lines = ["Recent sessions:"]
+            lines = ["[bold]Recent sessions:[/bold]"]
             for ses in sessions:
                 sid = ses["id"][:8]
                 title = (ses.get("title") or "Untitled")[:30]
@@ -426,10 +498,18 @@ class CommandHandlers:
                     ms.close()
                 except Exception:
                     count = "?"
-                current = " *" if ses["id"] == self.current_session_id else ""
-                lines.append(f"  {sid}{current}  {title:<30} {count} msgs  {date}")
-            lines.append(f"\nResume: /load <id>  |  Current: {self.current_session_id[:8]}")
-            self._add_system_message("\n".join(lines))
+                current = " [green]*[/green]" if ses["id"] == self.current_session_id else ""
+                lines.append(f"  [cyan]{sid}[/cyan]{current}  [yellow]{title:<30}[/yellow] [dim]{count} msgs  {date}[/dim]")
+            lines.append(f"\n[dim]Resume: /load <id>  |  Current: {self.current_session_id[:8]}[/dim]")
+            body = "\n".join(lines)
+            container = self.query_one("#messages")
+            container.mount(
+                Collapsible(
+                    Static(body),
+                    title="Sessions",
+                    collapsed=True,
+                )
+            )
         except Exception as e:
             self._add_system_message(f"Sessions error: {e}")
 
@@ -564,8 +644,11 @@ class CommandHandlers:
             path = Path(output_path)
         else:
             path = Path(f"{sid[:12]}_export.md")
-        path.write_text("\n".join(lines))
-        self._add_system_message(f"Exported to {path} ({len(self.messages)} messages, {len(tool_logs)} tool calls)")
+        try:
+            path.write_text("\n".join(lines))
+            self._add_system_message(f"Exported to {path} ({len(self.messages)} messages, {len(tool_logs)} tool calls)")
+        except Exception as e:
+            self._add_system_message(f"Export failed: {e}")
 
     def _git_status(self: SagoApp) -> None:
         try:
@@ -575,7 +658,12 @@ class CommandHandlers:
                 text=True,
                 timeout=5,
             )
-            self._add_system_message(f"Git status:\n{r.stdout[:500]}")
+            from rich.markup import escape
+            body = f"[bold]Git status:[/bold]\n{escape(r.stdout[:500])}"
+            container = self.query_one("#messages")
+            container.mount(
+                Collapsible(Static(body), title="Git Status", collapsed=True)
+            )
         except Exception as e:
             self._add_system_message(f"Git error: {e}")
 
@@ -585,7 +673,12 @@ class CommandHandlers:
             if file:
                 cmd.append(file)
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-            self._add_system_message(f"Diff:\n{r.stdout[:1000]}")
+            from rich.markup import escape
+            body = f"[bold]Diff:[/bold]\n{escape(r.stdout[:1000])}"
+            container = self.query_one("#messages")
+            container.mount(
+                Collapsible(Static(body), title="Git Diff", collapsed=True)
+            )
         except Exception as e:
             self._add_system_message(f"Git error: {e}")
 
@@ -687,22 +780,41 @@ class CommandHandlers:
 
         if args == "blocked":
             if pm.config.blocked_tools:
-                lines = "\n".join(f"  - {t}" for t in pm.config.blocked_tools)
-                self._add_system_message(f"Blocked tools:\n{lines}")
+                lines = "\n".join(f"  [red]✗[/red] {t}" for t in pm.config.blocked_tools)
+                body = f"[bold]Blocked tools:[/bold]\n{lines}"
+                container = self.query_one("#messages")
+                container.mount(
+                    Collapsible(Static(body), title="Blocked Tools", collapsed=True)
+                )
             else:
-                self._add_system_message("No blocked tools")
+                self._add_system_message("[dim]No blocked tools[/dim]")
         elif args == "allowed":
             if pm.config.allowed_tools:
-                lines = "\n".join(f"  - {t}" for t in pm.config.allowed_tools)
-                self._add_system_message(f"Allowed tools:\n{lines}")
+                lines = "\n".join(f"  [green]✓[/green] {t}" for t in pm.config.allowed_tools)
+                body = f"[bold]Allowed tools:[/bold]\n{lines}"
+                container = self.query_one("#messages")
+                container.mount(
+                    Collapsible(Static(body), title="Allowed Tools", collapsed=True)
+                )
             else:
-                self._add_system_message("No explicit allowed list (all tools available)")
+                self._add_system_message("[dim]No explicit allowed list (all tools available)[/dim]")
         else:
             lines = []
             for name, risk in sorted(TOOL_RISK_LEVELS.items()):
-                blocked = "BLOCKED" if pm.is_blocked(name) else "ok"
-                lines.append(f"  {name:<25} {risk.value:<10} {blocked}")
-            self._add_system_message("Tool permissions:\n" + "\n".join(lines))
+                blocked = pm.is_blocked(name)
+                status = "[red]BLOCKED[/red]" if blocked else "[green]ok[/green]"
+                risk_colors = {"safe": "green", "low": "green", "medium": "yellow", "high": "red", "critical": "red"}
+                risk_color = risk_colors.get(risk.value, "white")
+                lines.append(f"  {name:<25} [{risk_color}]{risk.value:<10}[/{risk_color}] {status}")
+            body = "\n".join(lines)
+            container = self.query_one("#messages")
+            container.mount(
+                Collapsible(
+                    Static(f"[bold]Tool permissions:[/bold]\n{body}"),
+                    title="Permissions",
+                    collapsed=True,
+                )
+            )
 
     def _allow_tool(self: SagoApp, tool_name: str) -> None:
         if not tool_name:
@@ -733,14 +845,53 @@ class CommandHandlers:
             self._add_system_message(f"Already blocked: {tool_name}")
 
     def _show_plan(self: SagoApp, args: str) -> None:
-        from sago.tasks import get_task_manager
+        from sago.tasks import TaskStatus, get_task_manager
 
         tm = get_task_manager()
         plan = tm.get_active_plan()
-        if plan:
-            self._add_system_message(tm.format_plan(plan))
-        else:
+        if not plan:
             self._add_system_message("No active plan")
+            return
+
+        container = self.query_one("#messages")
+
+        # Build status counts
+        done = sum(1 for t in plan.todos if t.status == TaskStatus.COMPLETED)
+        total = len(plan.todos)
+        in_progress = sum(1 for t in plan.todos if t.status == TaskStatus.IN_PROGRESS)
+        pending = sum(1 for t in plan.todos if t.status == TaskStatus.PENDING)
+
+        header = f"Plan: {plan.description[:60]}\nProgress: {done}/{total} done"
+        if in_progress:
+            header += f" | {in_progress} in progress"
+        if pending:
+            header += f" | {pending} pending"
+
+        # Build step list with status icons
+        step_lines = []
+        for i, todo in enumerate(plan.todos):
+            status_icon = {
+                TaskStatus.COMPLETED: "\033[32m✓\033[0m",
+                TaskStatus.IN_PROGRESS: "\033[33m⟳\033[0m",
+                TaskStatus.FAILED: "\033[31m✗\033[0m",
+                TaskStatus.WAITING: "\033[36m◎\033[0m",
+                TaskStatus.SKIPPED: "\033[90m⊘\033[0m",
+            }.get(todo.status, "\033[90m○\033[0m")
+            step_lines.append(f"  {status_icon} {i+1}. {todo.description[:70]}")
+
+        body = "\n".join(step_lines)
+
+        from rich.text import Text
+        body_text = Text.from_ansi(body)
+
+        container.mount(
+            Collapsible(
+                Static(body_text),
+                title=header,
+                collapsed=False,
+            )
+        )
+        container.scroll_end()
 
     def _show_todo(self: SagoApp, args: str) -> None:
         from sago.tasks import get_task_manager
@@ -759,14 +910,7 @@ class CommandHandlers:
             self._add_system_message("No active plan")
 
     def _show_all_todos(self: SagoApp) -> None:
-        from sago.tasks import get_task_manager
-
-        tm = get_task_manager()
-        plan = tm.get_active_plan()
-        if plan:
-            self._add_system_message(tm.format_plan(plan))
-        else:
-            self._add_system_message("No active plan")
+        self._show_plan("")
 
     def _mark_todo_done(self: SagoApp, todo_id: str) -> None:
         from sago.tasks import get_task_manager
@@ -930,13 +1074,21 @@ class CommandHandlers:
             from sago.agents.registry import list_agents
 
             agents = list_agents()
-            lines = [f"Agents ({len(agents)}):"]
-            for a in agents[:40]:
+            lines = [f"[bold]Agents ({len(agents)}):[/bold]"]
+            for a in agents[:50]:
                 color = get_agent_color(a["name"])
-                lines.append(f"  [{color}]●[/{color}] {a['name']}")
-            if len(agents) > 40:
-                lines.append(f"  ... and {len(agents) - 40} more")
-            self._add_system_message("\n".join(lines))
+                lines.append(f"  [{color}]●[/{color}] [cyan]{a['name']}[/cyan]")
+            if len(agents) > 50:
+                lines.append(f"  [dim]... and {len(agents) - 50} more[/dim]")
+            body = "\n".join(lines)
+            container = self.query_one("#messages")
+            container.mount(
+                Collapsible(
+                    Static(body),
+                    title=f"Agents ({len(agents)})",
+                    collapsed=True,
+                )
+            )
         except Exception as e:
             self._add_system_message(f"Error: {e}")
 

@@ -35,8 +35,8 @@ class FileChange:
             "action": self.action,
             "timestamp": self.timestamp,
             "backup_path": self.backup_path,
-            "has_before": self.content_before is not None,
-            "has_after": self.content_after is not None,
+            "content_before": self.content_before,
+            "content_after": self.content_after,
         }
 
 
@@ -48,6 +48,7 @@ class ChangeTracker:
         self.changes: list[FileChange] = []
         self._backup_dir = get_sago_home() / "backups" / self.session_id
         self._backup_dir.mkdir(parents=True, exist_ok=True)
+        self._load_index()
 
     def track_create(self, file_path: str, content: str) -> FileChange:
         """Track file creation."""

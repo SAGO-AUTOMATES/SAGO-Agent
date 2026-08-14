@@ -5,7 +5,6 @@ import pytest
 from sago.agents.registry import (
     get_agent,
     get_agents_by_skill,
-    get_handoff_targets,
     list_agents,
     reload_agents,
 )

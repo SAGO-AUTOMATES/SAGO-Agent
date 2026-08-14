@@ -424,7 +424,18 @@ class CodebaseIndexer:
             return
         try:
             data = {
-                "chunks": [c.to_dict() for c in self._chunks],
+                "chunks": [
+                    {
+                        "file_path": c.file_path,
+                        "start_line": c.start_line,
+                        "end_line": c.end_line,
+                        "content": c.content,
+                        "language": c.language,
+                        "chunk_type": c.chunk_type,
+                        "name": c.name,
+                    }
+                    for c in self._chunks
+                ],
                 "idf": self._idf,
                 "indexed_at": self._indexed_at,
             }
@@ -441,7 +452,18 @@ class CodebaseIndexer:
             data = json.loads(self._index_path.read_text())
             self._idf = data.get("idf", {})
             self._indexed_at = data.get("indexed_at", 0)
-            # Note: chunks are not persisted (too large), only IDF scores
+            for chunk_data in data.get("chunks", []):
+                self._chunks.append(
+                    CodeChunk(
+                        file_path=chunk_data["file_path"],
+                        start_line=chunk_data["start_line"],
+                        end_line=chunk_data["end_line"],
+                        content=chunk_data["content"],
+                        language=chunk_data["language"],
+                        chunk_type=chunk_data["chunk_type"],
+                        name=chunk_data.get("name"),
+                    )
+                )
         except Exception:
             pass
 

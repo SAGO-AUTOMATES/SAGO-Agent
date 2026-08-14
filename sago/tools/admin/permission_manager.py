@@ -114,6 +114,7 @@ class PermissionManagerTool(BaseTool):
     def _chmod(self, path: Path, mode: str) -> str:
         """Change file permissions."""
         import os
+        import shlex
 
         try:
             # Try numeric mode
@@ -121,8 +122,8 @@ class PermissionManagerTool(BaseTool):
                 os.chmod(path, int(mode, 8))
                 return f"Set permissions on {path} to {mode}"
             else:
-                # Use chmod command for symbolic modes
-                result = self._run_command(f"chmod {mode} {path}")
+                # Use chmod command for symbolic modes (shell-escaped)
+                result = self._run_command(f"chmod {shlex.quote(mode)} {shlex.quote(str(path))}")
                 if result.returncode == 0:
                     return f"Set permissions on {path} to {mode}"
                 return f"Error: {result.stderr}"
@@ -131,7 +132,9 @@ class PermissionManagerTool(BaseTool):
 
     def _chown(self, path: Path, owner: str) -> str:
         """Change file owner."""
-        result = self._run_command(f"chown {owner} {path}")
+        import shlex
+
+        result = self._run_command(f"chown {shlex.quote(owner)} {shlex.quote(str(path))}")
         if result.returncode == 0:
             return f"Changed owner of {path} to {owner}"
         return f"Error: {result.stderr}"

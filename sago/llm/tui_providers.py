@@ -8,10 +8,13 @@ with a class inheriting BaseLLMProvider and register it in factory.py.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
 from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 
 def get_tui_client(provider: str, model: str) -> tuple[OpenAI | Any, str]:
@@ -27,7 +30,6 @@ def get_tui_client(provider: str, model: str) -> tuple[OpenAI | Any, str]:
     elif provider == "openai":
         return _get_openai_client(model)
     else:
-        # Everything else: OpenRouter (handles anthropic, meta, deepseek, etc.)
         return _get_openrouter_client(model, api_key), model
 
 
@@ -39,7 +41,6 @@ def _get_google_client(model: str) -> tuple[Any, str]:
     if not key:
         raise ValueError("GEMINI_API_KEY not set. Get one at: https://aistudio.google.com/apikey")
     client = google_genai.Client(api_key=key)
-    # Strip google/ prefix for API
     api_model = model.replace("google/", "", 1) if model.startswith("google/") else model
     return client, api_model
 
@@ -72,7 +73,6 @@ def generate_with_provider(
     """Unified generation call — works with any registered provider."""
     client, api_model = get_tui_client(provider, model)
 
-    # Native Google SDK
     if provider == "google":
         from google.genai import types as google_types
 
@@ -108,7 +108,6 @@ def generate_with_provider(
             )
             return response.text or ""
 
-    # OpenAI-compatible (OpenAI, OpenRouter, etc.)
     if stream:
         return client.chat.completions.create(
             model=api_model,
@@ -125,4 +124,7 @@ def generate_with_provider(
             max_tokens=max_tokens,
             temperature=temperature,
         )
+        if not response.choices:
+            logger.warning("Provider %s returned empty choices", provider)
+            return ""
         return response.choices[0].message.content or ""

@@ -2,7 +2,7 @@
 
 import pytest
 
-from sago.workflow.engine import Workflow, WorkflowEngine, WorkflowStep, StepStatus, WorkflowStatus
+from sago.workflow.engine import StepStatus, Workflow, WorkflowEngine, WorkflowStatus, WorkflowStep
 
 
 @pytest.fixture

@@ -5,10 +5,12 @@ Supports: Gemini, OpenAI (GPT), Claude, OpenRouter, Ollama
 
 from sago.llm.base import BaseLLMProvider
 from sago.llm.factory import create_provider, get_available_providers, get_provider
+from sago.llm.retry import retry_with_backoff
 
 __all__ = [
     "BaseLLMProvider",
     "create_provider",
     "get_available_providers",
     "get_provider",
+    "retry_with_backoff",
 ]

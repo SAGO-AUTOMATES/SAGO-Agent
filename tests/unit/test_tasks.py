@@ -1,10 +1,10 @@
 """Unit tests for task manager."""
 
+
 import pytest
-from pathlib import Path
 
 import sago.tasks as tasks_module
-from sago.tasks import TaskManager, TaskStatus, TaskPlan, TodoItem, get_task_manager
+from sago.tasks import TaskManager, TaskStatus
 
 
 @pytest.fixture(autouse=True)

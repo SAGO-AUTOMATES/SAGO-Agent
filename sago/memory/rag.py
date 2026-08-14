@@ -118,6 +118,7 @@ class RAGMemory:
                 self._user_index[user_id] = set()
             self._user_index[user_id].add(entry_id)
 
+        self.save()
         return entry
 
     def search(
@@ -211,6 +212,7 @@ class RAGMemory:
                 self._session_index[entry.session_id].discard(entry_id)
             if entry.user_id and entry.user_id in self._user_index:
                 self._user_index[entry.user_id].discard(entry_id)
+            self.save()
             return True
         return False
 

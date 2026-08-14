@@ -79,7 +79,7 @@ class UnifiedExecutor:
         on_tool_call: Callable | None,
         on_thinking: Callable | None,
     ) -> dict[str, Any]:
-        """Execute using simple_executor (all 45 tools)."""
+        """Execute using simple_executor (all 50 tools)."""
         from sago.engine.simple_executor import execute_agent_task
 
         return execute_agent_task(

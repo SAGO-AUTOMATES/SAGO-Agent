@@ -80,11 +80,21 @@ class Archive(BaseTool):
 
                 if target.suffix == ".zip":
                     with zipfile.ZipFile(target, "r") as zf:
+                        # Zip Slip protection
+                        for member in zf.namelist():
+                            member_path = (out_dir / member).resolve()
+                            if not str(member_path).startswith(str(out_dir.resolve())):
+                                return f"Error: Archive contains path traversal: {member}"
                         zf.extractall(out_dir)
                         files = zf.namelist()
 
                 elif target.suffix in (".tar", ".gz", ".bz2") or ".tar." in target.name:
                     with tarfile.open(target, "r:*") as tf:
+                        # Tar Slip protection
+                        for member in tf.getmembers():
+                            member_path = (out_dir / member.name).resolve()
+                            if not str(member_path).startswith(str(out_dir.resolve())):
+                                return f"Error: Archive contains path traversal: {member.name}"
                         tf.extractall(out_dir)
                         files = [m.name for m in tf.getmembers()]
 

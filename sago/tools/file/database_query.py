@@ -41,7 +41,7 @@ def _validate_query(query: str) -> str | None:
 class DatabaseQueryArgs(BaseModel):
     """Arguments for database operations."""
 
-    operation: str = Field(description="Operation: query, tables, schema, export, execute")
+    operation: str = Field(description="Operation: query, tables, schema, export")
     connection: str = Field(description="Database connection string or file path")
     query: str = Field(default="", description="SQL query to execute")
     output_format: str = Field(default="table", description="Output format: table, csv, json")
@@ -54,8 +54,8 @@ class DatabaseQuery(BaseTool):
     name: str = "database_query"
     description: str = (
         "Execute SQL queries on SQLite/PostgreSQL/MySQL databases. "
-        "Supports query, tables, schema, export, execute operations. "
-        "Only SELECT queries allowed for safety (no DELETE/DROP/INSERT/UPDATE)."
+        "Supports query, tables, schema, export operations. "
+        "Only SELECT queries are permitted (no DELETE/DROP/INSERT/UPDATE)."
     )
     args_model: type[BaseModel] = DatabaseQueryArgs
 
@@ -147,15 +147,8 @@ class DatabaseQuery(BaseTool):
                 else:
                     return self._format_table(columns, rows)
 
-            elif operation == "execute":
-                if not query:
-                    return "Error: query parameter required"
-                cursor.execute(query)
-                conn.commit()
-                return f"Executed successfully. Rows affected: {cursor.rowcount}"
-
             else:
-                return f"Error: Invalid operation '{operation}'. Valid: query, tables, schema, export, execute"
+                return f"Error: Invalid operation '{operation}'. Valid: query, tables, schema, export"
 
         finally:
             conn.close()
@@ -220,13 +213,6 @@ class DatabaseQuery(BaseTool):
                         return "\n".join(lines)[:5000]
                     else:
                         return self._format_table(columns, rows)
-
-                elif operation == "execute":
-                    if not query:
-                        return "Error: query parameter required"
-                    cursor.execute(query)
-                    conn.commit()
-                    return f"Executed successfully. Rows affected: {cursor.rowcount}"
 
                 else:
                     return f"Error: Invalid operation '{operation}'"
@@ -300,13 +286,6 @@ class DatabaseQuery(BaseTool):
                         return "\n".join(lines)[:5000]
                     else:
                         return self._format_table(columns, rows)
-
-                elif operation == "execute":
-                    if not query:
-                        return "Error: query parameter required"
-                    cursor.execute(query)
-                    conn.commit()
-                    return f"Executed successfully. Rows affected: {cursor.rowcount}"
 
                 else:
                     return f"Error: Invalid operation '{operation}'"

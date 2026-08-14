@@ -1,13 +1,8 @@
 """Security audit tests for Sago."""
 
-import os
-import tempfile
-from pathlib import Path
 
-import pytest
 
-from sago.permissions import get_permission_manager, RiskLevel
-from sago.tools.base import BaseTool
+from sago.permissions import get_permission_manager
 
 
 class TestPathTraversal:

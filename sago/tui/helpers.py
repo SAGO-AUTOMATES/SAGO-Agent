@@ -68,11 +68,13 @@ class UIHelpers:
             color = get_agent_color(agent_name)
             agent_prefix = f"[{color}]({agent_name})[/{color}] "
 
+        from rich.markup import escape
+
         if "```" not in display:
             # Plain text — render markdown formatting
             rendered = _render_markdown(display)
             container.mount(
-                Static(f"{agent_prefix}{rendered}", classes="msg-assistant", markup=False)
+                Static(f"{agent_prefix}{escape(rendered)}", classes="msg-assistant")
             )
         else:
             # Has code blocks — render each part
@@ -86,7 +88,7 @@ class UIHelpers:
                         prefix = agent_prefix if first_text else ""
                         first_text = False
                         container.mount(
-                            Static(f"{prefix}{rendered}", classes="msg-assistant", markup=False)
+                            Static(f"{prefix}{escape(rendered)}", classes="msg-assistant")
                         )
                 else:
                     # Inside code block
@@ -164,6 +166,8 @@ class UIHelpers:
         header = f"[{color}]{status_icon} {agent_name}[/{color}] ({elapsed:.1f}s)"
 
         container = self.query_one("#messages")
+        from rich.markup import escape
+
         if "```" in result:
             parts = result.split("```")
             for i, part in enumerate(parts):
@@ -173,13 +177,12 @@ class UIHelpers:
                         if i == 0:
                             container.mount(
                                 Static(
-                                    f"{header}\n{rendered}",
+                                    f"{header}\n{escape(rendered)}",
                                     classes="msg-assistant",
-                                    markup=False,
                                 )
                             )
                         else:
-                            container.mount(Static(rendered, classes="msg-assistant", markup=False))
+                            container.mount(Static(escape(rendered), classes="msg-assistant"))
                 else:
                     lines = part.split("\n", 1)
                     lang = lines[0].strip() if len(lines) > 1 else ""
@@ -200,8 +203,9 @@ class UIHelpers:
                         except Exception:
                             container.mount(Static(code, classes="code-block", markup=False))
         else:
+            from rich.markup import escape
             rendered = _render_markdown(result)
-            container.mount(Static(f"{header}\n{rendered}", classes="msg-assistant", markup=False))
+            container.mount(Static(f"{header}\n{escape(rendered)}", classes="msg-assistant"))
         container.scroll_end()
 
     def _add_summary(

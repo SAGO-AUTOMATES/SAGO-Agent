@@ -1,6 +1,6 @@
 # Sago - Tools Reference
 
-> Complete documentation for all 45 tools with usage examples and error handling.
+> Complete documentation for all 50 tools with usage examples and error handling.
 
 ## Permission System
 
@@ -280,7 +280,7 @@ Test and debug regular expressions.
 from sago.tools.file.regex_tester import RegexTesterTool
 
 tool = RegexTesterTool()
-result = tool.execute(pattern=r"\d+", text="abc123def456")
+result = tool.execute(pattern=r"\d+", text="abc123def506")
 ```
 
 ---

@@ -88,8 +88,9 @@ class PDFReader(BaseTool):
 
             except ImportError:
                 # Fallback to pdftotext if available
+                import shlex
                 result = self._run_command(
-                    f"pdftotext '{target}' -",
+                    f"pdftotext {shlex.quote(str(target))} -",
                     timeout=30,
                 )
                 if result.returncode == 0:

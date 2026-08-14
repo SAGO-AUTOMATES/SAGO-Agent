@@ -58,20 +58,25 @@ class Screenshot(BaseTool):
         region: str,
     ) -> str:
         """Capture screenshot on Linux."""
+        import shlex
+        output_escaped = shlex.quote(str(output))
         if operation == "capture":
-            result = self._run_command(f"scrot '{output}'", timeout=10)
+            result = self._run_command(f"scrot {output_escaped}", timeout=10)
             if result.returncode == 0:
                 return f"Screenshot saved: {output}"
             # Try gnome-screenshot
-            result = self._run_command(f"gnome-screenshot -f '{output}'", timeout=10)
+            result = self._run_command(f"gnome-screenshot -f {output_escaped}", timeout=10)
             if result.returncode == 0:
                 return f"Screenshot saved: {output}"
             return "Error: No screenshot tool found. Install scrot or gnome-screenshot"
 
         elif operation == "capture-area" and region:
-            x, y, w, h = region.split(",")
+            parts = region.split(",")
+            if len(parts) != 4:
+                return "Error: region must be x,y,width,height"
+            x, y, w, h = [p.strip() for p in parts]
             result = self._run_command(
-                f"scrot -a {x},{y},{w},{h} '{output}'",
+                f"scrot -a {x},{y},{w},{h} {output_escaped}",
                 timeout=10,
             )
             if result.returncode == 0:
@@ -88,17 +93,20 @@ class Screenshot(BaseTool):
         region: str,
     ) -> str:
         """Capture screenshot on macOS."""
+        import shlex
+        output_escaped = shlex.quote(str(output))
         if operation == "capture":
             result = self._run_command(
-                f"screencapture '{output}'",
+                f"screencapture {output_escaped}",
                 timeout=10,
             )
             if result.returncode == 0:
                 return f"Screenshot saved: {output}"
 
         elif operation == "capture-window" and window_title:
+            safe_title = shlex.quote(window_title)
             result = self._run_command(
-                f"screencapture -l$(osascript -e 'tell application \"System Events\" to tell process \"{window_title}\" to get id of first window') '{output}'",
+                f"screencapture -l$(osascript -e 'tell application \"System Events\" to tell process {safe_title} to get id of first window') {output_escaped}",
                 timeout=15,
             )
             if result.returncode == 0:
