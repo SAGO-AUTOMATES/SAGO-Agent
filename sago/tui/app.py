@@ -815,6 +815,37 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
         if msg in ("?", "/?", "/shortcuts", "/shortcut", "/keys"):
             self._handle_shortcuts_command()
+        elif (
+            self._executor_pause_event is not None
+            or bool(getattr(self, "approval_message", ""))
+            or bool(getattr(self, "pending_action", None))
+        ) and msg.lower() in (
+            "y",
+            "yes",
+            "approve",
+            "allow",
+            "ok",
+            "/approve",
+            "/allow",
+            "/y",
+        ):
+            self._approve_action()
+        elif (
+            self._executor_pause_event is not None
+            or bool(getattr(self, "approval_message", ""))
+            or bool(getattr(self, "pending_action", None))
+        ) and msg.lower() in (
+            "n",
+            "no",
+            "deny",
+            "skip",
+            "cancel",
+            "block",
+            "/deny",
+            "/block",
+            "/n",
+        ):
+            self._deny_action()
         elif msg.startswith("/"):
             if msg != "/history":
                 self._add_to_history(msg)
@@ -1184,26 +1215,22 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self._hide_approval_bar()
 
     def action_approve_action(self) -> None:
-        """Handle Y key or Approve button click."""
-        if self.approval_message:
-            self._approve_action()
+        """Handle Y key or Approve action."""
+        self._approve_action()
 
     def action_deny_action(self) -> None:
-        """Handle N key or Deny button click."""
-        if self.approval_message:
-            self._deny_action()
+        """Handle N key or Deny action."""
+        self._deny_action()
 
     @on(Button.Pressed, "#btn-approve")
     def on_approve_pressed(self, event: Button.Pressed) -> None:
         """Handle Approve button click."""
-        if self.approval_message:
-            self._approve_action()
+        self._approve_action()
 
     @on(Button.Pressed, "#btn-deny")
     def on_deny_pressed(self, event: Button.Pressed) -> None:
         """Handle Deny button click."""
-        if self.approval_message:
-            self._deny_action()
+        self._deny_action()
 
     def _show_approval_bar(self, message: str) -> None:
         """Show the approval bar with a message."""
@@ -2224,9 +2251,14 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                 RiskLevel.HIGH,
                                 RiskLevel.CRITICAL,
                             ):
+                                self._tool_approved = False
                                 self.call_from_thread(
                                     self._show_approval_bar,
                                     f"Allow {name}? (risk: {risk.value}) -- Press [Y] or [N]",
+                                )
+                                self.call_from_thread(
+                                    self._add_system_message,
+                                    f"⚡ Tool '[bold yellow]{name}[/bold yellow]' ({risk.value} risk) requires approval.\nPress [bold green][Y] Approve[/bold green] / [bold red][N] Deny[/bold red] or type 'y' / 'n'.",
                                 )
                                 pause_event = threading.Event()
                                 self._executor_pause_event = pause_event

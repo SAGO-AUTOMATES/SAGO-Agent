@@ -760,26 +760,29 @@ class CommandHandlers:
         import threading
 
         self._hide_approval_bar()
-        action = self.pending_action
-        if not action:
-            # Check for pending orchestration plan
-            if hasattr(self, "pending_orchestration") and self.pending_orchestration:
-                plan = self.pending_orchestration.get("plan")
-                if plan:
-                    self.pending_orchestration = None
-                    self._execute_orchestration_plan(plan)
-                    return
-            # Check if executor is paused (waiting for user confirmation)
-            if self._executor_pause_event and isinstance(
-                self._executor_pause_event, threading.Event
-            ):
-                self._tool_approved = True  # Mark tool as approved
-                self._executor_pause_event.set()  # Resume executor (unblock wait)
-                self._add_system_message("Approved - continuing execution")
-                return
-            self._add_system_message("Nothing to approve")
+
+        # 1. Check if executor is paused waiting for tool permission confirmation
+        if self._executor_pause_event and isinstance(self._executor_pause_event, threading.Event):
+            tool_info = getattr(self, "_pending_tool_approval", {}) or {}
+            tool_name = tool_info.get("name", "tool")
+            self._tool_approved = True  # Mark tool as approved
+            self._executor_pause_event.set()  # Resume executor (unblock wait)
+            self._add_system_message(
+                f"● [bold green]Approved {tool_name}[/bold green] - continuing execution"
+            )
             return
-        if action["type"] == "git_commit":
+
+        # 2. Check for pending orchestration plan
+        if hasattr(self, "pending_orchestration") and self.pending_orchestration:
+            plan = self.pending_orchestration.get("plan")
+            if plan:
+                self.pending_orchestration = None
+                self._execute_orchestration_plan(plan)
+                return
+
+        # 3. Check for pending git commit or user input
+        action = getattr(self, "pending_action", None) or {}
+        if action.get("type") == "git_commit":
             try:
                 subprocess.run(["git", "add", "-A"], capture_output=True, timeout=5)
                 r = subprocess.run(
@@ -791,7 +794,7 @@ class CommandHandlers:
                 self._add_system_message(f"Committed: {r.stdout.strip()[:100]}")
             except Exception as e:
                 self._add_system_message(f"Failed: {e}")
-        elif action["type"] == "user_input":
+        elif action.get("type") == "user_input":
             plan_id = action.get("plan_id")
             todo_id = action.get("todo_id")
             if plan_id and todo_id:
@@ -808,17 +811,24 @@ class CommandHandlers:
         import threading
 
         self._hide_approval_bar()
-        # Check for pending orchestration plan
+
+        # 1. Check if executor is paused waiting for tool permission confirmation
+        if self._executor_pause_event and isinstance(self._executor_pause_event, threading.Event):
+            tool_info = getattr(self, "_pending_tool_approval", {}) or {}
+            tool_name = tool_info.get("name", "tool")
+            self._tool_approved = False  # Mark tool as denied
+            self._executor_pause_event.set()  # Resume executor (unblock wait)
+            self._add_system_message(
+                f"● [bold red]Denied {tool_name}[/bold red] - skipping execution"
+            )
+            return
+
+        # 2. Check for pending orchestration plan
         if hasattr(self, "pending_orchestration") and self.pending_orchestration:
             self.pending_orchestration = None
             self._add_system_message("Orchestration plan denied")
             return
-        # Check if executor is paused - resume with skip
-        if self._executor_pause_event and isinstance(self._executor_pause_event, threading.Event):
-            self._tool_approved = False  # Mark tool as denied
-            self._executor_pause_event.set()  # Resume executor (unblock wait)
-            self._add_system_message("Skipped - continuing execution")
-            return
+
         self.pending_action = {}
         self._add_system_message("Denied")
 
