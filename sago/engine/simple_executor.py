@@ -685,10 +685,8 @@ def _detect_task_type(task: str) -> str:
         "thank you",
         "who are you",
         "how are you",
-        "tell me",
-        "more",
-        "another",
-        "continue",
+        "tell me a joke",
+        "more joke",
     ]
     fix_words = [
         "fix",
@@ -730,7 +728,7 @@ def _detect_task_type(task: str) -> str:
     ]
 
     has_code_intent = any(
-        w in task_lower
+        re.search(r"\b" + re.escape(w) + r"\b", task_lower)
         for w in (
             "file",
             "files",
@@ -747,15 +745,20 @@ def _detect_task_type(task: str) -> str:
         )
     )
 
-    if any(w in task_lower for w in chat_words) and not has_code_intent:
+    # Explicit conversational patterns (jokes, greetings, banter)
+    is_chat = any(re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in chat_words) or bool(
+        re.search(r"^\d+-\d+\s+more", task_lower)
+    )
+    if is_chat and not has_code_intent:
         return "chat"
-    if any(w in task_lower for w in fix_words):
+
+    if any(re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in fix_words):
         return "fix"
-    if any(w in task_lower for w in create_words):
+    if any(re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in create_words):
         return "create"
-    if any(w in task_lower for w in analyze_words):
+    if any(re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in analyze_words):
         return "analyze"
-    return "chat" if not has_code_intent else "create"
+    return "create"
 
 
 def _load_agent_profile(agent_name: str) -> dict[str, Any] | None:
