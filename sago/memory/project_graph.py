@@ -8,20 +8,28 @@ Analyzes multi-language codebases to build a complete project topology:
 - Entity Relationship (ER) Data Model Map (ORM models, Pydantic schemas, database tables)
 - Architectural metrics (coupling, centrality, hub modules)
 - Multi-format rendering (Curated Dashboard, Architecture Diagram, Process Map, ER Map, Mermaid, ASCII tree, JSON)
+- ThreadPoolExecutor parallelized AST parsing & TTL caching for high performance on complex monorepos
 """
 
 from __future__ import annotations
 
 import ast
+import concurrent.futures
 import logging
 import os
 import re
+import threading
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Global thread-safe graph cache: root_dir -> (cached_timestamp, ProjectGraph)
+_GRAPH_CACHE_LOCK = threading.Lock()
+_GRAPH_CACHE: dict[str, tuple[float, ProjectGraph]] = {}
 
 
 @dataclass
@@ -78,6 +86,7 @@ class ProjectGraph:
         self.data_models: list[str] = []
         self.endpoints: list[str] = []
         self.model_fields: dict[str, list[str]] = defaultdict(list)
+        self._lock = threading.Lock()
 
     def build_graph(
         self,
@@ -85,7 +94,7 @@ class ProjectGraph:
         include_symbols: bool = True,
         include_data_flow: bool = True,
     ) -> ProjectGraph:
-        """Scan workspace and generate all nodes, edges, and data models."""
+        """Scan workspace in parallel and generate all nodes, edges, and data models."""
         self.nodes.clear()
         self.edges.clear()
         self.file_symbols.clear()
@@ -97,6 +106,8 @@ class ProjectGraph:
             ".git",
             ".venv",
             "venv",
+            "env",
+            ".env",
             "node_modules",
             "__pycache__",
             ".pytest_cache",
@@ -104,6 +115,14 @@ class ProjectGraph:
             ".sago",
             "dist",
             "build",
+            "target",
+            "vendor",
+            "coverage",
+            ".next",
+            ".nuxt",
+            ".turbo",
+            ".gradle",
+            ".cache",
             ".idea",
             ".vscode",
         }
@@ -137,7 +156,7 @@ class ProjectGraph:
             if len(candidate_files) >= max_files:
                 break
 
-        # 2. Add file nodes
+        # 2. Add file nodes and build module map
         module_to_node: dict[str, str] = {}
         for fpath in candidate_files:
             try:
@@ -165,8 +184,8 @@ class ProjectGraph:
                 module_to_node[mod_key] = node_id
                 module_to_node[mod_key.split(".")[-1]] = node_id
 
-        # 3. Analyze content
-        for fpath in candidate_files:
+        # 3. Parallel worker parsing across multi-core CPUs
+        def _process_single_file(fpath: Path) -> dict[str, Any]:
             try:
                 rel_path = str(fpath.relative_to(self.root_dir))
             except ValueError:
@@ -178,25 +197,77 @@ class ProjectGraph:
             try:
                 content = fpath.read_text(encoding="utf-8", errors="replace")
             except Exception:
-                continue
+                return {}
+
+            local_nodes: list[GraphNode] = []
+            local_edges: list[GraphEdge] = []
+            local_models: list[str] = []
+            local_endpoints: list[str] = []
+            local_fields: dict[str, list[str]] = defaultdict(list)
 
             if lang == "python":
-                self._analyze_python(
+                self._parse_python_local(
                     file_node_id,
                     rel_path,
                     content,
                     module_to_node,
                     include_symbols,
                     include_data_flow,
+                    local_nodes,
+                    local_edges,
+                    local_models,
+                    local_endpoints,
+                    local_fields,
                 )
             elif lang in {"typescript", "javascript"}:
-                self._analyze_js_ts(
-                    file_node_id, rel_path, content, include_symbols, include_data_flow
+                self._parse_js_ts_local(
+                    file_node_id,
+                    rel_path,
+                    content,
+                    include_symbols,
+                    local_nodes,
+                    local_edges,
+                    local_models,
                 )
             elif lang in {"go", "rust"}:
-                self._analyze_go_rust(file_node_id, rel_path, content, lang, include_symbols)
+                self._parse_go_rust_local(
+                    file_node_id,
+                    rel_path,
+                    content,
+                    lang,
+                    include_symbols,
+                    local_nodes,
+                    local_edges,
+                    local_models,
+                )
             elif lang == "sql":
-                self._analyze_sql(file_node_id, rel_path, content)
+                self._parse_sql_local(
+                    file_node_id, rel_path, content, local_nodes, local_edges, local_models
+                )
+
+            return {
+                "nodes": local_nodes,
+                "edges": local_edges,
+                "models": local_models,
+                "endpoints": local_endpoints,
+                "fields": local_fields,
+            }
+
+        max_workers = min(32, (os.cpu_count() or 4) * 4)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = executor.map(_process_single_file, candidate_files)
+
+        # Merge thread results
+        for res in results:
+            if not res:
+                continue
+            for n in res.get("nodes", []):
+                self.nodes[n.id] = n
+            self.edges.extend(res.get("edges", []))
+            self.data_models.extend(res.get("models", []))
+            self.endpoints.extend(res.get("endpoints", []))
+            for k, v in res.get("fields", {}).items():
+                self.model_fields[k].extend(v)
 
         return self
 
@@ -224,7 +295,7 @@ class ProjectGraph:
             return "json"
         return "other"
 
-    def _analyze_python(
+    def _parse_python_local(
         self,
         file_node_id: str,
         rel_path: str,
@@ -232,6 +303,11 @@ class ProjectGraph:
         module_to_node: dict[str, str],
         include_symbols: bool,
         include_data_flow: bool,
+        out_nodes: list[GraphNode],
+        out_edges: list[GraphEdge],
+        out_models: list[str],
+        out_endpoints: list[str],
+        out_fields: dict[str, list[str]],
     ) -> None:
         try:
             tree = ast.parse(content, filename=rel_path)
@@ -239,7 +315,6 @@ class ProjectGraph:
             return
 
         for node in tree.body:
-            # Imports
             if isinstance(node, ast.Import):
                 for name in node.names:
                     imp_name = name.name
@@ -247,18 +322,17 @@ class ProjectGraph:
                         imp_name.split(".")[0]
                     )
                     if target and target != file_node_id:
-                        self.edges.append(
+                        out_edges.append(
                             GraphEdge(source=file_node_id, target=target, relation="imports")
                         )
             elif isinstance(node, ast.ImportFrom):
                 mod = node.module or ""
                 target = module_to_node.get(mod) or module_to_node.get(mod.split(".")[0])
                 if target and target != file_node_id:
-                    self.edges.append(
+                    out_edges.append(
                         GraphEdge(source=file_node_id, target=target, relation="imports")
                     )
 
-            # Classes
             elif isinstance(node, ast.ClassDef):
                 sym_id = f"sym:{rel_path}#{node.name}"
                 is_data_model = (
@@ -282,39 +356,39 @@ class ProjectGraph:
                     or "meta" in node.name.lower()
                 )
 
-                # Extract fields if data model
                 if is_data_model:
-                    self.data_models.append(sym_id)
+                    out_models.append(sym_id)
                     for item in node.body:
                         if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
                             ann = ast.unparse(item.annotation) if hasattr(ast, "unparse") else ""
-                            self.model_fields[sym_id].append(f"{item.target.id}: {ann}")
+                            out_fields[sym_id].append(f"{item.target.id}: {ann}")
 
                 node_type = "data_model" if (is_data_model and include_data_flow) else "class"
 
                 if include_symbols:
-                    self.nodes[sym_id] = GraphNode(
-                        id=sym_id,
-                        label=node.name,
-                        node_type=node_type,
-                        language="python",
-                        file_path=rel_path,
-                        line_number=node.lineno,
+                    out_nodes.append(
+                        GraphNode(
+                            id=sym_id,
+                            label=node.name,
+                            node_type=node_type,
+                            language="python",
+                            file_path=rel_path,
+                            line_number=node.lineno,
+                        )
                     )
-                    self.edges.append(
+                    out_edges.append(
                         GraphEdge(source=file_node_id, target=sym_id, relation="defines")
                     )
 
                 for base in node.bases:
                     base_name = ast.unparse(base) if hasattr(ast, "unparse") else ""
                     if base_name:
-                        self.edges.append(
+                        out_edges.append(
                             GraphEdge(
                                 source=sym_id, target=f"class:{base_name}", relation="inherits"
                             )
                         )
 
-            # Functions & API Endpoints
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 sym_id = f"sym:{rel_path}#{node.name}"
                 decorators = [
@@ -338,29 +412,33 @@ class ProjectGraph:
 
                 node_type = "endpoint" if (is_endpoint and include_data_flow) else "function"
                 if is_endpoint:
-                    self.endpoints.append(sym_id)
+                    out_endpoints.append(sym_id)
 
                 if include_symbols:
-                    self.nodes[sym_id] = GraphNode(
-                        id=sym_id,
-                        label=f"{node.name}()",
-                        node_type=node_type,
-                        language="python",
-                        file_path=rel_path,
-                        line_number=node.lineno,
-                        metadata={"decorators": decorators},
+                    out_nodes.append(
+                        GraphNode(
+                            id=sym_id,
+                            label=f"{node.name}()",
+                            node_type=node_type,
+                            language="python",
+                            file_path=rel_path,
+                            line_number=node.lineno,
+                            metadata={"decorators": decorators},
+                        )
                     )
-                    self.edges.append(
+                    out_edges.append(
                         GraphEdge(source=file_node_id, target=sym_id, relation="defines")
                     )
 
-    def _analyze_js_ts(
+    def _parse_js_ts_local(
         self,
         file_node_id: str,
         rel_path: str,
         content: str,
         include_symbols: bool,
-        include_data_flow: bool,
+        out_nodes: list[GraphNode],
+        out_edges: list[GraphEdge],
+        out_models: list[str],
     ) -> None:
         lines = content.splitlines()
         for i, line in enumerate(lines, 1):
@@ -369,7 +447,7 @@ class ProjectGraph:
             imp_match = re.search(r"import\s+.*?from\s+['\"](.*?)['\"]", line_str)
             if imp_match:
                 imp_target = imp_match.group(1)
-                self.edges.append(
+                out_edges.append(
                     GraphEdge(
                         source=file_node_id,
                         target=f"module:{imp_target}",
@@ -391,17 +469,19 @@ class ProjectGraph:
                     or "model" in name.lower()
                 )
                 if is_data:
-                    self.data_models.append(sym_id)
+                    out_models.append(sym_id)
 
-                self.nodes[sym_id] = GraphNode(
-                    id=sym_id,
-                    label=name,
-                    node_type="data_model" if is_data else "class",
-                    language="typescript",
-                    file_path=rel_path,
-                    line_number=i,
+                out_nodes.append(
+                    GraphNode(
+                        id=sym_id,
+                        label=name,
+                        node_type="data_model" if is_data else "class",
+                        language="typescript",
+                        file_path=rel_path,
+                        line_number=i,
+                    )
                 )
-                self.edges.append(GraphEdge(source=file_node_id, target=sym_id, relation="defines"))
+                out_edges.append(GraphEdge(source=file_node_id, target=sym_id, relation="defines"))
 
             func_match = re.search(
                 r"(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)|const\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?\(",
@@ -411,25 +491,30 @@ class ProjectGraph:
                 name = func_match.group(1) or func_match.group(2)
                 if name:
                     sym_id = f"sym:{rel_path}#{name}"
-                    self.nodes[sym_id] = GraphNode(
-                        id=sym_id,
-                        label=f"{name}()",
-                        node_type="function",
-                        language="typescript",
-                        file_path=rel_path,
-                        line_number=i,
+                    out_nodes.append(
+                        GraphNode(
+                            id=sym_id,
+                            label=f"{name}()",
+                            node_type="function",
+                            language="typescript",
+                            file_path=rel_path,
+                            line_number=i,
+                        )
                     )
-                    self.edges.append(
+                    out_edges.append(
                         GraphEdge(source=file_node_id, target=sym_id, relation="defines")
                     )
 
-    def _analyze_go_rust(
+    def _parse_go_rust_local(
         self,
         file_node_id: str,
         rel_path: str,
         content: str,
         lang: str,
         include_symbols: bool,
+        out_nodes: list[GraphNode],
+        out_edges: list[GraphEdge],
+        out_models: list[str],
     ) -> None:
         lines = content.splitlines()
         for i, line in enumerate(lines, 1):
@@ -443,16 +528,18 @@ class ProjectGraph:
                     sym_id = f"sym:{rel_path}#{name}"
                     is_data = kind in ("struct", "enum")
                     if is_data:
-                        self.data_models.append(sym_id)
-                    self.nodes[sym_id] = GraphNode(
-                        id=sym_id,
-                        label=f"{name}()" if kind == "fn" else name,
-                        node_type="data_model" if is_data else "function",
-                        language="rust",
-                        file_path=rel_path,
-                        line_number=i,
+                        out_models.append(sym_id)
+                    out_nodes.append(
+                        GraphNode(
+                            id=sym_id,
+                            label=f"{name}()" if kind == "fn" else name,
+                            node_type="data_model" if is_data else "function",
+                            language="rust",
+                            file_path=rel_path,
+                            line_number=i,
+                        )
                     )
-                    self.edges.append(
+                    out_edges.append(
                         GraphEdge(source=file_node_id, target=sym_id, relation="defines")
                     )
 
@@ -461,35 +548,47 @@ class ProjectGraph:
                 if g_match:
                     name = g_match.group(1)
                     sym_id = f"sym:{rel_path}#{name}"
-                    self.data_models.append(sym_id)
-                    self.nodes[sym_id] = GraphNode(
-                        id=sym_id,
-                        label=name,
-                        node_type="data_model",
-                        language="go",
-                        file_path=rel_path,
-                        line_number=i,
+                    out_models.append(sym_id)
+                    out_nodes.append(
+                        GraphNode(
+                            id=sym_id,
+                            label=name,
+                            node_type="data_model",
+                            language="go",
+                            file_path=rel_path,
+                            line_number=i,
+                        )
                     )
-                    self.edges.append(
+                    out_edges.append(
                         GraphEdge(source=file_node_id, target=sym_id, relation="defines")
                     )
                 fn_match = re.search(r"func\s+(?:\(.*?\)\s+)?([A-Za-z0-9_]+)\s*\(", line_str)
                 if fn_match and include_symbols:
                     name = fn_match.group(1)
                     sym_id = f"sym:{rel_path}#{name}"
-                    self.nodes[sym_id] = GraphNode(
-                        id=sym_id,
-                        label=f"{name}()",
-                        node_type="function",
-                        language="go",
-                        file_path=rel_path,
-                        line_number=i,
+                    out_nodes.append(
+                        GraphNode(
+                            id=sym_id,
+                            label=f"{name}()",
+                            node_type="function",
+                            language="go",
+                            file_path=rel_path,
+                            line_number=i,
+                        )
                     )
-                    self.edges.append(
+                    out_edges.append(
                         GraphEdge(source=file_node_id, target=sym_id, relation="defines")
                     )
 
-    def _analyze_sql(self, file_node_id: str, rel_path: str, content: str) -> None:
+    def _parse_sql_local(
+        self,
+        file_node_id: str,
+        rel_path: str,
+        content: str,
+        out_nodes: list[GraphNode],
+        out_edges: list[GraphEdge],
+        out_models: list[str],
+    ) -> None:
         table_matches = re.finditer(
             r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:[\`\"\[]?(\w+)[\`\"\]]?\.)?[\`\"\[]?(\w+)[\`\"\]]?",
             content,
@@ -498,15 +597,17 @@ class ProjectGraph:
         for m in table_matches:
             table_name = m.group(2) or m.group(1)
             sym_id = f"db_table:{table_name}"
-            self.data_models.append(sym_id)
-            self.nodes[sym_id] = GraphNode(
-                id=sym_id,
-                label=f"TABLE {table_name}",
-                node_type="data_model",
-                language="sql",
-                file_path=rel_path,
+            out_models.append(sym_id)
+            out_nodes.append(
+                GraphNode(
+                    id=sym_id,
+                    label=f"TABLE {table_name}",
+                    node_type="data_model",
+                    language="sql",
+                    file_path=rel_path,
+                )
             )
-            self.edges.append(GraphEdge(source=file_node_id, target=sym_id, relation="defines"))
+            out_edges.append(GraphEdge(source=file_node_id, target=sym_id, relation="defines"))
 
     # ─────────────────────────────────────────────────────────────
     # Smart Architectural, Process, & ER Renderers
@@ -884,3 +985,29 @@ class ProjectGraph:
             "nodes": [n.to_dict() for n in self.nodes.values()],
             "edges": [e.to_dict() for e in self.edges],
         }
+
+
+def get_cached_project_graph(
+    root_dir: str | Path | None = None,
+    max_files: int = 1500,
+    ttl_seconds: float = 30.0,
+    force_refresh: bool = False,
+) -> ProjectGraph:
+    """Get a cached ProjectGraph or build a new one if stale."""
+    target_path = Path(root_dir).resolve() if root_dir else Path.cwd().resolve()
+    cache_key = str(target_path)
+    now = time.time()
+
+    with _GRAPH_CACHE_LOCK:
+        if not force_refresh and cache_key in _GRAPH_CACHE:
+            ts, cached_graph = _GRAPH_CACHE[cache_key]
+            if now - ts < ttl_seconds:
+                return cached_graph
+
+    pg = ProjectGraph(root_dir=target_path)
+    pg.build_graph(max_files=max_files)
+
+    with _GRAPH_CACHE_LOCK:
+        _GRAPH_CACHE[cache_key] = (now, pg)
+
+    return pg
