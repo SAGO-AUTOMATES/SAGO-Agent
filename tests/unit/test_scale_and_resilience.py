@@ -3,10 +3,9 @@
 import tempfile
 from pathlib import Path
 
-from sago.engine.project_synthesizer import FileSpec, ProjectSynthesizer, SynthesisPlan
-from sago.engine.verifier import DiagnosticIssue, ProjectVerifier, VerificationReport
+from sago.engine.project_synthesizer import FileSpec, ProjectSynthesizer
+from sago.engine.verifier import DiagnosticIssue, VerificationReport
 from sago.memory.symbol_graph import SymbolGraph
-from sago.tools.file.edit_file import EditFileTool
 from sago.tools.file.multi_replace_file import MultiReplaceTool
 from sago.tools.file.resilient_editor import ResilientEditor
 

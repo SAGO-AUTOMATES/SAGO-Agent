@@ -50,14 +50,14 @@ class TestToolCallExtraction:
         assert len(calls) == 1
 
     def test_extract_multiple_calls(self):
-        content = '''
+        content = """
 ```json
 {"name": "read_file", "args": {"file_path": "a.py"}}
 ```
 ```json
 {"name": "write_file", "args": {"file_path": "b.py", "content": "x"}}
 ```
-'''
+"""
         calls = _extract_tool_calls(content)
         assert len(calls) == 2
 

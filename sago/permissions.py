@@ -49,6 +49,10 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
     "repo_map": RiskLevel.SAFE,
     "delegate_to_agent": RiskLevel.SAFE,
     "agent_delegator": RiskLevel.SAFE,
+    "git_blame": RiskLevel.SAFE,
+    "secret_scanner": RiskLevel.SAFE,
+    "web_search": RiskLevel.SAFE,
+    "ast_grep": RiskLevel.SAFE,
     # Low - minor side effects
     "write_file": RiskLevel.LOW,
     "edit_file": RiskLevel.LOW,

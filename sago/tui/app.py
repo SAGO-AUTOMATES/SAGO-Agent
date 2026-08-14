@@ -1030,6 +1030,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             "/summary": lambda: self._toggle_summary(),
             "/map": lambda: self._show_repo_map(args),
             "/verify": lambda: self._run_verify(),
+            "/skills": lambda: self._show_skills(args),
+            "/plugins": lambda: self._show_plugins(),
         }
 
         if cmd in handlers:

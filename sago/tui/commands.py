@@ -1199,3 +1199,85 @@ class CommandHandlers:
                 )
         except Exception as e:
             self._add_system_message(f"Error running verification: {e}")
+
+    def _show_skills(self: SagoApp, filter_query: str = "") -> None:
+        """Display available built-in and workspace skills."""
+        from sago.skills.loader import SkillLoader
+        from sago.skills.registry import list_skills
+
+        try:
+            builtin = list_skills()
+            custom = SkillLoader.discover_skills()
+            lines = [f"[bold]Available Skills ({len(builtin) + len(custom)}):[/bold]\n"]
+
+            if custom:
+                lines.append("[bold cyan]Workspace & Custom Skills:[/bold cyan]")
+                for name, sk in sorted(custom.items()):
+                    if (
+                        filter_query
+                        and filter_query.lower() not in name.lower()
+                        and filter_query.lower() not in sk.description.lower()
+                    ):
+                        continue
+                    tools_str = f" [dim](tools: {', '.join(sk.tools)})[/dim]" if sk.tools else ""
+                    lines.append(
+                        f"  • [bold yellow]{name:<18}[/bold yellow] {sk.description}{tools_str}"
+                    )
+                lines.append("")
+
+            lines.append("[bold cyan]Built-in Capabilities:[/bold cyan]")
+            for sk in builtin:
+                if (
+                    filter_query
+                    and filter_query.lower() not in sk.name.lower()
+                    and filter_query.lower() not in sk.description.lower()
+                ):
+                    continue
+                tools_str = f" [dim](tools: {', '.join(sk.tools[:4])})[/dim]" if sk.tools else ""
+                lines.append(
+                    f"  • [bold green]{sk.name:<18}[/bold green] {sk.description}{tools_str}"
+                )
+
+            container = self.query_one("#messages")
+            container.mount(
+                Collapsible(
+                    Static("\n".join(lines)),
+                    title=f"Skills ({len(builtin) + len(custom)})",
+                    collapsed=False,
+                )
+            )
+            container.scroll_end()
+        except Exception as e:
+            self._add_system_message(f"Error listing skills: {e}")
+
+    def _show_plugins(self: SagoApp) -> None:
+        """Display installed third-party plugins."""
+        from sago.plugins.base import get_plugin_manager
+
+        try:
+            pm = get_plugin_manager()
+            plugins = pm.list_plugins()
+            if not plugins:
+                self._add_system_message(
+                    "No external plugins loaded. Place Python plugins in .sago/plugins/ or ~/.sago/plugins/"
+                )
+                return
+
+            lines = [f"[bold]Installed Plugins ({len(plugins)}):[/bold]\n"]
+            for p in plugins:
+                status = "[green]ENABLED[/green]" if p.enabled else "[dim]DISABLED[/dim]"
+                lines.append(
+                    f"• [bold cyan]{p.name}[/bold cyan] v{p.version} ({p.author}) - {status}\n  {p.description}"
+                )
+
+            container = self.query_one("#messages")
+            container.mount(
+                Collapsible(
+                    Static("\n".join(lines)),
+                    title=f"Plugins ({len(plugins)})",
+                    collapsed=False,
+                )
+            )
+            container.scroll_end()
+        except Exception as e:
+            self._add_system_message(f"Error listing plugins: {e}")

@@ -1,6 +1,5 @@
 """Unit tests for Sago tools."""
 
-
 import pytest
 
 from sago.engine.simple_executor import _discover_tools

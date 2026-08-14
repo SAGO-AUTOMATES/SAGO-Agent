@@ -20,8 +20,20 @@ def sample_workflow():
         description="A test workflow",
         steps=[
             WorkflowStep(id="step1", name="Step 1", type="agent_call", config={"task": "Task 1"}),
-            WorkflowStep(id="step2", name="Step 2", type="agent_call", config={"task": "Task 2"}, depends_on=["step1"]),
-            WorkflowStep(id="step3", name="Step 3", type="agent_call", config={"task": "Task 3"}, depends_on=["step1"]),
+            WorkflowStep(
+                id="step2",
+                name="Step 2",
+                type="agent_call",
+                config={"task": "Task 2"},
+                depends_on=["step1"],
+            ),
+            WorkflowStep(
+                id="step3",
+                name="Step 3",
+                type="agent_call",
+                config={"task": "Task 3"},
+                depends_on=["step1"],
+            ),
         ],
     )
 
@@ -97,12 +109,16 @@ class TestWorkflowEngine:
 
 class TestWorkflowStep:
     def test_step_creation(self):
-        step = WorkflowStep(id="s1", name="Step 1", type="agent_call", config={"task": "Do something"})
+        step = WorkflowStep(
+            id="s1", name="Step 1", type="agent_call", config={"task": "Do something"}
+        )
         assert step.id == "s1"
         assert step.status == StepStatus.PENDING
 
     def test_step_with_dependencies(self):
-        step = WorkflowStep(id="s2", name="Step 2", type="agent_call", config={"task": "Do more"}, depends_on=["s1"])
+        step = WorkflowStep(
+            id="s2", name="Step 2", type="agent_call", config={"task": "Do more"}, depends_on=["s1"]
+        )
         assert "s1" in step.depends_on
 
     def test_step_duration(self):

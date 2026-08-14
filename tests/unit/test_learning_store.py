@@ -1,6 +1,5 @@
 """Unit tests for learning store: persistence, learning, edge cases."""
 
-
 import pytest
 
 from sago.learning import LearningStore

@@ -1,7 +1,5 @@
 """Security audit tests for Sago."""
 
-
-
 from sago.permissions import get_permission_manager
 
 
@@ -10,6 +8,7 @@ class TestPathTraversal:
 
     def test_read_file_path_traversal(self):
         from sago.tools.file.read_file import ReadFileTool
+
         tool = ReadFileTool()
         # Try to read outside allowed paths
         result = tool.run(file_path="../../../etc/passwd")
@@ -18,6 +17,7 @@ class TestPathTraversal:
 
     def test_write_file_path_traversal(self):
         from sago.tools.file.write_file import WriteFileTool
+
         tool = WriteFileTool()
         # Try to write outside allowed paths
         result = tool.run(file_path="../../../tmp/evil.txt", content="malicious")
@@ -26,6 +26,7 @@ class TestPathTraversal:
 
     def test_glob_files_path_traversal(self):
         from sago.tools.file.glob_files import GlobFilesTool
+
         tool = GlobFilesTool()
         # Try to glob outside allowed paths
         result = tool.run(pattern="*", path="../../../etc")
@@ -38,6 +39,7 @@ class TestCommandInjection:
 
     def test_execute_shell_injection(self):
         from sago.tools.shell.execute import ExecuteShellTool
+
         tool = ExecuteShellTool()
         # Try command injection
         result = tool.run(command="echo hello; rm -rf /")
@@ -46,6 +48,7 @@ class TestCommandInjection:
 
     def test_execute_shell_pipe_injection(self):
         from sago.tools.shell.execute import ExecuteShellTool
+
         tool = ExecuteShellTool()
         # Try pipe injection
         result = tool.run(command="echo hello | cat /etc/passwd")
@@ -81,18 +84,21 @@ class TestInputValidation:
 
     def test_empty_input_handling(self):
         from sago.tools.file.read_file import ReadFileTool
+
         tool = ReadFileTool()
         result = tool.run(file_path="")
         assert result is not None
 
     def test_none_input_handling(self):
         from sago.tools.file.read_file import ReadFileTool
+
         tool = ReadFileTool()
         result = tool.run(file_path=None)
         assert result is not None
 
     def test_special_characters_input(self):
         from sago.tools.file.read_file import ReadFileTool
+
         tool = ReadFileTool()
         result = tool.run(file_path="test; rm -rf /")
         assert result is not None
@@ -103,6 +109,7 @@ class TestErrorHandling:
 
     def test_tool_error_does_not_expose_internals(self):
         from sago.tools.file.read_file import ReadFileTool
+
         tool = ReadFileTool()
         result = tool.run(file_path="/nonexistent/file/path/that/does/not/exist")
         # Should not expose stack traces or internal paths
@@ -122,6 +129,7 @@ class TestSensitiveData:
 
     def test_api_keys_not_in_output(self):
         from sago.tools.system.env_info import EnvInfo
+
         tool = EnvInfo()
         result = tool.run(operation="list")
         # Should not expose API keys
@@ -130,6 +138,7 @@ class TestSensitiveData:
 
     def test_passwords_not_in_output(self):
         from sago.tools.system.env_info import EnvInfo
+
         tool = EnvInfo()
         result = tool.run(operation="list")
         # Should not expose passwords
@@ -141,6 +150,7 @@ class TestResourceExhaustion:
 
     def test_large_file_read(self):
         from sago.tools.file.read_file import ReadFileTool
+
         tool = ReadFileTool()
         # Try to read a very large file
         result = tool.run(file_path="/dev/urandom")
@@ -150,6 +160,7 @@ class TestResourceExhaustion:
     def test_infinite_loop_protection(self):
         # Test that tools don't hang indefinitely
         from sago.tools.shell.execute import ExecuteShellTool
+
         tool = ExecuteShellTool()
         # This should timeout or complete
         result = tool.run(command="timeout 1 echo test")

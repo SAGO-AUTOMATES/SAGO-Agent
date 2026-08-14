@@ -1072,6 +1072,65 @@ def verify_cmd(dir: str) -> None:
         )
 
 
+@cli.command("skills")
+@click.option("--filter", "-f", default="", help="Filter skills by name or keyword")
+def skills_cmd(filter: str) -> None:
+    """List all available built-in and custom workspace skills."""
+    from sago.skills.loader import SkillLoader
+    from sago.skills.registry import list_skills
+
+    builtin = list_skills()
+    custom = SkillLoader.discover_skills()
+
+    console.print(f"[bold]Available Skills ({len(builtin) + len(custom)} total):[/bold]\n")
+
+    if custom:
+        console.print("[bold cyan]Workspace & Custom Skills:[/bold cyan]")
+        for name, sk in sorted(custom.items()):
+            if (
+                filter
+                and filter.lower() not in name.lower()
+                and filter.lower() not in sk.description.lower()
+            ):
+                continue
+            tools_str = f" [dim](tools: {', '.join(sk.tools)})[/dim]" if sk.tools else ""
+            console.print(f"  • [bold yellow]{name:<18}[/bold yellow] {sk.description}{tools_str}")
+        console.print("")
+
+    console.print("[bold cyan]Built-in Capabilities:[/bold cyan]")
+    for sk in builtin:
+        if (
+            filter
+            and filter.lower() not in sk.name.lower()
+            and filter.lower() not in sk.description.lower()
+        ):
+            continue
+        tools_str = f" [dim](tools: {', '.join(sk.tools[:4])})[/dim]" if sk.tools else ""
+        console.print(f"  • [bold green]{sk.name:<18}[/bold green] {sk.description}{tools_str}")
+
+
+@cli.command("plugins")
+def plugins_cmd() -> None:
+    """List installed SAGO third-party plugins and lifecycle extensions."""
+    from sago.plugins.base import get_plugin_manager
+
+    pm = get_plugin_manager()
+    plugins = pm.list_plugins()
+
+    if not plugins:
+        console.print(
+            "[dim]No external plugins loaded. Place Python plugins in .sago/plugins/ or ~/.sago/plugins/[/dim]"
+        )
+        return
+
+    console.print(f"[bold]Installed Plugins ({len(plugins)}):[/bold]\n")
+    for p in plugins:
+        status = "[green]ENABLED[/green]" if p.enabled else "[dim]DISABLED[/dim]"
+        console.print(
+            f"  • [bold cyan]{p.name}[/bold cyan] v{p.version} ({p.author}) - {status}\n    {p.description}"
+        )
+
+
 def main() -> None:
     """Main entry point."""
     cli()

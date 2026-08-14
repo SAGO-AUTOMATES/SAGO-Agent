@@ -1,6 +1,5 @@
 """Unit tests for task manager."""
 
-
 import pytest
 
 import sago.tasks as tasks_module
@@ -139,13 +138,16 @@ class TestTaskPlan:
 class TestComplexTaskDetection:
     def test_simple_task(self):
         from sago.engine.simple_executor import _is_complex_task
+
         assert _is_complex_task("Fix the bug") is False
 
     def test_complex_task(self):
         from sago.engine.simple_executor import _is_complex_task
+
         assert _is_complex_task("Create a REST API and then deploy it") is True
 
     def test_long_task(self):
         from sago.engine.simple_executor import _is_complex_task
+
         task = " ".join(["word"] * 35)
         assert _is_complex_task(task) is True

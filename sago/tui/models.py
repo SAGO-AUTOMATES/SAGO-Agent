@@ -56,6 +56,8 @@ COMMANDS = {
     "/summary": "Toggle summary display after each task",
     "/map": "Generate compact symbol repo map (/map [query])",
     "/verify": "Run multi-language linters, type checks, and tests (/verify)",
+    "/skills": "List available skills (/skills [filter] or /skill <name>)",
+    "/plugins": "List installed third-party plugins (/plugins)",
 }
 
 BUILTIN_MODELS = [

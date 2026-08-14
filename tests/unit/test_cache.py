@@ -211,7 +211,7 @@ class TestCacheStatsTracking:
     def test_hit_miss_counting(self):
         cache = Cache(max_size=100, default_ttl=60)
         cache.set("k", "v")
-        cache.get("k")   # hit
+        cache.get("k")  # hit
         cache.get("no")  # miss
         cache.get("no")  # miss
         stats = cache.get_stats()

@@ -49,11 +49,13 @@ class TestServerProtocol:
     def test_daemon_request_format(self, daemon):
         # Test that daemon can parse valid request format
         import json
+
         request = {"action": "ping"}
         # Just test the format, not actual execution
         assert json.dumps(request) is not None
 
     def test_daemon_execute_request_format(self, daemon):
         import json
+
         request = {"action": "execute", "task": "echo hello", "agent": None}
         assert json.dumps(request) is not None

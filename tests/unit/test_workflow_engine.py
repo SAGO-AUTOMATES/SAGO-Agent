@@ -58,24 +58,34 @@ class TestWorkflowState:
 class TestWorkflow:
     def test_active_steps(self):
         wf = Workflow(id="w1", name="W", description="")
-        wf.steps.append(WorkflowStep(id="s1", name="S1", type="agent_call", status=StepStatus.RUNNING))
-        wf.steps.append(WorkflowStep(id="s2", name="S2", type="agent_call", status=StepStatus.PENDING))
+        wf.steps.append(
+            WorkflowStep(id="s1", name="S1", type="agent_call", status=StepStatus.RUNNING)
+        )
+        wf.steps.append(
+            WorkflowStep(id="s2", name="S2", type="agent_call", status=StepStatus.PENDING)
+        )
         assert len(wf.active_steps()) == 1
 
     def test_completed_steps(self):
         wf = Workflow(id="w1", name="W", description="")
-        wf.steps.append(WorkflowStep(id="s1", name="S1", type="agent_call", status=StepStatus.COMPLETED))
+        wf.steps.append(
+            WorkflowStep(id="s1", name="S1", type="agent_call", status=StepStatus.COMPLETED)
+        )
         assert len(wf.completed_steps()) == 1
 
     def test_failed_steps(self):
         wf = Workflow(id="w1", name="W", description="")
-        wf.steps.append(WorkflowStep(id="s1", name="S1", type="agent_call", status=StepStatus.FAILED))
+        wf.steps.append(
+            WorkflowStep(id="s1", name="S1", type="agent_call", status=StepStatus.FAILED)
+        )
         assert len(wf.failed_steps()) == 1
 
     def test_next_steps_deps_met(self):
         wf = Workflow(id="w1", name="W", description="")
         s1 = WorkflowStep(id="s1", name="S1", type="agent_call", status=StepStatus.COMPLETED)
-        s2 = WorkflowStep(id="s2", name="S2", type="agent_call", status=StepStatus.PENDING, depends_on=["s1"])
+        s2 = WorkflowStep(
+            id="s2", name="S2", type="agent_call", status=StepStatus.PENDING, depends_on=["s1"]
+        )
         wf.steps.extend([s1, s2])
         ready = wf.next_steps()
         assert len(ready) == 1
@@ -84,7 +94,9 @@ class TestWorkflow:
     def test_next_steps_deps_not_met(self):
         wf = Workflow(id="w1", name="W", description="")
         s1 = WorkflowStep(id="s1", name="S1", type="agent_call", status=StepStatus.PENDING)
-        s2 = WorkflowStep(id="s2", name="S2", type="agent_call", status=StepStatus.PENDING, depends_on=["s1"])
+        s2 = WorkflowStep(
+            id="s2", name="S2", type="agent_call", status=StepStatus.PENDING, depends_on=["s1"]
+        )
         wf.steps.extend([s1, s2])
         ready = wf.next_steps()
         assert len(ready) == 1
@@ -177,7 +189,9 @@ class TestWorkflowTransitions:
     def test_resume_workflow(self, engine):
         wf = engine.create_workflow(name="T", description="")
         wf.status = WorkflowStatus.PAUSED
-        wf.steps.append(WorkflowStep(id="s1", name="S", type="agent_call", status=StepStatus.WAITING))
+        wf.steps.append(
+            WorkflowStep(id="s1", name="S", type="agent_call", status=StepStatus.WAITING)
+        )
         assert engine.resume_workflow(wf.id) is True
         assert wf.status == WorkflowStatus.RUNNING
         assert wf.steps[0].status == StepStatus.PENDING
@@ -293,7 +307,12 @@ class TestWorkflowCallbacks:
 class TestWorkflowBuilder:
     def test_builder_chain(self, engine):
         builder = WorkflowBuilder(engine)
-        wf = builder.create(name="Built", description="").step(name="S1", step_type="agent_call").step(name="S2", step_type="agent_call").build()
+        wf = (
+            builder.create(name="Built", description="")
+            .step(name="S1", step_type="agent_call")
+            .step(name="S2", step_type="agent_call")
+            .build()
+        )
         assert wf is not None
         assert wf.name == "Built"
         assert len(wf.steps) == 2
