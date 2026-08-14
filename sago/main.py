@@ -1171,6 +1171,48 @@ def plugins_cmd() -> None:
         )
 
 
+@cli.command("checkpoint")
+@click.argument("action", default="list", type=click.Choice(["create", "list", "restore"]))
+@click.argument("target", required=False)
+def checkpoint_cmd(action: str, target: str | None) -> None:
+    """Manage atomic snapshots and rollbacks for large refactorings (create, list, restore)."""
+    from sago.engine.checkpoint import CheckpointManager
+
+    mgr = CheckpointManager()
+    if action == "create":
+        desc = target or "Manual CLI checkpoint"
+        meta = mgr.create_checkpoint(description=desc)
+        console.print(
+            f"[bold green]✓ Checkpoint created:[/bold green] [bold cyan]{meta.checkpoint_id}[/bold cyan] ({len(meta.file_paths)} files) — {desc}"
+        )
+    elif action == "list":
+        checkpoints = mgr.list_checkpoints()
+        if not checkpoints:
+            console.print("[dim]No checkpoints saved in .sago/checkpoints/[/dim]")
+            return
+        console.print(f"[bold]Available Workspace Snapshots ({len(checkpoints)}):[/bold]\n")
+        for c in checkpoints:
+            import datetime
+
+            dt_str = datetime.datetime.fromtimestamp(c.timestamp).strftime("%Y-%m-%d %H:%M:%S")
+            console.print(
+                f"  • [bold cyan]{c.checkpoint_id}[/bold cyan] [dim]({dt_str})[/dim]\n    {c.description} [dim]({len(c.file_paths)} files)[/dim]"
+            )
+    elif action == "restore":
+        if not target:
+            console.print(
+                "[bold red]Error:[/bold red] Please specify checkpoint ID to restore. (e.g. `sago checkpoint restore chk_1234`)"
+            )
+            return
+        res = mgr.restore_checkpoint(target)
+        if res.get("success"):
+            console.print(
+                f"[bold green]✓ Successfully restored {res['restored_count']} files from snapshot {target}![/bold green]"
+            )
+        else:
+            console.print(f"[bold red]Failed to restore:[/bold red] {res.get('error')}")
+
+
 def main() -> None:
     """Main entry point."""
     cli()
