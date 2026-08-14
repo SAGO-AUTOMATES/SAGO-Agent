@@ -1394,7 +1394,7 @@ class CommandHandlers:
             self.developer_mode = True
             tracer.set_enabled(True)
             msg = (
-                "[bold red]   ⚡ SAGO DEVELOPER MODE ACTIVATED                             [/bold red]\n"
+                "[bold red] ⚡ SAGO DEVELOPER MODE ACTIVATED                             [/bold red]\n"
                 "  • [bold cyan]Deep Tracing[/bold cyan]: LLM payloads, token metrics, exact tool parameters\n"
                 "  • [bold magenta]Telemetry[/bold magenta]: Microsecond function duration & state transitions\n"
                 "  • [bold yellow]Commands[/bold yellow]: `/dev logs` | `/dev traces` | `/dev export [file]` | `/dev off`"
