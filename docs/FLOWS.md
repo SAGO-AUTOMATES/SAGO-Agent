@@ -209,39 +209,79 @@ flowchart TD
 
 ---
 
-## 10. Atomic Checkpoints & Workspace Snapshotting
+## 10. Atomic Checkpoints, Workspace Snapshots & 1-Click Rollback
 
-Before executing high-impact multi-file refactors, SAGO's `CheckpointManager` ([`sago/engine/checkpoint.py`](file:///mnt/ramdisk/sago/sago/engine/checkpoint.py)) takes lightweight atomic snapshots of workspace deltas:
+Implemented in [`sago/engine/checkpoint.py`](file:///mnt/ramdisk/sago/sago/engine/checkpoint.py), SAGO incorporates an atomic, copy-on-write workspace versioning system designed for fail-safe agentic refactoring.
 
-* **Automatic Snapshots**: Triggered before high-risk agent operations.
-* **1-Click Rollback (`/checkpoint restore <id>`)**: Reverts modified files back to the exact pre-task state if an agent makes undesirable changes.
-* **Zero Overhead**: Uses file hashing and copy-on-write delta storage in `.sago/checkpoints/`.
+```mermaid
+flowchart TD
+    TaskStart["⚡ High-Impact Task / Refactor Triggered"] --> PreCheck["📸 CheckpointManager.create_checkpoint()"]
+    PreCheck --> Hash["1. Hash target workspace files (SHA-256)"]
+    Hash --> Delta["2. Store file content snapshots in .sago/checkpoints/<id>/"]
+    Delta --> Exec["🤖 Multi-Agent Execution & Tool Operations (Edits, Writes, Moves)"]
+    
+    Exec --> Evaluation{"Execution Result / Verification"}
+    Evaluation -->|✅ Successful & Verified| Keep["Keep checkpoint in history (audit trail)"]
+    Evaluation -->|❌ Failure / Unwanted Changes| Rollback["⏪ /checkpoint restore <id> or /undo"]
+    Rollback --> Restore["Restore exact file bytes & directory structure from snapshot"]
+```
+
+### Checkpoint Operations & Lifecycle
+1. **Automated Baseline Snapshotting**: Before executing risk-gated tools (`write_file`, `edit_file`, `multi_replace_file`), SAGO captures the exact byte state and relative paths of touched files.
+2. **Manual Point-in-Time Snapshots (`/checkpoint create [description]`)**: Users can capture a comprehensive snapshot of their workspace prior to testing major architectural migrations or prompting agents for large rewrites.
+3. **Instant Rollback (`/checkpoint restore <id>`)**: Restores all files within the checkpoint snapshot back to their exact state, overwriting unwanted modifications and cleaning up newly created artifacts.
+4. **Granular Turn Undo (`/undo`)**: Reverts only the file changes made during the most recent assistant turn without affecting earlier changes.
+5. **Modification Audit Log (`/changes`)**: Streams a chronological diff of all files modified in the active session.
 
 ---
 
-## 11. Daemon & Detach Mode Background Workers
+## 11. Daemon, Detach Mode & Background Workers
 
 SAGO supports non-blocking detached execution across both CLI and TUI:
 
 ```mermaid
 flowchart LR
-    subgraph Detached_Launch["1. Detached Launch (CLI)"]
-        Cmd["$ sago run 'Task' --detach"] --> Daemon["Spawn Detached Process"]
-        Daemon --> LogFile["Write to .sago/logs/task_xxx.log"]
-        Daemon --> SafeClose["Terminal Tab Safe to Close"]
+    subgraph Detached_Launch["1. Detached Execution"]
+        Cmd["$ sago run 'Task' --detach\nor /detach in TUI"] --> DaemonWorker["Spawn Background Daemon Worker\n(Independent Subprocess / Thread)"]
+        DaemonWorker --> DiskLog["Stream output to .sago/logs/task_<id>.log"]
+        DaemonWorker --> SafeTerminal["Terminal tab / SSH session safe to exit"]
     end
 
-    subgraph Reattach_Flow["2. Reattach Flow"]
-        AttachCmd["$ sago attach task_xxx"] --> Stream["Stream Live Task Log"]
-        TuiAttach["$ sago attach session_id"] --> Resume["Resume Interactive TUI Session"]
+    subgraph Reattach_Flow["2. Reattach & Monitoring"]
+        AttachLog["$ sago attach task_<id>"] --> LiveTail["Live tail background task output"]
+        AttachTUI["$ sago attach <session_id>"] --> ReconnectTUI["Re-open full interactive TUI state"]
     end
 ```
 
+### Detach Capabilities
+* **Zero-Interruption Remote Work**: Launch long-running builds, test suites, or multi-agent workflows over SSH, detach safely (`/detach` or `sago run --detach`), and disconnect without terminating jobs.
+* **Live Task Tail (`sago attach`)**: Running `sago attach` without arguments lists all active and recent background tasks with their PID, status, elapsed duration, and log path.
+
 ---
 
-## 12. Distributed Peer Mesh Network
+## 12. Distributed Peer Mesh Network & HMAC-SHA256 Security
 
-SAGO instances can form local and remote clusters for distributed task distribution:
+Implemented in [`sago/peers/mesh.py`](file:///mnt/ramdisk/sago/sago/peers/mesh.py), SAGO instances can form secure peer-to-peer swarms across local subnets and cloud clusters:
 
-* **Local Subnet Discovery**: Broadcasts heartbeat pings over UDP port `7654` to auto-discover neighbor SAGO agents on the local network.
-* **Daemon Socket / HTTP Mesh (`sago/server/daemon.py`)**: Accepts remote task executions (`sago remote "task" --host <ip>`) and streams responses over Unix sockets or TCP.
+```mermaid
+flowchart LR
+    subgraph NodeA["🖥️ SAGO Node A (Sender)"]
+        Msg["Task Payload / Handoff"] --> Sign["HMAC-SHA256 Sign(payload, timestamp, SAGO_MESH_SECRET)"]
+        Sign --> Packet["Signed MeshMessage Packet"]
+    end
+    
+    Packet -->|WebSocket / TCP Port 7654| NodeB
+    
+    subgraph NodeB["🖥️ SAGO Node B (Receiver)"]
+        Packet --> VerifyTime{"Timestamp within 300s window?"}
+        VerifyTime -->|❌ Expired| DropReplay["Drop (Replay Attack Guard)"]
+        VerifyTime -->|✅ Valid| VerifyHMAC{"HMAC Signature Valid?"}
+        VerifyHMAC -->|❌ Tampered| DropUntrusted["Drop (Unauthorized Node)"]
+        VerifyHMAC -->|✅ Valid| Dispatch["Dispatch task to local specialist agent"]
+    end
+```
+
+### Mesh Security Guarantees
+* **HMAC-SHA256 Message Authentication**: Every mesh packet is cryptographically signed using a shared cluster secret (`SAGO_MESH_SECRET`), guaranteeing packet integrity and authenticity.
+* **Replay Attack Prevention**: Inbound packets include microsecond timestamps; messages outside a configurable 300-second window or with duplicate nonces are rejected.
+* **Automatic Node Discovery**: Nodes announce their capabilities (e.g. `gpu`, `database`, `rust`) over UDP broadcast, allowing automatic multi-node task routing.

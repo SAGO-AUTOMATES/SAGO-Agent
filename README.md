@@ -316,9 +316,11 @@ Permissions are stored in `~/.sago/permissions.json`:
 
 ---
 
-## Session Persistence
+---
 
-Sessions are automatically saved to SQLite (`~/.sago/data/sago.db`) and can be exported to JSON.
+## Session Persistence & State Management
+
+Sessions are automatically saved to SQLite (`~/.sago/data/sago.db`) with write-ahead logging (WAL mode) and can be exported to JSON or Markdown.
 
 ```bash
 # Save current session
@@ -330,11 +332,162 @@ Sessions are automatically saved to SQLite (`~/.sago/data/sago.db`) and can be e
 # Load a session
 /load my-session
 
-# Export to markdown
+# Export conversation to markdown
 /export
 
-# Compact context (summarize old messages)
+# Compact context (summarize old turns with 3-tiered memory pyramid)
 /compact
+```
+
+---
+
+## Deep Dive: Key Architectural Features
+
+### 1. Atomic Checkpoints, Workspace Snapshots & 1-Click Rollback
+
+Before executing multi-file edits or risky refactoring prompts, SAGO’s `CheckpointManager` takes atomic copy-on-write snapshots:
+
+```bash
+# Create a manual checkpoint before a large refactor
+/checkpoint create "Refactor auth middleware to JWT"
+
+# List all available checkpoints in current session
+/checkpoint list
+
+# Instantly restore workspace to a previous checkpoint
+/checkpoint restore chk_1700000000
+
+# Granular undo: revert only the changes from the latest assistant turn
+/undo
+
+# View chronological file modification audit trail
+/changes
+```
+
+- **How it works**: SHA-256 hashes each touched file before modification and archives the base content in `.sago/checkpoints/`. If an agent introduces unwanted changes, `/checkpoint restore <id>` restores the exact file tree in milliseconds.
+
+---
+
+### 2. Multi-Agent Swarm, Instant `@` Mentions & Model Inheritance
+
+SAGO coordinates **339 specialist agents** across 22 domains with dynamic runtime model and provider inheritance:
+
+```bash
+# Instant @ autocompletion: type @ to open live specialist recommendations
+@python-engineer optimize the database connection pool in sago/database.py
+
+# Delegate to a specialist agent (inherits your active LLM and provider)
+/delegate system-architect Design the microservice boundaries
+@delegate backend-engineer Implement the FastAPI routes
+
+# Sequential multi-agent chaining: pass structured handoffs between agents
+/chain system-architect,backend-engineer,code-reviewer Build a secure webhook receiver
+
+# Run agents in parallel on the same objective
+/parallel security-auditor,performance-engineer Audit the payment checkout flow
+```
+
+- **Model & Key Inheritance**: When delegating to subagents or running swarms, child agents dynamically inherit the user's active LLM provider (e.g. Gemini, OpenAI, Claude, OpenRouter), active model, and API keys via `resolve_active_llm_config()`.
+
+---
+
+### 3. Smart Project & AST Symbol Graph
+
+Generate deep system architecture box diagrams, process execution maps, and entity models directly in the terminal:
+
+```bash
+# Interactive full system architecture dashboard
+sago project-graph
+/graph
+
+# Layered System Architecture Box Diagram (Presentation, Orchestration, Agents, Memory, Mesh)
+sago project-graph --view arch
+/graph arch
+
+# Autonomous Execution Pipeline & Flywheel Map
+sago project-graph --view process
+/graph process
+
+# Entity-Relationship & Core Data Models (Pydantic, SQLAlchemy, Tortoise, SQL)
+sago project-graph --view er
+/graph er
+
+# Terminal-native component connection flowchart
+sago project-graph --view flow
+/graph flow
+
+# Real LLM AI architectural review & recommendations
+sago project-graph --view llm
+/graph ai
+```
+
+---
+
+### 4. Hybrid BM25 + Dense Semantic Code Search
+
+Search 1,000+ codebase files using zero-dependency local 128-dimensional dense vector embeddings combined with probabilistic BM25 ranking:
+
+```bash
+# Natural language semantic query
+sago search "Where are database models and session tables defined?"
+
+# Search in TUI
+/search "JWT token verification handler"
+
+# Generate AST-parsed symbol repository map (classes, functions, signatures)
+sago map --query UserService
+/map
+```
+
+---
+
+### 5. Continuous Background Linting & Self-Healing Diagnostics
+
+Non-blocking background verifier automatically checks written code in real time:
+
+- **Virtualenv-Aware**: Automatically resolves `.venv/bin/*`, `uv run`, `poetry run`, and active system toolchains.
+- **Multi-Language**: Supports Python (`ruff`, `pytest`, `mypy`), TypeScript/JavaScript (`tsc`), Rust (`cargo check`), and Go (`go vet`).
+- **Self-Healing Loop**: Feeds compile errors and diagnostic line numbers directly back into the agent's context for autonomous error correction.
+
+---
+
+### 6. Detach Mode & Background Worker Daemon
+
+Launch long-running jobs or multi-agent workflows and safely close your terminal:
+
+```bash
+# Spawn a CLI task into background daemon worker
+sago run "Run complete test suite and benchmarks" --detach
+
+# Detach from interactive TUI session without terminating ongoing agent tasks
+/detach
+
+# List running background tasks and detached sessions
+sago attach
+
+# Reattach to an interactive session or stream background task logs
+sago attach a62c0922
+sago attach task_1700000000
+```
+
+---
+
+### 7. Developer Diagnostics & OpenTelemetry Export
+
+Inspect internal function latencies, prompt payloads, and microsecond traces:
+
+```bash
+# Toggle Developer Mode in TUI
+/dev on
+
+# Stream live function execution logs and LLM durations
+/dev logs
+/dev traces
+
+# Export traces to standard OpenTelemetry (OTel) JSON or Prometheus metrics
+/dev export otel
+/dev export prometheus
+sago telemetry --export otel --output traces.json
 ```
 
 ---
