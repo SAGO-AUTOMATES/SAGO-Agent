@@ -200,21 +200,74 @@ class UIHelpers:
 
         # If developer mode is active, mount execution telemetry trace block
         if getattr(self, "developer_mode", False):
-            from sago.tracking.dev_tracer import get_dev_tracer
+            from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
-            traces = get_dev_tracer().get_recent_traces(limit=15)
+            tracer = get_dev_tracer()
+            traces = tracer.get_recent_traces(limit=30)
             if traces:
-                trace_lines = []
-                for t in traces:
-                    trace_lines.append(t.format_line())
-                    if t.data:
-                        data_str = ", ".join(f"{k}={str(v)[:60]}" for k, v in t.data.items())
-                        trace_lines.append(f"  ↳ {data_str}")
-                trace_body = "\n".join(trace_lines)
+                llm_traces = [t for t in traces if t.event_type == TraceEventType.LLM_PAYLOAD]
+                tool_traces = [t for t in traces if t.event_type == TraceEventType.TOOL_DISPATCH]
+                fn_traces = [
+                    t
+                    for t in traces
+                    if t.event_type
+                    in (
+                        TraceEventType.FUNCTION_CALL,
+                        TraceEventType.FUNCTION_RETURN,
+                        TraceEventType.AGENT_ROUTING,
+                    )
+                ]
+
+                dev_sections = [
+                    f"[bold red]⚡ DEV TRACE OVERVIEW[/bold red] - Total Events: [bold white]{len(traces)}[/bold white] | LLM Calls: [bold magenta]{len(llm_traces)}[/bold magenta] | Tools: [bold cyan]{len(tool_traces)}[/bold cyan]"
+                ]
+
+                if llm_traces:
+                    dev_sections.append(
+                        "\n[bold magenta]─── LLM Invocations & Payloads ───[/bold magenta]"
+                    )
+                    for lt in llm_traces:
+                        m = lt.data.get("model", "unknown")
+                        dur = f"{lt.duration_ms:.1f}ms" if lt.duration_ms > 0 else "streaming"
+                        tin = lt.data.get("tokens_in", 0)
+                        tout = lt.data.get("tokens_out", 0)
+                        dev_sections.append(
+                            f"  • [bold magenta]{m}[/bold magenta] | Latency: [yellow]{dur}[/yellow] | Tokens: In: [green]{tin}[/green], Out: [cyan]{tout}[/cyan]"
+                        )
+                        if "messages_preview" in lt.data:
+                            dev_sections.append(
+                                f"    [dim]Messages Payload: {lt.data['messages_preview']}[/dim]"
+                            )
+
+                if tool_traces:
+                    dev_sections.append(
+                        "\n[bold cyan]─── Tool Dispatches & Signatures ───[/bold cyan]"
+                    )
+                    for tt in tool_traces:
+                        name = tt.data.get("tool_name", tt.action)
+                        dur = f"{tt.duration_ms:.1f}ms"
+                        status = (
+                            "[bold green]OK[/bold green]"
+                            if tt.status == "OK"
+                            else f"[bold red]{tt.status}[/bold red]"
+                        )
+                        dev_sections.append(f"  • [bold cyan]{name}[/bold cyan] ({status}, {dur})")
+                        if "arguments" in tt.data:
+                            args_prev = str(tt.data["arguments"])[:120]
+                            dev_sections.append(f"    [dim]Args: {args_prev}[/dim]")
+
+                if fn_traces:
+                    dev_sections.append(
+                        "\n[bold yellow]─── Function Execution Traces ───[/bold yellow]"
+                    )
+                    for ft in fn_traces[-10:]:
+                        dev_sections.append(f"  {ft.format_line()}")
+
+                trace_body = "\n".join(dev_sections)
                 _mount_element(
                     Collapsible(
-                        Static(trace_body, classes="dev-trace-text", markup=False),
-                        title=f"● ⚡ DEV TRACE ({len(traces)} execution events)",
+                        Static(trace_body, classes="dev-trace-text", markup=True),
+                        title=f"● ⚡ DEVELOPER TRACE ({len(traces)} events | {len(llm_traces)} LLM | {len(tool_traces)} Tools)",
                         collapsed=True,
                     )
                 )
@@ -274,12 +327,22 @@ class UIHelpers:
         status_tag = "[bold green]● OK[/bold green]" if success else "[bold red]✗ FAILED[/bold red]"
         title = f"{status_tag} Tool: [bold cyan]{tool_name}[/bold cyan]"
 
-        args_str = "\n".join(f"  [cyan]{k}[/cyan]: {str(v)[:200]}" for k, v in args.items())
-        preview_res = result[:1500] if result else "(empty)"
-        if len(result) > 1500:
+        param_lines = []
+        for k, v in args.items():
+            val_str = str(v)
+            if len(val_str) > 300:
+                val_str = val_str[:300] + "..."
+            param_lines.append(f"  [bold cyan]{k}[/bold cyan]: [white]{val_str}[/white]")
+        args_str = "\n".join(param_lines) if param_lines else "  [dim](no parameters)[/dim]"
+
+        preview_res = result[:2000] if result else "(empty)"
+        if len(result) > 2000:
             preview_res += f"\n... [dim]({len(result)} characters total)[/dim]"
 
-        body = f"[bold]Parameters:[/bold]\n{args_str}\n\n[bold]Output:[/bold]\n{preview_res}"
+        body = (
+            f"[bold yellow]Parameters:[/bold yellow]\n{args_str}\n\n"
+            f"[bold green]Result Output:[/bold green]\n{preview_res}"
+        )
 
         card = Collapsible(
             Static(body, classes="msg-system", markup=True),

@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import threading
-import time as _time
+import time
 from typing import Any
 
 from textual import events, on
@@ -30,6 +30,8 @@ from sago.tui.widgets import (
 )
 
 logger = logging.getLogger("sago.tui.app")
+
+_time = time
 
 
 class SagoApp(App, CommandHandlers, UIHelpers):
@@ -1965,6 +1967,22 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                 }
                             )
 
+                        from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                        get_dev_tracer().record(
+                            event_type=TraceEventType.LLM_PAYLOAD,
+                            source=f"tui.llm.{self.current_provider}",
+                            action=f"chat.completions.create({api_model})",
+                            data={
+                                "model": api_model,
+                                "provider": self.current_provider,
+                                "messages_count": len(messages),
+                                "tokens_in": total_tokens_in,
+                                "tokens_out": total_tokens_out,
+                                "tool_calls_generated": len(native_tool_calls),
+                            },
+                        )
+
                     # Handle empty content with no tool calls
                     if not content and not native_tool_calls:
                         if iteration < effort["max_iterations"] - 1:
@@ -2157,9 +2175,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                 continue
 
                         on_tool(name, args)
+                        t_tool_start = time.perf_counter()
                         tool_instance = tools[name]()
                         result = tool_instance.run(**args)
                         result_str = str(result)
+                        tool_dur_ms = (time.perf_counter() - t_tool_start) * 1000.0
 
                         is_error = (
                             result_str.lower().startswith("error")
@@ -2169,6 +2189,22 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             failed_calls.add(call_key)
                         else:
                             executed_calls.add(call_key)
+
+                        from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                        get_dev_tracer().record(
+                            event_type=TraceEventType.TOOL_DISPATCH,
+                            source="tui.tool_dispatcher",
+                            action=f"run({name})",
+                            data={
+                                "tool_name": name,
+                                "arguments": args,
+                                "result_preview": result_str[:250],
+                                "risk_level": risk.value if "risk" in locals() else "SAFE",
+                            },
+                            status="FAILED" if is_error else "OK",
+                            duration_ms=tool_dur_ms,
+                        )
 
                         if name == "write_file" and not is_error:
                             fp = args.get("file_path", "")
