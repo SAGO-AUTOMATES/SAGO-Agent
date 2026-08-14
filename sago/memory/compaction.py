@@ -371,6 +371,13 @@ class SessionCompactor:
         # Compact older messages
         compacted = self.compact_messages(messages)
 
+        # Preserve architectural goals/decisions and modified files across
+        # compaction via the hierarchical memory pyramid (tiers 1 & 2), so
+        # long-range context is not lost when naive summarization runs.
+        structural = self._pyramid_structural_context(messages)
+        if structural:
+            context.append(structural)
+
         # Add compacted context
         if compacted.summary:
             context.append(
@@ -405,6 +412,33 @@ class SessionCompactor:
             )
 
         return context
+
+    def _pyramid_structural_context(self, messages: list[dict[str, Any]]) -> dict[str, str] | None:
+        """Build a structural (tier 1 + tier 2) memory block from the conversation.
+
+        Uses the hierarchical memory pyramid to retain architectural goals, key
+        decisions, and modified files across compaction. Working-tier turns are
+        intentionally excluded here to avoid duplicating the recent messages that
+        are appended separately.
+        """
+        try:
+            pyramid = HierarchicalMemoryPyramid()
+            for msg in messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    pyramid.record_turn(role, content)
+
+            tier = pyramid.assemble_compact_pyramid(max_working_turns=0)
+            if not tier:
+                return None
+
+            return {
+                "role": "system",
+                "content": "\n".join(block["content"] for block in tier),
+            }
+        except Exception:
+            return None
 
     def should_compact(self, messages: list[dict[str, Any]]) -> bool:
         """Check if messages should be compacted."""

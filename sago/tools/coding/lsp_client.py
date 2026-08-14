@@ -451,8 +451,109 @@ class LSPClient:
         )
 
     def get_definitions(self, file_path: str, line: int, column: int) -> list[Definition]:
-        """Get definitions at a position (basic implementation)."""
-        return [Definition(file=file_path, line=line, column=column)]
+        """Locate the definition(s) of the symbol under the given position.
+
+        Performs a project-wide search for definition patterns of the identifier
+        at the cursor (e.g. ``def name``, ``class Name``, ``function name``) and
+        returns the real candidate definition locations rather than echoing the
+        input position back.
+        """
+        try:
+            path = Path(file_path)
+            if not path.exists():
+                return []
+
+            lines = path.read_text(encoding="utf-8", errors="replace").split("\n")
+            if line < 1 or line > len(lines):
+                return []
+
+            line_text = lines[line - 1]
+            # Extract the full identifier that contains the cursor position,
+            # regardless of where within the word the cursor sits.
+            start = max(0, min(column, len(line_text)))
+            while start > 0 and (line_text[start - 1].isalnum() or line_text[start - 1] == "_"):
+                start -= 1
+            end = min(column, len(line_text))
+            while end < len(line_text) and (line_text[end].isalnum() or line_text[end] == "_"):
+                end += 1
+            symbol = line_text[start:end]
+            if not symbol or not symbol[0].isalpha() and symbol[0] != "_":
+                return []
+
+            root = self._find_project_root(path.parent)
+
+            patterns = [
+                rf"(?:def|async\s+def)\s+{re.escape(symbol)}\s*\(",
+                rf"function\s+{re.escape(symbol)}\s*\(",
+                rf"func\s+{re.escape(symbol)}\s*\(",
+                rf"(?:class|interface|struct|enum|type|const|let|var|public|private|protected|static)\s+{re.escape(symbol)}\b",
+                rf"\b{re.escape(symbol)}\s*=",
+            ]
+            combined = re.compile("|".join(patterns))
+
+            definitions: list[Definition] = []
+            seen: set[tuple[str, int]] = set()
+            for source in self._iter_source_files(root):
+                try:
+                    text = source.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    continue
+                for idx, src_line in enumerate(text.split("\n"), 1):
+                    if combined.search(src_line):
+                        key = (str(source), idx)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        definitions.append(Definition(file=str(source), line=idx, column=1))
+                        if len(definitions) >= 20:
+                            return definitions
+            return definitions
+        except Exception:
+            return []
+
+    @staticmethod
+    def _find_project_root(start: Path) -> Path:
+        markers = {
+            "pyproject.toml",
+            "package.json",
+            "go.mod",
+            "Cargo.toml",
+            "pom.xml",
+            ".git",
+        }
+        current = start
+        for _ in range(10):
+            if any((current / marker).exists() for marker in markers):
+                return current
+            if current.parent == current:
+                break
+            current = current.parent
+        return start
+
+    @staticmethod
+    def _iter_source_files(root: Path) -> list[Path]:
+        exts = {
+            ".py",
+            ".js",
+            ".ts",
+            ".tsx",
+            ".jsx",
+            ".go",
+            ".rs",
+            ".java",
+            ".c",
+            ".h",
+            ".cpp",
+            ".hpp",
+            ".cc",
+            ".cxx",
+            ".sql",
+        }
+        results: list[Path] = []
+        for p in root.rglob("*"):
+            if p.is_file() and p.suffix.lower() in exts:
+                results.append(p)
+        return results
 
     def get_completions(self, file_path: str, line: int, column: int) -> list[Completion]:
         """Get completions at a position (basic implementation)."""

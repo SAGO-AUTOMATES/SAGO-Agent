@@ -170,7 +170,7 @@ class UIHelpers:
         self: SagoApp, content: str, meta: str = "", agent_name: str = ""
     ) -> None:
         self._hide_welcome_screen()
-        self.messages.append({"role": "assistant", "content": content, "agent": agent_name})
+        self.messages.append({"role": "assistant", "content": content, "agent_name": agent_name})
         self._save_message("assistant", content)
 
         target_card = getattr(self, "_active_exchange_card", None)

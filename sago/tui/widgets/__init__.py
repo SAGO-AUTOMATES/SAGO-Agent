@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import threading
 import time as _time
 from dataclasses import dataclass, field
@@ -89,7 +90,8 @@ AGENT_COLORS = [
 
 def get_agent_color(agent_id: str) -> str:
     """Get a consistent color for an agent based on its ID."""
-    idx = hash(agent_id) % len(AGENT_COLORS)
+    digest = hashlib.md5(agent_id.encode("utf-8")).hexdigest()
+    idx = int(digest, 16) % len(AGENT_COLORS)
     return AGENT_COLORS[idx]
 
 

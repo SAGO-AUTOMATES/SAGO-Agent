@@ -44,7 +44,7 @@ class DockerOps(BaseTool):
             "run": "docker run -d {args}",
             "stop": "docker stop {args}",
             "rm": "docker rm {args}",
-            "exec": "docker exec -it {args}",
+            "exec": "docker exec -i {args}",
             "logs": "docker logs {args}",
             "pull": "docker pull {args}",
             "push": "docker push {args}",

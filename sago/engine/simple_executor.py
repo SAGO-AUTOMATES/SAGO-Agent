@@ -1388,6 +1388,21 @@ def execute_agent_task(
                 except Exception:
                     pass
 
+                # Close the self-healing loop: synchronously verify the just-written
+                # Python file and surface actionable diagnostics back into the tool
+                # result so the agent can immediately correct errors instead of
+                # discovering them only on a later full-project verification pass.
+                if fp and fp.endswith(".py"):
+                    try:
+                        from sago.engine.verifier import ProjectVerifier
+
+                        report = ProjectVerifier(root_dir=os.getcwd()).verify_files([fp])
+                        if not report.passed and report.issues:
+                            feedback = report.to_prompt_feedback()
+                            result_str = (result_str + "\n\n" + feedback)[:4000]
+                    except Exception:
+                        pass
+
             tool_history.append(
                 {
                     "tool": name,

@@ -206,6 +206,51 @@ class SymbolGraph:
             mtime=file_path.stat().st_mtime if file_path.exists() else time.time(),
         )
 
+    def extract_sql_symbols(self, file_path: Path, content: str) -> FileSymbols:
+        """Regex-based symbol extractor for SQL (tables, views, functions, etc.)."""
+        symbols: list[SymbolInfo] = []
+        lines = content.splitlines()
+        patterns = [
+            (r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`\"]?([A-Za-z0-9_]+)", "table"),
+            (
+                r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:TEMP(?:ORARY)?\s+)?VIEW\s+[`\"]?([A-Za-z0-9_]+)",
+                "view",
+            ),
+            (
+                r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\s+[`\"]?([A-Za-z0-9_]+)",
+                "function",
+            ),
+            (r"CREATE\s+(?:OR\s+REPLACE\s+)?TRIGGER\s+[`\"]?([A-Za-z0-9_]+)", "trigger"),
+            (r"CREATE\s+(?:OR\s+REPLACE\s+)?INDEX\s+[`\"]?([A-Za-z0-9_]+)", "index"),
+        ]
+        for i, line in enumerate(lines, 1):
+            line_str = line.strip()
+            for pat, sym_type in patterns:
+                m = re.search(pat, line_str, re.IGNORECASE)
+                if m:
+                    symbols.append(
+                        SymbolInfo(
+                            name=m.group(1),
+                            symbol_type=sym_type,
+                            line_number=i,
+                            signature="",
+                        )
+                    )
+                    break
+
+        return FileSymbols(
+            file_path=str(
+                file_path.relative_to(self.root_dir)
+                if file_path.is_relative_to(self.root_dir)
+                else file_path
+            ),
+            language="sql",
+            symbols=symbols,
+            line_count=len(lines),
+            size_bytes=len(content),
+            mtime=file_path.stat().st_mtime if file_path.exists() else time.time(),
+        )
+
     def scan_file(self, file_path: Path) -> FileSymbols | None:
         """Scan a single file with modification timestamp caching."""
         str_path = str(file_path)
@@ -225,6 +270,14 @@ class SymbolGraph:
                 fs = self.extract_generic_symbols(file_path, content, "rust")
             elif suffix == ".go":
                 fs = self.extract_generic_symbols(file_path, content, "go")
+            elif suffix == ".java":
+                fs = self.extract_generic_symbols(file_path, content, "java")
+            elif suffix in (".c", ".h"):
+                fs = self.extract_generic_symbols(file_path, content, "c")
+            elif suffix in (".cpp", ".hpp", ".cc", ".cxx"):
+                fs = self.extract_generic_symbols(file_path, content, "cpp")
+            elif suffix == ".sql":
+                fs = self.extract_sql_symbols(file_path, content)
             else:
                 fs = FileSymbols(
                     file_path=str(

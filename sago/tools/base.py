@@ -10,10 +10,38 @@ import os
 import platform
 import subprocess
 from abc import ABC, abstractmethod
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
+
+
+class ToolCategory(StrEnum):
+    """High-level functional category for a tool."""
+
+    CODING = "coding"
+    FILE = "file"
+    SHELL = "shell"
+    NETWORK = "network"
+    SYSTEM = "system"
+    WEB = "web"
+    SSH = "ssh"
+    DATABASE = "database"
+    SESSION = "session"
+    SECURITY = "security"
+    AGENT = "agent"
+    ADMIN = "admin"
+    GENERAL = "general"
+
+
+class ToolResult(BaseModel):
+    """Structured result returned by tools that opt into rich output."""
+
+    output: str = ""
+    success: bool = True
+    error: str | None = None
+    metadata: dict[str, Any] = {}
 
 
 class BaseTool(ABC):

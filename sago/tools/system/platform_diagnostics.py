@@ -62,7 +62,15 @@ class PlatformDiagnosticsTool(BaseTool):
         lines.append(f"• **Available CLI Binaries**: {', '.join(avail)}")
 
         # 4. Git status
-        if check_git and (Path.cwd() / ".git").exists():
-            lines.append("• **Git Repo**: Initialized (active branch: main/develop)")
+        if check_git:
+            if (Path.cwd() / ".git").exists():
+                try:
+                    res = self._run_command("git rev-parse --abbrev-ref HEAD", timeout=5)
+                    branch = res.stdout.strip() if res.returncode == 0 else "unknown"
+                    lines.append(f"• **Git Repo**: Initialized (active branch: {branch})")
+                except Exception:
+                    lines.append("• **Git Repo**: Initialized (branch unknown)")
+            else:
+                lines.append("• **Git Repo**: Not a git repository")
 
         return "\n".join(lines)

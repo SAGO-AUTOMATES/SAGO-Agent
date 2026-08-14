@@ -67,7 +67,7 @@ class ExecuteShellTool(BaseTool):
 
         try:
             result = self._run_command(
-                command if self._is_windows() else full_command,
+                full_command,
                 timeout=timeout,
                 cwd=work_dir,
                 shell=True,

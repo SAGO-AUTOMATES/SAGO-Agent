@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from sago.memory.hybrid_indexer import get_hybrid_code_indexer
@@ -32,7 +34,14 @@ class HybridSearchTool(BaseTool):
         "Finds functions, classes, data models, error handlers, and business logic without needing exact regex."
     )
     category: ToolCategory = ToolCategory.CODING
-    args_model: type[BaseModel] = HybridSearchArgs
+    args_model: type[BaseModel] | None = HybridSearchArgs
+
+    def _run(self, **kwargs: Any) -> str:
+        query = kwargs.get("query", "")
+        limit = int(kwargs.get("limit", 6) or 6)
+        directory = kwargs.get("directory")
+        result = self.execute(query=query, limit=limit, directory=directory)
+        return result.output
 
     def execute(self, query: str, limit: int = 6, directory: str | None = None) -> ToolResult:
         try:

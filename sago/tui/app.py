@@ -435,8 +435,12 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     }
     #suggestions.visible { display: block; }
 
-    .suggestion-item { color: #6e7681; padding: 0 1; }
-    .suggestion-item.highlighted { color: #e6edf3; background: #1c2128; }
+    .suggestion-item { color: #8b949e; padding: 0 1; }
+    .suggestion-item.highlighted {
+        color: #ffffff;
+        background: #1f6feb;
+        text-style: bold;
+    }
 
     .code-block {
         background: #161b22;
