@@ -138,6 +138,18 @@ def _build_openai_tools(tool_classes: dict[str, type[BaseTool]]) -> list[dict[st
 
 def _is_complex_task(task: str) -> bool:
     """Detect if a task is complex and needs a todo list."""
+    task_lower = task.lower().strip()
+
+    # Casual, conversational, or creative requests never need multi-step coding plans
+    chat_patterns = [
+        r"\b(joke|jokes|pun|puns|funny|riddle|riddles|story|stories|poem|poems|greeting|hello|hi|hey|thanks|thank you)\b",
+        r"\b(who are you|how are you|tell me about yourself|what can you do)\b",
+        r"^(tell me|give me|write me|share)\s+(a|some|another|more|\d+)\s+(joke|jokes|pun|puns|story|poem)",
+        r"^\d+-\d+\s+more",
+    ]
+    if any(re.search(p, task_lower) for p in chat_patterns):
+        return False
+
     complex_indicators = [
         r"\b(and then|after that|next step|first.*then|step \d)\b",
         r"\b(build.*project|create.*project|set up|setup)\b",
@@ -148,7 +160,6 @@ def _is_complex_task(task: str) -> bool:
         r"\b(multiple|several|various|many)\b",
         r"\b(full|complete|entire|whole)\b",
     ]
-    task_lower = task.lower()
     for pattern in complex_indicators:
         if re.search(pattern, task_lower):
             return True
@@ -588,6 +599,19 @@ def _get_context(cwd: str | None = None) -> str:
 
 # Task-specific system prompts (tools are now passed via API, not in text)
 PROMPTS = {
+    "chat": """You are {agent_role}, a versatile, articulate, and friendly AI assistant and software engineering expert.
+
+{project_ctx}
+
+=== CONVERSATIONAL & REASONING STRATEGY ===
+- Respond naturally, helpfully, and directly in conversational turns.
+- If the user asks for jokes, creative writing, explanations, casual banter, general knowledge, or conversational follow-ups (e.g. "more", "10-20 more", "tell me another", "why is that"), answer directly and conversationally.
+- DO NOT invoke filesystem or code execution tools unless the user explicitly asks you to inspect, read, search, modify files, or run system commands in their workspace.
+- Maintain full continuity and awareness of recent conversation context and follow-up requests.
+
+=== CRITICAL RULES ===
+- NEVER fabricate tool results. Only use tools when an action on the local environment is required.
+- Provide direct, high-quality, articulate answers.""",
     "create": """You are {agent_role}. The user wants you to CREATE something (file, project, feature).
 
 {project_ctx}
@@ -598,6 +622,7 @@ PROMPTS = {
 - After each file, verify it was created correctly
 - For projects: create structure first, then implement
 - Always verify your work (run tests, check syntax)
+- Only call tools when the user's request requires inspecting or modifying files. If the user asks a conversational question or clarification, reply directly without calling tools.
 
 === CRITICAL RULES ===
 - NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
@@ -643,18 +668,27 @@ PROMPTS = {
 
 
 def _detect_task_type(task: str) -> str:
-    task_lower = task.lower()
-    create_words = [
-        "create",
-        "build",
-        "write",
-        "implement",
-        "make",
-        "generate",
-        "setup",
-        "set up",
-        "add",
-        "new",
+    task_lower = task.lower().strip()
+    chat_words = [
+        "joke",
+        "jokes",
+        "funny",
+        "pun",
+        "puns",
+        "riddle",
+        "story",
+        "poem",
+        "hello",
+        "hi",
+        "hey",
+        "thanks",
+        "thank you",
+        "who are you",
+        "how are you",
+        "tell me",
+        "more",
+        "another",
+        "continue",
     ]
     fix_words = [
         "fix",
@@ -668,6 +702,18 @@ def _detect_task_type(task: str) -> str:
         "error",
         "bug",
         "broken",
+    ]
+    create_words = [
+        "create",
+        "build",
+        "write",
+        "implement",
+        "make",
+        "generate",
+        "setup",
+        "set up",
+        "add",
+        "new",
     ]
     analyze_words = [
         "analyze",
@@ -683,13 +729,33 @@ def _detect_task_type(task: str) -> str:
         "why",
     ]
 
+    has_code_intent = any(
+        w in task_lower
+        for w in (
+            "file",
+            "files",
+            "code",
+            "repo",
+            "function",
+            "class",
+            "test",
+            "tests",
+            "build",
+            "script",
+            "directory",
+            "folder",
+        )
+    )
+
+    if any(w in task_lower for w in chat_words) and not has_code_intent:
+        return "chat"
     if any(w in task_lower for w in fix_words):
         return "fix"
     if any(w in task_lower for w in create_words):
         return "create"
     if any(w in task_lower for w in analyze_words):
         return "analyze"
-    return "create"
+    return "chat" if not has_code_intent else "create"
 
 
 def _load_agent_profile(agent_name: str) -> dict[str, Any] | None:

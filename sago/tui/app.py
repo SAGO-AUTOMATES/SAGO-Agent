@@ -2055,10 +2055,31 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         logger.debug("Task plan creation failed: %s", e)
                         task_plan = None
 
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": message},
-                ]
+                # Assemble multi-turn conversational history from prior messages
+                history: list[dict[str, Any]] = []
+                for m in self.messages[:-1]:
+                    r = m.get("role")
+                    c = m.get("content")
+                    if r in ("user", "assistant") and c:
+                        # Clean out reasoning tags from context history
+                        cleaned_c = re.sub(
+                            r"<(?:thinking|thought)>.*?</(?:thinking|thought)>",
+                            "",
+                            c,
+                            flags=re.DOTALL,
+                        ).strip()
+                        if cleaned_c:
+                            history.append({"role": r, "content": cleaned_c})
+
+                # Retain up to last 16 turns to maintain complete conversational memory
+                if len(history) > 16:
+                    history = history[-16:]
+
+                messages = (
+                    [{"role": "system", "content": system_prompt}]
+                    + history
+                    + [{"role": "user", "content": message}]
+                )
 
                 # Build OpenAI function calling tool definitions
                 openai_tools = _build_openai_tools(tools)

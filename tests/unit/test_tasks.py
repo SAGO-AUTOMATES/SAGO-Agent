@@ -151,3 +151,15 @@ class TestComplexTaskDetection:
 
         task = " ".join(["word"] * 35)
         assert _is_complex_task(task) is True
+
+    def test_conversational_task_not_complex(self):
+        from sago.engine.simple_executor import _detect_task_type, _is_complex_task
+
+        assert _is_complex_task("Tell me a joke") is False
+        assert _is_complex_task("10-20 more") is False
+        assert _is_complex_task("Tell me another funny pun") is False
+
+        assert _detect_task_type("Tell me a joke") == "chat"
+        assert _detect_task_type("10-20 more") == "chat"
+        assert _detect_task_type("Fix the authentication error in auth.py") == "fix"
+        assert _detect_task_type("Create a new React login component") == "create"
