@@ -1352,19 +1352,28 @@ class CommandHandlers:
         """Collapse or expand all chat turns in the message pane."""
         from textual.widgets import Collapsible
 
+        from sago.tui.helpers import ExchangeTurnCard
+
         action = action.strip().lower()
         messages_container = self.query_one("#messages")
-        turn_cards = messages_container.query(Collapsible)
+        turn_cards = list(messages_container.query(ExchangeTurnCard))
+        collapsibles = list(messages_container.query(Collapsible))
 
-        if not turn_cards:
+        if not turn_cards and not collapsibles:
             self._add_system_message("No chat turns to collapse.")
             return
 
         if action in ("expand", "all-open", "open"):
             for card in turn_cards:
-                card.collapsed = False
-            self._add_system_message(f"Expanded all ({len(turn_cards)}) cards in chat.")
+                if card.is_turn_collapsed:
+                    card.toggle_collapse()
+            for c in collapsibles:
+                c.collapsed = False
+            self._add_system_message("Expanded all chat turns and cards.")
         else:
             for card in turn_cards:
-                card.collapsed = True
-            self._add_system_message(f"Collapsed all ({len(turn_cards)}) cards in chat.")
+                if not card.is_turn_collapsed:
+                    card.toggle_collapse()
+            for c in collapsibles:
+                c.collapsed = True
+            self._add_system_message("Collapsed all chat turns and cards.")

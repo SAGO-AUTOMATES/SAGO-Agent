@@ -11,7 +11,7 @@ import threading
 import time as _time
 from typing import Any
 
-from textual import on
+from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
@@ -124,8 +124,23 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         background: #161b22;
         border: solid #30363d;
         border-left: solid #388bfd;
-        padding: 1 2;
+        padding: 0;
         margin: 0 0 1 0;
+        height: auto;
+    }
+    .exchange-prompt-header {
+        background: #1c2128;
+        color: #58a6ff;
+        text-style: bold;
+        padding: 0 1;
+        border-bottom: solid #21262d;
+    }
+    .exchange-prompt-header:hover {
+        background: #21262d;
+        color: #79c0ff;
+    }
+    .exchange-body {
+        padding: 1;
         height: auto;
     }
     .exchange-prompt {
@@ -692,6 +707,18 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self._show_cmd_suggestions(current_word)
         else:
             self._hide_suggestions()
+
+    @on(events.Click, ".exchange-prompt-header")
+    def on_prompt_header_click(self, event: events.Click) -> None:
+        """Click prompt header to collapse or expand the entire turn card."""
+        from sago.tui.helpers import ExchangeTurnCard
+
+        target = event.widget
+        while target is not None:
+            if isinstance(target, ExchangeTurnCard):
+                target.toggle_collapse()
+                break
+            target = target.parent
 
     @on(Input.Submitted, "#msg-input")
     def on_input_submitted(self, event: Input.Submitted) -> None:

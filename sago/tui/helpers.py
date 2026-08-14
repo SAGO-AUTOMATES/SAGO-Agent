@@ -44,6 +44,55 @@ def _render_markdown(content: str) -> str:
     return text
 
 
+class ExchangeTurnCard(Vertical):
+    """Container for a single unified conversational turn (Prompt, Reasoning, Tools, Response)."""
+
+    def __init__(self, prompt: str, **kwargs: Any) -> None:
+        super().__init__(classes="exchange-box", **kwargs)
+        self.prompt = prompt
+        self.is_turn_collapsed = False
+
+    def compose(self):
+        preview = self.prompt.replace("\n", " ").strip()
+        title_snippet = f"{preview[:75]}..." if len(preview) > 75 else preview
+        yield Static(
+            f"[bold cyan]▼ USER[/bold cyan]  [bold white]{title_snippet}[/bold white]",
+            classes="exchange-prompt-header",
+            markup=True,
+        )
+        yield Vertical(classes="exchange-body")
+
+    def toggle_collapse(self) -> None:
+        """Toggle collapsed state of entire exchange body."""
+        try:
+            body = self.query_one(".exchange-body")
+            hdr = self.query_one(".exchange-prompt-header", Static)
+            self.is_turn_collapsed = not self.is_turn_collapsed
+            body.display = not self.is_turn_collapsed
+
+            preview = self.prompt.replace("\n", " ").strip()
+            title_snippet = f"{preview[:75]}..." if len(preview) > 75 else preview
+
+            if self.is_turn_collapsed:
+                hdr.update(
+                    f"[bold cyan]▶ USER[/bold cyan]  [bold white]{title_snippet}[/bold white]  [dim]─ (click to expand)[/dim]"
+                )
+            else:
+                hdr.update(
+                    f"[bold cyan]▼ USER[/bold cyan]  [bold white]{title_snippet}[/bold white]"
+                )
+        except Exception:
+            pass
+
+    def mount_child(self, widget: Any) -> None:
+        """Mount child widget inside exchange body."""
+        try:
+            body = self.query_one(".exchange-body")
+            body.mount(widget)
+        except Exception:
+            self.mount(widget)
+
+
 class UIHelpers:
     """Mixin class providing UI helper methods for SagoApp."""
 
@@ -52,24 +101,10 @@ class UIHelpers:
         self.messages.append({"role": "user", "content": content})
         self._save_message("user", content)
 
-        # Format a clean title preview for collapsible header
-        preview = content.replace("\n", " ").strip()
-        title_snippet = f"{preview[:60]}..." if len(preview) > 60 else preview
-        turn_title = f"● PROMPT: {title_snippet}"
-
-        # Create a unified collapsible turn container (exchange-box)
-        exchange_box = Collapsible(
-            Static(
-                f"[bold cyan]● PROMPT[/bold cyan]  [bold white]{content}[/bold white]",
-                classes="exchange-prompt",
-                markup=True,
-            ),
-            title=turn_title,
-            collapsed=False,
-            classes="exchange-box",
-        )
-        self._active_exchange_card = exchange_box
-        self.query_one("#messages").mount(exchange_box)
+        # Create unified ExchangeTurnCard
+        turn_card = ExchangeTurnCard(prompt=content)
+        self._active_exchange_card = turn_card
+        self.query_one("#messages").mount(turn_card)
         self.query_one("#messages").scroll_end()
 
     def _add_assistant_message(
@@ -79,9 +114,15 @@ class UIHelpers:
         self.messages.append({"role": "assistant", "content": content, "agent": agent_name})
         self._save_message("assistant", content)
 
-        target = getattr(self, "_active_exchange_card", None)
-        if target is None:
-            target = self.query_one("#messages")
+        target_card = getattr(self, "_active_exchange_card", None)
+
+        def _mount_element(elem: Any) -> None:
+            if target_card is not None and hasattr(target_card, "mount_child"):
+                target_card.mount_child(elem)
+            elif target_card is not None:
+                target_card.mount(elem)
+            else:
+                self.query_one("#messages").mount(elem)
 
         display = content
 
@@ -92,7 +133,7 @@ class UIHelpers:
         if thinking_match:
             thinking_content = thinking_match.group(1).strip()
             if thinking_content:
-                target.mount(
+                _mount_element(
                     Collapsible(
                         Static(thinking_content, classes="thinking-text", markup=False),
                         title="● Technical Reasoning & Analysis",
@@ -115,7 +156,7 @@ class UIHelpers:
 
         if "```" not in display:
             rendered = _render_markdown(display)
-            target.mount(
+            _mount_element(
                 Static(f"{agent_prefix}{rendered}", classes="exchange-assistant", markup=True)
             )
         else:
@@ -127,7 +168,7 @@ class UIHelpers:
                     if rendered.strip():
                         prefix = agent_prefix if first_text else ""
                         first_text = False
-                        target.mount(
+                        _mount_element(
                             Static(f"{prefix}{rendered}", classes="exchange-assistant", markup=True)
                         )
                 else:
@@ -147,7 +188,7 @@ class UIHelpers:
                             line_numbers=True,
                             word_wrap=True,
                         )
-                        target.mount(
+                        _mount_element(
                             Collapsible(
                                 Static(syntax),
                                 title=f"Code snippet ({lang or 'text'})",
@@ -155,7 +196,7 @@ class UIHelpers:
                             )
                         )
                     except Exception:
-                        target.mount(Static(code, classes="code-block", markup=False))
+                        _mount_element(Static(code, classes="code-block", markup=False))
 
         # Turn finished -> clear active exchange card
         self._active_exchange_card = None
@@ -163,33 +204,35 @@ class UIHelpers:
 
     def _add_thinking_card(self: SagoApp, reasoning_text: str) -> None:
         """Add a dedicated collapsible technical reasoning card inside active turn box."""
-        target = getattr(self, "_active_exchange_card", None)
-        if target is None:
-            target = self.query_one("#messages")
-
-        target.mount(
-            Collapsible(
-                Static(reasoning_text, classes="thinking-text", markup=False),
-                title="● Technical Reasoning & Analysis",
-                collapsed=True,
-            )
+        target_card = getattr(self, "_active_exchange_card", None)
+        card = Collapsible(
+            Static(reasoning_text, classes="thinking-text", markup=False),
+            title="● Technical Reasoning & Analysis",
+            collapsed=True,
         )
+        if target_card is not None and hasattr(target_card, "mount_child"):
+            target_card.mount_child(card)
+        elif target_card is not None:
+            target_card.mount(card)
+        else:
+            self.query_one("#messages").mount(card)
         self.query_one("#messages").scroll_end()
 
     def _add_plan_card(self: SagoApp, plan_text: str, step_count: int = 0) -> None:
         """Add a dedicated collapsible plan card inside active turn box."""
-        target = getattr(self, "_active_exchange_card", None)
-        if target is None:
-            target = self.query_one("#messages")
-
+        target_card = getattr(self, "_active_exchange_card", None)
         title = f"● Execution Plan ({step_count} steps)" if step_count else "● Execution Plan"
-        target.mount(
-            Collapsible(
-                Static(plan_text, classes="plan-text", markup=True),
-                title=title,
-                collapsed=False,
-            )
+        card = Collapsible(
+            Static(plan_text, classes="plan-text", markup=True),
+            title=title,
+            collapsed=False,
         )
+        if target_card is not None and hasattr(target_card, "mount_child"):
+            target_card.mount_child(card)
+        elif target_card is not None:
+            target_card.mount(card)
+        else:
+            self.query_one("#messages").mount(card)
         self.query_one("#messages").scroll_end()
 
     def _add_agent_message(self: SagoApp, agent_name: str, content: str) -> None:
@@ -217,17 +260,19 @@ class UIHelpers:
 
         body = f"[bold]Parameters:[/bold]\n{args_str}\n\n[bold]Output:[/bold]\n{preview_res}"
 
-        target = getattr(self, "_active_exchange_card", None)
-        if target is None:
-            target = self.query_one("#messages")
-
-        target.mount(
-            Collapsible(
-                Static(body, classes="msg-system", markup=True),
-                title=title,
-                collapsed=True,
-            )
+        card = Collapsible(
+            Static(body, classes="msg-system", markup=True),
+            title=title,
+            collapsed=True,
         )
+
+        target_card = getattr(self, "_active_exchange_card", None)
+        if target_card is not None and hasattr(target_card, "mount_child"):
+            target_card.mount_child(card)
+        elif target_card is not None:
+            target_card.mount(card)
+        else:
+            self.query_one("#messages").mount(card)
         self.query_one("#messages").scroll_end()
 
     def _add_parallel_result(

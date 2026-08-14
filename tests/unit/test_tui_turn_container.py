@@ -1,9 +1,9 @@
 """Tests for TUI turn containerization, thinking step containment, and theme switching."""
 
 import pytest
-from textual.widgets import Collapsible
 
 from sago.tui.app import SagoApp
+from sago.tui.helpers import ExchangeTurnCard
 
 
 @pytest.mark.anyio
@@ -28,9 +28,12 @@ async def test_tui_message_exchange_mounting():
         )
         await pilot.pause()
 
-        # Check messages container has children
+        # Check messages container has ExchangeTurnCard
         messages_container = app.query_one("#messages")
         assert len(messages_container.children) >= 1
+        turn = messages_container.query_one(ExchangeTurnCard)
+        assert turn is not None
+        assert "Hello from test" in turn.prompt
 
 
 @pytest.mark.anyio
@@ -71,12 +74,13 @@ async def test_tui_collapse_command():
         app._collapse_chats()
         await pilot.pause()
 
-        turn_cards = app.query_one("#messages").query(Collapsible)
+        turn_cards = list(app.query_one("#messages").query(ExchangeTurnCard))
+        assert len(turn_cards) == 2
         for c in turn_cards:
-            assert c.collapsed is True
+            assert c.is_turn_collapsed is True
 
         # Expand all
         app._collapse_chats("expand")
         await pilot.pause()
         for c in turn_cards:
-            assert c.collapsed is False
+            assert c.is_turn_collapsed is False
