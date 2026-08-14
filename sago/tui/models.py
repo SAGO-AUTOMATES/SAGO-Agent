@@ -58,6 +58,7 @@ COMMANDS = {
     "/verify": "Run multi-language linters, type checks, and tests (/verify)",
     "/skills": "List available skills (/skills [filter] or /skill <name>)",
     "/plugins": "List installed third-party plugins (/plugins)",
+    "/theme": "Switch TUI color theme (/theme [name] or /themes)",
 }
 
 BUILTIN_MODELS = [

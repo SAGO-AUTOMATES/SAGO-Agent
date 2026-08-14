@@ -1306,3 +1306,44 @@ class CommandHandlers:
             container.scroll_end()
         except Exception as e:
             self._add_system_message(f"Error listing plugins: {e}")
+
+    def _set_theme(self: SagoApp, name: str) -> None:
+        """Switch or list available TUI color themes."""
+        themes = {
+            "obsidian": "Obsidian Deep Dark (Default)",
+            "nord": "Nord Arctic Cold Blue",
+            "dracula": "Dracula Vampire Dark",
+            "monokai": "Monokai Pro High Contrast",
+            "solarized-dark": "Solarized Precision Teal",
+            "tokyo-night": "Tokyo Night Indigo",
+            "light": "Clean Day Light Mode",
+        }
+        name = name.strip().lower()
+        if not name or name == "list":
+            current = getattr(self, "sago_theme", "obsidian")
+            lines = [
+                f"[bold]Active Theme:[/bold] [cyan]{current}[/cyan]\n",
+                "[bold]Available Themes:[/bold]",
+            ]
+            for k, desc in themes.items():
+                marker = " [bold green]● (active)[/bold green]" if k == current else ""
+                lines.append(f"  • [bold cyan]/theme {k:<15}[/bold cyan] {desc}{marker}")
+            self._add_system_message("\n".join(lines))
+            return
+
+        if name not in themes:
+            self._add_system_message(
+                f"Unknown theme '{name}'. Available options: {', '.join(themes.keys())}"
+            )
+            return
+
+        try:
+            # Remove previous theme classes
+            for t in themes:
+                self.screen.remove_class(f"theme-{t}")
+
+            self.sago_theme = name
+            self.screen.add_class(f"theme-{name}")
+            self._add_system_message(f"Switched theme to [bold cyan]{themes[name]}[/bold cyan]")
+        except Exception as e:
+            self._add_system_message(f"Failed to switch theme: {e}")

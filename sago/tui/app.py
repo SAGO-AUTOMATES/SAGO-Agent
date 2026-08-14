@@ -138,6 +138,55 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         color: #e6edf3;
         padding: 1 0 0 0;
     }
+    .thinking-text {
+        color: #8b949e;
+        text-style: italic;
+        padding: 1;
+        background: #0d1117;
+        border-left: solid #d2a8ff;
+    }
+    .plan-text {
+        color: #7ee787;
+        padding: 1;
+        background: #0d1117;
+    }
+
+    /* Nord Theme */
+    .theme-nord { background: #242933; }
+    .theme-nord #agent-dashboard { background: #2e3440; border-left: solid #434c5e; }
+    .theme-nord .exchange-box { background: #2e3440; border: solid #434c5e; border-left: solid #88c0d0; }
+    .theme-nord .exchange-prompt { color: #88c0d0; border-bottom: solid #3b4252; }
+
+    /* Dracula Theme */
+    .theme-dracula { background: #1e1f29; }
+    .theme-dracula #agent-dashboard { background: #282a36; border-left: solid #44475a; }
+    .theme-dracula .exchange-box { background: #282a36; border: solid #44475a; border-left: solid #bd93f9; }
+    .theme-dracula .exchange-prompt { color: #bd93f9; border-bottom: solid #44475a; }
+
+    /* Monokai Theme */
+    .theme-monokai { background: #1e1f1c; }
+    .theme-monokai #agent-dashboard { background: #272822; border-left: solid #3e3d32; }
+    .theme-monokai .exchange-box { background: #272822; border: solid #3e3d32; border-left: solid #a6e22e; }
+    .theme-monokai .exchange-prompt { color: #a6e22e; border-bottom: solid #3e3d32; }
+
+    /* Tokyo Night Theme */
+    .theme-tokyo-night { background: #16161e; }
+    .theme-tokyo-night #agent-dashboard { background: #1a1b26; border-left: solid #292e42; }
+    .theme-tokyo-night .exchange-box { background: #1a1b26; border: solid #292e42; border-left: solid #7aa2f7; }
+    .theme-tokyo-night .exchange-prompt { color: #7aa2f7; border-bottom: solid #292e42; }
+
+    /* Solarized Dark Theme */
+    .theme-solarized-dark { background: #00212b; }
+    .theme-solarized-dark #agent-dashboard { background: #002b36; border-left: solid #073642; }
+    .theme-solarized-dark .exchange-box { background: #002b36; border: solid #073642; border-left: solid #268bd2; }
+    .theme-solarized-dark .exchange-prompt { color: #268bd2; border-bottom: solid #073642; }
+
+    /* Clean Light Theme */
+    .theme-light { background: #f6f8fa; }
+    .theme-light #agent-dashboard { background: #ffffff; border-left: solid #d0d7de; }
+    .theme-light .exchange-box { background: #ffffff; border: solid #d0d7de; border-left: solid #0969da; }
+    .theme-light .exchange-prompt { color: #0969da; border-bottom: solid #eaeef2; }
+    .theme-light .exchange-assistant { color: #24292f; }
 
     Collapsible {
         background: #161b22;
@@ -1093,6 +1142,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             "/verify": lambda: self._run_verify(),
             "/skills": lambda: self._show_skills(args),
             "/plugins": lambda: self._show_plugins(),
+            "/theme": lambda: self._set_theme(args),
+            "/themes": lambda: self._set_theme(args),
         }
 
         if cmd in handlers:
@@ -1600,12 +1651,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         for todo in task_plan.todos:
                             if any(kw in todo.description.lower() for kw in confirm_keywords):
                                 todo.requires_confirmation = True
-                                todo.confirmation_message = f"Please confirm: {todo.description}"
                         self.call_from_thread(
-                            self._add_system_message,
-                            f"📋 Created plan with {len(task_plan.todos)} steps:",
+                            self._add_plan_card,
+                            tm.format_plan(task_plan),
+                            len(task_plan.todos),
                         )
-                        self.call_from_thread(self._add_system_message, tm.format_plan(task_plan))
                         if task_plan.todos:
                             tm.start_todo(task_plan.id, task_plan.todos[0].id)
                             self.call_from_thread(

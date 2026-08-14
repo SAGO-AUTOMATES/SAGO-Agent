@@ -77,6 +77,25 @@ class UIHelpers:
             target = self.query_one("#messages")
 
         display = content
+
+        # Extract and contain thinking / reasoning blocks
+        thinking_match = re.search(
+            r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>", display, re.DOTALL
+        )
+        if thinking_match:
+            thinking_content = thinking_match.group(1).strip()
+            if thinking_content:
+                target.mount(
+                    Collapsible(
+                        Static(thinking_content, classes="thinking-text", markup=False),
+                        title="● Technical Reasoning & Analysis",
+                        collapsed=True,
+                    )
+                )
+            display = re.sub(
+                r"<(?:thinking|thought)>.*?</(?:thinking|thought)>", "", display, flags=re.DOTALL
+            ).strip()
+
         if meta:
             display += f"\n\n[dim]{meta}[/dim]"
 
@@ -133,6 +152,37 @@ class UIHelpers:
 
         # Turn finished -> clear active exchange card
         self._active_exchange_card = None
+        self.query_one("#messages").scroll_end()
+
+    def _add_thinking_card(self: SagoApp, reasoning_text: str) -> None:
+        """Add a dedicated collapsible technical reasoning card inside active turn box."""
+        target = getattr(self, "_active_exchange_card", None)
+        if target is None:
+            target = self.query_one("#messages")
+
+        target.mount(
+            Collapsible(
+                Static(reasoning_text, classes="thinking-text", markup=False),
+                title="● Technical Reasoning & Analysis",
+                collapsed=True,
+            )
+        )
+        self.query_one("#messages").scroll_end()
+
+    def _add_plan_card(self: SagoApp, plan_text: str, step_count: int = 0) -> None:
+        """Add a dedicated collapsible plan card inside active turn box."""
+        target = getattr(self, "_active_exchange_card", None)
+        if target is None:
+            target = self.query_one("#messages")
+
+        title = f"● Execution Plan ({step_count} steps)" if step_count else "● Execution Plan"
+        target.mount(
+            Collapsible(
+                Static(plan_text, classes="plan-text", markup=True),
+                title=title,
+                collapsed=False,
+            )
+        )
         self.query_one("#messages").scroll_end()
 
     def _add_agent_message(self: SagoApp, agent_name: str, content: str) -> None:
