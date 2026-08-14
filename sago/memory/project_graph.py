@@ -1,13 +1,13 @@
-"""Project & Data Graph Engine - Deep dependency, symbol, process, and architecture graph.
+"""Project & Data Graph Engine - Deep dependency, symbol, process, ER, and architecture graph.
 
 Analyzes multi-language codebases to build a complete project topology:
 - File & module dependency graph (imports, exports, calls)
 - Code symbol graph (classes, functions, interfaces, types)
 - Layered Architecture Box Diagrams (Presentation, Engine, Domain, Storage, External)
 - Process & Execution Pipeline Maps (Request -> Dispatch -> Execution -> Verification -> State)
-- Data model & schema relationships (database tables, ORM models, Pydantic schemas)
+- Entity Relationship (ER) Data Model Map (ORM models, Pydantic schemas, database tables)
 - Architectural metrics (coupling, centrality, hub modules)
-- Multi-format rendering (Curated Dashboard, Architecture Diagram, Process Map, Mermaid, ASCII tree, JSON)
+- Multi-format rendering (Curated Dashboard, Architecture Diagram, Process Map, ER Map, Mermaid, ASCII tree, JSON)
 """
 
 from __future__ import annotations
@@ -77,6 +77,7 @@ class ProjectGraph:
         self.file_symbols: dict[str, list[str]] = defaultdict(list)
         self.data_models: list[str] = []
         self.endpoints: list[str] = []
+        self.model_fields: dict[str, list[str]] = defaultdict(list)
 
     def build_graph(
         self,
@@ -90,6 +91,7 @@ class ProjectGraph:
         self.file_symbols.clear()
         self.data_models.clear()
         self.endpoints.clear()
+        self.model_fields.clear()
 
         ignore_dirs = {
             ".git",
@@ -262,7 +264,15 @@ class ProjectGraph:
                 is_data_model = (
                     any(
                         base_name
-                        in ["BaseModel", "Model", "DeclarativeBase", "Schema", "Table", "Base"]
+                        in [
+                            "BaseModel",
+                            "Model",
+                            "DeclarativeBase",
+                            "Schema",
+                            "Table",
+                            "Base",
+                            "dataclass",
+                        ]
                         for base_name in [
                             ast.unparse(b) for b in node.bases if hasattr(ast, "unparse")
                         ]
@@ -272,9 +282,15 @@ class ProjectGraph:
                     or "meta" in node.name.lower()
                 )
 
-                node_type = "data_model" if (is_data_model and include_data_flow) else "class"
+                # Extract fields if data model
                 if is_data_model:
                     self.data_models.append(sym_id)
+                    for item in node.body:
+                        if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                            ann = ast.unparse(item.annotation) if hasattr(ast, "unparse") else ""
+                            self.model_fields[sym_id].append(f"{item.target.id}: {ann}")
+
+                node_type = "data_model" if (is_data_model and include_data_flow) else "class"
 
                 if include_symbols:
                     self.nodes[sym_id] = GraphNode(
@@ -372,7 +388,11 @@ class ProjectGraph:
                     kind in {"interface", "type"}
                     or "schema" in name.lower()
                     or "dto" in name.lower()
+                    or "model" in name.lower()
                 )
+                if is_data:
+                    self.data_models.append(sym_id)
+
                 self.nodes[sym_id] = GraphNode(
                     id=sym_id,
                     label=name,
@@ -421,10 +441,13 @@ class ProjectGraph:
                 if r_match:
                     kind, name = r_match.group(1), r_match.group(2)
                     sym_id = f"sym:{rel_path}#{name}"
+                    is_data = kind in ("struct", "enum")
+                    if is_data:
+                        self.data_models.append(sym_id)
                     self.nodes[sym_id] = GraphNode(
                         id=sym_id,
                         label=f"{name}()" if kind == "fn" else name,
-                        node_type="function" if kind == "fn" else "data_model",
+                        node_type="data_model" if is_data else "function",
                         language="rust",
                         file_path=rel_path,
                         line_number=i,
@@ -438,6 +461,7 @@ class ProjectGraph:
                 if g_match:
                     name = g_match.group(1)
                     sym_id = f"sym:{rel_path}#{name}"
+                    self.data_models.append(sym_id)
                     self.nodes[sym_id] = GraphNode(
                         id=sym_id,
                         label=name,
@@ -474,6 +498,7 @@ class ProjectGraph:
         for m in table_matches:
             table_name = m.group(2) or m.group(1)
             sym_id = f"db_table:{table_name}"
+            self.data_models.append(sym_id)
             self.nodes[sym_id] = GraphNode(
                 id=sym_id,
                 label=f"TABLE {table_name}",
@@ -484,12 +509,11 @@ class ProjectGraph:
             self.edges.append(GraphEdge(source=file_node_id, target=sym_id, relation="defines"))
 
     # ─────────────────────────────────────────────────────────────
-    # Smart Architectural & Process Renderers
+    # Smart Architectural, Process, & ER Renderers
     # ─────────────────────────────────────────────────────────────
 
     def to_architecture_diagram(self) -> str:
-        """Render a layered system architecture box diagram."""
-        # Categorize detected files into architectural layers
+        """Render a crisp, layered system architecture box diagram with Unicode formatting."""
         layers: dict[str, list[str]] = {
             "Presentation & Interface": [],
             "Orchestration & Workflow Engine": [],
@@ -505,17 +529,50 @@ class ProjectGraph:
             name = node.label.replace(".py", "")
 
             if any(
-                k in path for k in ["tui", "cli", "main.py", "screen", "widget", "server", "daemon"]
+                k in path
+                for k in [
+                    "tui",
+                    "cli",
+                    "main.py",
+                    "screen",
+                    "widget",
+                    "server",
+                    "daemon",
+                    "route",
+                    "api",
+                    "handler",
+                    "view",
+                    "controller",
+                ]
             ):
                 layers["Presentation & Interface"].append(name)
             elif any(
                 k in path
-                for k in ["engine", "orchestrat", "workflow", "delegat", "checkpoint", "verifier"]
+                for k in [
+                    "engine",
+                    "orchestrat",
+                    "workflow",
+                    "delegat",
+                    "checkpoint",
+                    "verifier",
+                    "runtime",
+                ]
             ):
                 layers["Orchestration & Workflow Engine"].append(name)
             elif any(
                 k in path
-                for k in ["agent", "tool", "coding", "security", "shell", "network", "ssh"]
+                for k in [
+                    "agent",
+                    "tool",
+                    "coding",
+                    "security",
+                    "shell",
+                    "network",
+                    "ssh",
+                    "service",
+                    "util",
+                    "helper",
+                ]
             ):
                 layers["Specialist Agents & Tools Domain"].append(name)
             elif any(
@@ -529,81 +586,124 @@ class ProjectGraph:
                     "session",
                     "tasks",
                     "learning",
+                    "model",
+                    "schema",
+                    "sql",
+                    "db",
+                    "store",
+                    "entity",
                 ]
             ):
                 layers["Memory, State & Database"].append(name)
-            elif any(k in path for k in ["mcp", "mesh", "peer", "plugin", "skill", "llm"]):
+            elif any(
+                k in path
+                for k in ["mcp", "mesh", "peer", "plugin", "skill", "llm", "client", "adapter"]
+            ):
                 layers["Integration, Mesh & Plugins"].append(name)
 
+        w = 78
         lines = [
-            "┌──────────────────────────────────────────────────────────────────────────┐",
-            "│                     SAGO SYSTEM ARCHITECTURE MAP                         │",
-            "└──────────────────────────────────────────────────────────────────────────┘",
+            "╔" + "═" * (w - 2) + "╗",
+            "║" + "SAGO SYSTEM ARCHITECTURE MAP".center(w - 2) + "║",
+            "╚" + "═" * (w - 2) + "╝",
         ]
 
         for layer_name, comps in layers.items():
             if not comps:
                 continue
-            comp_sample = ", ".join(sorted(list(set(comps)))[:8])
-            if len(comps) > 8:
-                comp_sample += f" + {len(comps) - 8} more"
+            comp_sample = ", ".join(sorted(list(set(comps)))[:7])
+            if len(comps) > 7:
+                comp_sample += f" + {len(comps) - 7} more"
 
-            lines.append(f"\n┌── [ {layer_name.upper()} ] ────────────────────────────────────────")
-            lines.append(f"│  Components: {comp_sample}")
             lines.append(
-                "└──────────────────────────────────────────────────────────────────────────"
+                f"\n┌── [ {layer_name.upper()} ] " + "─" * max(2, (w - len(layer_name) - 10))
             )
+            lines.append(f"│  Components: {comp_sample}")
+            lines.append("└" + "─" * (w - 2))
+            lines.append("                                    │")
             lines.append("                                    ▼")
 
-        lines[-1] = "                                 (Stable)"
+        lines[-2] = "                                 (State Stable)"
+        lines.pop()
         return "\n".join(lines)
 
     def to_process_map(self) -> str:
         """Render end-to-end autonomous execution pipeline and process lifecycle."""
+        w = 78
         lines = [
-            "==========================================================================",
-            "                   SAGO END-TO-END PROCESS & EXECUTION PIPELINE            ",
-            "==========================================================================",
+            "╔" + "═" * (w - 2) + "╗",
+            "║" + "SAGO END-TO-END AUTONOMOUS PROCESS & EXECUTION PIPELINE".center(w - 2) + "║",
+            "╚" + "═" * (w - 2) + "╝",
             "",
-            "   [ USER REQUEST ]",
-            "          │",
-            "          ▼",
+            "   [ 📥 USER REQUEST / INTENT ]",
+            "                 │",
+            "                 ▼",
             "   [ 1. Context & RAG Ingestion ] ────► SymbolGraph / RepoMap / ProjectGraph",
-            "          │                              (AST Extraction & Codebase Index)",
-            "          ▼",
+            "                 │                              (AST Extraction & Codebase Index)",
+            "                 ▼",
             "   [ 2. Intent Routing & Delegation ] ─► Orchestrator / Multi-Agent Swarm",
-            "          │                              (200+ Specialist Profiles / Handoff)",
-            "          ▼",
+            "                 │                              (339+ Specialist Profiles / Handoff)",
+            "                 ▼",
             "   [ 3. Checkpoint Snapshot ] ────────► CheckpointManager",
-            "          │                              (Atomic workspace delta backup)",
-            "          ▼",
-            "   [ 4. Autonomous Tool Execution ] ──► 50+ Tools Matrix",
-            "          │                              (File / Shell / Coding / DB / SSH)",
-            "          ▼",
+            "                 │                              (Atomic workspace delta backup)",
+            "                 ▼",
+            "   [ 4. Autonomous Tool Execution ] ──► 56+ Tools Matrix",
+            "                 │                              (File / Shell / Coding / DB / SSH)",
+            "                 ▼",
             "   [ 5. Self-Healing Verification ] ──► ProjectVerifier (ruff / mypy / pytest)",
-            "          │                              ├── Passed  ──► [ 6. State Commit ]",
-            "          │                              └── Failed  ──► (Loop back to Step 4)",
-            "          ▼",
+            "                 │                              ├── Passed  ──► [ 6. State Commit ]",
+            "                 │                              └── Failed  ──► (Loop back to Step 4)",
+            "                 ▼",
             "   [ 6. Persistent Learning & State ] ─► LearningStore / SQLite / Tasks",
-            "          │                              (Success patterns & error fixes cached)",
-            "          ▼",
-            "   [ STREAM RESPONSE TO USER ]",
+            "                 │                              (Success patterns & error fixes cached)",
+            "                 ▼",
+            "   [ 📤 STREAM RESPONSE TO USER ]",
             "",
-            "==========================================================================",
+            "═" * w,
         ]
         return "\n".join(lines)
 
+    def to_er_diagram(self) -> str:
+        """Render an Entity-Relationship (ER) Schema & Data Model Diagram."""
+        w = 78
+        lines = [
+            "╔" + "═" * (w - 2) + "╗",
+            "║" + "ENTITY RELATIONSHIP & DATA MODEL MAP".center(w - 2) + "║",
+            "╚" + "═" * (w - 2) + "╝",
+            "",
+        ]
+
+        models = [n for n in self.nodes.values() if n.node_type == "data_model"]
+        if not models:
+            lines.append("No explicit data models or schemas detected in current scope.")
+            return "\n".join(lines)
+
+        for m in models[:18]:
+            fields = self.model_fields.get(m.id, [])
+            lines.append(f"┌── [ {m.label} ] ── ({m.file_path})")
+            if fields:
+                for f in fields[:6]:
+                    lines.append(f"│   • {f}")
+                if len(fields) > 6:
+                    lines.append(f"│   • ... and {len(fields) - 6} more fields")
+            else:
+                lines.append(f"│   • Type: {m.language.upper()} Entity / Table")
+            lines.append("└──" + "─" * 45 + "\n")
+
+        return "\n".join(lines)
+
     def to_curated_dashboard(self, focus_filter: str | None = None) -> str:
-        """Generate a complete, curated architecture and graph dashboard."""
+        """Generate a complete, curated architecture, process, and data graph dashboard."""
         sections = []
+
+        file_count = len([n for n in self.nodes.values() if n.node_type == "file"])
+        model_count = len(self.data_models)
+        edge_count = len(self.edges)
 
         # 1. Header & Metrics
         sections.append(
-            f"### SAGO Project Topology & Architecture Dashboard: `{self.root_dir.name}`"
-        )
-        sections.append(
-            f"**Metrics**: {len([n for n in self.nodes.values() if n.node_type == 'file'])} Files | "
-            f"{len(self.data_models)} Data Models/Schemas | {len(self.edges)} Active Relations\n"
+            f"### SAGO Project Topology & Architecture Dashboard: `{self.root_dir.name}`\n"
+            f"**Topology Metrics**: `{file_count}` Source Files │ `{model_count}` Data Models/Schemas │ `{edge_count}` Active Relations\n"
         )
 
         # 2. Architecture Box Diagram
@@ -614,29 +714,26 @@ class ProjectGraph:
         sections.append("#### 🔄 Autonomous Process & Execution Flywheel")
         sections.append(f"```text\n{self.to_process_map()}\n```\n")
 
-        # 4. Data Models & Hub Modules
-        models = [n for n in self.nodes.values() if n.node_type == "data_model"]
-        if models:
-            sections.append("#### 📊 Core Data Models & Schemas")
-            model_items = [f"- **`{m.label}`** (`{m.file_path}`)" for m in models[:12]]
-            sections.append("\n".join(model_items) + "\n")
+        # 4. ER & Data Models
+        sections.append("#### 📊 Core Data Models & Schema Graph")
+        sections.append(f"```text\n{self.to_er_diagram()}\n```\n")
 
-        # Central Hub Modules
+        # 5. Top Hub Modules
         in_degree: dict[str, int] = defaultdict(int)
         for e in self.edges:
             if e.relation == "imports":
                 in_degree[e.target] += 1
         top_hubs = sorted(in_degree.items(), key=lambda x: x[1], reverse=True)[:8]
         if top_hubs:
-            sections.append("#### 🌟 Top Dependent Hub Modules (Core Architecture)")
+            sections.append("#### 🌟 Top Dependent Hub Modules (Core Architectural Backbone)")
             hub_items = [
-                f"- **`{hub_id.replace('file:', '')}`** (Depended on by {count} modules)"
+                f"- **`{hub_id.replace('file:', '')}`** (Depended on by `{count}` modules)"
                 for hub_id, count in top_hubs
             ]
             sections.append("\n".join(hub_items) + "\n")
 
-        # 5. Mermaid Flowchart Block
-        sections.append("#### 📈 Visual Mermaid Graph")
+        # 6. Mermaid Flowchart Block
+        sections.append("#### 📈 Interactive Visual Flowchart")
         sections.append(self.to_mermaid(max_edges=30, focus_filter=focus_filter))
 
         return "\n".join(sections)
@@ -693,26 +790,37 @@ class ProjectGraph:
         return "\n".join(lines)
 
     def to_ascii_tree(self) -> str:
-        """Render a formatted ASCII structural hierarchy and data relationships."""
+        """Render a formatted ASCII structural hierarchy and data relationships with visual cues."""
         out = []
         out.append(f"Project Topology Graph: {self.root_dir.name}")
-        out.append(f"Total Nodes: {len(self.nodes)} | Dependencies & Relations: {len(self.edges)}")
-        out.append("=" * 65)
+        out.append(f"Total Nodes: {len(self.nodes)} │ Dependencies & Relations: {len(self.edges)}")
+        out.append("═" * 70)
 
         file_nodes = [n for n in self.nodes.values() if n.node_type == "file"]
         model_nodes = [n for n in self.nodes.values() if n.node_type == "data_model"]
         endpoint_nodes = [n for n in self.nodes.values() if n.node_type == "endpoint"]
 
         out.append(
-            f"Structure: {len(file_nodes)} Source Files | {len(model_nodes)} Data Models/Schemas | {len(endpoint_nodes)} Endpoints"
+            f"Structure: {len(file_nodes)} Source Files │ {len(model_nodes)} Data Models/Schemas │ {len(endpoint_nodes)} Endpoints"
         )
-        out.append("-" * 65)
+        out.append("─" * 70)
 
         by_dir: dict[str, list[GraphNode]] = defaultdict(list)
         for f in file_nodes:
             p = Path(f.file_path)
             parent = str(p.parent) if str(p.parent) != "." else "/"
             by_dir[parent].append(f)
+
+        lang_badges = {
+            "python": "[PY]",
+            "typescript": "[TS]",
+            "javascript": "[JS]",
+            "rust": "[RS]",
+            "go": "[GO]",
+            "sql": "[SQL]",
+            "yaml": "[YML]",
+            "json": "[JSON]",
+        }
 
         for d, f_list in sorted(by_dir.items()):
             out.append(f"\n📂 {d}/")
@@ -723,19 +831,20 @@ class ProjectGraph:
                     imp_targets = [e.target.split(":")[-1] for e in out_edges[:3]]
                     imports_desc = f" ➔ imports ({', '.join(imp_targets)})"
 
+                badge = lang_badges.get(f.language, "[FILE]")
                 defined_syms = [
                     n
                     for n in self.nodes.values()
                     if n.file_path == f.file_path and n.node_type != "file"
                 ]
-                sym_badge = f" [{len(defined_syms)} symbols]" if defined_syms else ""
-                out.append(f"   📄 {f.label}{sym_badge}{imports_desc}")
+                sym_badge = f" ({len(defined_syms)} syms)" if defined_syms else ""
+                out.append(f"   {badge:<7} 📄 {f.label:<25}{sym_badge}{imports_desc}")
 
         if model_nodes:
-            out.append("\n" + "=" * 65)
+            out.append("\n" + "═" * 70)
             out.append("📊 Core Data Models & Schemas:")
             for m in model_nodes[:15]:
-                out.append(f"  • {m.label} ({m.file_path})")
+                out.append(f"  • {m.label:<28} at {m.file_path}")
 
         return "\n".join(out)
 

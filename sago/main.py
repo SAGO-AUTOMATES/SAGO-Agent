@@ -1229,9 +1229,9 @@ def repo_map_cmd(dir: str, query: str | None, max_files: int) -> None:
 @click.option(
     "--view",
     "-v",
-    type=click.Choice(["dashboard", "arch", "process", "tree", "mermaid", "json", "llm"]),
+    type=click.Choice(["dashboard", "arch", "process", "er", "tree", "mermaid", "json", "llm"]),
     default="dashboard",
-    help="Graph output view: dashboard (curated), arch (box diagram), process (pipeline), tree, mermaid, json, llm",
+    help="Graph output view: dashboard (curated), arch (box diagram), process (pipeline), er (data models), tree, mermaid, json, llm",
 )
 @click.option("--focus", default=None, help="Focus filter (e.g. database, auth, file name)")
 @click.option("--max-files", "-m", default=400, help="Max files to include")
@@ -1258,6 +1258,14 @@ def project_graph_cmd(dir: str, view: str, focus: str | None, max_files: int) ->
                 pg.to_process_map(),
                 title="[bold]Execution & Process Pipeline[/]",
                 border_style="yellow",
+            )
+        )
+    elif view == "er":
+        console.print(
+            Panel(
+                pg.to_er_diagram(),
+                title="[bold]Entity Relationship & Data Models[/]",
+                border_style="magenta",
             )
         )
     elif view == "tree":
@@ -1288,7 +1296,7 @@ def project_graph_cmd(dir: str, view: str, focus: str | None, max_files: int) ->
 @click.option(
     "--view",
     "-v",
-    type=click.Choice(["dashboard", "arch", "process", "tree", "mermaid", "json", "llm"]),
+    type=click.Choice(["dashboard", "arch", "process", "er", "tree", "mermaid", "json", "llm"]),
     default="dashboard",
     help="Graph output view",
 )

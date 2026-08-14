@@ -1267,6 +1267,9 @@ class CommandHandlers:
                     "architecture",
                     "process",
                     "pipeline",
+                    "er",
+                    "data",
+                    "models",
                     "tree",
                     "ascii",
                     "mermaid",
@@ -1305,6 +1308,15 @@ class CommandHandlers:
                     Collapsible(
                         Static(f"```text\n{content}\n```"),
                         title="Autonomous Process & Execution Flywheel Map",
+                        collapsed=False,
+                    )
+                )
+            elif view in ("er", "data", "models"):
+                content = pg.to_er_diagram()
+                container.mount(
+                    Collapsible(
+                        Static(f"```text\n{content}\n```"),
+                        title=f"Entity Relationship & Data Model Map ({len(pg.data_models)} models/schemas)",
                         collapsed=False,
                     )
                 )
