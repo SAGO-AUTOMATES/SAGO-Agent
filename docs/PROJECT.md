@@ -60,6 +60,9 @@ sago/
 │   │   │   ├── session_manager.py
 │   │   │   └── clipboard.py
 │   │   ├── coding/               # Code analysis
+│   │   │   ├── hybrid_search_tool.py # NEW: Hybrid BM25 & dense vector search
+│   │   │   ├── project_graph_tool.py # NEW: Topology architecture & flow map
+│   │   │   ├── checkpoint_tool.py    # NEW: Atomic snapshots & 1-click restore
 │   │   │   ├── code_analyzer.py
 │   │   │   ├── linter.py
 │   │   │   ├── formatter.py
@@ -100,10 +103,17 @@ sago/
 │   │
 │   ├── engine/                   # Execution engine
 │   │   ├── __init__.py
+│   │   ├── intent_classifier.py  # NEW: Micro-LLM & LRU semantic intent detection
 │   │   ├── simple_executor.py    # Streaming ReAct loop & context compaction
+│   │   ├── checkpoint.py         # NEW: Atomic workspace snapshot & rollback
 │   │   ├── project_synthesizer.py # Multi-file topological synthesis
-│   │   ├── verifier.py           # Self-healing verification flywheel
+│   │   ├── verifier.py           # Self-healing verification flywheel & daemon
 │   │   └── unified.py            # Unified router
+│   │
+│   ├── tracking/                 # Telemetry & tracing
+│   │   ├── __init__.py
+│   │   ├── dev_tracer.py         # Real-time function & latency tracer
+│   │   └── otel_exporter.py      # NEW: OpenTelemetry JSON & Prometheus export
 │   │
 │   ├── plugins/                  # Extensible plugin system
 │   │   ├── __init__.py
@@ -116,6 +126,9 @@ sago/
 │   │
 │   ├── memory/                   # Memory systems & code graphs
 │   │   ├── __init__.py
+│   │   ├── hybrid_indexer.py     # NEW: BM25 + dense sub-token vector indexer
+│   │   ├── project_graph.py      # NEW: Dynamic architecture, process & ER maps
+│   │   ├── compaction.py         # NEW: 3-tier Hierarchical Memory Pyramid
 │   │   ├── symbol_graph.py       # Compact AST repository outline map
 │   │   ├── rag.py                # RAGMemory
 │   │   ├── profiles.py           # UserProfileManager

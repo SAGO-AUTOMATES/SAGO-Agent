@@ -91,7 +91,7 @@ SAGO employs a 5-layer defensive safety matrix to ensure autonomous execution ne
 
 ---
 
-## 4. Vector DB, RAG & Context Providers
+## 4. Vector DB, Hybrid BM25 & Context Providers
 
 SAGO uses three complementary context providers in [`sago/memory/`](file:///mnt/ramdisk/sago/sago/memory/) to supply agents with exact workspace context while preventing context-window blowout.
 
@@ -99,41 +99,40 @@ SAGO uses three complementary context providers in [`sago/memory/`](file:///mnt/
 flowchart TD
     UserRequest["Active User Request / Goal"] --> Router{"Context Assembler"}
     
-    subgraph Context_Tiers["Tri-Partite Context Assembly"]
-        Router -->|1. Structural Outline| SymbolGraph["AST Symbol Graph & Maps\n• Classes, signatures, interfaces\n• Entity models & ER schema\n• Zero-token topology"]
-        Router -->|2. Semantic Search| VectorRAG["ChromaDB Vector RAG\n• Overlapping sliding-window chunks\n• Dense neural vector embeddings\n• Cosine similarity + recency rank"]
-        Router -->|3. Historical Compaction| Compactor["Context Compactor\n• Prunes verbose tool outputs\n• Retains file diffs & decisions\n• Preserves active todos"]
+    subgraph Context_Tiers["Multi-Tiered Context Assembly"]
+        Router -->|1. Structural Outline| SymbolGraph["AST Symbol Graph & Project Graph\n• Dynamic multi-language ASTs & schemas\n• Cross-session persistent disk cache\n• Zero-token architecture topology"]
+        Router -->|2. Hybrid Search| HybridSearch["BM25 & Dense Semantic Index\n• Probabilistic BM25 term weighting\n• 128-d zero-dep dense vector similarity\n• AST symbol boosting & code chunking"]
+        Router -->|3. Hierarchical Pyramid| Compactor["3-Tier Hierarchical Pyramid\n• Tier 1: Architectural Goals\n• Tier 2: Working File Deltas\n• Tier 3: High-Fidelity Turns"]
     end
     
     SymbolGraph --> HighDensityPrompt["High-Density Assembled Prompt"]
-    VectorRAG --> HighDensityPrompt
+    HybridSearch --> HighDensityPrompt
     Compactor --> HighDensityPrompt
     HighDensityPrompt --> LLM["LLM Inference Engine"]
 ```
 
 1. **AST Structural Graph Provider (`ProjectGraph` & `SymbolGraph`)**:
-   * Analyzes multi-language ASTs (Python, TypeScript, Rust, Go, SQL, C++) to inject high-level signatures, ER schemas, and file hierarchies directly into prompt headers.
-2. **Dense Neural Vector Search (`RAGMemory` & `CodebaseIndexer`)**:
-   * Slices files into overlapping sliding-window semantic blocks in ChromaDB and ranks results by cosine similarity and importance weights.
-3. **Hierarchical Context Compactor (`sago/memory/compaction.py`)**:
-   * Compresses long multi-turn sessions (30+ turns), stripping raw compiler dumps and terminal outputs while retaining architectural decisions and active todos.
+   * Analyzes multi-language ASTs (Python, TypeScript, Rust, Go, SQL, C++) to inject high-level signatures, ER schemas, and file hierarchies directly into prompt headers with cross-session disk caching (`~/.sago/cache/project_graphs/`).
+2. **Hybrid BM25 & Dense Semantic Vector Search (`HybridCodeIndexer` & `HybridSearchTool`)**:
+   * Combines probabilistic BM25 rank scoring ($k_1=1.5, b=0.75$) with 128-dimensional dense sub-token vector hashing for sub-second semantic search across 1,000+ files without external cloud vector DBs.
+3. **Hierarchical Context Compactor & Memory Pyramid (`HierarchicalMemoryPyramid` in `sago/memory/compaction.py`)**:
+   * Maintains a 3-tier memory pyramid, saving ~70% token overhead and preventing context exhaustion during complex agent handoffs (`to_state_delta()`).
 
 ---
 
-## 5. Multi-Agent Swarm & Dynamic Delegation Engine
+## 5. Multi-Agent Swarm & Dynamic Intent Classification
 
-SAGO houses **339 specialized agents** classified into **22 functional engineering domains**. Orchestration is managed dynamically by `TaskDelegator` ([`sago/orchestrator/delegator.py`](file:///mnt/ramdisk/sago/sago/orchestrator/delegator.py)) and the Unified Orchestrator ([`sago/engine/unified.py`](file:///mnt/ramdisk/sago/sago/engine/unified.py)).
+SAGO houses **339 specialized agents** classified into **22 functional engineering domains**. Intent routing is powered by the **Semantic Intent Classifier** ([`sago/engine/intent_classifier.py`](file:///mnt/ramdisk/sago/sago/engine/intent_classifier.py)) and `TaskDelegator` ([`sago/orchestrator/delegator.py`](file:///mnt/ramdisk/sago/sago/orchestrator/delegator.py)).
 
 ### Dynamic Intent Routing & Classification
 
 ```mermaid
 flowchart LR
-    Task["User Prompt / Goal"] --> TD["TaskDelegator.classify()"]
-    TD --> Type["Identify TaskType (CODE_WRITE, DEBUG, SECURITY, DEVOPS, DATA...)"]
-    TD --> Complexity["Estimate Complexity (TRIVIAL -> EXPERT)"]
-    TD --> AgentMatch["Select Specialist Agent (e.g. python-pro, appsec-engineer)"]
-    TD --> Effort["Assign Effort Level (low, medium, high)"]
-    AgentMatch --> Plan["Generate TaskExecutionPlan"]
+    Task["User Prompt / Goal"] --> Intent["IntentClassifier\n(LRU Cache -> Micro-LLM -> Heuristic)"]
+    Intent --> Type["Identify Intent (chat, fix, create, analyze, test, devops)"]
+    Type --> TD["TaskDelegator.classify()"]
+    TD --> AgentMatch["Select Specialist Agent (e.g. debugger, python-engineer)"]
+    TD --> Plan["Generate Execution Plan & Handoff Delta"]
 ```
 
 ---
