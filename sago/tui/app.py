@@ -379,7 +379,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         for line in logo_lines:
             welcome.mount(Static(line, classes="welcome-logo"))
         welcome.mount(Static("─" * 40, classes="welcome-separator"))
-        welcome.mount(Static("v0.1.0 — Multi-Agent Orchestration", classes="welcome-version"))
+        welcome.mount(Static("v0.1.1 — Multi-Agent Orchestration", classes="welcome-version"))
         welcome.mount(Static("AI-Powered Software Engineering Agent", classes="welcome-subtitle"))
         welcome.mount(Static("Type a message or use /help for commands", classes="welcome-hint"))
 

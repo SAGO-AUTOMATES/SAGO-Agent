@@ -318,7 +318,7 @@ class CommandHandlers:
             self._add_system_message(f"Unknown: {level}\nAvailable: low, medium, high, max")
 
     def _show_version(self: SagoApp) -> None:
-        self._add_system_message("Sago v0.1.0 — Multi-agent orchestration system")
+        self._add_system_message("Sago v0.1.1 — Multi-agent orchestration system")
 
     def _show_cost(self: SagoApp) -> None:
         from sago.tui.models import get_model_costs

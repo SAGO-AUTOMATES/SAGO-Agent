@@ -4,7 +4,7 @@ A CrewAI-based multi-agent system with infinite tool support,
 cross-platform compatibility, and a master orchestrator named Sago.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __author__ = "Sago Contributors"
 
 from sago.database import init as init_db
