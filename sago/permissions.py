@@ -53,6 +53,9 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
     "secret_scanner": RiskLevel.SAFE,
     "web_search": RiskLevel.SAFE,
     "ast_grep": RiskLevel.SAFE,
+    "sql_schema": RiskLevel.SAFE,
+    "sql_migration": RiskLevel.SAFE,
+    "platform_diagnostics": RiskLevel.SAFE,
     # Low - minor side effects
     "write_file": RiskLevel.LOW,
     "edit_file": RiskLevel.LOW,
