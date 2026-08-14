@@ -46,35 +46,35 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     }
 
     #agent-dashboard {
-        width: 38;
+        width: 32;
         height: 1fr;
-        background: #161b22;
-        border-left: solid #30363d;
-        padding: 1;
+        background: #111418;
+        border-left: solid #21262d;
+        padding: 0 1;
         overflow-y: auto;
         scrollbar-size: 1 1;
-        scrollbar-color: #30363d #161b22;
+        scrollbar-color: #30363d #111418;
     }
     #agent-dashboard.hidden { display: none; }
 
     .dashboard-title {
         color: #58a6ff;
         text-style: bold;
-        padding: 0 0 1 0;
+        padding: 0;
         content-align: center middle;
     }
     .agent-entry {
-        background: #0d1117;
+        background: #161b22;
         border: solid #21262d;
-        padding: 1;
+        padding: 0 1;
         margin: 0 0 1 0;
     }
     .agent-name { text-style: bold; }
     .agent-status { color: #8b949e; padding: 0 0 0 1; }
-    .agent-task { color: #8b949e; text-style: italic; padding: 0; max-width: 34; }
+    .agent-task { color: #8b949e; text-style: italic; padding: 0; max-width: 30; }
     .agent-tools { color: #58a6ff; padding: 0; }
     .agent-progress { padding: 0; color: #3fb950; }
-    .dashboard-separator { color: #30363d; padding: 0 0 1 0; }
+    .dashboard-separator { color: #21262d; padding: 0; }
     .dashboard-stats { color: #8b949e; }
     .active-color { color: #3fb950; }
     .idle-color { color: #8b949e; }
@@ -83,7 +83,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
     #messages {
         height: 1fr;
-        padding: 1 2 2 2;
+        padding: 0 1;
         overflow-y: auto;
         scrollbar-size: 1 1;
         scrollbar-color: #30363d #0a0d12;
@@ -91,45 +91,45 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     }
 
     .msg-user {
-        background: #161b22;
+        background: #111418;
         border-left: solid #388bfd;
         color: #58a6ff;
-        padding: 1;
+        padding: 0 1;
         margin: 0 0 1 0;
     }
     .msg-assistant {
         background: #0d1117;
         border: solid #21262d;
         color: #e6edf3;
-        padding: 1;
+        padding: 0 1;
         margin: 0 0 1 0;
     }
     .msg-system {
-        background: #161b22;
+        background: #111418;
         border-left: solid #8b949e;
         color: #c9d1d9;
-        padding: 1;
+        padding: 0 1;
         margin: 0 0 1 0;
     }
     .msg-meta { color: #6e7681; padding: 0; }
     .msg-parallel {
-        background: #161b22;
+        background: #111418;
         color: #d2a8ff;
         border-left: solid #d2a8ff;
-        padding: 1;
+        padding: 0 1;
         margin: 0 0 1 0;
     }
 
     .exchange-box {
-        background: #161b22;
-        border: solid #30363d;
+        background: #111418;
+        border: solid #21262d;
         border-left: solid #388bfd;
         padding: 0;
         margin: 0 0 1 0;
         height: auto;
     }
     .exchange-prompt-header {
-        background: #1c2128;
+        background: #161b22;
         color: #58a6ff;
         text-style: bold;
         padding: 0 1;
@@ -140,29 +140,29 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         color: #79c0ff;
     }
     .exchange-body {
-        padding: 1;
+        padding: 0 1;
         height: auto;
     }
     .exchange-prompt {
         color: #58a6ff;
         text-style: bold;
-        padding: 0 0 1 0;
+        padding: 0;
         border-bottom: solid #21262d;
     }
     .exchange-assistant {
         color: #e6edf3;
-        padding: 1 0 0 0;
+        padding: 0;
     }
     .thinking-text {
         color: #8b949e;
         text-style: italic;
-        padding: 1;
+        padding: 0 1;
         background: #0d1117;
         border-left: solid #d2a8ff;
     }
     .plan-text {
         color: #7ee787;
-        padding: 1;
+        padding: 0 1;
         background: #0d1117;
     }
 
@@ -170,48 +170,48 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-nord { background: #242933; }
     .theme-nord #agent-dashboard { background: #2e3440; border-left: solid #434c5e; }
     .theme-nord .exchange-box { background: #2e3440; border: solid #434c5e; border-left: solid #88c0d0; }
-    .theme-nord .exchange-prompt { color: #88c0d0; border-bottom: solid #3b4252; }
+    .theme-nord .exchange-prompt-header { background: #3b4252; color: #88c0d0; border-bottom: solid #434c5e; }
 
     /* Dracula Theme */
     .theme-dracula { background: #1e1f29; }
     .theme-dracula #agent-dashboard { background: #282a36; border-left: solid #44475a; }
     .theme-dracula .exchange-box { background: #282a36; border: solid #44475a; border-left: solid #bd93f9; }
-    .theme-dracula .exchange-prompt { color: #bd93f9; border-bottom: solid #44475a; }
+    .theme-dracula .exchange-prompt-header { background: #44475a; color: #bd93f9; border-bottom: solid #6272a4; }
 
     /* Monokai Theme */
     .theme-monokai { background: #1e1f1c; }
     .theme-monokai #agent-dashboard { background: #272822; border-left: solid #3e3d32; }
     .theme-monokai .exchange-box { background: #272822; border: solid #3e3d32; border-left: solid #a6e22e; }
-    .theme-monokai .exchange-prompt { color: #a6e22e; border-bottom: solid #3e3d32; }
+    .theme-monokai .exchange-prompt-header { background: #3e3d32; color: #a6e22e; border-bottom: solid #49483e; }
 
     /* Tokyo Night Theme */
     .theme-tokyo-night { background: #16161e; }
     .theme-tokyo-night #agent-dashboard { background: #1a1b26; border-left: solid #292e42; }
     .theme-tokyo-night .exchange-box { background: #1a1b26; border: solid #292e42; border-left: solid #7aa2f7; }
-    .theme-tokyo-night .exchange-prompt { color: #7aa2f7; border-bottom: solid #292e42; }
+    .theme-tokyo-night .exchange-prompt-header { background: #292e42; color: #7aa2f7; border-bottom: solid #3b4261; }
 
     /* Solarized Dark Theme */
     .theme-solarized-dark { background: #00212b; }
     .theme-solarized-dark #agent-dashboard { background: #002b36; border-left: solid #073642; }
     .theme-solarized-dark .exchange-box { background: #002b36; border: solid #073642; border-left: solid #268bd2; }
-    .theme-solarized-dark .exchange-prompt { color: #268bd2; border-bottom: solid #073642; }
+    .theme-solarized-dark .exchange-prompt-header { background: #073642; color: #268bd2; border-bottom: solid #586e75; }
 
     /* Clean Light Theme */
     .theme-light { background: #f6f8fa; }
     .theme-light #agent-dashboard { background: #ffffff; border-left: solid #d0d7de; }
     .theme-light .exchange-box { background: #ffffff; border: solid #d0d7de; border-left: solid #0969da; }
-    .theme-light .exchange-prompt { color: #0969da; border-bottom: solid #eaeef2; }
+    .theme-light .exchange-prompt-header { background: #f1f3f5; color: #0969da; border-bottom: solid #d0d7de; }
     .theme-light .exchange-assistant { color: #24292f; }
 
     Collapsible {
-        background: #161b22;
-        border: solid #30363d;
+        background: #111418;
+        border: solid #21262d;
         margin: 0 0 1 0;
         padding: 0;
         height: auto;
     }
     Collapsible .collapsible-title {
-        background: #1c2128;
+        background: #161b22;
         color: #58a6ff;
         padding: 0 1;
         text-style: bold;
@@ -219,27 +219,28 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     Collapsible .collapsible-body {
         background: #0d1117;
         color: #e6edf3;
-        padding: 1;
+        padding: 0 1;
         overflow-y: auto;
         scrollbar-size: 1 1;
-        scrollbar-color: #30363d #161b22;
+        scrollbar-color: #30363d #111418;
     }
 
     #input-area {
         height: auto;
-        padding: 1 2;
-        background: #161b22;
-        border-top: solid #30363d;
+        padding: 0 1;
+        background: #0f1217;
+        border-top: solid #21262d;
         margin: 0;
     }
 
     #msg-input {
-        background: #0d1117;
-        border: tall #30363d;
+        background: #161b22;
+        border: solid #30363d;
         color: #c9d1d9;
         margin: 0;
+        padding: 0 1;
     }
-    #msg-input:focus { border: tall #58a6ff; }
+    #msg-input:focus { border: solid #58a6ff; }
 
     #suggestions {
         display: none;
