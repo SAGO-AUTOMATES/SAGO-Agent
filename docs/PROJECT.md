@@ -4,7 +4,9 @@
 
 ## Overview
 
-Sago is a CrewAI-based system that orchestrates specialized AI agents to handle complex software engineering tasks. It features dynamic task delegation, parallel agent execution, feedback loops between agents, streaming responses, intelligent caching, and a modern Textual TUI with a real-time agent dashboard.
+Sago is an advanced multi-agent operating system that orchestrates 339 specialized AI agents to handle complex software engineering workflows. It features dynamic task delegation, parallel agent execution, feedback loops, built-in Vector DB / RAG memory, self-healing verification, and a modern Textual TUI.
+
+For detailed execution diagrams and architectural flowcharts, see **[Technical Flows & Architecture (docs/FLOWS.md)](FLOWS.md)**.
 
 ## Directory Structure
 

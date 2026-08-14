@@ -78,9 +78,14 @@ cd SAGO-Agent
 uv pip install -e .
 ```
 
-### Dependencies
+### Documentation & Technical Flows
 
-See [docs/BUILD.md](docs/BUILD.md) for detailed build instructions and [docs/PROJECT.md](docs/PROJECT.md) for project structure.
+- 📘 **[Architecture & Execution Flows (docs/FLOWS.md)](docs/FLOWS.md)** — In-depth guide to Vector DB/RAG, Multi-Agent Swarms, Tool Permissions & Self-Healing Verification.
+- 🛠️ **[Commands Reference (docs/COMMANDS.md)](docs/COMMANDS.md)** — Complete CLI and TUI slash command reference.
+- 📦 **[Project Structure (docs/PROJECT.md)](docs/PROJECT.md)** — Module map, agent registry, and engine layout.
+- 🏗️ **[Build & Installation Guide (docs/BUILD.md)](docs/BUILD.md)** — Developer build, test, and dependency instructions.
+
+### Dependencies
 
 - Python 3.11+
 - openai (for LLM calls)
