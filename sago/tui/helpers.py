@@ -6,6 +6,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from rich.syntax import Syntax
+from textual import events, on
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Collapsible, Static
 
@@ -44,6 +45,20 @@ def _render_markdown(content: str) -> str:
     return text
 
 
+def create_collapsible(
+    *content: Any,
+    title: str = "",
+    collapsed: bool = False,
+) -> Collapsible:
+    """Create a native Textual Collapsible with a bottom-right collapse button."""
+    footer = Horizontal(
+        Static("", classes="collapse-footer-spacer"),
+        Button("▲ Collapse Output", variant="default", classes="btn-collapse-bottom"),
+        classes="collapse-footer",
+    )
+    return Collapsible(*content, footer, title=title, collapsed=collapsed)
+
+
 class ExchangeTurnCard(Vertical):
     """Container for a single unified conversational turn (Prompt, Reasoning, Tools, Response)."""
 
@@ -67,10 +82,15 @@ class ExchangeTurnCard(Vertical):
             classes="exchange-footer",
         )
 
+    @on(events.Click, ".exchange-prompt-header")
+    def on_header_clicked(self, event: events.Click) -> None:
+        event.stop()
+        self.toggle_collapse()
+
+    @on(Button.Pressed, ".btn-collapse-turn")
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if "btn-collapse-turn" in event.button.classes:
-            event.stop()
-            self.toggle_collapse()
+        event.stop()
+        self.toggle_collapse()
 
     def toggle_collapse(self) -> None:
         """Toggle collapsed state of entire exchange body and footer."""

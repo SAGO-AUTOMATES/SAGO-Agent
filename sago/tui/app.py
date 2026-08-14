@@ -16,7 +16,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.reactive import reactive
-from textual.widgets import Button, Input, Static
+from textual.widgets import Button, Collapsible, Input, Static
 
 from sago.tui.commands import CommandHandlers
 from sago.tui.helpers import UIHelpers
@@ -235,6 +235,27 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         padding: 0 1;
     }
     .btn-collapse-card:hover {
+        background: #21262d;
+        color: #ffffff;
+        border: solid #58a6ff;
+    }
+
+    .collapse-footer {
+        height: auto;
+        padding: 1 0 0 0;
+    }
+    .collapse-footer-spacer {
+        width: 1fr;
+    }
+    .btn-collapse-bottom {
+        min-width: 18;
+        height: 1;
+        background: #161b22;
+        color: #58a6ff;
+        border: solid #21262d;
+        padding: 0 1;
+    }
+    .btn-collapse-bottom:hover {
         background: #21262d;
         color: #ffffff;
         border: solid #58a6ff;
@@ -856,6 +877,42 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 target.toggle_collapse()
                 break
             target = target.parent
+
+    @on(Button.Pressed, ".btn-collapse-bottom")
+    def on_collapse_bottom_button(self, event: Button.Pressed) -> None:
+        """Collapse the parent native Collapsible widget from bottom-right button."""
+        event.stop()
+        try:
+            curr = event.button.parent
+            while curr is not None:
+                if isinstance(curr, Collapsible):
+                    curr.collapsed = True
+                    try:
+                        curr.scroll_visible()
+                    except Exception:
+                        pass
+                    break
+                curr = curr.parent
+            self.query_one("#msg-input").focus()
+        except Exception:
+            pass
+
+    @on(Button.Pressed, ".btn-collapse-turn")
+    def on_collapse_turn_button(self, event: Button.Pressed) -> None:
+        """Collapse the parent ExchangeTurnCard from bottom-right button."""
+        from sago.tui.helpers import ExchangeTurnCard
+
+        event.stop()
+        try:
+            curr = event.button.parent
+            while curr is not None:
+                if isinstance(curr, ExchangeTurnCard):
+                    curr.toggle_collapse()
+                    break
+                curr = curr.parent
+            self.query_one("#msg-input").focus()
+        except Exception:
+            pass
 
     @on(Input.Submitted, "#msg-input")
     def on_input_submitted(self, event: Input.Submitted) -> None:
