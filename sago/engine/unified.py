@@ -362,13 +362,36 @@ class UnifiedExecutor:
                 if on_tool_call:
                     on_tool_call(name, args)
 
-                tool_instance = tools[name]()
-                result = tool_instance.run(**args)
-                result_str = str(result)
+                try:
+                    tool_cls = tools.get(name)
+                    if tool_cls is None:
+                        result_str = f"Error: Tool '{name}' not found."
+                        is_error = True
+                    else:
+                        clean_args = dict(args)
+                        if "file_path" not in clean_args and "path" in clean_args:
+                            clean_args["file_path"] = clean_args["path"]
+                        if "file_path" not in clean_args and "filename" in clean_args:
+                            clean_args["file_path"] = clean_args["filename"]
+                        if "command" not in clean_args and "cmd" in clean_args:
+                            clean_args["command"] = clean_args["cmd"]
+                        if (
+                            "pattern" not in clean_args
+                            and "query" in clean_args
+                            and name in ("grep_content", "grep_search")
+                        ):
+                            clean_args["pattern"] = clean_args["query"]
 
-                is_error = (
-                    result_str.lower().startswith("error") or "traceback" in result_str.lower()
-                )
+                        tool_instance = tool_cls()
+                        result = tool_instance.run(**clean_args)
+                        result_str = str(result)
+                        is_error = (
+                            result_str.lower().startswith("error")
+                            or "traceback" in result_str.lower()
+                        )
+                except Exception as tool_exc:
+                    result_str = f"Error executing tool '{name}': {tool_exc}"
+                    is_error = True
 
                 if name == "write_file" and not is_error:
                     fp = args.get("file_path", "")

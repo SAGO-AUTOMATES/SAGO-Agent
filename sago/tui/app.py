@@ -2210,7 +2210,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             )
 
                         if not allowed:
-                            if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+                            if risk in (
+                                RiskLevel.MEDIUM,
+                                RiskLevel.HIGH,
+                                RiskLevel.CRITICAL,
+                            ):
                                 self.call_from_thread(
                                     self._show_approval_bar,
                                     f"Allow {name}? (risk: {risk.value}) -- Press [Y] or [N]",
@@ -2230,6 +2234,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                         }
                                     )
                                     continue
+                                # Remember session approval
+                                pm.approve_tool(name, self.current_session_id)
                                 self._tool_approved = False
                             else:
                                 messages.append(
@@ -2243,9 +2249,37 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                         on_tool(name, args)
                         t_tool_start = time.perf_counter()
-                        tool_instance = tools[name]()
-                        result = tool_instance.run(**args)
-                        result_str = str(result)
+                        try:
+                            tool_cls = tools.get(name)
+                            if tool_cls is None:
+                                result_str = f"Error: Tool '{name}' not found."
+                                is_error = True
+                            else:
+                                clean_args = dict(args)
+                                if "file_path" not in clean_args and "path" in clean_args:
+                                    clean_args["file_path"] = clean_args["path"]
+                                if "file_path" not in clean_args and "filename" in clean_args:
+                                    clean_args["file_path"] = clean_args["filename"]
+                                if "command" not in clean_args and "cmd" in clean_args:
+                                    clean_args["command"] = clean_args["cmd"]
+                                if (
+                                    "pattern" not in clean_args
+                                    and "query" in clean_args
+                                    and name in ("grep_content", "grep_search")
+                                ):
+                                    clean_args["pattern"] = clean_args["query"]
+
+                                tool_instance = tool_cls()
+                                result = tool_instance.run(**clean_args)
+                                result_str = str(result)
+                                is_error = (
+                                    result_str.lower().startswith("error")
+                                    or "traceback" in result_str.lower()
+                                )
+                        except Exception as tool_exc:
+                            result_str = f"Error executing tool '{name}': {tool_exc}"
+                            is_error = True
+
                         tool_dur_ms = (time.perf_counter() - t_tool_start) * 1000.0
 
                         is_error = (
