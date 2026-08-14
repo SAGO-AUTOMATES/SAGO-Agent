@@ -32,7 +32,7 @@ fi
 
 # 3. Unit & Integration Tests
 echo "  [3/4] Running unit and integration test suite..."
-$RUNNER pytest tests/unit tests/integration -q --tb=short
+$RUNNER python -m pytest tests/unit tests/integration -q --tb=short
 if [ $? -ne 0 ]; then
     echo "❌ [SAGO Hook] Unit / Integration tests failed. Push aborted."
     exit 1
@@ -40,7 +40,7 @@ fi
 
 # 4. Security Tests
 echo "  [4/4] Running security regression suite..."
-$RUNNER pytest tests/security -q --tb=short
+$RUNNER python -m pytest tests/security -q --tb=short
 if [ $? -ne 0 ]; then
     echo "❌ [SAGO Hook] Security tests failed. Push aborted."
     exit 1
