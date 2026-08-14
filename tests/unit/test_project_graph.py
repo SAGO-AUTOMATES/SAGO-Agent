@@ -46,10 +46,10 @@ class TestProjectGraph(unittest.TestCase):
         self.assertIn("UserModel", ascii_out)
 
         arch_out = pg.to_architecture_diagram()
-        self.assertIn("SAGO SYSTEM ARCHITECTURE MAP", arch_out)
+        self.assertIn("SYSTEM ARCHITECTURE MAP", arch_out)
 
         proc_out = pg.to_process_map()
-        self.assertIn("PROCESS & EXECUTION PIPELINE", proc_out)
+        self.assertIn("EXECUTION & LIFECYCLE PIPELINE", proc_out)
 
         mermaid_out = pg.to_mermaid()
         self.assertIn("```mermaid", mermaid_out)
@@ -70,7 +70,7 @@ class TestProjectGraph(unittest.TestCase):
         self.assertIn("Architecture Dashboard", res)
 
         arch_res = tool.run(directory=str(self.tmp_path), view="arch")
-        self.assertIn("SAGO SYSTEM ARCHITECTURE MAP", arch_res)
+        self.assertIn("SYSTEM ARCHITECTURE MAP", arch_res)
 
 
 if __name__ == "__main__":

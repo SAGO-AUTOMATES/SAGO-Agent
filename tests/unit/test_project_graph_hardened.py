@@ -108,7 +108,7 @@ class TestProjectGraphHardened(unittest.TestCase):
         pg.build_graph()
 
         er_output = pg.to_er_diagram()
-        self.assertIn("ENTITY RELATIONSHIP & DATA MODEL MAP", er_output)
+        self.assertIn("DATA MODEL & ENTITY SCHEMA GRAPH", er_output)
         self.assertIn("UserModel", er_output)
         self.assertIn("id: int", er_output)
         self.assertIn("username: str", er_output)
@@ -118,7 +118,7 @@ class TestProjectGraphHardened(unittest.TestCase):
         pg.build_graph()
 
         arch = pg.to_architecture_diagram()
-        self.assertIn("SAGO SYSTEM ARCHITECTURE MAP", arch)
+        self.assertIn("SYSTEM ARCHITECTURE MAP", arch)
         self.assertIn("PRESENTATION & INTERFACE", arch)
         self.assertIn("MEMORY, STATE & DATABASE", arch)
 
@@ -127,9 +127,9 @@ class TestProjectGraphHardened(unittest.TestCase):
         pg.build_graph()
 
         proc = pg.to_process_map()
-        self.assertIn("SAGO END-TO-END AUTONOMOUS PROCESS & EXECUTION PIPELINE", proc)
-        self.assertIn("Intent Routing & Delegation", proc)
-        self.assertIn("Self-Healing Verification", proc)
+        self.assertIn("EXECUTION & LIFECYCLE PIPELINE", proc)
+        self.assertIn("Verification & Checks", proc)
+        self.assertIn("Persistence & State", proc)
 
     def test_mermaid_focus_filter(self):
         pg = ProjectGraph(root_dir=self.root)
@@ -168,6 +168,25 @@ class TestProjectGraphHardened(unittest.TestCase):
             res = tool.run(directory=str(self.root), view=v)
             self.assertIsInstance(res, str)
             self.assertGreater(len(res), 10)
+
+    def test_compact_llm_context_and_disk_cache(self):
+        from sago.memory.project_graph import get_cached_project_graph
+
+        pg = ProjectGraph(root_dir=self.root)
+        pg.build_graph()
+
+        compact = pg.to_compact_llm_context()
+        self.assertIn("PROJECT BLUEPRINT:", compact)
+        self.assertIn("Core Hub Modules:", compact)
+
+        # Reconstruct from dict
+        d = pg.to_dict()
+        pg_restored = ProjectGraph.from_dict(d)
+        self.assertEqual(len(pg.nodes), len(pg_restored.nodes))
+
+        # Test cross-session disk cache getter
+        cached_pg = get_cached_project_graph(root_dir=self.root)
+        self.assertEqual(len(cached_pg.nodes), len(pg.nodes))
 
 
 if __name__ == "__main__":

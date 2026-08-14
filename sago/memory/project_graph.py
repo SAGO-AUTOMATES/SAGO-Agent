@@ -702,10 +702,11 @@ class ProjectGraph:
             ):
                 layers["Integration, Mesh & Plugins"].append(name)
 
-        w = 78
+        w = max(72, min(96, len(self.root_dir.name) + 36))
+        proj_title = f"{self.root_dir.name.upper()} SYSTEM ARCHITECTURE MAP"
         lines = [
             "╔" + "═" * (w - 2) + "╗",
-            "║" + "SAGO SYSTEM ARCHITECTURE MAP".center(w - 2) + "║",
+            "║" + proj_title.center(w - 2) + "║",
             "╚" + "═" * (w - 2) + "╝",
         ]
 
@@ -721,55 +722,98 @@ class ProjectGraph:
             )
             lines.append(f"│  Components: {comp_sample}")
             lines.append("└" + "─" * (w - 2))
-            lines.append("                                    │")
-            lines.append("                                    ▼")
+            lines.append(" " * (w // 2 - 1) + "│")
+            lines.append(" " * (w // 2 - 1) + "▼")
 
-        lines[-2] = "                                 (State Stable)"
+        lines[-2] = " " * (w // 2 - 8) + "(State Stable)"
         lines.pop()
         return "\n".join(lines)
 
     def to_process_map(self) -> str:
-        """Render end-to-end autonomous execution pipeline and process lifecycle."""
-        w = 78
+        """Dynamically render project process lifecycle, entry points, and execution pipelines."""
+        w = max(72, min(96, len(self.root_dir.name) + 40))
+        proj_title = f"{self.root_dir.name.upper()} END-TO-END EXECUTION & LIFECYCLE PIPELINE"
         lines = [
             "╔" + "═" * (w - 2) + "╗",
-            "║" + "SAGO END-TO-END AUTONOMOUS PROCESS & EXECUTION PIPELINE".center(w - 2) + "║",
+            "║" + proj_title.center(w - 2) + "║",
             "╚" + "═" * (w - 2) + "╝",
             "",
-            "   [ 📥 USER REQUEST / INTENT ]",
-            "                 │",
-            "                 ▼",
-            "   [ 1. Context & RAG Ingestion ] ────► SymbolGraph / RepoMap / ProjectGraph",
-            "                 │                              (AST Extraction & Codebase Index)",
-            "                 ▼",
-            "   [ 2. Intent Routing & Delegation ] ─► Orchestrator / Multi-Agent Swarm",
-            "                 │                              (339+ Specialist Profiles / Handoff)",
-            "                 ▼",
-            "   [ 3. Checkpoint Snapshot ] ────────► CheckpointManager",
-            "                 │                              (Atomic workspace delta backup)",
-            "                 ▼",
-            "   [ 4. Autonomous Tool Execution ] ──► 56+ Tools Matrix",
-            "                 │                              (File / Shell / Coding / DB / SSH)",
-            "                 ▼",
-            "   [ 5. Self-Healing Verification ] ──► ProjectVerifier (ruff / mypy / pytest)",
-            "                 │                              ├── Passed  ──► [ 6. State Commit ]",
-            "                 │                              └── Failed  ──► (Loop back to Step 4)",
-            "                 ▼",
-            "   [ 6. Persistent Learning & State ] ─► LearningStore / SQLite / Tasks",
-            "                 │                              (Success patterns & error fixes cached)",
-            "                 ▼",
-            "   [ 📤 STREAM RESPONSE TO USER ]",
-            "",
-            "═" * w,
         ]
+
+        # 1. Discover Entrypoints
+        entry_nodes = [
+            n.label
+            for n in self.nodes.values()
+            if any(
+                k in n.file_path.lower()
+                for k in ("main.", "app.", "cli.", "server.", "index.", "router.", "api.")
+            )
+        ]
+        entry_str = (
+            ", ".join(entry_nodes[:4]) if entry_nodes else "User Invocation / CLI / API Request"
+        )
+
+        # 2. Discover Core Logic / Services
+        core_nodes = [
+            n.label
+            for n in self.nodes.values()
+            if any(
+                k in n.file_path.lower()
+                for k in ("engine", "core", "service", "executor", "workflow", "agent")
+            )
+        ]
+        core_str = (
+            ", ".join(core_nodes[:5]) if core_nodes else "Domain Logic / Orchestration Engine"
+        )
+
+        # 3. Discover Persistence / Data Layer
+        data_nodes = [
+            n.label
+            for n in self.nodes.values()
+            if n.node_type == "data_model"
+            or any(k in n.file_path.lower() for k in ("db", "database", "model", "schema", "store"))
+        ]
+        data_str = (
+            ", ".join(data_nodes[:5]) if data_nodes else "Database / State Store / File Cache"
+        )
+
+        # 4. Discover Verifiers / Linters / Tests
+        test_nodes = [
+            n.label
+            for n in self.nodes.values()
+            if any(k in n.file_path.lower() for k in ("test", "verify", "check", "lint", "audit"))
+        ]
+        test_str = ", ".join(test_nodes[:4]) if test_nodes else "Test Suites / Static Linters"
+
+        lines.extend(
+            [
+                f"   [ 📥 1. Entry & Ingestion ] ─────────► {entry_str}",
+                "                 │",
+                "                 ▼",
+                f"   [ ⚙️ 2. Core Execution Pipeline ] ────► {core_str}",
+                "                 │",
+                "                 ▼",
+                f"   [ 🛡️ 3. Verification & Checks ] ──────► {test_str}",
+                "                 │                              ├── Passed ──► Proceed to Persistence",
+                "                 │                              └── Failed ──► Diagnostic Feedback Loop",
+                "                 ▼",
+                f"   [ 💾 4. Persistence & State ] ────────► {data_str}",
+                "                 │",
+                "                 ▼",
+                "   [ 📤 5. Output / Response Delivery ] ─► Client / User Viewport",
+                "",
+                "═" * w,
+            ]
+        )
         return "\n".join(lines)
 
     def to_er_diagram(self) -> str:
         """Render an Entity-Relationship (ER) Schema & Data Model Diagram."""
-        w = 78
+        w = max(72, min(96, len(self.root_dir.name) + 36))
+        proj_title = f"{self.root_dir.name.upper()} DATA MODEL & ENTITY SCHEMA GRAPH"
         lines = [
             "╔" + "═" * (w - 2) + "╗",
-            "║" + "ENTITY RELATIONSHIP & DATA MODEL MAP".center(w - 2) + "║",
+            "║" + proj_title.center(w - 2) + "║",
             "╚" + "═" * (w - 2) + "╝",
             "",
         ]
@@ -789,7 +833,7 @@ class ProjectGraph:
                     lines.append(f"│   • ... and {len(fields) - 6} more fields")
             else:
                 lines.append(f"│   • Type: {m.language.upper()} Entity / Table")
-            lines.append("└──" + "─" * 45 + "\n")
+            lines.append("└──" + "─" * (w - 2) + "\n")
 
         return "\n".join(lines)
 
@@ -996,6 +1040,26 @@ class ProjectGraph:
 
         return "\n".join(out)
 
+    def to_compact_llm_context(self, max_tokens: int = 200) -> str:
+        """Render a token-minimized, lean structural summary specifically designed to prevent LLM context exhaustion."""
+        in_degree: dict[str, int] = defaultdict(int)
+        for e in self.edges:
+            if e.relation == "imports":
+                in_degree[e.target] += 1
+
+        top_hubs = sorted(in_degree.items(), key=lambda x: x[1], reverse=True)[:6]
+        hub_str = ", ".join(h[0].replace("file:", "").replace("module:", "") for h in top_hubs)
+
+        models = [n.label for n in self.nodes.values() if n.node_type == "data_model"][:8]
+        model_str = ", ".join(models) if models else "None"
+
+        return (
+            f"[PROJECT BLUEPRINT: {self.root_dir.name}]\n"
+            f"Components: {len(self.nodes)} nodes, {len(self.edges)} relations\n"
+            f"Core Hub Modules: {hub_str}\n"
+            f"Data Schemas / Entities: {model_str}"
+        )
+
     def to_llm_context(self) -> str:
         """Render a high-density, compact context block optimized for LLM prompts."""
         lines = [
@@ -1031,28 +1095,90 @@ class ProjectGraph:
             "edge_count": len(self.edges),
             "nodes": [n.to_dict() for n in self.nodes.values()],
             "edges": [e.to_dict() for e in self.edges],
+            "data_models": list(self.data_models),
+            "model_fields": {k: list(v) for k, v in self.model_fields.items()},
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ProjectGraph:
+        """Reconstruct ProjectGraph instance from serialized dictionary."""
+        pg = cls(root_dir=data.get("root", "."))
+        for n_data in data.get("nodes", []):
+            node = GraphNode(
+                id=n_data["id"],
+                label=n_data["label"],
+                node_type=n_data.get("node_type") or n_data.get("type", "file"),
+                file_path=n_data.get("file_path", ""),
+                language=n_data.get("language", ""),
+                line_number=n_data.get("line_number", 0),
+                metadata=n_data.get("metadata", {}),
+            )
+            pg.nodes[node.id] = node
+
+        for e_data in data.get("edges", []):
+            edge = GraphEdge(
+                source=e_data["source"],
+                target=e_data["target"],
+                relation=e_data["relation"],
+                weight=e_data.get("weight", 1),
+                metadata=e_data.get("metadata", {}),
+            )
+            pg.edges.append(edge)
+
+        pg.data_models = list(data.get("data_models", []))
+        pg.model_fields = {k: list(v) for k, v in data.get("model_fields", {}).items()}
+        return pg
 
 
 def get_cached_project_graph(
     root_dir: str | Path | None = None,
     max_files: int = 1500,
-    ttl_seconds: float = 30.0,
+    ttl_seconds: float = 60.0,
     force_refresh: bool = False,
 ) -> ProjectGraph:
-    """Get a cached ProjectGraph or build a new one if stale."""
+    """Get a cross-session cached ProjectGraph or rebuild if modified."""
+    import hashlib
+    import json
+
+    from sago.paths import get_sago_home
+
     target_path = Path(root_dir).resolve() if root_dir else Path.cwd().resolve()
     cache_key = str(target_path)
     now = time.time()
 
+    # 1. Check in-memory process cache
     with _GRAPH_CACHE_LOCK:
         if not force_refresh and cache_key in _GRAPH_CACHE:
             ts, cached_graph = _GRAPH_CACHE[cache_key]
             if now - ts < ttl_seconds:
                 return cached_graph
 
+    # 2. Check persistent cross-session disk cache
+    dir_hash = hashlib.sha256(cache_key.encode()).hexdigest()[:16]
+    disk_cache_dir = get_sago_home() / "cache" / "project_graphs"
+    disk_cache_dir.mkdir(parents=True, exist_ok=True)
+    disk_cache_file = disk_cache_dir / f"{dir_hash}.json"
+
+    if not force_refresh and disk_cache_file.exists():
+        try:
+            mtime = disk_cache_file.stat().st_mtime
+            if now - mtime < ttl_seconds:
+                cached_data = json.loads(disk_cache_file.read_text(encoding="utf-8"))
+                pg = ProjectGraph.from_dict(cached_data)
+                with _GRAPH_CACHE_LOCK:
+                    _GRAPH_CACHE[cache_key] = (now, pg)
+                return pg
+        except Exception:
+            pass
+
+    # 3. Build fresh graph and persist
     pg = ProjectGraph(root_dir=target_path)
     pg.build_graph(max_files=max_files)
+
+    try:
+        disk_cache_file.write_text(json.dumps(pg.to_dict(), indent=2), encoding="utf-8")
+    except Exception:
+        pass
 
     with _GRAPH_CACHE_LOCK:
         _GRAPH_CACHE[cache_key] = (now, pg)
