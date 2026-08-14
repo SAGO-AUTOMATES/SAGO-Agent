@@ -1140,14 +1140,13 @@ def skills_cmd(filter: str) -> None:
 
     console.print("[bold cyan]Built-in Capabilities:[/bold cyan]")
     for sk in builtin:
-        if (
-            filter
-            and filter.lower() not in sk.name.lower()
-            and filter.lower() not in sk.description.lower()
-        ):
+        name = sk.get("name", "")
+        desc = sk.get("description", "")
+        tools = sk.get("tools", [])
+        if filter and filter.lower() not in name.lower() and filter.lower() not in desc.lower():
             continue
-        tools_str = f" [dim](tools: {', '.join(sk.tools[:4])})[/dim]" if sk.tools else ""
-        console.print(f"  • [bold green]{sk.name:<18}[/bold green] {sk.description}{tools_str}")
+        tools_str = f" [dim](tools: {', '.join(tools[:4])})[/dim]" if tools else ""
+        console.print(f"  • [bold green]{name:<18}[/bold green] {desc}{tools_str}")
 
 
 @cli.command("plugins")

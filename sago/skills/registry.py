@@ -254,3 +254,13 @@ def get_skill_registry() -> SkillRegistry:
     if _registry is None:
         _registry = SkillRegistry()
     return _registry
+
+
+def list_skills() -> list[dict[str, Any]]:
+    """List all available pre-built skills."""
+    return get_skill_registry().list_skills()
+
+
+def get_skill(name: str) -> Skill | None:
+    """Get a skill by name."""
+    return get_skill_registry().get_skill(name)
