@@ -35,7 +35,7 @@ def _get_configured_model() -> str:
 
 
 @click.group()
-@click.version_option(version="0.1.3", prog_name="sago")
+@click.version_option(version="0.1.4", prog_name="sago")
 def cli() -> None:
     """Sago - Sophisticated Multi-Agent Orchestration System.
 

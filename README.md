@@ -118,6 +118,7 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for full CLI and TUI command reference.
 | `sago run "task" --chain X,Y,Z` | Sequential agent chain |
 | `sago run "task" --effort high` | Control execution depth (low/medium/high/max) |
 | `sago map [--dir .]` | **Symbol Repo Map** — Compact AST symbol map across 1,000+ files |
+| `sago project-graph --view llm` | **AI Architecture Analysis** — Generate an LLM-backed report from the project topology |
 | `sago verify [--dir .]` | **Self-Healing Verification** — Automated linters, type checks & tests |
 | `sago skills [--filter X]` | List workspace & built-in skills and capabilities |
 | `sago plugins` | List loaded third-party plugins and lifecycle hooks |
@@ -128,6 +129,9 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for full CLI and TUI command reference.
 |---------|----------|-------------|
 | `sago tui` | — | Launch interactive terminal UI |
 | `/help` | — | Show all commands |
+| `/graph [view] [path]` | — | Show project topology, diagrams, or AI architectural analysis |
+| `/copy [code\|all]` | — | Copy the last response, code block, or chat history to the clipboard |
+| `/clip [code\|all]` | — | Alias for `/copy` |
 | `/agents [category]` | — | List/search agents by category or name |
 | `/agent <name>` | — | Set current agent |
 | `/skills [filter]` | — | List workspace & custom skills |

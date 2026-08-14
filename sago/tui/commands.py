@@ -1280,6 +1280,10 @@ class CommandHandlers:
                     "mermaid",
                     "json",
                     "llm",
+                    "ai",
+                    "review",
+                    "analysis",
+                    "summary",
                 ):
                     view = p_lower
                 else:
@@ -1299,13 +1303,20 @@ class CommandHandlers:
                 try:
                     pg = get_cached_project_graph(root_dir=root_path, max_files=1500)
 
-                    if view in ("arch", "architecture"):
+                    if view in ("ai", "review", "analysis", "summary"):
+                        content = pg.to_ai_architectural_analysis(
+                            provider=getattr(self, "current_provider", "openrouter"),
+                            model=getattr(self, "current_model", "openrouter/auto"),
+                        )
+                        title = f"AI Architectural Analysis & Review: {root_path.name}"
+                        render_text = content
+                    elif view in ("arch", "architecture"):
                         content = pg.to_architecture_diagram()
                         title = f"System Architecture Map — Layered Box Diagram ({len(pg.nodes)} components)"
                         render_text = f"```text\n{content}\n```"
                     elif view in ("process", "pipeline"):
                         content = pg.to_process_map()
-                        title = "Autonomous Process & Execution Flywheel Map"
+                        title = f"Execution & Lifecycle Pipeline ({len(pg.nodes)} components)"
                         render_text = f"```text\n{content}\n```"
                     elif view in ("er", "data", "models"):
                         content = pg.to_er_diagram()
@@ -1337,7 +1348,11 @@ class CommandHandlers:
                         title = "Project Topology & Hub Summary"
                     else:
                         # Curated Consolidated Dashboard
-                        render_text = pg.to_curated_dashboard(focus_filter=focus)
+                        render_text = pg.to_curated_dashboard(
+                            focus_filter=focus,
+                            provider=getattr(self, "current_provider", "openrouter"),
+                            model=getattr(self, "current_model", "openrouter/auto"),
+                        )
                         title = f"SAGO Architecture & Process Graph Dashboard ({len(pg.nodes)} components)"
 
                     def _mount_result() -> None:
@@ -1757,3 +1772,57 @@ class CommandHandlers:
             container.scroll_end()
         except Exception as e:
             self._add_system_message(f"Error during search: {e}")
+
+    def _handle_copy_command(self: SagoApp, args: str = "") -> None:
+        """Copy last assistant response, code block, or full conversation to system clipboard."""
+        import re
+
+        from sago.tools.session.clipboard import ClipboardTool
+
+        arg = args.strip().lower()
+        tool = ClipboardTool()
+
+        if arg in ("code", "snippet"):
+            for msg in reversed(self.messages):
+                content = msg.get("content", "")
+                if "```" in content:
+                    parts = content.split("```")
+                    if len(parts) >= 3:
+                        code_chunk = parts[-2]
+                        lines = code_chunk.split("\n", 1)
+                        code = lines[1] if len(lines) > 1 else lines[0]
+                        tool._write_clipboard(code.strip())
+                        self._add_system_message(
+                            f"📋 Copied last code block to clipboard ({len(code.strip())} chars)"
+                        )
+                        return
+            self._add_system_message("No code blocks found in recent conversation to copy.")
+
+        elif arg in ("all", "chat", "history"):
+            chat_text = []
+            for msg in self.messages:
+                role = msg.get("role", "user").upper()
+                content = msg.get("content", "")
+                chat_text.append(f"[{role}]:\n{content}\n")
+            full_text = "\n".join(chat_text)
+            tool._write_clipboard(full_text)
+            self._add_system_message(
+                f"📋 Copied entire chat history ({len(self.messages)} messages, {len(full_text)} chars) to clipboard"
+            )
+
+        else:
+            for msg in reversed(self.messages):
+                if msg.get("role") == "assistant":
+                    content = msg.get("content", "")
+                    clean = re.sub(
+                        r"<(?:thinking|thought)>.*?</(?:thinking|thought)>",
+                        "",
+                        content,
+                        flags=re.DOTALL,
+                    ).strip()
+                    tool._write_clipboard(clean)
+                    self._add_system_message(
+                        f"📋 Copied last assistant response to clipboard ({len(clean)} chars)"
+                    )
+                    return
+            self._add_system_message("No assistant messages found to copy.")

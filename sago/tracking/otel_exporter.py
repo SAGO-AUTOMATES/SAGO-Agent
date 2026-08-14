@@ -22,7 +22,7 @@ def _generate_id(seed: str, length: int = 16) -> str:
 class OTelExporter:
     """Exports SAGO developer trace telemetry into OpenTelemetry Trace JSON specification."""
 
-    def __init__(self, service_name: str = "sago-agent", service_version: str = "0.1.3") -> None:
+    def __init__(self, service_name: str = "sago-agent", service_version: str = "0.1.4") -> None:
         self.service_name = service_name
         self.service_version = service_version
 

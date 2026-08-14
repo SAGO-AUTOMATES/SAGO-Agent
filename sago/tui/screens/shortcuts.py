@@ -74,12 +74,12 @@ class ShortcutsScreen(ModalScreen[None]):
     #close-btn {
         min-width: 12;
         background: #21262d;
-        color: #58a6ff;
+        color: #8b949e;
         border: solid #30363d;
     }
-    #close-btn:hover {
+    #close-btn:focus, #close-btn:hover {
         background: #30363d;
-        color: #ffffff;
+        color: #c9d1d9;
     }
     """
 

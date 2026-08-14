@@ -11,12 +11,12 @@ import threading
 import time
 from typing import Any
 
-from textual import events, on
+from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.reactive import reactive
-from textual.widgets import Button, Collapsible, Input, Static
+from textual.widgets import Button, Input, Static
 
 from sago.tui.commands import CommandHandlers
 from sago.tui.helpers import UIHelpers
@@ -89,7 +89,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         overflow-y: auto;
         scrollbar-size: 1 1;
         scrollbar-color: #30363d #0a0d12;
-        scrollbar-color-hover: #58a6ff #161b22;
+        scrollbar-color-hover: #484f58 #0a0d12;
     }
 
     .msg-user {
@@ -134,19 +134,22 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         height: auto;
     }
     .exchange-prompt-header {
-        background: #161f2e;
-        color: #58a6ff;
-        text-style: bold;
+        background: #0d1117;
+        color: #8b949e;
         padding: 0 2;
-        border-bottom: solid #21262d;
-    }
-    .exchange-prompt-header:hover {
-        background: #212b3b;
-        color: #79c0ff;
     }
     .exchange-body {
-        padding: 1 2;
+        padding: 1 2 1 2;
         height: auto;
+    }
+    .exchange-user-prompt {
+        color: #e6edf3;
+        padding: 0 0 1 0;
+    }
+    .exchange-divider {
+        color: #30363d;
+        padding: 0;
+        margin: 0;
     }
     .exchange-prompt {
         color: #58a6ff;
@@ -175,26 +178,6 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         border-left: solid #3fb950;
         margin: 1 0;
     }
-    .exchange-footer {
-        height: auto;
-        padding: 0 1 1 0;
-    }
-    .exchange-footer-spacer {
-        width: 1fr;
-    }
-    .btn-collapse-turn {
-        min-width: 18;
-        height: 1;
-        background: #161b22;
-        color: #8b949e;
-        border: solid #21262d;
-        padding: 0 1;
-    }
-    .btn-collapse-turn:hover {
-        background: #21262d;
-        color: #58a6ff;
-        border: solid #58a6ff;
-    }
 
     .collapsible-card-box {
         background: #0d1117;
@@ -205,68 +188,63 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         height: auto;
     }
     .card-header {
-        background: #161f2e;
-        color: #58a6ff;
-        text-style: bold;
+        background: #0d1117;
+        color: #8b949e;
         padding: 0 2;
-        border-bottom: solid #21262d;
-    }
-    .card-header:hover {
-        background: #212b3b;
-        color: #79c0ff;
     }
     .card-body {
         padding: 1 2;
         height: auto;
     }
-    .card-footer {
-        height: auto;
-        padding: 1 0 0 0;
+
+    /* Textual built-in Collapsible widget — uniform header treatment */
+    Collapsible {
+        border: solid #21262d;
+        border-left: solid #388bfd;
+        background: #0d1117;
+        margin: 1 0;
+        padding: 0;
     }
-    .card-footer-spacer {
+    CollapsibleTitle {
+        background: #0d1117;
+        color: #8b949e;
+        padding: 0 2;
+    }
+    Collapsible > Contents {
+        padding: 1 2;
+        height: auto;
+    }
+
+    .code-action-bar {
+        height: 1;
+        margin: 1 0 0 0;
+        padding: 0;
+    }
+    .spacer {
         width: 1fr;
     }
-    .btn-collapse-card {
-        min-width: 18;
+    .btn-copy-code {
+        min-width: 14;
         height: 1;
-        background: #161b22;
-        color: #58a6ff;
-        border: solid #21262d;
+        background: #21262d;
+        color: #8b949e;
+        border: solid #30363d;
         padding: 0 1;
     }
-    .btn-collapse-card:hover {
-        background: #21262d;
-        color: #ffffff;
+    .btn-copy-code:focus, .btn-copy-code:hover {
+        background: #30363d;
+        color: #58a6ff;
         border: solid #58a6ff;
     }
 
-    .collapse-footer {
-        height: auto;
-        padding: 1 0 0 0;
-    }
-    .collapse-footer-spacer {
-        width: 1fr;
-    }
-    .btn-collapse-bottom {
-        min-width: 18;
-        height: 1;
-        background: #161b22;
-        color: #58a6ff;
-        border: solid #21262d;
-        padding: 0 1;
-    }
-    .btn-collapse-bottom:hover {
-        background: #21262d;
-        color: #ffffff;
-        border: solid #58a6ff;
-    }
-
-    /* Nord Theme */
     /* Nord Theme */
     .theme-nord { background: #242933; }
     .theme-nord #agent-dashboard { background: #2e3440; border-left: solid #434c5e; }
     .theme-nord .exchange-box { background: #2e3440; border: solid #434c5e; border-left: solid #88c0d0; }
     .theme-nord .exchange-prompt-header { background: #3b4252; color: #88c0d0; border-bottom: solid #434c5e; }
+    .theme-nord .exchange-user-prompt { color: #eceff4; }
+    .theme-nord .exchange-divider { color: #434c5e; }
+    .theme-nord .exchange-assistant { color: #eceff4; }
     .theme-nord .msg-system { background: #2e3440; border: solid #434c5e; border-left: solid #ebcb8b; }
     .theme-nord #input-area { background: #242933; border-top: solid #434c5e; }
     .theme-nord #msg-input { background: #2e3440; border: solid #434c5e; color: #eceff4; }
@@ -277,6 +255,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-dracula #agent-dashboard { background: #282a36; border-left: solid #44475a; }
     .theme-dracula .exchange-box { background: #282a36; border: solid #44475a; border-left: solid #bd93f9; }
     .theme-dracula .exchange-prompt-header { background: #44475a; color: #bd93f9; border-bottom: solid #6272a4; }
+    .theme-dracula .exchange-user-prompt { color: #f8f8f2; }
+    .theme-dracula .exchange-divider { color: #44475a; }
+    .theme-dracula .exchange-assistant { color: #f8f8f2; }
     .theme-dracula .msg-system { background: #282a36; border: solid #44475a; border-left: solid #f1fa8c; }
     .theme-dracula #input-area { background: #1e1f29; border-top: solid #44475a; }
     .theme-dracula #msg-input { background: #282a36; border: solid #44475a; color: #f8f8f2; }
@@ -287,6 +268,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-monokai #agent-dashboard { background: #272822; border-left: solid #3e3d32; }
     .theme-monokai .exchange-box { background: #272822; border: solid #3e3d32; border-left: solid #a6e22e; }
     .theme-monokai .exchange-prompt-header { background: #3e3d32; color: #a6e22e; border-bottom: solid #49483e; }
+    .theme-monokai .exchange-user-prompt { color: #f8f8f2; }
+    .theme-monokai .exchange-divider { color: #3e3d32; }
+    .theme-monokai .exchange-assistant { color: #f8f8f2; }
     .theme-monokai .msg-system { background: #272822; border: solid #3e3d32; border-left: solid #e6db74; }
     .theme-monokai #input-area { background: #1e1f1c; border-top: solid #3e3d32; }
     .theme-monokai #msg-input { background: #272822; border: solid #3e3d32; color: #f8f8f2; }
@@ -297,6 +281,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-tokyo-night #agent-dashboard { background: #1a1b26; border-left: solid #292e42; }
     .theme-tokyo-night .exchange-box { background: #1a1b26; border: solid #292e42; border-left: solid #7aa2f7; }
     .theme-tokyo-night .exchange-prompt-header { background: #292e42; color: #7aa2f7; border-bottom: solid #3b4261; }
+    .theme-tokyo-night .exchange-user-prompt { color: #c0caf5; }
+    .theme-tokyo-night .exchange-divider { color: #292e42; }
+    .theme-tokyo-night .exchange-assistant { color: #c0caf5; }
     .theme-tokyo-night .msg-system { background: #1a1b26; border: solid #292e42; border-left: solid #e0af68; }
     .theme-tokyo-night #input-area { background: #16161e; border-top: solid #292e42; }
     .theme-tokyo-night #msg-input { background: #1a1b26; border: solid #292e42; color: #c0caf5; }
@@ -307,6 +294,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-solarized-dark #agent-dashboard { background: #002b36; border-left: solid #073642; }
     .theme-solarized-dark .exchange-box { background: #002b36; border: solid #073642; border-left: solid #268bd2; }
     .theme-solarized-dark .exchange-prompt-header { background: #073642; color: #268bd2; border-bottom: solid #586e75; }
+    .theme-solarized-dark .exchange-user-prompt { color: #839496; }
+    .theme-solarized-dark .exchange-divider { color: #073642; }
+    .theme-solarized-dark .exchange-assistant { color: #839496; }
     .theme-solarized-dark .msg-system { background: #002b36; border: solid #073642; border-left: solid #b58900; }
     .theme-solarized-dark #input-area { background: #00212b; border-top: solid #073642; }
     .theme-solarized-dark #msg-input { background: #002b36; border: solid #073642; color: #839496; }
@@ -317,6 +307,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-cyberpunk #agent-dashboard { background: #10121d; border-left: solid #00f0ff; }
     .theme-cyberpunk .exchange-box { background: #10121d; border: solid #202637; border-left: solid #ffee00; }
     .theme-cyberpunk .exchange-prompt-header { background: #181d2e; color: #00f0ff; border-bottom: solid #00f0ff; }
+    .theme-cyberpunk .exchange-user-prompt { color: #00f0ff; }
+    .theme-cyberpunk .exchange-divider { color: #202637; }
+    .theme-cyberpunk .exchange-assistant { color: #00f0ff; }
     .theme-cyberpunk .msg-system { background: #10121d; border: solid #202637; border-left: solid #00f0ff; }
     .theme-cyberpunk #input-area { background: #08090f; border-top: solid #202637; }
     .theme-cyberpunk #msg-input { background: #10121d; border: solid #202637; color: #00f0ff; }
@@ -327,6 +320,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-catppuccin-mocha #agent-dashboard { background: #181825; border-left: solid #313244; }
     .theme-catppuccin-mocha .exchange-box { background: #181825; border: solid #313244; border-left: solid #cba6f7; }
     .theme-catppuccin-mocha .exchange-prompt-header { background: #313244; color: #cba6f7; border-bottom: solid #45475a; }
+    .theme-catppuccin-mocha .exchange-user-prompt { color: #cdd6f4; }
+    .theme-catppuccin-mocha .exchange-divider { color: #313244; }
+    .theme-catppuccin-mocha .exchange-assistant { color: #cdd6f4; }
     .theme-catppuccin-mocha .msg-system { background: #181825; border: solid #313244; border-left: solid #f9e2af; }
     .theme-catppuccin-mocha #input-area { background: #1e1e2e; border-top: solid #313244; }
     .theme-catppuccin-mocha #msg-input { background: #181825; border: solid #313244; color: #cdd6f4; }
@@ -337,6 +333,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-gruvbox-dark #agent-dashboard { background: #282828; border-left: solid #3c3836; }
     .theme-gruvbox-dark .exchange-box { background: #282828; border: solid #3c3836; border-left: solid #fabd2f; }
     .theme-gruvbox-dark .exchange-prompt-header { background: #3c3836; color: #fabd2f; border-bottom: solid #504945; }
+    .theme-gruvbox-dark .exchange-user-prompt { color: #ebdbb2; }
+    .theme-gruvbox-dark .exchange-divider { color: #3c3836; }
+    .theme-gruvbox-dark .exchange-assistant { color: #ebdbb2; }
     .theme-gruvbox-dark .msg-system { background: #282828; border: solid #3c3836; border-left: solid #fabd2f; }
     .theme-gruvbox-dark #input-area { background: #1d2021; border-top: solid #3c3836; }
     .theme-gruvbox-dark #msg-input { background: #282828; border: solid #3c3836; color: #ebdbb2; }
@@ -347,6 +346,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-rose-pine #agent-dashboard { background: #1f1d2e; border-left: solid #26233a; }
     .theme-rose-pine .exchange-box { background: #1f1d2e; border: solid #26233a; border-left: solid #eb6f92; }
     .theme-rose-pine .exchange-prompt-header { background: #26233a; color: #eb6f92; border-bottom: solid #393552; }
+    .theme-rose-pine .exchange-user-prompt { color: #e0def4; }
+    .theme-rose-pine .exchange-divider { color: #26233a; }
+    .theme-rose-pine .exchange-assistant { color: #e0def4; }
     .theme-rose-pine .msg-system { background: #1f1d2e; border: solid #26233a; border-left: solid #f6c177; }
     .theme-rose-pine #input-area { background: #191724; border-top: solid #26233a; }
     .theme-rose-pine #msg-input { background: #1f1d2e; border: solid #26233a; color: #e0def4; }
@@ -357,8 +359,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-light #agent-dashboard { background: #ffffff; border-left: solid #d0d7de; }
     .theme-light .exchange-box { background: #ffffff; border: solid #d0d7de; border-left: solid #0969da; }
     .theme-light .exchange-prompt-header { background: #f1f3f5; color: #0969da; border-bottom: solid #d0d7de; }
-    .theme-light .msg-system { background: #ffffff; border: solid #d0d7de; border-left: solid #9a6700; color: #24292f; }
+    .theme-light .exchange-user-prompt { color: #24292f; }
+    .theme-light .exchange-divider { color: #d0d7de; }
     .theme-light .exchange-assistant { color: #24292f; }
+    .theme-light .msg-system { background: #ffffff; border: solid #d0d7de; border-left: solid #9a6700; color: #24292f; }
     .theme-light #input-area { background: #f6f8fa; border-top: solid #d0d7de; }
     .theme-light #msg-input { background: #ffffff; border: solid #d0d7de; color: #24292f; }
     .theme-light #msg-input:focus { border: solid #0969da; }
@@ -396,22 +400,25 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
     #input-area {
         height: auto;
-        padding: 0 2 1 2;
+        padding: 0 1 1 1;
         background: #0a0d12;
         border-top: solid #21262d;
         margin: 0;
     }
 
     #msg-input {
-        background: #161b22;
-        border: solid #30363d;
+        background: #0a0d12;
+        border: none;
+        border-top: solid #21262d;
         color: #c9d1d9;
         margin: 0;
         padding: 0 1;
     }
     #msg-input:focus {
-        border: solid #58a6ff;
+        border: none;
+        border-top: solid #388bfd;
         color: #ffffff;
+        background: #0a0d12;
     }
 
     #suggestions {
@@ -419,16 +426,17 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         height: auto;
         max-height: 14;
         overflow-y: auto;
-        background: #161b22;
-        border: solid #30363d;
-        margin: 0 2 0 2;
-        padding: 0;
+        background: #0a0d12;
+        border: none;
+        border-top: solid #21262d;
+        margin: 0;
+        padding: 0 1;
         scrollbar-size: 0 0;
     }
     #suggestions.visible { display: block; }
 
-    .suggestion-item { color: #c9d1d9; padding: 0 1; }
-    .suggestion-item.highlighted { color: #ffffff; background: #1f6feb; }
+    .suggestion-item { color: #6e7681; padding: 0 1; }
+    .suggestion-item.highlighted { color: #e6edf3; background: #1c2128; }
 
     .code-block {
         background: #161b22;
@@ -669,7 +677,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self._auto_refresh_models()
         self.query_one("#msg-input").focus()
         # Start dashboard update timer
-        self._dashboard_timer = self.set_interval(2.0, self._periodic_dashboard_update)
+        self._dashboard_timer = self.set_interval(1.0, self._periodic_dashboard_update)
 
     def _populate_welcome_screen(self) -> None:
         """Populate the welcome screen with SAGO logo and info."""
@@ -900,53 +908,25 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         else:
             self._hide_suggestions()
 
-    @on(events.Click, ".exchange-prompt-header")
-    def on_prompt_header_click(self, event: events.Click) -> None:
-        """Click prompt header to collapse or expand the entire turn card."""
-        from sago.tui.helpers import ExchangeTurnCard
-
-        target = event.widget
-        while target is not None:
-            if isinstance(target, ExchangeTurnCard):
-                target.toggle_collapse()
-                break
-            target = target.parent
-
-    @on(Button.Pressed, ".btn-collapse-bottom")
-    def on_collapse_bottom_button(self, event: Button.Pressed) -> None:
-        """Collapse the parent native Collapsible widget from bottom-right button."""
+    @on(Button.Pressed, ".btn-copy-code")
+    def on_copy_code_button(self, event: Button.Pressed) -> None:
+        """Copy code snippet to system clipboard."""
         event.stop()
-        try:
-            curr = event.button.parent
-            while curr is not None:
-                if isinstance(curr, Collapsible):
-                    curr.collapsed = True
-                    try:
-                        curr.scroll_visible()
-                    except Exception:
-                        pass
-                    break
-                curr = curr.parent
-            self.query_one("#msg-input").focus()
-        except Exception:
-            pass
+        from sago.tools.session.clipboard import ClipboardTool
 
-    @on(Button.Pressed, ".btn-collapse-turn")
-    def on_collapse_turn_button(self, event: Button.Pressed) -> None:
-        """Collapse the parent ExchangeTurnCard from bottom-right button."""
-        from sago.tui.helpers import ExchangeTurnCard
+        code = getattr(event.button, "_code_content", "")
+        if code:
+            ClipboardTool()._write_clipboard(code)
+            event.button.label = "✓ Copied!"
+            self._add_system_message("📋 Code snippet copied to clipboard.")
 
-        event.stop()
-        try:
-            curr = event.button.parent
-            while curr is not None:
-                if isinstance(curr, ExchangeTurnCard):
-                    curr.toggle_collapse()
-                    break
-                curr = curr.parent
-            self.query_one("#msg-input").focus()
-        except Exception:
-            pass
+            def _reset() -> None:
+                try:
+                    event.button.label = "📋 Copy Code"
+                except Exception:
+                    pass
+
+            self.set_timer(2.0, _reset)
 
     @on(Input.Submitted, "#msg-input")
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -1127,7 +1107,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
     def _periodic_dashboard_update(self) -> None:
         """Periodically update the dashboard with current task states."""
-        if self._dashboard and self._dashboard_visible:
+        if getattr(self, "_dashboard_visible", False):
             self._update_dashboard()
 
     def action_toggle_dashboard(self) -> None:
@@ -1514,6 +1494,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             "/search": lambda: self._handle_search_command(args),
             "/semantic": lambda: self._handle_search_command(args),
             "/detach": lambda: self._detach_session(),
+            "/copy": lambda: self._handle_copy_command(args),
+            "/clip": lambda: self._handle_copy_command(args),
         }
 
         if cmd in handlers:

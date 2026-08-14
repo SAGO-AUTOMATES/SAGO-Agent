@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
+from rich.markup import escape
 from rich.syntax import Syntax
 from textual import events, on
 from textual.containers import Horizontal, Vertical
@@ -50,13 +51,8 @@ def create_collapsible(
     title: str = "",
     collapsed: bool = False,
 ) -> Collapsible:
-    """Create a native Textual Collapsible with a bottom-right collapse button."""
-    footer = Horizontal(
-        Static("", classes="collapse-footer-spacer"),
-        Button("▲ Collapse Output", variant="default", classes="btn-collapse-bottom"),
-        classes="collapse-footer",
-    )
-    return Collapsible(*content, footer, title=title, collapsed=collapsed)
+    """Create a native Textual Collapsible."""
+    return Collapsible(*content, title=title, collapsed=collapsed)
 
 
 class ExchangeTurnCard(Vertical):
@@ -65,54 +61,41 @@ class ExchangeTurnCard(Vertical):
     def __init__(self, prompt: str, **kwargs: Any) -> None:
         super().__init__(classes="exchange-box", **kwargs)
         self.prompt = prompt
+        self.response_text: str = ""
         self.is_turn_collapsed = False
 
     def compose(self):
         preview = self.prompt.replace("\n", " ").strip()
-        title_snippet = f"{preview[:75]}..." if len(preview) > 75 else preview
+        title_snippet = f"{preview[:80]}…" if len(preview) > 80 else preview
         yield Static(
-            f"[bold cyan]▼ USER[/bold cyan]  [bold white]{title_snippet}[/bold white]",
+            f"[dim]▼[/dim]  {escape(title_snippet)}",
             classes="exchange-prompt-header",
             markup=True,
         )
-        yield Vertical(classes="exchange-body")
-        yield Horizontal(
-            Static("", classes="exchange-footer-spacer"),
-            Button("▲ Collapse Message", variant="default", classes="btn-collapse-turn"),
-            classes="exchange-footer",
-        )
+        with Vertical(classes="exchange-body"):
+            yield Static(escape(self.prompt), classes="exchange-user-prompt", markup=True)
+            yield Static("─" * 40, classes="exchange-divider", markup=False)
 
     @on(events.Click, ".exchange-prompt-header")
     def on_header_clicked(self, event: events.Click) -> None:
         event.stop()
         self.toggle_collapse()
 
-    @on(Button.Pressed, ".btn-collapse-turn")
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        event.stop()
-        self.toggle_collapse()
-
     def toggle_collapse(self) -> None:
-        """Toggle collapsed state of entire exchange body and footer."""
+        """Toggle collapsed state of entire exchange body."""
         try:
             body = self.query_one(".exchange-body")
-            footer = self.query_one(".exchange-footer")
             hdr = self.query_one(".exchange-prompt-header", Static)
             self.is_turn_collapsed = not self.is_turn_collapsed
             body.display = not self.is_turn_collapsed
-            footer.display = not self.is_turn_collapsed
 
             preview = self.prompt.replace("\n", " ").strip()
-            title_snippet = f"{preview[:75]}..." if len(preview) > 75 else preview
+            title_snippet = f"{preview[:80]}…" if len(preview) > 80 else preview
 
             if self.is_turn_collapsed:
-                hdr.update(
-                    f"[bold cyan]▶ USER[/bold cyan]  [bold white]{title_snippet}[/bold white]  [dim]─ (click to expand)[/dim]"
-                )
+                hdr.update(f"[dim]▶[/dim]  {escape(title_snippet)}")
             else:
-                hdr.update(
-                    f"[bold cyan]▼ USER[/bold cyan]  [bold white]{title_snippet}[/bold white]"
-                )
+                hdr.update(f"[dim]▼[/dim]  {escape(title_snippet)}")
         except Exception:
             pass
 
@@ -126,7 +109,7 @@ class ExchangeTurnCard(Vertical):
 
 
 class CollapsibleOutputCard(Vertical):
-    """Universal collapsible card for command outputs with top header and bottom-right collapse button."""
+    """Universal collapsible card for command outputs with clickable top header."""
 
     def __init__(
         self,
@@ -142,24 +125,19 @@ class CollapsibleOutputCard(Vertical):
 
     def compose(self):
         icon = "▶" if self.is_collapsed else "▼"
-        hint = " [dim]─ (click to expand)[/dim]" if self.is_collapsed else ""
+        safe_title = escape(self.card_title)
         yield Static(
-            f"[bold cyan]{icon}[/bold cyan] [bold white]{self.card_title}[/bold white]{hint}",
+            f"[dim]{icon}[/dim]  {safe_title}",
             classes="card-header",
             markup=True,
         )
         with Vertical(classes="card-body"):
             yield self._content_widget
-            yield Horizontal(
-                Static("", classes="card-footer-spacer"),
-                Button("▲ Collapse Output", variant="default", classes="btn-collapse-card"),
-                classes="card-footer",
-            )
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if "btn-collapse-card" in event.button.classes:
-            event.stop()
-            self.toggle_collapse()
+    @on(events.Click, ".card-header")
+    def on_header_clicked(self, event: events.Click) -> None:
+        event.stop()
+        self.toggle_collapse()
 
     def toggle_collapse(self) -> None:
         try:
@@ -167,13 +145,9 @@ class CollapsibleOutputCard(Vertical):
             hdr = self.query_one(".card-header", Static)
             self.is_collapsed = not self.is_collapsed
             body.display = not self.is_collapsed
-
-            if self.is_collapsed:
-                hdr.update(
-                    f"[bold cyan]▶[/bold cyan] [bold white]{self.card_title}[/bold white] [dim]─ (click to expand)[/dim]"
-                )
-            else:
-                hdr.update(f"[bold cyan]▼[/bold cyan] [bold white]{self.card_title}[/bold white]")
+            safe_title = escape(self.card_title)
+            icon = "▶" if self.is_collapsed else "▼"
+            hdr.update(f"[dim]{icon}[/dim]  {safe_title}")
         except Exception:
             pass
 
@@ -273,15 +247,45 @@ class UIHelpers:
                             line_numbers=True,
                             word_wrap=True,
                         )
+                        copy_btn = Button(
+                            "📋 Copy Code", classes="btn-copy-code", variant="default"
+                        )
+                        setattr(copy_btn, "_code_content", code)
                         _mount_element(
                             Collapsible(
                                 Static(syntax),
+                                Horizontal(
+                                    Static("", classes="spacer"),
+                                    copy_btn,
+                                    classes="code-action-bar",
+                                ),
                                 title=f"Code snippet ({lang or 'text'})",
                                 collapsed=False,
                             )
                         )
                     except Exception:
-                        _mount_element(Static(code, classes="code-block", markup=False))
+                        copy_btn = Button(
+                            "📋 Copy Code", classes="btn-copy-code", variant="default"
+                        )
+                        setattr(copy_btn, "_code_content", code)
+                        _mount_element(
+                            Collapsible(
+                                Static(code, classes="code-block", markup=False),
+                                Horizontal(
+                                    Static("", classes="spacer"),
+                                    copy_btn,
+                                    classes="code-action-bar",
+                                ),
+                                title=f"Code snippet ({lang or 'text'})",
+                                collapsed=False,
+                            )
+                        )
+
+        if target_card is not None and hasattr(target_card, "response_text"):
+            if target_card.response_text:
+                target_card.response_text += f"\n{content}"
+            else:
+                target_card.response_text = content
 
         # If developer mode is active, mount execution telemetry trace block
         if getattr(self, "developer_mode", False):

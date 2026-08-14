@@ -39,6 +39,7 @@ sago project-graph --view er                 # Entity-Relationship & data model 
 sago project-graph --view flow               # Terminal-native component flow pipeline
 sago project-graph --view tree               # Formatted file dependency & symbol tree
 sago project-graph --view mermaid            # Visual Mermaid flowchart
+sago project-graph --view llm                # AI-generated architectural analysis
 sago project-graph --dir ./services --view arch
 ```
 
@@ -128,8 +129,10 @@ Show system and connection status.
 | Command | Description |
 |---------|-------------|
 | `/help` | Show categorized command reference |
-| `/project_graph [view] [path]` | Generate architecture box diagram, process flywheel, data graph, and flow pipelines (`dashboard`, `arch`, `process`, `er`, `flow`, `tree`, `mermaid`, `json`, `llm`) |
+| `/project_graph [view] [path]` | Generate architecture, process, data, and dependency views (`dashboard`, `arch`, `process`, `er`, `flow`, `tree`, `mermaid`, `json`), or an AI analysis (`llm`, `ai`, `review`, `analysis`, `summary`) |
 | `/graph` | Alias for `/project_graph` |
+| `/copy [code\|all]` | Copy the last assistant response, its last code block, or the full chat history to the clipboard |
+| `/clip [code\|all]` | Alias for `/copy` |
 | `/map [query]` | Generate compact AST symbol repo map |
 | `/verify` | Run automated linters, type checks, and test suites |
 | `/plan` | Show current multi-step task execution plan |
@@ -236,4 +239,4 @@ Show system and connection status.
 | `Tab` / `Enter` | Accept autocomplete suggestion |
 | `Escape` | Close autocomplete suggestions / dismiss modals |
 | `y` / `n` | Approve or Deny permission requests |
-| `[▲ Collapse Message]` / `[▲ Collapse Output]` | Bottom-right buttons to collapse messages without scrolling to the top |
+| `Click Header` / `/collapse` | Click card/turn header or run `/collapse` to collapse/expand turns and outputs |

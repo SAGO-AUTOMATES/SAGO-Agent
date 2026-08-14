@@ -153,12 +153,10 @@ async def test_tui_shortcuts_modal():
 
 
 @pytest.mark.anyio
-async def test_tui_bottom_collapse_button():
-    from textual.widgets import Button
-
+async def test_tui_turn_header_collapse():
     app = SagoApp()
     async with app.run_test() as pilot:
-        app._add_user_message("Test message for bottom collapse")
+        app._add_user_message("Test message for collapse")
         app._add_assistant_message("Test assistant reply")
         await pilot.pause()
 
@@ -166,16 +164,15 @@ async def test_tui_bottom_collapse_button():
         assert card is not None
         assert card.is_turn_collapsed is False
 
-        # Find bottom collapse button
-        btn = card.query_one(".btn-collapse-turn", Button)
-        assert btn is not None
+        # Verify bottom collapse button has been removed for a clean UI
+        assert len(card.query(".btn-collapse-turn")) == 0
 
-        # Click button to collapse
-        btn.press()
+        # Click / toggle collapse
+        card.toggle_collapse()
         await pilot.pause()
         assert card.is_turn_collapsed is True
 
-        # Click header to expand
+        # Click / toggle again to expand
         card.toggle_collapse()
         await pilot.pause()
         assert card.is_turn_collapsed is False

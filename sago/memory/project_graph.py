@@ -614,55 +614,69 @@ class ProjectGraph:
     # ─────────────────────────────────────────────────────────────
 
     def to_architecture_diagram(self) -> str:
-        """Render a crisp, layered system architecture box diagram with Unicode formatting."""
+        """Render a crisp, layered system architecture box diagram based on real project topology."""
         layers: dict[str, list[str]] = {
             "Presentation & Interface": [],
             "Orchestration & Workflow Engine": [],
             "Specialist Agents & Tools Domain": [],
             "Memory, State & Database": [],
             "Integration, Mesh & Plugins": [],
+            "Test Suites & Quality Verification": [],
         }
+
+        unassigned_by_dir: dict[str, list[str]] = defaultdict(list)
 
         for node in self.nodes.values():
             if node.node_type != "file":
                 continue
             path = node.file_path.lower()
-            name = node.label.replace(".py", "")
+            name = node.label
 
-            if any(
+            if any(k in path for k in ("test", "spec", "verify", "mock", "fixture", "audit")):
+                layers["Test Suites & Quality Verification"].append(name)
+            elif any(
                 k in path
-                for k in [
+                for k in (
+                    "ui",
+                    "frontend",
+                    "client",
+                    "screen",
+                    "view",
+                    "page",
+                    "widget",
                     "tui",
                     "cli",
-                    "main.py",
-                    "screen",
-                    "widget",
-                    "server",
-                    "daemon",
                     "route",
                     "api",
                     "handler",
-                    "view",
+                    "endpoint",
                     "controller",
-                ]
+                    "server",
+                    "router",
+                    "grpc",
+                    "ws",
+                )
             ):
                 layers["Presentation & Interface"].append(name)
             elif any(
                 k in path
-                for k in [
+                for k in (
                     "engine",
                     "orchestrat",
                     "workflow",
-                    "delegat",
+                    "logic",
+                    "executor",
+                    "pipeline",
                     "checkpoint",
                     "verifier",
                     "runtime",
-                ]
+                    "delegat",
+                )
             ):
                 layers["Orchestration & Workflow Engine"].append(name)
             elif any(
                 k in path
-                for k in [
+                for k in (
                     "agent",
                     "tool",
                     "coding",
@@ -671,36 +685,66 @@ class ProjectGraph:
                     "network",
                     "ssh",
                     "service",
-                    "util",
-                    "helper",
-                ]
+                    "domain",
+                )
             ):
                 layers["Specialist Agents & Tools Domain"].append(name)
             elif any(
                 k in path
-                for k in [
-                    "memory",
-                    "database",
-                    "rag",
-                    "symbol",
-                    "cache",
-                    "session",
-                    "tasks",
-                    "learning",
+                for k in (
                     "model",
                     "schema",
-                    "sql",
-                    "db",
-                    "store",
                     "entity",
-                ]
+                    "dto",
+                    "types",
+                    "tables",
+                    "sql",
+                    "migration",
+                    "db",
+                    "database",
+                    "store",
+                    "storage",
+                    "repository",
+                    "cache",
+                    "memory",
+                    "dao",
+                    "redis",
+                    "rag",
+                    "session",
+                    "tasks",
+                )
             ):
                 layers["Memory, State & Database"].append(name)
             elif any(
                 k in path
-                for k in ["mcp", "mesh", "peer", "plugin", "skill", "llm", "client", "adapter"]
+                for k in (
+                    "util",
+                    "helper",
+                    "common",
+                    "lib",
+                    "config",
+                    "client",
+                    "adapter",
+                    "mcp",
+                    "mesh",
+                    "peer",
+                    "plugin",
+                    "skill",
+                    "llm",
+                    "auth",
+                )
             ):
                 layers["Integration, Mesh & Plugins"].append(name)
+            else:
+                p = Path(node.file_path)
+                top_dir = str(p.parent) if str(p.parent) != "." else "root"
+                unassigned_by_dir[top_dir].append(name)
+
+        # Merge unassigned directories into dynamic layers if any exist
+        for d, files in sorted(unassigned_by_dir.items()):
+            if files:
+                layer_title = f"Module Package: {d}"
+                layers[layer_title] = files
 
         w = max(72, min(96, len(self.root_dir.name) + 36))
         proj_title = f"{self.root_dir.name.upper()} SYSTEM ARCHITECTURE MAP"
@@ -710,9 +754,8 @@ class ProjectGraph:
             "╚" + "═" * (w - 2) + "╝",
         ]
 
-        for layer_name, comps in layers.items():
-            if not comps:
-                continue
+        active_layers = [layer for layer in layers.items() if layer[1]]
+        for layer_name, comps in active_layers:
             comp_sample = ", ".join(sorted(list(set(comps)))[:7])
             if len(comps) > 7:
                 comp_sample += f" + {len(comps) - 7} more"
@@ -725,14 +768,15 @@ class ProjectGraph:
             lines.append(" " * (w // 2 - 1) + "│")
             lines.append(" " * (w // 2 - 1) + "▼")
 
-        lines[-2] = " " * (w // 2 - 8) + "(State Stable)"
-        lines.pop()
+        if len(lines) >= 2 and lines[-1].strip() == "▼":
+            lines[-2] = " " * max(0, (w // 2 - 8)) + "(State Stable)"
+            lines.pop()
         return "\n".join(lines)
 
     def to_process_map(self) -> str:
         """Dynamically render project process lifecycle, entry points, and execution pipelines."""
         w = max(72, min(96, len(self.root_dir.name) + 40))
-        proj_title = f"{self.root_dir.name.upper()} END-TO-END EXECUTION & LIFECYCLE PIPELINE"
+        proj_title = f"{self.root_dir.name.upper()} EXECUTION & LIFECYCLE PIPELINE"
         lines = [
             "╔" + "═" * (w - 2) + "╗",
             "║" + proj_title.center(w - 2) + "║",
@@ -746,11 +790,13 @@ class ProjectGraph:
             for n in self.nodes.values()
             if any(
                 k in n.file_path.lower()
-                for k in ("main.", "app.", "cli.", "server.", "index.", "router.", "api.")
+                for k in ("main.", "app.", "cli.", "server.", "index.", "router.", "api.", "entry.")
             )
         ]
         entry_str = (
-            ", ".join(entry_nodes[:4]) if entry_nodes else "User Invocation / CLI / API Request"
+            ", ".join(sorted(list(set(entry_nodes)))[:4])
+            if entry_nodes
+            else "User Invocation / CLI / API Entrypoint"
         )
 
         # 2. Discover Core Logic / Services
@@ -759,11 +805,23 @@ class ProjectGraph:
             for n in self.nodes.values()
             if any(
                 k in n.file_path.lower()
-                for k in ("engine", "core", "service", "executor", "workflow", "agent")
+                for k in (
+                    "engine",
+                    "core",
+                    "service",
+                    "executor",
+                    "workflow",
+                    "agent",
+                    "handler",
+                    "manager",
+                    "controller",
+                )
             )
         ]
         core_str = (
-            ", ".join(core_nodes[:5]) if core_nodes else "Domain Logic / Orchestration Engine"
+            ", ".join(sorted(list(set(core_nodes)))[:5])
+            if core_nodes
+            else "Core Domain & Service Logic"
         )
 
         # 3. Discover Persistence / Data Layer
@@ -771,23 +829,35 @@ class ProjectGraph:
             n.label
             for n in self.nodes.values()
             if n.node_type == "data_model"
-            or any(k in n.file_path.lower() for k in ("db", "database", "model", "schema", "store"))
+            or any(
+                k in n.file_path.lower()
+                for k in ("db", "database", "model", "schema", "store", "repo", "cache", "memory")
+            )
         ]
         data_str = (
-            ", ".join(data_nodes[:5]) if data_nodes else "Database / State Store / File Cache"
+            ", ".join(sorted(list(set(data_nodes)))[:5])
+            if data_nodes
+            else "Database / State Store / Repository"
         )
 
         # 4. Discover Verifiers / Linters / Tests
         test_nodes = [
             n.label
             for n in self.nodes.values()
-            if any(k in n.file_path.lower() for k in ("test", "verify", "check", "lint", "audit"))
+            if any(
+                k in n.file_path.lower()
+                for k in ("test", "verify", "check", "lint", "audit", "spec")
+            )
         ]
-        test_str = ", ".join(test_nodes[:4]) if test_nodes else "Test Suites / Static Linters"
+        test_str = (
+            ", ".join(sorted(list(set(test_nodes)))[:4])
+            if test_nodes
+            else "Test Suites & Quality Checks"
+        )
 
         lines.extend(
             [
-                f"   [ 📥 1. Entry & Ingestion ] ─────────► {entry_str}",
+                f"   [ 📥 1. Ingestion & Entry ] ─────────► {entry_str}",
                 "                 │",
                 "                 ▼",
                 f"   [ ⚙️ 2. Core Execution Pipeline ] ────► {core_str}",
@@ -800,7 +870,7 @@ class ProjectGraph:
                 f"   [ 💾 4. Persistence & State ] ────────► {data_str}",
                 "                 │",
                 "                 ▼",
-                "   [ 📤 5. Output / Response Delivery ] ─► Client / User Viewport",
+                "   [ 📤 5. Output / Response Delivery ] ─► Viewport / Client Response",
                 "",
                 "═" * w,
             ]
@@ -832,12 +902,135 @@ class ProjectGraph:
                 if len(fields) > 6:
                     lines.append(f"│   • ... and {len(fields) - 6} more fields")
             else:
-                lines.append(f"│   • Type: {m.language.upper()} Entity / Table")
+                lines.append(f"│   • Type: {m.language.upper()} Entity / Schema")
             lines.append("└──" + "─" * (w - 2) + "\n")
 
         return "\n".join(lines)
 
-    def to_curated_dashboard(self, focus_filter: str | None = None) -> str:
+    def to_detailed_llm_blueprint(self) -> str:
+        """Render a structured AST blueprint to feed directly to LLM for architectural synthesis."""
+        lines = [
+            f"Project: {self.root_dir.name}",
+            f"Total Nodes: {len(self.nodes)} | Dependencies: {len(self.edges)}",
+            "\nDirectory Structure & Source Files:",
+        ]
+
+        file_nodes = [n for n in self.nodes.values() if n.node_type == "file"]
+        by_dir: dict[str, list[str]] = defaultdict(list)
+        for f in file_nodes:
+            p = Path(f.file_path)
+            parent = str(p.parent) if str(p.parent) != "." else "/"
+            by_dir[parent].append(f.label)
+
+        for d, f_list in sorted(by_dir.items())[:20]:
+            lines.append(f"  - {d}/: {', '.join(f_list[:10])}")
+
+        in_degree: dict[str, int] = defaultdict(int)
+        for e in self.edges:
+            if e.relation == "imports":
+                in_degree[e.target] += 1
+        top_hubs = sorted(in_degree.items(), key=lambda x: x[1], reverse=True)[:8]
+        if top_hubs:
+            lines.append("\nHigh-Dependency Backbone Modules (Hubs):")
+            for hub_id, count in top_hubs:
+                lines.append(
+                    f"  - {hub_id.replace('file:', '').replace('module:', '')} (depended on by {count} files)"
+                )
+
+        models = [n for n in self.nodes.values() if n.node_type == "data_model"]
+        if models:
+            lines.append("\nData Models / Schemas:")
+            for m in models[:12]:
+                fields = self.model_fields.get(m.id, [])
+                field_str = f" ({', '.join(fields[:4])})" if fields else ""
+                lines.append(f"  - {m.label} at {m.file_path}{field_str}")
+
+        return "\n".join(lines)
+
+    def to_topological_architectural_summary(self) -> str:
+        """High-density topological architectural summary."""
+        file_count = len([n for n in self.nodes.values() if n.node_type == "file"])
+        model_count = len(self.data_models)
+        edge_count = len(self.edges)
+
+        in_degree: dict[str, int] = defaultdict(int)
+        for e in self.edges:
+            if e.relation == "imports":
+                in_degree[e.target] += 1
+        top_hubs = sorted(in_degree.items(), key=lambda x: x[1], reverse=True)[:6]
+
+        lines = [
+            f"### 🏛️ Architecture & Topology Breakdown: `{self.root_dir.name}`\n",
+            f"- **System Scope**: `{file_count}` source files, `{model_count}` data schemas, `{edge_count}` dependency edges.",
+            "- **Architectural Backbone (Core Hubs)**:",
+        ]
+        for hub_id, count in top_hubs:
+            clean = hub_id.replace("file:", "").replace("module:", "")
+            lines.append(f"  - `{clean}` (imported by {count} modules)")
+
+        models = [n for n in self.nodes.values() if n.node_type == "data_model"][:8]
+        if models:
+            lines.append("- **Core Data Entities**:")
+            for m in models:
+                lines.append(f"  - `{m.label}` (`{m.file_path}`)")
+
+        lines.append(
+            "\n*Tip: Run `/graph arch`, `/graph process`, `/graph er`, or `/graph flow` for interactive views.*"
+        )
+        return "\n".join(lines)
+
+    def to_ai_architectural_analysis(
+        self,
+        provider: str = "",
+        model: str = "",
+    ) -> str:
+        """Query LLM to generate a rich, accurate Architectural Synthesis based on the parsed AST graph."""
+        try:
+            from sago.llm.tui_providers import generate_with_provider
+
+            blueprint = self.to_detailed_llm_blueprint()
+            prompt = (
+                f"Analyze this actual codebase topology and provide a crisp, professional Architectural Report for `{self.root_dir.name}`:\n\n"
+                f"{blueprint}\n\n"
+                "Format your response with the following markdown sections:\n"
+                "### 🏛️ System Architecture & Pattern\n"
+                "Identify the architectural paradigm (e.g. Clean/Layered Architecture, Event-Driven Agentic System, Microservice/Modular Monolith) with concrete justification.\n\n"
+                "### 📦 Subsystems & Component Breakdown\n"
+                "List the main functional subsystems and their exact file/module locations.\n\n"
+                "### 🔄 Data & Execution Flow\n"
+                "Trace the end-to-end lifecycle from user entrypoint to execution and state persistence.\n\n"
+                "### 📊 Key Data Models & Backbone Entities\n"
+                "Summarize the core models, schemas, and high-dependency hub modules.\n\n"
+                "### 💡 Architectural Insights & Recommendations\n"
+                "Highlight strengths and potential architectural improvements."
+            )
+
+            prov = provider or "openrouter"
+            mod = model or "openrouter/auto"
+            messages = [{"role": "user", "content": prompt}]
+            resp = generate_with_provider(
+                provider=prov,
+                model=mod,
+                messages=messages,
+                system_prompt="You are a Principal Software Architect providing accurate, insightful codebase architecture analysis.",
+                max_tokens=2048,
+                temperature=0.2,
+                stream=False,
+            )
+            if hasattr(resp, "choices") and resp.choices:
+                return resp.choices[0].message.content.strip()
+            elif hasattr(resp, "text"):
+                return resp.text.strip()
+            elif isinstance(resp, str):
+                return resp.strip()
+            return str(resp)
+        except Exception as ex:
+            logger.debug(f"LLM architectural synthesis fallback: {ex}")
+            return self.to_topological_architectural_summary()
+
+    def to_curated_dashboard(
+        self, focus_filter: str | None = None, provider: str = "", model: str = ""
+    ) -> str:
         """Generate a complete, curated architecture, process, and data graph dashboard."""
         sections = []
 
@@ -856,7 +1049,7 @@ class ProjectGraph:
         sections.append(f"```text\n{self.to_architecture_diagram()}\n```\n")
 
         # 3. Process Execution Flow
-        sections.append("#### 🔄 Autonomous Process & Execution Flywheel")
+        sections.append("#### 🔄 Execution & Lifecycle Pipeline")
         sections.append(f"```text\n{self.to_process_map()}\n```\n")
 
         # 4. ER & Data Models
@@ -872,13 +1065,13 @@ class ProjectGraph:
         if top_hubs:
             sections.append("#### 🌟 Top Dependent Hub Modules (Core Architectural Backbone)")
             hub_items = [
-                f"- **`{hub_id.replace('file:', '')}`** (Depended on by `{count}` modules)"
+                f"- **`{hub_id.replace('file:', '').replace('module:', '')}`** (Depended on by `{count}` modules)"
                 for hub_id, count in top_hubs
             ]
             sections.append("\n".join(hub_items) + "\n")
 
         # 6. Interactive Visual Flowchart & Data Pipeline
-        sections.append("#### 📈 Interactive Visual Flowchart & Data Pipeline")
+        sections.append("#### 📈 Component Dependency & Data Pipeline")
         sections.append(
             f"```text\n{self.to_visual_flowchart(max_edges=25, focus_filter=focus_filter)}\n```\n"
         )

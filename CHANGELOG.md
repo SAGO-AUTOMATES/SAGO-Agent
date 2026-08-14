@@ -2,6 +2,35 @@
 
 All notable changes to the SAGO project are documented in this file.
 
+## [0.1.4] - 2026-08-14
+
+### Added
+- **Copy to Clipboard (`/copy`, `/clip`, `📋 Copy Code` button)**:
+  - Inline `📋 Copy Code` action button appears beneath every syntax-highlighted code block. Click to copy; button briefly flashes `✓ Copied!` and auto-resets after 2 seconds.
+  - `/copy` — copies last assistant response (thinking blocks stripped).
+  - `/copy code` / `/copy snippet` — copies last code block from conversation.
+  - `/copy all` / `/copy chat` / `/copy history` — copies entire chat history (all roles) as plain text.
+  - `/clip` alias also supported.
+
+### Fixed
+- **Markup Artifact Rendering (`[bold cyan]` visible as literal text)**:
+  - Root cause: user-typed content interpolated into Rich markup strings without escaping. Fixed with `rich.markup.escape()` throughout `ExchangeTurnCard` and `CollapsibleOutputCard` in `sago/tui/helpers.py`.
+  - All prompt previews, header titles, and collapsible card titles are now safely escaped before being rendered as Rich markup.
+- **Full User Prompt Display in Chat**:
+  - `ExchangeTurnCard` now renders the complete user prompt in the card body (`.exchange-user-prompt`), not just a 75-char truncated header snippet. Multi-line inputs fully readable.
+- **Jarring Hover Effects Removed**:
+  - Removed distracting background/color flashes on `.exchange-prompt-header:hover` and `.card-header:hover`.
+  - Scrollbar hover toned down from bright `#58a6ff` to a subtle `#484f58`.
+  - Shortcuts dialog close button hover now uses neutral muted tones instead of harsh white.
+- **Wired Real LLM Analysis to `/graph ai|review|llm|summary`**:
+  - `/graph ai` and `/graph review` now call `generate_with_provider` with the live AST graph context and produce real architectural summaries, not hardcoded strings.
+  - Architecture layers (`ProjectGraph.to_architecture_diagram`) rewritten with dynamic multi-layer classification (Presentation, Orchestration, Specialist Agents, Memory/State, Integration/Mesh, Tests).
+
+### Enhanced
+- **Chat Box Alignment & Theme Consistency**:
+  - Added `.exchange-user-prompt` and `.exchange-divider` CSS rules plus per-theme overrides across all 10 themes (Nord, Dracula, Monokai, Tokyo Night, Solarized Dark, Cyberpunk, Catppuccin Mocha, Gruvbox Dark, Rosé Pine, Light).
+  - Each theme now explicitly sets proper foreground colors for user prompts, dividers, and assistant responses.
+
 ## [0.1.3] - 2026-08-14
 
 ### Added
