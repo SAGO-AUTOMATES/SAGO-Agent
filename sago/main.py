@@ -905,7 +905,6 @@ def tui(resume: str | None) -> None:
     """
     from sago.tui.app import SagoApp
 
-    console.print("[green]Launching Sago TUI...[/]")
     app = SagoApp()
     if resume:
         app._pending_resume = resume
