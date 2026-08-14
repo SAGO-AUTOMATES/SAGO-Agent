@@ -98,70 +98,47 @@ sago/
 │   │
 │   ├── engine/                   # Execution engine
 │   │   ├── __init__.py
-│   │   └── production.py         # ProductionEngine
+│   │   ├── simple_executor.py    # Streaming ReAct loop & context compaction
+│   │   ├── project_synthesizer.py # Multi-file topological synthesis
+│   │   ├── verifier.py           # Self-healing verification flywheel
+│   │   └── unified.py            # Unified router
+│   │
+│   ├── plugins/                  # Extensible plugin system
+│   │   ├── __init__.py
+│   │   └── base.py               # BasePlugin & PluginManager (lifecycle hooks)
+│   │
+│   ├── skills/                   # Skills system
+│   │   ├── __init__.py
+│   │   ├── registry.py           # Pre-built skills registry
+│   │   └── loader.py             # Custom markdown SKILL.md loader
+│   │
+│   ├── memory/                   # Memory systems & code graphs
+│   │   ├── __init__.py
+│   │   ├── symbol_graph.py       # Compact AST repository outline map
+│   │   ├── rag.py                # RAGMemory
+│   │   ├── profiles.py           # UserProfileManager
+│   │   └── compaction.py         # Semantic context compaction
 │   │
 │   ├── orchestrator/             # Orchestration
 │   │   ├── __init__.py
 │   │   ├── engine.py             # SagoOrchestrator
 │   │   └── delegator.py          # TaskDelegator
 │   │
-│   ├── streaming/                # Streaming responses
-│   │   ├── __init__.py
-│   │   └── handler.py            # StreamPrinter, ThinkingTrace
-│   │
-│   ├── sessions/                 # Session management
-│   │   ├── __init__.py
-│   │   └── manager.py            # SessionManager, Thread
-│   │
-│   ├── workflow/                 # Temporal workflows
-│   │   ├── __init__.py
-│   │   ├── engine.py             # WorkflowEngine
-│   │   └── templates.py          # Pre-built workflows
-│   │
-│   ├── cache/                    # Intelligent caching
-│   │   ├── __init__.py
-│   │   └── intelligent.py        # ContentHashCache
-│   │
-│   ├── tracking/                 # Token tracking
-│   │   ├── __init__.py
-│   │   └── token_tracker.py      # TokenTracker
-│   │
-│   ├── memory/                   # Memory systems
-│   │   ├── __init__.py
-│   │   ├── rag.py                # RAGMemory
-│   │   ├── profiles.py           # UserProfileManager
-│   │   └── compaction.py         # InputSummarizer, SessionCompactor
-│   │
-│   ├── mcp/                      # MCP server support
-│   │   ├── __init__.py
-│   │   ├── server.py             # MCPServer
-│   │   ├── client.py             # MCPClient
-│   │   └── tools.py              # MCP tool registry
-│   │
-│   ├── skills/                   # Skills system
-│   │   ├── __init__.py
-│   │   ├── registry.py           # SkillRegistry
-│   │   └── loader.py             # SkillLoader
-│   │
-│   ├── errors/                   # Error handling
-│   │   ├── __init__.py
-│   │   ├── handler.py            # ErrorHandler
-│   │   ├── recovery.py           # Recovery strategies
-│   │   └── exceptions.py         # Custom exceptions
-│   │
-│   ├── tui/                      # Textual TUI
-│   │   ├── __init__.py
-│   │   ├── app.py                # Main TUI app
-│   │   └── smart_input.py        # Input processor
-│   │
-│   └── config/                   # Configuration
-│       ├── __init__.py
-│       ├── loader.py             # Config loading
-│       ├── project_config.py     # config.sago.json
-│       └── sago.yaml             # Master config
-│
-├── scripts/                      # Utility scripts
-│   └── convert_agents.py         # Convert agents-readme
+│   ├── tools/                    # Tool system (54 tools)
+│   │   ├── file/
+│   │   │   ├── resilient_editor.py # 3-tier fuzzy & normalized matching
+│   │   │   ├── multi_replace_file.py # Atomic multi-chunk replace
+│   │   │   └── ...
+│   │   ├── coding/
+│   │   │   ├── repo_map_tool.py  # AST symbol mapper
+│   │   │   ├── ast_grep.py       # Structural code search
+│   │   │   ├── git_blame.py      # Author provenance & line history
+│   │   │   └── ...
+│   │   ├── security/
+│   │   │   └── secret_scanner.py # Credential & API token scanner
+│   │   ├── web/
+│   │   │   └── search.py         # Web documentation search
+│   │   └── ...
 │
 ├── docs/                         # Documentation
 │   ├── PROJECT.md                # This file

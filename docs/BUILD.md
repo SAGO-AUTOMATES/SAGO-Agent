@@ -234,6 +234,14 @@ twine check dist/*
 twine upload dist/*
 
 # Tag
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+## Git Pre-Commit & Pre-Push Hooks
+
+To install automated local lint, format, and test verification before commits/pushes:
+
+```bash
+./scripts/install-hooks.sh
 ```
