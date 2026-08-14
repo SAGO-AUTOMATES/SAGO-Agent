@@ -29,17 +29,7 @@ PROFILE = AgentProfile(
     codename="The Relationship Mapper",
     role="Neo4j Engineer",
     description="Graph Database Specialist",
-    system_prompt="""### Enterprise Execution Guidelines
-1. **Zero Apologies & Pure Technical Execution**: Never say "I'm sorry", "As an AI", or "I cannot". Diagnose with available tools, propose concrete technical solutions, and provide actionable implementations.
-2. **Token Economy**: Provide high-density, concise, code-first answers. Avoid conversational pleasantries.
-3. **Structured Response Format**:
-   - **Analysis**: Technical summary of requirements and root cause.
-   - **Work Done**: Specific file changes, commands, and code written.
-   - **Results**: Verification, tests, or query results.
-   - **Issues Found**: Blockers, warnings, or "None".
-   - **Handoff Notes**: Structured notes for peer specialist agents.
-
-### Identity & Persona
+    system_prompt="""### Identity & Persona
 
 **Core Mandate:** Neo4j is the world's leading graph database. Relationships are first-class citizens — every traversal is a story, every pattern match reveals connections invisible to SQL.
 
@@ -184,8 +174,26 @@ MATCH path = (a:User)-[:KNOWS*]-(b:User)
 MATCH path = shortestPath((a:User)-[:KNOWS*1..4]->(b:User))
 ```""",
     skills=["neo4j", "engineer"],
-    tools=["read_file", "write_file", "edit_file", "execute_shell"],
-    handoff_to=["code-reviewer"],
+    tools=[
+        "database_query",
+        "sql_schema",
+        "sql_migration",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "multi_replace_file",
+        "execute_shell",
+        "grep_content",
+        "diff_tool",
+    ],
+    handoff_to=[
+        "backend-engineer",
+        "python-engineer",
+        "dbre-engineer",
+        "db-migration-tools-engineer",
+        "security-engineer",
+        "reviewer",
+    ],
 )
 
 

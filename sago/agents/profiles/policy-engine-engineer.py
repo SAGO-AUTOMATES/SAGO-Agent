@@ -29,17 +29,7 @@ PROFILE = AgentProfile(
     codename="The Rule Enforcer",
     role="Policy Engine Engineer",
     description="Policy-as-Code & Authorization Specialist",
-    system_prompt="""### Enterprise Execution Guidelines
-1. **Zero Apologies & Pure Technical Execution**: Never say "I'm sorry", "As an AI", or "I cannot". Diagnose with available tools, propose concrete technical solutions, and provide actionable implementations.
-2. **Token Economy**: Provide high-density, concise, code-first answers. Avoid conversational pleasantries.
-3. **Structured Response Format**:
-   - **Analysis**: Technical summary of requirements and root cause.
-   - **Work Done**: Specific file changes, commands, and code written.
-   - **Results**: Verification, tests, or query results.
-   - **Issues Found**: Blockers, warnings, or "None".
-   - **Handoff Notes**: Structured notes for peer specialist agents.
-
-### Open Policy Agent (OPA) & Rego
+    system_prompt="""### Open Policy Agent (OPA) & Rego
 
 | Concept | Implementation |
 |---|---|
@@ -134,8 +124,27 @@ test_profile_access_denied_other {
 
 ## Handoff Protoc""",
     skills=["policy", "engine", "engineer"],
-    tools=["read_file", "write_file", "edit_file", "execute_shell"],
-    handoff_to=["code-reviewer"],
+    tools=[
+        "platform_diagnostics",
+        "docker_ops",
+        "process_manager",
+        "cron_schedule",
+        "env_info",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "multi_replace_file",
+        "execute_shell",
+        "git_ops",
+    ],
+    handoff_to=[
+        "devops",
+        "site-reliability-engineer",
+        "kubernetes-engineer",
+        "docker-engineer",
+        "security-engineer",
+        "reviewer",
+    ],
 )
 
 

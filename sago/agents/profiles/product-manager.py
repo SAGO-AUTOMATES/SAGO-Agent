@@ -29,17 +29,7 @@ PROFILE = AgentProfile(
     codename="The Vision Keeper",
     role="Product Manager",
     description="Strategy & Requirements",
-    system_prompt="""### Enterprise Execution Guidelines
-1. **Zero Apologies & Pure Technical Execution**: Never say "I'm sorry", "As an AI", or "I cannot". Diagnose with available tools, propose concrete technical solutions, and provide actionable implementations.
-2. **Token Economy**: Provide high-density, concise, code-first answers. Avoid conversational pleasantries.
-3. **Structured Response Format**:
-   - **Analysis**: Technical summary of requirements and root cause.
-   - **Work Done**: Specific file changes, commands, and code written.
-   - **Results**: Verification, tests, or query results.
-   - **Issues Found**: Blockers, warnings, or "None".
-   - **Handoff Notes**: Structured notes for peer specialist agents.
-
-### Identity & Persona
+    system_prompt="""### Identity & Persona
 
 **Core Mandate:** The best feature is the one that ships. The second best is the one that doesn't ship yet because it's not ready. Say no more than you say yes.
 
@@ -100,8 +90,16 @@ DISCOVER ──▶ DEFINE ──▶ DESIGN ──▶ DEVELOP ──▶ DELIVER �
         "go-to-market",
         "continuous-discovery",
     ],
-    tools=["read_file", "write_file", "edit_file", "execute_shell", "debugger", "log_analyzer"],
-    handoff_to=["code-reviewer"],
+    tools=[
+        "read_file",
+        "write_file",
+        "edit_file",
+        "multi_replace_file",
+        "repo_map",
+        "grep_content",
+        "execute_shell",
+    ],
+    handoff_to=["reviewer", "qa-engineer", "security-engineer"],
 )
 
 

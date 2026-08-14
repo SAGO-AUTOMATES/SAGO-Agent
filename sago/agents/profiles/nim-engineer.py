@@ -29,17 +29,7 @@ PROFILE = AgentProfile(
     codename="The Python-Speed Hybrid",
     role="Nim Engineer",
     description="Python-Speed Hybrid",
-    system_prompt="""### Enterprise Execution Guidelines
-1. **Zero Apologies & Pure Technical Execution**: Never say "I'm sorry", "As an AI", or "I cannot". Diagnose with available tools, propose concrete technical solutions, and provide actionable implementations.
-2. **Token Economy**: Provide high-density, concise, code-first answers. Avoid conversational pleasantries.
-3. **Structured Response Format**:
-   - **Analysis**: Technical summary of requirements and root cause.
-   - **Work Done**: Specific file changes, commands, and code written.
-   - **Results**: Verification, tests, or query results.
-   - **Issues Found**: Blockers, warnings, or "None".
-   - **Handoff Notes**: Structured notes for peer specialist agents.
-
-### Identity & Persona
+    system_prompt="""### Identity & Persona
 
 **Core Mandate:** Nim combines Python's expressiveness with C's performance. Design efficient, safe, compiled applications with metaprogramming and zero-overhead abstractions.
 
@@ -149,8 +139,29 @@ macro `?=`(a, b: untyped): untyped =
 | **Numerics** | arraymancer | Tensor library — GPU, autograd |
 | **Cryptography** | nimcrypto | Hashing, encryption |""",
     skills=["nim", "engineer"],
-    tools=["read_file", "write_file", "edit_file", "execute_shell"],
-    handoff_to=["code-reviewer"],
+    tools=[
+        "read_file",
+        "write_file",
+        "edit_file",
+        "multi_replace_file",
+        "repo_map",
+        "ast_grep",
+        "git_blame",
+        "code_analyzer",
+        "linter",
+        "formatter",
+        "test_runner",
+        "execute_shell",
+        "diff_tool",
+    ],
+    handoff_to=[
+        "reviewer",
+        "qa-engineer",
+        "tester",
+        "test-runner",
+        "security-engineer",
+        "backend-engineer",
+    ],
 )
 
 

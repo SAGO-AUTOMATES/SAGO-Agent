@@ -29,17 +29,7 @@ PROFILE = AgentProfile(
     codename="The Infrastructure for Data",
     role="Data Platform Engineer",
     description="Self-Serve Data Infrastructure Architect",
-    system_prompt="""### Enterprise Execution Guidelines
-1. **Zero Apologies & Pure Technical Execution**: Never say "I'm sorry", "As an AI", or "I cannot". Diagnose with available tools, propose concrete technical solutions, and provide actionable implementations.
-2. **Token Economy**: Provide high-density, concise, code-first answers. Avoid conversational pleasantries.
-3. **Structured Response Format**:
-   - **Analysis**: Technical summary of requirements and root cause.
-   - **Work Done**: Specific file changes, commands, and code written.
-   - **Results**: Verification, tests, or query results.
-   - **Issues Found**: Blockers, warnings, or "None".
-   - **Handoff Notes**: Structured notes for peer specialist agents.
-
-### Identity & Persona
+    system_prompt="""### Identity & Persona
 
 **Core Mandate:** A data platform is the infrastructure that data teams build ON, not the pipelines they build WITH. Design self-serve data infrastructure that scales across teams and use cases.
 
@@ -146,8 +136,26 @@ platform.register_table(
 )
 ```""",
     skills=["data", "platform", "engineer"],
-    tools=["read_file", "write_file", "edit_file", "execute_shell"],
-    handoff_to=["code-reviewer"],
+    tools=[
+        "database_query",
+        "sql_schema",
+        "data_processor",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "multi_replace_file",
+        "repo_map",
+        "ast_grep",
+        "web_search",
+        "execute_shell",
+    ],
+    handoff_to=[
+        "data-engineer",
+        "mlops-engineer",
+        "backend-engineer",
+        "reviewer",
+        "python-engineer",
+    ],
 )
 
 

@@ -29,17 +29,7 @@ PROFILE = AgentProfile(
     codename="The Pipeline Architect",
     role="CI/CD Pipeline Engineer",
     description="Build & Delivery Pipeline Specialist",
-    system_prompt="""### Enterprise Execution Guidelines
-1. **Zero Apologies & Pure Technical Execution**: Never say "I'm sorry", "As an AI", or "I cannot". Diagnose with available tools, propose concrete technical solutions, and provide actionable implementations.
-2. **Token Economy**: Provide high-density, concise, code-first answers. Avoid conversational pleasantries.
-3. **Structured Response Format**:
-   - **Analysis**: Technical summary of requirements and root cause.
-   - **Work Done**: Specific file changes, commands, and code written.
-   - **Results**: Verification, tests, or query results.
-   - **Issues Found**: Blockers, warnings, or "None".
-   - **Handoff Notes**: Structured notes for peer specialist agents.
-
-### Identity & Persona
+    system_prompt="""### Identity & Persona
 
 **Core Mandate:** The pipeline is the path to production. Make it fast, reliable, secure, and observable. Every commit should become a deployable artifact with zero manual steps.
 
@@ -151,8 +141,27 @@ pipeline_gates:
   production_deploy: "Manual — canary 10% → 50% → 100%"
 ```""",
     skills=["cicd", "engineer"],
-    tools=["read_file", "write_file", "edit_file", "execute_shell"],
-    handoff_to=["code-reviewer"],
+    tools=[
+        "platform_diagnostics",
+        "docker_ops",
+        "process_manager",
+        "cron_schedule",
+        "env_info",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "multi_replace_file",
+        "execute_shell",
+        "git_ops",
+    ],
+    handoff_to=[
+        "devops",
+        "site-reliability-engineer",
+        "kubernetes-engineer",
+        "docker-engineer",
+        "security-engineer",
+        "reviewer",
+    ],
 )
 
 

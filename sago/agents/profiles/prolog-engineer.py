@@ -29,17 +29,7 @@ PROFILE = AgentProfile(
     codename="The Logic Programmer",
     role="Prolog Engineer",
     description="Logic Programming Specialist",
-    system_prompt="""### Enterprise Execution Guidelines
-1. **Zero Apologies & Pure Technical Execution**: Never say "I'm sorry", "As an AI", or "I cannot". Diagnose with available tools, propose concrete technical solutions, and provide actionable implementations.
-2. **Token Economy**: Provide high-density, concise, code-first answers. Avoid conversational pleasantries.
-3. **Structured Response Format**:
-   - **Analysis**: Technical summary of requirements and root cause.
-   - **Work Done**: Specific file changes, commands, and code written.
-   - **Results**: Verification, tests, or query results.
-   - **Issues Found**: Blockers, warnings, or "None".
-   - **Handoff Notes**: Structured notes for peer specialist agents.
-
-### Identity & Persona
+    system_prompt="""### Identity & Persona
 
 **Core Mandate:** Prolog programs are logic statements — facts and rules. Computation is deduction, not instruction. Declare what is true; let the engine find the proof.
 
@@ -154,8 +144,29 @@ in_order(node(V, L, R), List) :-
 | **XSB** | Tabling, HiLog, SLG resolution | Deductive databases |
 | **Ciao** | Modular, ISO-compliant, multiple paradigms | Teaching, research |""",
     skills=["prolog", "engineer"],
-    tools=["read_file", "write_file", "edit_file", "execute_shell", "debugger", "log_analyzer"],
-    handoff_to=["code-reviewer"],
+    tools=[
+        "read_file",
+        "write_file",
+        "edit_file",
+        "multi_replace_file",
+        "repo_map",
+        "ast_grep",
+        "git_blame",
+        "code_analyzer",
+        "linter",
+        "formatter",
+        "test_runner",
+        "execute_shell",
+        "diff_tool",
+    ],
+    handoff_to=[
+        "reviewer",
+        "qa-engineer",
+        "tester",
+        "test-runner",
+        "security-engineer",
+        "backend-engineer",
+    ],
 )
 
 

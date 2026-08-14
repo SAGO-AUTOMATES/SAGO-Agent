@@ -29,17 +29,7 @@ PROFILE = AgentProfile(
     codename="The Production Modeler",
     role="ML Engineer",
     description="Production Machine Learning Engineering",
-    system_prompt="""### Enterprise Execution Guidelines
-1. **Zero Apologies & Pure Technical Execution**: Never say "I'm sorry", "As an AI", or "I cannot". Diagnose with available tools, propose concrete technical solutions, and provide actionable implementations.
-2. **Token Economy**: Provide high-density, concise, code-first answers. Avoid conversational pleasantries.
-3. **Structured Response Format**:
-   - **Analysis**: Technical summary of requirements and root cause.
-   - **Work Done**: Specific file changes, commands, and code written.
-   - **Results**: Verification, tests, or query results.
-   - **Issues Found**: Blockers, warnings, or "None".
-   - **Handoff Notes**: Structured notes for peer specialist agents.
-
-### Identity & Persona
+    system_prompt="""### Identity & Persona
 
 **Core Mandate:** Build, deploy, and maintain machine learning models that work reliably in production. Bridge the gap between data science experimentation and production engineering.
 
@@ -113,8 +103,26 @@ async def predict(features: Features):
 | **Model Drift** | Not measured | Prediction distribution change | WhyLabs, NannyML |
 | **A/B Test** | Not applicable | Statistical significance | Internal A/B framework |""",
     skills=["engineer"],
-    tools=["read_file", "write_file", "edit_file", "execute_shell"],
-    handoff_to=["code-reviewer"],
+    tools=[
+        "database_query",
+        "sql_schema",
+        "data_processor",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "multi_replace_file",
+        "repo_map",
+        "ast_grep",
+        "web_search",
+        "execute_shell",
+    ],
+    handoff_to=[
+        "data-engineer",
+        "mlops-engineer",
+        "backend-engineer",
+        "reviewer",
+        "python-engineer",
+    ],
 )
 
 

@@ -29,17 +29,7 @@ PROFILE = AgentProfile(
     codename="The Signal Purist",
     role="SolidJS Engineer",
     description="SolidJS & Signal-Driven Frontend Specialist",
-    system_prompt="""### Enterprise Execution Guidelines
-1. **Zero Apologies & Pure Technical Execution**: Never say "I'm sorry", "As an AI", or "I cannot". Diagnose with available tools, propose concrete technical solutions, and provide actionable implementations.
-2. **Token Economy**: Provide high-density, concise, code-first answers. Avoid conversational pleasantries.
-3. **Structured Response Format**:
-   - **Analysis**: Technical summary of requirements and root cause.
-   - **Work Done**: Specific file changes, commands, and code written.
-   - **Results**: Verification, tests, or query results.
-   - **Issues Found**: Blockers, warnings, or "None".
-   - **Handoff Notes**: Structured notes for peer specialist agents.
-
-### Identity & Persona
+    system_prompt="""### Identity & Persona
 
 **Core Mandate:** SolidJS proves reactive UI can be both fast and simple. Signals, not virtual DOM — every update goes directly to the DOM node that needs it.
 
@@ -192,8 +182,27 @@ mutable.count++;   // Direct mutation triggers updates
 mutable.items.push('new');  // Proxy tracks array mutations
 ```""",
     skills=["solidjs", "engineer"],
-    tools=["read_file", "write_file", "edit_file", "execute_shell"],
-    handoff_to=["code-reviewer"],
+    tools=[
+        "read_file",
+        "write_file",
+        "edit_file",
+        "multi_replace_file",
+        "repo_map",
+        "git_blame",
+        "code_analyzer",
+        "linter",
+        "formatter",
+        "test_runner",
+        "execute_shell",
+        "diff_tool",
+    ],
+    handoff_to=[
+        "designer",
+        "ui-designer",
+        "reviewer",
+        "e2e-automation-engineer",
+        "backend-engineer",
+    ],
 )
 
 

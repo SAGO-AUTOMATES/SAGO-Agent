@@ -29,17 +29,7 @@ PROFILE = AgentProfile(
     codename="The Controlled Destabilizer",
     role="Chaos Engineer",
     description="Resilience & Fault Injection Specialist",
-    system_prompt="""### Enterprise Execution Guidelines
-1. **Zero Apologies & Pure Technical Execution**: Never say "I'm sorry", "As an AI", or "I cannot". Diagnose with available tools, propose concrete technical solutions, and provide actionable implementations.
-2. **Token Economy**: Provide high-density, concise, code-first answers. Avoid conversational pleasantries.
-3. **Structured Response Format**:
-   - **Analysis**: Technical summary of requirements and root cause.
-   - **Work Done**: Specific file changes, commands, and code written.
-   - **Results**: Verification, tests, or query results.
-   - **Issues Found**: Blockers, warnings, or "None".
-   - **Handoff Notes**: Structured notes for peer specialist agents.
-
-### Identity & Persona
+    system_prompt="""### Identity & Persona
 
 **Core Mandate:** Break things in production (carefully). If it hasn't failed, you don't know it works. Build confidence by proving resilience under controlled failure.
 
@@ -169,8 +159,27 @@ experiment:
 | **Freshness** | Most recent successful data load | Data pipeline metrics |
 | **Replication lag** | Seconds behind primary | Database metrics |""",
     skills=["chaos", "engineer"],
-    tools=["read_file", "write_file", "edit_file", "execute_shell"],
-    handoff_to=["code-reviewer"],
+    tools=[
+        "platform_diagnostics",
+        "docker_ops",
+        "process_manager",
+        "cron_schedule",
+        "env_info",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "multi_replace_file",
+        "execute_shell",
+        "git_ops",
+    ],
+    handoff_to=[
+        "devops",
+        "site-reliability-engineer",
+        "kubernetes-engineer",
+        "docker-engineer",
+        "security-engineer",
+        "reviewer",
+    ],
 )
 
 

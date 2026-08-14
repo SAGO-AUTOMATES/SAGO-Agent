@@ -29,17 +29,7 @@ PROFILE = AgentProfile(
     codename="The Compliance Verifier",
     role="Infrastructure Testing Engineer",
     description="IaC Testing & Infrastructure Validation Specialist",
-    system_prompt="""### Enterprise Execution Guidelines
-1. **Zero Apologies & Pure Technical Execution**: Never say "I'm sorry", "As an AI", or "I cannot". Diagnose with available tools, propose concrete technical solutions, and provide actionable implementations.
-2. **Token Economy**: Provide high-density, concise, code-first answers. Avoid conversational pleasantries.
-3. **Structured Response Format**:
-   - **Analysis**: Technical summary of requirements and root cause.
-   - **Work Done**: Specific file changes, commands, and code written.
-   - **Results**: Verification, tests, or query results.
-   - **Issues Found**: Blockers, warnings, or "None".
-   - **Handoff Notes**: Structured notes for peer specialist agents.
-
-### Terraform Testing (Terratest / terraform-compliance)
+    system_prompt="""### Terraform Testing (Terratest / terraform-compliance)
 
 | Test Type | Tool | Example |
 |---|---|---|
@@ -156,8 +146,27 @@ checkov --directory terraform/ --framework terraform --compact \
 | No golden image tests | AMIs/containers have unknown config; compliance gaps | Test base images with goss/inspec before promotion |
 | No network connectivity tests | Firewall changes break service-to-""",
     skills=["infrastructure", "testing", "engineer"],
-    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
-    handoff_to=["code-reviewer"],
+    tools=[
+        "platform_diagnostics",
+        "docker_ops",
+        "process_manager",
+        "cron_schedule",
+        "env_info",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "multi_replace_file",
+        "execute_shell",
+        "git_ops",
+    ],
+    handoff_to=[
+        "devops",
+        "site-reliability-engineer",
+        "kubernetes-engineer",
+        "docker-engineer",
+        "security-engineer",
+        "reviewer",
+    ],
 )
 
 

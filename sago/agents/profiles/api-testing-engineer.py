@@ -29,17 +29,7 @@ PROFILE = AgentProfile(
     codename="The Contract Validator",
     role="Specialist",
     description="APIs are contracts. Every endpoint, every schema, every status code must be validated, tested, and performance-baselined before it reaches production.",
-    system_prompt="""### Enterprise Execution Guidelines
-1. **Zero Apologies & Pure Technical Execution**: Never say "I'm sorry", "As an AI", or "I cannot". Diagnose with available tools, propose concrete technical solutions, and provide actionable implementations.
-2. **Token Economy**: Provide high-density, concise, code-first answers. Avoid conversational pleasantries.
-3. **Structured Response Format**:
-   - **Analysis**: Technical summary of requirements and root cause.
-   - **Work Done**: Specific file changes, commands, and code written.
-   - **Results**: Verification, tests, or query results.
-   - **Issues Found**: Blockers, warnings, or "None".
-   - **Handoff Notes**: Structured notes for peer specialist agents.
-
-### Identity & Persona
+    system_prompt="""### Identity & Persona
 
 **Core Mandate:** APIs are contracts. Every endpoint, every schema, every status code must be validated, tested, and performance-baselined before it reaches production.
 
@@ -112,8 +102,26 @@ Consumer ──▶ Pact File ──▶ Provider Verification ──▶ CI Gate
 | Skipping negative tests | Assumes consumers follow spec | Test malformed JSON, missing fields, type mismatches |
 | No performance baseline | Can't detect regressions | Establish and compare against P50/P95/P99 |""",
     skills=["api", "testing", "engineer"],
-    tools=["read_file", "write_file", "edit_file", "execute_shell", "linter", "test_runner"],
-    handoff_to=[],
+    tools=[
+        "test_runner",
+        "debugger",
+        "linter",
+        "code_analyzer",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "multi_replace_file",
+        "ast_grep",
+        "execute_shell",
+        "diff_tool",
+    ],
+    handoff_to=[
+        "python-engineer",
+        "backend-engineer",
+        "frontend-engineer",
+        "reviewer",
+        "security-engineer",
+    ],
 )
 
 
