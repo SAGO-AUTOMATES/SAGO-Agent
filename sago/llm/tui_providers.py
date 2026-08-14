@@ -17,6 +17,98 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 
+def resolve_active_llm_config(
+    provider: str | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+) -> dict[str, Any]:
+    """Resolve active LLM configuration (provider, model, api_key, base_url).
+
+    Inherits settings from persistent user choices (e.g. from TUI or CLI),
+    environment variables, project configs, and falls back gracefully.
+    """
+    from sago.settings import load_setting
+
+    # 1. Resolve Provider
+    resolved_provider = provider
+    if not resolved_provider:
+        resolved_provider = os.environ.get("SAGO_PROVIDER") or load_setting("provider")
+    if not resolved_provider:
+        try:
+            from sago.config.loader import get_config
+
+            cfg = get_config()
+            resolved_provider = getattr(cfg.llm_providers, "default", None) or "openrouter"
+        except Exception:
+            resolved_provider = "openrouter"
+
+    # 2. Resolve Model
+    resolved_model = model
+    if not resolved_model:
+        resolved_model = os.environ.get("SAGO_MODEL") or load_setting("model")
+    if not resolved_model:
+        try:
+            from sago.config.loader import get_config
+
+            cfg = get_config()
+            if hasattr(cfg, "orchestrator") and getattr(cfg.orchestrator, "model", None):
+                resolved_model = cfg.orchestrator.model
+        except Exception:
+            pass
+    if not resolved_model:
+        provider_defaults = {
+            "google": "gemini-2.5-pro",
+            "openai": "gpt-4o",
+            "openrouter": "openrouter/free",
+            "claude": "claude-3-5-sonnet-20241022",
+            "anthropic": "claude-3-5-sonnet-20241022",
+        }
+        resolved_model = provider_defaults.get(resolved_provider, "openrouter/free")
+
+    # 3. Resolve API Key
+    resolved_key = api_key
+    if not resolved_key:
+        if resolved_provider == "google" or "gemini" in resolved_model:
+            resolved_key = os.environ.get("GEMINI_API_KEY", "")
+        elif resolved_provider == "openai" or any(
+            resolved_model.startswith(p) for p in ("gpt", "o1", "o3")
+        ):
+            resolved_key = os.environ.get("OPENAI_API_KEY", "")
+        elif resolved_provider in ("claude", "anthropic") or "claude" in resolved_model:
+            resolved_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        elif resolved_provider == "openrouter":
+            resolved_key = os.environ.get("OPENROUTER_API_KEY", "")
+
+        if not resolved_key:
+            resolved_key = (
+                os.environ.get("OPENROUTER_API_KEY")
+                or os.environ.get("OPENAI_API_KEY")
+                or os.environ.get("GEMINI_API_KEY")
+                or os.environ.get("ANTHROPIC_API_KEY")
+                or ""
+            )
+
+    # 4. Resolve Base URL
+    resolved_base_url = base_url
+    if resolved_base_url is None:
+        if resolved_provider == "google":
+            resolved_base_url = None
+        elif resolved_provider == "openai":
+            resolved_base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        elif resolved_provider == "openrouter":
+            resolved_base_url = os.environ.get(
+                "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+            )
+
+    return {
+        "provider": resolved_provider,
+        "model": resolved_model,
+        "api_key": resolved_key,
+        "base_url": resolved_base_url,
+    }
+
+
 def get_tui_client(provider: str, model: str) -> tuple[OpenAI | Any, str]:
     """Get (client, api_model) for the TUI.
 

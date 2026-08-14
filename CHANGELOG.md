@@ -2,9 +2,19 @@
 
 All notable changes to the SAGO project are documented in this file.
 
-## [0.1.4] - 2026-08-14
+## [0.1.5] - 2026-08-14
 
 ### Added
+- **Sub-Agent & Delegation Dynamic Model/Provider Inheritance**:
+  - `resolve_active_llm_config()` in `sago/llm/tui_providers.py` dynamically resolves the user's active provider (Google, OpenAI, Claude, OpenRouter), selected model, and corresponding API keys (`GEMINI_API_KEY`, `OPENAI_API_KEY`, etc.).
+  - `AgentDelegator` and `SpawnAgentTool` now execute subagents using the parent's active model instead of defaulting back to `openrouter/free`.
+- **Instant `@` Agent Autocompletion & Delegation Auto-Suggest**:
+  - Typing `@` immediately displays prioritized specialist agents (orchestrator, python-engineer, frontend, backend, debugger, reviewer, etc.) with role descriptions.
+  - Added smart autocompletion for `/delegate <agent>`, `@delegate <agent>`, `/chain <agent1,agent2>`, and `@chain <agent1,agent2>`.
+  - Selecting a delegation suggestion automatically pre-fills the input field so users can seamlessly append their task.
+- **Distributed Mesh Authentication & Replay Protection**:
+  - Cryptographic HMAC-SHA256 signature generation (`MeshMessage.sign()`) and verification (`MeshMessage.verify()`) using `SAGO_MESH_SECRET`.
+  - Replay attack mitigation rejecting packets older than 300 seconds.
 - **Copy to Clipboard (`/copy`, `/clip`, `📋 Copy Code` button)**:
   - Inline `📋 Copy Code` action button appears beneath every syntax-highlighted code block. Click to copy; button briefly flashes `✓ Copied!` and auto-resets after 2 seconds.
   - `/copy` — copies last assistant response (thinking blocks stripped).
@@ -13,6 +23,10 @@ All notable changes to the SAGO project are documented in this file.
   - `/clip` alias also supported.
 
 ### Fixed
+- **SQLite Multi-Thread Exit Failure (`ProgrammingError`)**:
+  - Resolved `sqlite3.ProgrammingError: SQLite objects created in a thread can only be used in that same thread` by setting `check_same_thread=False` on connection pooling and cleanly handling thread teardown in `close_all_connections()`.
+- **Dynamic Version Resolution Across TUI & CLI**:
+  - TUI welcome screen, `/version` command, and Click CLI status dynamically resolve the installed package version from `sago.__version__` / `importlib.metadata`.
 - **Markup Artifact Rendering (`[bold cyan]` visible as literal text)**:
   - Root cause: user-typed content interpolated into Rich markup strings without escaping. Fixed with `rich.markup.escape()` throughout `ExchangeTurnCard` and `CollapsibleOutputCard` in `sago/tui/helpers.py`.
   - All prompt previews, header titles, and collapsible card titles are now safely escaped before being rendered as Rich markup.
@@ -27,6 +41,8 @@ All notable changes to the SAGO project are documented in this file.
   - Architecture layers (`ProjectGraph.to_architecture_diagram`) rewritten with dynamic multi-layer classification (Presentation, Orchestration, Specialist Agents, Memory/State, Integration/Mesh, Tests).
 
 ### Enhanced
+- **Packaging & CI / Build Dependencies**:
+  - Added `build>=1.2.0` and `twine>=5.0.0` to dev dependencies; verified clean package builds and twine checks.
 - **Chat Box Alignment & Theme Consistency**:
   - Added `.exchange-user-prompt` and `.exchange-divider` CSS rules plus per-theme overrides across all 10 themes (Nord, Dracula, Monokai, Tokyo Night, Solarized Dark, Cyberpunk, Catppuccin Mocha, Gruvbox Dark, Rosé Pine, Light).
   - Each theme now explicitly sets proper foreground colors for user prompts, dividers, and assistant responses.

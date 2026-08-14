@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -73,9 +72,14 @@ class SpawnAgentTool(BaseTool):
                 f"Please complete this task directly without delegating further."
             )
 
-        api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+        from sago.llm.tui_providers import resolve_active_llm_config
+
+        llm_cfg = resolve_active_llm_config()
+        api_key = llm_cfg["api_key"]
         if not api_key:
-            return "Error: No API key set. Set OPENROUTER_API_KEY or OPENAI_API_KEY."
+            return (
+                "Error: No API key set. Set GEMINI_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
+            )
 
         # Register this agent in the guard
         guard.enter(agent_name)
@@ -88,6 +92,7 @@ class SpawnAgentTool(BaseTool):
                 feedback=feedback,
                 api_key=api_key,
                 guard=guard,
+                llm_cfg=llm_cfg,
             )
         finally:
             guard.exit(agent_name)
@@ -100,21 +105,22 @@ class SpawnAgentTool(BaseTool):
         feedback: str,
         api_key: str,
         guard: Any,
+        llm_cfg: dict[str, Any] | None = None,
     ) -> str:
         """Execute the agent with proper prompts and context."""
         # Build the system prompt with full context
         system_prompt = self._build_system_prompt(agent_name, task, context, feedback, guard)
 
-        # Use configured model from config, not hardcoded
-        try:
-            from sago.config.loader import get_config
+        # Use active model from settings/env/config
+        if llm_cfg is None:
+            from sago.llm.tui_providers import resolve_active_llm_config
 
-            config = get_config()
-            model = config.llm.model or "openrouter/free"
-        except Exception:
-            model = "openrouter/free"
+            llm_cfg = resolve_active_llm_config()
 
-        # Try with configured model first, fallback to free model
+        model = llm_cfg["model"]
+        base_url = llm_cfg["base_url"]
+
+        # Try with user-selected model first, fallback to free model if distinct
         models_to_try = [model]
         if model != "openrouter/free":
             models_to_try.append("openrouter/free")
@@ -130,6 +136,7 @@ class SpawnAgentTool(BaseTool):
                     system_prompt=system_prompt,
                     api_key=api_key,
                     model=try_model,
+                    base_url=base_url if try_model == model else "https://openrouter.ai/api/v1",
                     max_tokens=8192,
                     max_iterations=20,
                 )

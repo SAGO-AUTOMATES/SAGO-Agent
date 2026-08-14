@@ -1,6 +1,6 @@
 [project]
 name = "sago-agent"
-version = "0.1.4"
+version = "0.1.5"
 description = "Sophisticated Multi-Agent Orchestration System with infinite tools, cross-platform support, and TUI interface"
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -43,7 +43,7 @@ gemini = ["google-generativeai>=0.8.0", "langchain-google-genai>=2.0.0"]
 openai = ["langchain-openai>=0.3.0"]
 claude = ["anthropic>=0.40.0", "langchain-anthropic>=0.3.0"]
 ollama = ["langchain-community>=0.3.0"]
-dev = ["ruff>=0.8.0", "mypy>=1.13.0", "pytest>=8.0.0", "pytest-cov>=5.0.0"]
+dev = ["ruff>=0.8.0", "mypy>=1.13.0", "pytest>=8.0.0", "pytest-cov>=5.0.0", "build>=1.2.0", "twine>=5.0.0"]
 
 [project.scripts]
 sago = "sago.main:main"

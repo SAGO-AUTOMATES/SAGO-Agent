@@ -699,7 +699,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         for line in logo_lines:
             welcome.mount(Static(line, classes="welcome-logo"))
         welcome.mount(Static("─" * 40, classes="welcome-separator"))
-        welcome.mount(Static("v0.1.1 — Multi-Agent Orchestration", classes="welcome-version"))
+        from sago import __version__
+
+        welcome.mount(
+            Static(f"v{__version__} — Multi-Agent Orchestration", classes="welcome-version")
+        )
         welcome.mount(Static("AI-Powered Software Engineering Agent", classes="welcome-subtitle"))
         welcome.mount(Static("Type a message or use /help for commands", classes="welcome-hint"))
 
@@ -891,8 +895,12 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self._show_shortcuts_suggestions(v)
             return
 
-        # If the input starts with a slash command, trigger smart command autocompleter
+        # If the input starts with a slash command or @delegate/@chain/@agent command
         if v.startswith("/"):
+            self._show_cmd_suggestions(v)
+            return
+
+        if v.startswith("@delegate") or v.startswith("@chain") or v.startswith("@agent"):
             self._show_cmd_suggestions(v)
             return
 
@@ -942,7 +950,24 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             val = self.suggestion_values[self.suggestion_index]
             self._hide_suggestions()
 
-            if val.startswith("/"):
+            # Commands that require further task/arguments
+            if (
+                val.startswith("/delegate")
+                or val.startswith("@delegate")
+                or val.startswith("/chain")
+                or val.startswith("@chain")
+                or val.startswith("/agent")
+                or val.startswith("@agent")
+                or val.startswith("/model")
+                or val.startswith("/effort")
+                or val.startswith("/theme")
+                or val.startswith("/dev")
+                or val.startswith("/checkpoint")
+            ):
+                event.input.value = val + " "
+                event.input.cursor_position = len(event.input.value)
+                return
+            elif val.startswith("/"):
                 # Complete command selected -> execute immediately
                 event.input.value = ""
                 self._handle_command(val)
@@ -1206,25 +1231,77 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self._show_suggestions(items, values)
             return
 
-        # 5. /agent suggestions
-        if raw.startswith("/agent "):
-            query = raw[7:].strip()
+        # 5. /delegate or @delegate suggestions
+        if raw.startswith("/delegate") or raw.startswith("@delegate"):
+            query = raw.split(None, 1)[1].strip() if " " in raw else ""
+            prefix_cmd = "/delegate" if raw.startswith("/") else "@delegate"
             try:
                 from sago.agents.registry import list_agents
 
                 agents = list_agents()
-                matches = [a for a in agents if query.lower() in a["name"].lower()]
+                matches = self._rank_agent_matches(agents, query)
                 items = [
-                    f"[bold magenta]@{a['name']}[/bold magenta] [dim]{a.get('description', '')[:40]}[/dim]"
-                    for a in matches[:25]
+                    f"[bold magenta]⚡ @{a['name']}[/bold magenta] [dim]{a.get('description', '')[:45]}[/dim]"
+                    for a in matches[:35]
                 ]
-                values = [f"/agent {a['name']}" for a in matches[:25]]
+                values = [f"{prefix_cmd} {a['name']}" for a in matches[:35]]
                 self._show_suggestions(items, values)
                 return
             except Exception:
                 pass
 
-        # 6. /checkpoint suggestions
+        # 6. /chain or @chain suggestions
+        if raw.startswith("/chain") or raw.startswith("@chain"):
+            query = raw.split(None, 1)[1].strip() if " " in raw else ""
+            prefix_cmd = "/chain" if raw.startswith("/") else "@chain"
+            try:
+                from sago.agents.registry import list_agents
+
+                agents = list_agents()
+                if "," in query:
+                    parts = [p.strip() for p in query.split(",")]
+                    current_typing = parts[-1].lower()
+                    prefix_before = ",".join(parts[:-1]) + ","
+                    matches = self._rank_agent_matches(
+                        [a for a in agents if a["name"] not in parts], current_typing
+                    )
+                    items = [
+                        f"[bold magenta]🔗 {prefix_before}{a['name']}[/bold magenta] [dim]{a.get('description', '')[:40]}[/dim]"
+                        for a in matches[:30]
+                    ]
+                    values = [f"{prefix_cmd} {prefix_before}{a['name']}" for a in matches[:30]]
+                else:
+                    matches = self._rank_agent_matches(agents, query)
+                    items = [
+                        f"[bold magenta]🔗 @{a['name']}[/bold magenta] [dim]{a.get('description', '')[:45]}[/dim]"
+                        for a in matches[:35]
+                    ]
+                    values = [f"{prefix_cmd} {a['name']}" for a in matches[:35]]
+                self._show_suggestions(items, values)
+                return
+            except Exception:
+                pass
+
+        # 7. /agent or @agent suggestions
+        if raw.startswith("/agent") or raw.startswith("@agent"):
+            query = raw.split(None, 1)[1].strip() if " " in raw else ""
+            prefix_cmd = "/agent" if raw.startswith("/") else "@agent"
+            try:
+                from sago.agents.registry import list_agents
+
+                agents = list_agents()
+                matches = self._rank_agent_matches(agents, query)
+                items = [
+                    f"[bold magenta]@{a['name']}[/bold magenta] [dim]{a.get('description', '')[:45]}[/dim]"
+                    for a in matches[:35]
+                ]
+                values = [f"{prefix_cmd} {a['name']}" for a in matches[:35]]
+                self._show_suggestions(items, values)
+                return
+            except Exception:
+                pass
+
+        # 8. /checkpoint suggestions
         if raw.startswith("/checkpoint"):
             query = raw.split(None, 1)[1].strip() if " " in raw else ""
             opts = {
@@ -1238,7 +1315,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self._show_suggestions(items, values)
             return
 
-        # 7. General command prefix matching
+        # 9. General command prefix matching
         matches = [cmd for cmd in COMMANDS if cmd.startswith(raw.lower())]
         if not matches:
             matches = [cmd for cmd in COMMANDS if raw.lower().lstrip("/") in cmd]
@@ -1269,26 +1346,75 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         values = [f"/model {m}" for m in models[:30]]
         self._show_suggestions(items, values)
 
+    def _rank_agent_matches(self, agents: list[dict], query: str) -> list[dict]:
+        """Rank agent matches so exact/prefix matches and core specialists appear first."""
+        if not query:
+            featured = [
+                "sago-orchestrator",
+                "python-engineer",
+                "frontend-engineer",
+                "backend-engineer",
+                "fullstack-developer",
+                "debugger",
+                "architect",
+                "devops-engineer",
+                "reviewer",
+                "qa-engineer",
+                "security-engineer",
+                "database-engineer",
+            ]
+            featured_set = set(featured)
+            top = [a for a in agents if a["name"] in featured_set]
+            top.sort(key=lambda a: featured.index(a["name"]) if a["name"] in featured else 999)
+            rest = [a for a in agents if a["name"] not in featured_set]
+            return top + rest
+
+        q = query.lower()
+        exact = []
+        prefix = []
+        sub_name = []
+        desc = []
+
+        for a in agents:
+            name = a["name"].lower()
+            description = a.get("description", "").lower()
+            if name == q:
+                exact.append(a)
+            elif name.startswith(q):
+                prefix.append(a)
+            elif q in name:
+                sub_name.append(a)
+            elif q in description:
+                desc.append(a)
+
+        return exact + prefix + sub_name + desc
+
     def _show_agent_suggestions(self, prefix: str) -> None:
         try:
             from sago.agents.registry import list_agents
 
             agents = list_agents()
-            if "," in prefix:
-                already_selected = [a.strip() for a in prefix.split(",")]
-                current_typing = already_selected[-1]
+            prefix_clean = prefix.strip()
+            if "," in prefix_clean:
+                already_selected = [a.strip() for a in prefix_clean.split(",")]
+                current_typing = already_selected[-1].lower()
                 prefix_before = ",".join(already_selected[:-1]) + ","
-                matches = [
-                    a["name"]
-                    for a in agents
-                    if a["name"].startswith(current_typing) and a["name"] not in already_selected
+                matches = self._rank_agent_matches(
+                    [a for a in agents if a["name"] not in already_selected],
+                    current_typing,
+                )
+                items = [
+                    f"[bold magenta]@{prefix_before}{a['name']}[/bold magenta] [dim]{a.get('description', '')[:45]}[/dim]"
+                    for a in matches[:35]
                 ]
-                items = [f"@{name}" for name in matches]
-                values = [f"@{prefix_before}{name}" for name in matches]
+                values = [f"@{prefix_before}{a['name']}" for a in matches[:35]]
             else:
-                matches = [a["name"] for a in agents if a["name"].startswith(prefix)]
-                items = [f"@{name}" for name in matches]
-                values = [f"@{name}" for name in matches]
+                matches = self._rank_agent_matches(agents, prefix_clean)
+                items = [
+                    f"[bold magenta]@{a['name']}[/bold magenta] [dim]{a.get('description', '')[:45]}[/dim]"
+                    for a in matches[:35]
+                ]
+                values = [f"@{a['name']}" for a in matches[:35]]
             self._show_suggestions(items, values)
         except Exception:
             pass
@@ -3010,14 +3136,14 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     "openrouter": "https://openrouter.ai/api/v1",
                 }.get(self.current_provider, "https://openrouter.ai/api/v1")
 
-                result = execute_agent_task(
+                exec_result: dict[str, Any] = execute_agent_task(
                     task=message,
                     agent_role=self.current_agent.replace("-", " ").title(),
                     api_key=provider_key,
                     model=self.current_model,
                     base_url=provider_base_url,
-                    max_tokens=effort["max_tokens"],
-                    max_iterations=effort["max_iterations"],
+                    max_tokens=int(effort["max_tokens"]),
+                    max_iterations=int(effort["max_iterations"]),
                     on_tool_call=on_tool,
                     on_tool_result=on_tool_result,
                     on_thinking=on_thinking,
@@ -3025,7 +3151,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     on_todo_update=on_todo_update,
                 )
 
-                if result.get("task_plan"):
+                if exec_result.get("task_plan"):
                     from sago.tasks import get_task_manager
 
                     tm = get_task_manager()
@@ -3035,8 +3161,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                 self.call_from_thread(self._hide_spinner)
 
-                output = result.get("output", "")
-                tool_calls = result.get("tool_calls", [])
+                output = exec_result.get("output", "")
+                tool_calls = exec_result.get("tool_calls", [])
                 if output and output.strip():
                     self.call_from_thread(self._add_assistant_message, output)
                 elif tool_calls:

@@ -237,30 +237,24 @@ class AgentDelegator:
         agent_name = result.primary_agent
 
         try:
-            import os
-
             from sago.engine.simple_executor import execute_agent_task
+            from sago.llm.tui_providers import resolve_active_llm_config
 
-            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            llm_cfg = resolve_active_llm_config()
+            api_key = llm_cfg["api_key"]
+            model = llm_cfg["model"]
+            base_url = llm_cfg["base_url"]
+
             if not api_key:
                 return {
                     "delegated_to": agent_name,
                     "confidence": result.confidence,
                     "reason": result.reason,
                     "success": False,
-                    "error": "No API key configured. Set OPENROUTER_API_KEY or OPENAI_API_KEY.",
+                    "error": "No API key configured. Set GEMINI_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY.",
                 }
 
-            # Use configured model, fallback to openrouter/free
-            try:
-                from sago.config.loader import get_config
-
-                config = get_config()
-                model = config.llm.model or "openrouter/free"
-            except Exception:
-                model = "openrouter/free"
-
-            # Try configured model first, then free model as fallback
+            # Try user-selected model first, fallback to free model only if distinct
             models_to_try = [model]
             if model != "openrouter/free":
                 models_to_try.append("openrouter/free")
@@ -273,6 +267,7 @@ class AgentDelegator:
                         agent_role=agent_name.replace("-", " ").title(),
                         api_key=api_key,
                         model=try_model,
+                        base_url=base_url if try_model == model else "https://openrouter.ai/api/v1",
                         max_tokens=4096,
                         max_iterations=5,
                     )

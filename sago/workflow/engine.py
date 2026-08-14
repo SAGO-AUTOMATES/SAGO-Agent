@@ -207,31 +207,28 @@ class WorkflowEngine:
 
     def _register_default_executors(self) -> None:
         """Register default executors for common step types."""
-        import os
 
         def _agent_call_executor(context: dict, config: dict) -> dict[str, Any]:
             """Execute an agent call step."""
             task = config.get("task", "")
             agent = config.get("agent", "sago-orchestrator")
-            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            from sago.engine.simple_executor import execute_agent_task
+            from sago.llm.tui_providers import resolve_active_llm_config
+
+            llm_cfg = resolve_active_llm_config()
+            api_key = llm_cfg["api_key"]
+            model = llm_cfg["model"]
+            base_url = llm_cfg["base_url"]
 
             if not api_key:
                 return {"error": "No API key", "success": False}
-
-            from sago.engine.simple_executor import execute_agent_task
-
-            try:
-                from sago.config.loader import get_config
-
-                model = get_config().llm.model or "openrouter/free"
-            except Exception:
-                model = "openrouter/free"
 
             result = execute_agent_task(
                 task=task,
                 agent_role=agent.replace("-", " ").title(),
                 api_key=api_key,
                 model=model,
+                base_url=base_url,
                 max_tokens=4096,
                 max_iterations=5,
             )

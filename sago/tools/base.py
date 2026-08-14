@@ -62,11 +62,12 @@ class BaseTool(ABC):
         self._os_type = platform.system().lower()
 
     @abstractmethod
-    def _run(self, **kwargs: Any) -> str:
+    def _run(self, *args: Any, **kwargs: Any) -> str:
         """Execute the tool with the given arguments.
 
         Args:
-            **kwargs: Tool-specific arguments.
+            *args: Positional tool arguments.
+            **kwargs: Tool-specific keyword arguments.
 
         Returns:
             String result of the tool execution.

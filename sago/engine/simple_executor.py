@@ -733,6 +733,25 @@ def execute_agent_task(
     """
     tools = _discover_tools()
 
+    # Auto-resolve active model, key, and base_url if defaults or empty
+    if not api_key or model == "openrouter/free":
+        try:
+            from sago.llm.tui_providers import resolve_active_llm_config
+
+            active_cfg = resolve_active_llm_config(
+                model=None if model == "openrouter/free" else model,
+                api_key=api_key or None,
+                base_url=base_url,
+            )
+            if not api_key:
+                api_key = active_cfg["api_key"]
+            if model == "openrouter/free" and active_cfg["model"]:
+                model = active_cfg["model"]
+            if base_url is None:
+                base_url = active_cfg["base_url"]
+        except Exception:
+            pass
+
     # Auto-detect base_url from model/provider if not provided
     if base_url is None:
         if model.startswith("gemini"):

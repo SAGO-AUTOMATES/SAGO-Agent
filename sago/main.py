@@ -20,6 +20,8 @@ try:
 except ImportError:
     pass
 
+from sago import __version__
+
 console = Console()
 
 
@@ -35,7 +37,7 @@ def _get_configured_model() -> str:
 
 
 @click.group()
-@click.version_option(version="0.1.4", prog_name="sago")
+@click.version_option(version=__version__, prog_name="sago")
 def cli() -> None:
     """Sago - Sophisticated Multi-Agent Orchestration System.
 
@@ -307,7 +309,7 @@ def status() -> None:
         )
     )
 
-    console.print("\n[bold]Version:[/] 0.1.1")
+    console.print(f"\n[bold]Version:[/] {__version__}")
     console.print(f"[bold]Home:[/] {get_sago_home()}")
     console.print(f"[bold]Database:[/] {get_db_path()}")
 

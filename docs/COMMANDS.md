@@ -145,17 +145,20 @@ Show system and connection status.
 | `/version` | Show Sago version info |
 | `/exit` | Save session and quit |
 
-### Multi-Agent Swarm
+### Multi-Agent Swarm & Mention Triggers
 
-| Command | Description |
-|---------|-------------|
+| Command / Trigger | Description |
+|---|---|
+| `@<agent>` | Mention and invoke a specialist agent anywhere in your prompt (triggers live agent autocompletion popup) |
+| `@delegate <agent>` / `/delegate <agent> <task>` | Delegate task to a specialist with dynamic model and provider inheritance |
+| `@chain <a1,a2>` / `/chain <a1,a2> <task>` | Chain multiple agents sequentially |
 | `/agents [filter]` | List and filter all 339 specialist agents |
 | `/agent <name>` | Set current active agent |
-| `/delegate <agent> <task>` | Delegate task to a specialist |
-| `/chain <a1,a2> <task>` | Chain agents sequentially |
 | `/parallel <a1,a2> <task>` | Run agents in parallel on the same task |
 | `/orchestrate <task>` | Auto-delegate subtasks to specialists |
 | `/handoff` | Show handoff targets for current agent |
+| `#<file>` | Mention and autocomplete local repository files |
+| `~<file>` | Mention and autocomplete user home directory files |
 
 ### Model & Runtime
 
