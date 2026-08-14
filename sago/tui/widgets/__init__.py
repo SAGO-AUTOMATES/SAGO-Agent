@@ -16,17 +16,18 @@ from textual.widgets import Static
 
 
 class Spinner(Static):
-    """Animated spinner widget."""
+    """Smooth animated spinner widget."""
 
     FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
     def __init__(self, text: str = "Thinking", **kwargs) -> None:
-        super().__init__(**kwargs)
+        super().__init__(markup=True, **kwargs)
         self.text = text
         self.frame = 0
 
     def render(self) -> str:
-        return f"{self.FRAMES[self.frame]} {self.text}"
+        f = self.FRAMES[self.frame]
+        return f"[bold cyan]{f}[/bold cyan] [italic #8b949e]{self.text}[/italic #8b949e]"
 
     def advance(self) -> None:
         self.frame = (self.frame + 1) % len(self.FRAMES)

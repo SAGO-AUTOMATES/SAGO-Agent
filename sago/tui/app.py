@@ -1087,10 +1087,16 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     def _show_spinner(self, text: str = "Thinking") -> None:
         self._hide_spinner()
         s = Spinner(text, classes="spinner")
-        self.query_one("#messages").mount(s)
+        target_card = getattr(self, "_active_exchange_card", None)
+        if target_card is not None and hasattr(target_card, "mount_child"):
+            target_card.mount_child(s)
+        elif target_card is not None:
+            target_card.mount(s)
+        else:
+            self.query_one("#messages").mount(s)
         self.query_one("#messages").scroll_end()
         self._spinner = s
-        self._spinner_timer = self.set_interval(0.1, self._advance_spinner)
+        self._spinner_timer = self.set_interval(0.08, self._advance_spinner)
 
     def _advance_spinner(self) -> None:
         if self._spinner:
