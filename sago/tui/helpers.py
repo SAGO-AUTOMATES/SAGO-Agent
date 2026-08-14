@@ -50,18 +50,31 @@ class UIHelpers:
     def _add_user_message(self: SagoApp, content: str) -> None:
         self._hide_welcome_screen()
         self.messages.append({"role": "user", "content": content})
-        self.query_one("#messages").mount(
-            Static(f"[bold cyan][USER][/bold cyan] {content}", classes="msg-user", markup=True)
-        )
-        self.query_one("#messages").scroll_end()
         self._save_message("user", content)
+
+        # Create a unified turn container (exchange-box)
+        exchange_box = Vertical(classes="exchange-box")
+        exchange_box.mount(
+            Static(
+                f"[bold cyan]● PROMPT[/bold cyan]  [bold white]{content}[/bold white]",
+                classes="exchange-prompt",
+                markup=True,
+            )
+        )
+        self._active_exchange_card = exchange_box
+        self.query_one("#messages").mount(exchange_box)
+        self.query_one("#messages").scroll_end()
 
     def _add_assistant_message(
         self: SagoApp, content: str, meta: str = "", agent_name: str = ""
     ) -> None:
         self._hide_welcome_screen()
         self.messages.append({"role": "assistant", "content": content, "agent": agent_name})
-        container = self.query_one("#messages")
+        self._save_message("assistant", content)
+
+        target = getattr(self, "_active_exchange_card", None)
+        if target is None:
+            target = self.query_one("#messages")
 
         display = content
         if meta:
@@ -76,8 +89,8 @@ class UIHelpers:
 
         if "```" not in display:
             rendered = _render_markdown(display)
-            container.mount(
-                Static(f"{agent_prefix}{rendered}", classes="msg-assistant", markup=True)
+            target.mount(
+                Static(f"{agent_prefix}{rendered}", classes="exchange-assistant", markup=True)
             )
         else:
             parts = display.split("```")
@@ -88,8 +101,8 @@ class UIHelpers:
                     if rendered.strip():
                         prefix = agent_prefix if first_text else ""
                         first_text = False
-                        container.mount(
-                            Static(f"{prefix}{rendered}", classes="msg-assistant", markup=True)
+                        target.mount(
+                            Static(f"{prefix}{rendered}", classes="exchange-assistant", markup=True)
                         )
                 else:
                     lines = part.split("\n", 1)
@@ -108,7 +121,7 @@ class UIHelpers:
                             line_numbers=True,
                             word_wrap=True,
                         )
-                        container.mount(
+                        target.mount(
                             Collapsible(
                                 Static(syntax),
                                 title=f"Code snippet ({lang or 'text'})",
@@ -116,10 +129,11 @@ class UIHelpers:
                             )
                         )
                     except Exception:
-                        container.mount(Static(code, classes="code-block", markup=False))
+                        target.mount(Static(code, classes="code-block", markup=False))
 
-        container.scroll_end()
-        self._save_message("assistant", content)
+        # Turn finished -> clear active exchange card
+        self._active_exchange_card = None
+        self.query_one("#messages").scroll_end()
 
     def _add_agent_message(self: SagoApp, agent_name: str, content: str) -> None:
         """Add a message with explicit agent tagging."""
@@ -146,15 +160,18 @@ class UIHelpers:
 
         body = f"[bold]Parameters:[/bold]\n{args_str}\n\n[bold]Output:[/bold]\n{preview_res}"
 
-        c = self.query_one("#messages")
-        c.mount(
+        target = getattr(self, "_active_exchange_card", None)
+        if target is None:
+            target = self.query_one("#messages")
+
+        target.mount(
             Collapsible(
                 Static(body, classes="msg-system", markup=True),
                 title=title,
                 collapsed=True,
             )
         )
-        c.scroll_end()
+        self.query_one("#messages").scroll_end()
 
     def _add_parallel_result(
         self: SagoApp, agent_name: str, result: str, elapsed: float, success: bool

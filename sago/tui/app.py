@@ -120,6 +120,25 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         margin: 0 0 1 0;
     }
 
+    .exchange-box {
+        background: #161b22;
+        border: solid #30363d;
+        border-left: solid #388bfd;
+        padding: 1 2;
+        margin: 0 0 1 0;
+        height: auto;
+    }
+    .exchange-prompt {
+        color: #58a6ff;
+        text-style: bold;
+        padding: 0 0 1 0;
+        border-bottom: solid #21262d;
+    }
+    .exchange-assistant {
+        color: #e6edf3;
+        padding: 1 0 0 0;
+    }
+
     Collapsible {
         background: #161b22;
         border: solid #30363d;
