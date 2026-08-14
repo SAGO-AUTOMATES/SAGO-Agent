@@ -123,6 +123,7 @@ def load_config(project_path: Path) -> dict[str, Any]:
 
     # Check home directory as final fallback
     from sago.paths import get_sago_home
+
     home_config = get_sago_home() / "config.sago.json"
     if home_config.exists():
         with open(home_config) as f:

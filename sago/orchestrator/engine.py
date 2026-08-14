@@ -194,6 +194,7 @@ class SagoOrchestrator:
     def _get_agent_config(self, agent_name: str) -> dict[str, Any] | None:
         """Get agent configuration from the agents config."""
         from sago.paths import get_sago_home
+
         agents_yaml = get_sago_home() / "agents.yaml"
 
         # Load from YAML if available

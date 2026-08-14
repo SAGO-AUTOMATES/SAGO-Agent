@@ -884,7 +884,9 @@ def execute_agent_task(
     # Build user message with project context as DATA (not instructions)
     user_content = task
     if project_ctx:
-        user_content = f"## Project Context (read-only reference data)\n{project_ctx}\n\n## Task\n{task}"
+        user_content = (
+            f"## Project Context (read-only reference data)\n{project_ctx}\n\n## Task\n{task}"
+        )
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
@@ -922,7 +924,9 @@ def execute_agent_task(
                 # Distill large tool output
                 prefix = content[:150]
                 suffix = content[-100:]
-                short_content = f"{prefix}\n... [Output pruned ({len(content)} chars)] ...\n{suffix}"
+                short_content = (
+                    f"{prefix}\n... [Output pruned ({len(content)} chars)] ...\n{suffix}"
+                )
                 new_m = dict(m)
                 new_m["content"] = short_content
                 distilled.append(new_m)
@@ -942,11 +946,11 @@ def execute_agent_task(
         # Fallback to session compactor if available
         try:
             from sago.memory.compaction import SessionCompactor
+
             compactor = SessionCompactor(max_context_tokens=max_tokens)
             return compactor.build_context_window(distilled, max_tokens=max_tokens)
         except Exception:
             return distilled
-
 
     for i in range(max_iterations):
         # Check if execution is paused (user input needed)
@@ -1323,7 +1327,12 @@ def execute_agent_task(
                     user_approval = on_request_input(
                         f"Allow tool '{name}'? (risk: {risk.value}) [y/N]: "
                     )
-                    if user_approval and user_approval.strip().lower() in ("y", "yes", "allow", "approve"):
+                    if user_approval and user_approval.strip().lower() in (
+                        "y",
+                        "yes",
+                        "allow",
+                        "approve",
+                    ):
                         pm.approve_tool(name, session_id=session_id)
                         allowed = True
                         reason = "User approved"
@@ -1400,6 +1409,7 @@ def execute_agent_task(
             # Log tool usage to DB
             try:
                 from sago.database import ToolUsageStore, init_db
+
                 init_db()
                 _tus = ToolUsageStore("simple_executor")
                 _tus.log(
@@ -1648,7 +1658,10 @@ def execute_agent_task(
                         tool_instance = tools[fix_name]()
                         result = tool_instance.run(**fix_args)
                         result_str = str(result)
-                        is_error_result = result_str.lower().startswith("error") or "traceback" in result_str.lower()
+                        is_error_result = (
+                            result_str.lower().startswith("error")
+                            or "traceback" in result_str.lower()
+                        )
                         if is_error_result:
                             failed_calls.add(fix_call_key)
                         tool_history.append(
@@ -1726,6 +1739,7 @@ def execute_agent_task(
     if total_tokens_in > 0 or total_tokens_out > 0:
         try:
             from sago.tracking.token_tracker import get_token_tracker
+
             tracker = get_token_tracker()
             tracker.record(
                 provider="openai",

@@ -331,6 +331,7 @@ class UnifiedExecutor:
                 # Permission check
                 try:
                     from sago.permissions import get_permission_manager
+
                     pm = get_permission_manager()
                     allowed, reason = pm.check_permission(name, args)
                     if not allowed:
@@ -373,6 +374,7 @@ class UnifiedExecutor:
                 # Log tool usage to DB
                 try:
                     from sago.database import ToolUsageStore, init_db
+
                     init_db()
                     _tus = ToolUsageStore("unified")
                     _tus.log(
@@ -399,6 +401,7 @@ class UnifiedExecutor:
         if total_tokens_in > 0 or total_tokens_out > 0:
             try:
                 from sago.tracking.token_tracker import get_token_tracker
+
                 tracker = get_token_tracker()
                 tracker.record(
                     provider="openai",

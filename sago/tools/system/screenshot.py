@@ -59,6 +59,7 @@ class Screenshot(BaseTool):
     ) -> str:
         """Capture screenshot on Linux."""
         import shlex
+
         output_escaped = shlex.quote(str(output))
         if operation == "capture":
             result = self._run_command(f"scrot {output_escaped}", timeout=10)
@@ -94,6 +95,7 @@ class Screenshot(BaseTool):
     ) -> str:
         """Capture screenshot on macOS."""
         import shlex
+
         output_escaped = shlex.quote(str(output))
         if operation == "capture":
             result = self._run_command(

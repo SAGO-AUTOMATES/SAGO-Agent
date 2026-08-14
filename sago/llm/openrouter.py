@@ -55,7 +55,9 @@ class OpenRouterProvider(BaseLLMProvider):
                 temperature=self.temperature,
             )
             if not response.choices:
-                logger.warning("OpenRouter returned empty choices for prompt length=%d", len(prompt))
+                logger.warning(
+                    "OpenRouter returned empty choices for prompt length=%d", len(prompt)
+                )
                 return ""
             return response.choices[0].message.content or ""
 

@@ -73,9 +73,7 @@ class UIHelpers:
         if "```" not in display:
             # Plain text — render markdown formatting
             rendered = _render_markdown(display)
-            container.mount(
-                Static(f"{agent_prefix}{escape(rendered)}", classes="msg-assistant")
-            )
+            container.mount(Static(f"{agent_prefix}{escape(rendered)}", classes="msg-assistant"))
         else:
             # Has code blocks — render each part
             parts = display.split("```")
@@ -204,6 +202,7 @@ class UIHelpers:
                             container.mount(Static(code, classes="code-block", markup=False))
         else:
             from rich.markup import escape
+
             rendered = _render_markdown(result)
             container.mount(Static(f"{header}\n{escape(rendered)}", classes="msg-assistant"))
         container.scroll_end()
@@ -290,8 +289,12 @@ class UIHelpers:
             lines.append(f"[bold cyan]Agent:[/] [white]{cur_agent}[/]")
             lines.append(f"[bold cyan]Model:[/] [yellow]{prov}/{model}[/]")
             lines.append(f"[bold cyan]Effort:[/] [magenta]{effort}[/]")
-            lines.append(f"[bold cyan]YOLO:[/] [{'green' if yolo else 'dim'}]{'ON' if yolo else 'OFF'}[/]")
-            lines.append(f"[bold cyan]Session:[/] [dim]{session_id[:8] if session_id else 'none'}[/]")
+            lines.append(
+                f"[bold cyan]YOLO:[/] [{'green' if yolo else 'dim'}]{'ON' if yolo else 'OFF'}[/]"
+            )
+            lines.append(
+                f"[bold cyan]Session:[/] [dim]{session_id[:8] if session_id else 'none'}[/]"
+            )
             lines.append(f"[bold cyan]Messages:[/] [white]{len(getattr(self, 'messages', []))}[/]")
 
             status_text = "[bold green]● Thinking[/]" if thinking else "[dim]○ Idle[/]"
@@ -301,13 +304,16 @@ class UIHelpers:
             # Background Tasks
             try:
                 from sago.tui.widgets import AgentStatus, get_task_manager
+
                 tm = get_task_manager()
                 tasks = tm.get_all_tasks()
                 running = [t for t in tasks if t.status == AgentStatus.RUNNING]
                 lines.append(f"[bold]Active Tasks ({len(running)}):[/bold]")
                 if running:
                     for t in running[:5]:
-                        lines.append(f"  [green]●[/] [cyan]{t.agent_name}[/]: [dim]{t.task[:18]}...[/dim]")
+                        lines.append(
+                            f"  [green]●[/] [cyan]{t.agent_name}[/]: [dim]{t.task[:18]}...[/dim]"
+                        )
                 else:
                     lines.append("  [dim]No running tasks[/dim]")
             except Exception:
@@ -338,9 +344,7 @@ class UIHelpers:
         if info.task:
             entry.mount(Static(f"  {info.task[:50]}", classes="agent-task", markup=False))
         if info.current_tool and info.status == AgentStatus.RUNNING:
-            entry.mount(
-                Static(f"  -> {info.current_tool}", classes="agent-tools", markup=False)
-            )
+            entry.mount(Static(f"  -> {info.current_tool}", classes="agent-tools", markup=False))
         if info.elapsed > 0:
             entry.mount(Static(f"  {info.elapsed:.1f}s", classes="agent-tools", markup=False))
 

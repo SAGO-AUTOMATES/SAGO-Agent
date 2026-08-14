@@ -22,10 +22,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install ruff
-        run: pip install ruff==0.16.2
+        run: pip install "ruff>=0.8.0"
 
       - name: Run ruff check
-        run: ruff check sago/ --fix
+        run: ruff check sago/
 
       - name: Verify no unfixable lint errors
         run: ruff check sago/

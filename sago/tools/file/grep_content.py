@@ -22,7 +22,9 @@ class GrepContentArgs(BaseModel):
     exclude: str | None = Field(default=None, description="File pattern to exclude")
     max_results: int = Field(default=100, description="Maximum matches to return")
     context_lines: int = Field(default=0, description="Number of context lines around matches")
-    max_file_size: int = Field(default=1048576, description="Maximum file size in bytes to search (default: 1MB)")
+    max_file_size: int = Field(
+        default=1048576, description="Maximum file size in bytes to search (default: 1MB)"
+    )
 
 
 class GrepContentTool(BaseTool):

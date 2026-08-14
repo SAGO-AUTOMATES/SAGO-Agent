@@ -92,7 +92,8 @@ class OpenAIProvider(BaseLLMProvider):
         if not self.api_key:
             return False
         try:
-            from openai import OpenAI
+            from openai import OpenAI  # noqa: F401
+
             return True
         except ImportError:
             return False

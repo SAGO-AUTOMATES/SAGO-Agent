@@ -35,6 +35,7 @@ class SessionManagerTool(BaseTool):
         super().__init__()
         self._sessions: dict[str, dict[str, Any]] = {}
         from sago.paths import get_sago_home
+
         self._session_dir = get_sago_home() / "sessions"
         self._session_dir.mkdir(parents=True, exist_ok=True)
 

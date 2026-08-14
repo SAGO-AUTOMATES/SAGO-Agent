@@ -148,7 +148,9 @@ class DatabaseQuery(BaseTool):
                     return self._format_table(columns, rows)
 
             else:
-                return f"Error: Invalid operation '{operation}'. Valid: query, tables, schema, export"
+                return (
+                    f"Error: Invalid operation '{operation}'. Valid: query, tables, schema, export"
+                )
 
         finally:
             conn.close()

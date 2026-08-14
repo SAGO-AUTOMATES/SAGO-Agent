@@ -399,7 +399,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         from pathlib import Path
 
         # Find all #filepath references (support #file, #./file, #~/.file, etc.)
-        file_refs = re.findall(r'#([^\s,#@/]+(?:/[^\s,#@/]+)*)', message)
+        file_refs = re.findall(r"#([^\s,#@/]+(?:/[^\s,#@/]+)*)", message)
 
         context_parts = []
         for ref in file_refs:
@@ -414,7 +414,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                 if path.exists() and path.is_file():
                     # Read file content (limit to 10KB per file)
-                    content = path.read_text(errors='replace')[:10240]
+                    content = path.read_text(errors="replace")[:10240]
                     context_parts.append(f"--- {path.name} ---\n{content}")
             except Exception:
                 pass
@@ -559,7 +559,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
         # Find the last space to determine current "word"
         last_space = v.rfind(" ")
-        current_word = v[last_space + 1:] if last_space >= 0 else v
+        current_word = v[last_space + 1 :] if last_space >= 0 else v
 
         # Check for triggers in the current word (not across spaces)
         # Priority: # and @ take precedence over / for paths
@@ -575,7 +575,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             # Home directory reference
             prefix = current_word[1:]  # remove ~
             self._show_file_suggestions(prefix, home=True)
-        elif current_word.startswith("/") and not any(current_word.startswith(p) for p in ["#/", "#~", "@/", "@~"]):
+        elif current_word.startswith("/") and not any(
+            current_word.startswith(p) for p in ["#/", "#~", "@/", "@~"]
+        ):
             # Command reference - but NOT if it's part of a path after # or @
             self._show_cmd_suggestions(current_word)
         else:
@@ -602,7 +604,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             current_word_start = last_space + 1 if last_space >= 0 else 0
 
             # For comma-separated values, append to existing list
-            if "," in v[current_word_start:] and (v[current_word_start:].startswith("@") or v[current_word_start:].startswith("#")):
+            if "," in v[current_word_start:] and (
+                v[current_word_start:].startswith("@") or v[current_word_start:].startswith("#")
+            ):
                 # Get the base part (before current word)
                 base = v[:current_word_start] if last_space >= 0 else ""
                 # Get the new value (remove trigger char and add comma)
@@ -716,7 +720,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         if cmd and (not self.command_history or self.command_history[-1] != cmd):
             self.command_history.append(cmd)
             if len(self.command_history) > self.MAX_COMMAND_HISTORY:
-                self.command_history = self.command_history[-self.MAX_COMMAND_HISTORY:]
+                self.command_history = self.command_history[-self.MAX_COMMAND_HISTORY :]
         self.history_index = len(self.command_history)
 
     def _navigate_history(self, key: str) -> None:
@@ -815,13 +819,22 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             if "," in prefix:
                 already_selected = [a.strip() for a in prefix.split(",")]
                 last_selected = already_selected[-1] if already_selected else ""
-                matches = [a["name"] for a in agents if a["name"].startswith(last_selected) and a["name"] not in already_selected[:-1]]
+                matches = [
+                    a["name"]
+                    for a in agents
+                    if a["name"].startswith(last_selected)
+                    and a["name"] not in already_selected[:-1]
+                ]
                 # Format: show as comma-separated list
                 items = [f"{', '.join(already_selected[:-1])}, {a['name']}" for a in matches]
                 values = [f"@{', '.join(already_selected[:-1])}, {a['name']}" for a in matches]
             else:
                 matches = [a["name"] for a in agents if a["name"].startswith(prefix)]
-                items = [f"{a['name']} - {a.get('description', '')[:30]}" for a in agents if a["name"].startswith(prefix)]
+                items = [
+                    f"{a['name']} - {a.get('description', '')[:30]}"
+                    for a in agents
+                    if a["name"].startswith(prefix)
+                ]
                 values = [f"@{a['name']}" for a in agents if a["name"].startswith(prefix)]
             self._show_suggestions(items, values)
         except Exception as e:
@@ -1565,12 +1578,14 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 if self.current_session_id and self.current_session_id != "local":
                     try:
                         from sago.database import ToolUsageStore, init_db
+
                         init_db()
                         _tool_usage_store = ToolUsageStore(self.current_session_id)
                     except Exception as e:
                         logger.debug("ToolUsageStore init failed: %s", e)
                 try:
                     from sago.tracking.token_tracker import get_token_tracker
+
                     _token_tracker = get_token_tracker()
                 except Exception as e:
                     logger.debug("Token tracker init failed: %s", e)

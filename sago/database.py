@@ -372,10 +372,18 @@ class MessageStore:
         """Add a message (batched for performance)."""
         msg_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
-        self._pending.append((
-            msg_id, self.session_id, task_id, now, role, agent_name,
-            content, json.dumps(metadata or {}),
-        ))
+        self._pending.append(
+            (
+                msg_id,
+                self.session_id,
+                task_id,
+                now,
+                role,
+                agent_name,
+                content,
+                json.dumps(metadata or {}),
+            )
+        )
         if len(self._pending) >= self._batch_size:
             self.flush()
         return {"id": msg_id, "role": role, "content": content}
@@ -449,10 +457,19 @@ class ToolUsageStore:
         """Log a tool usage (batched for performance)."""
         usage_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
-        self._pending.append((
-            usage_id, self.session_id, task_id, now, tool_name,
-            json.dumps(arguments or {}), result, duration_ms, 1 if success else 0,
-        ))
+        self._pending.append(
+            (
+                usage_id,
+                self.session_id,
+                task_id,
+                now,
+                tool_name,
+                json.dumps(arguments or {}),
+                result,
+                duration_ms,
+                1 if success else 0,
+            )
+        )
         if len(self._pending) >= self._batch_size:
             self.flush()
 

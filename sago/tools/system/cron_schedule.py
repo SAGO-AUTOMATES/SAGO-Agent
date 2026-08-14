@@ -66,7 +66,8 @@ class CronSchedule(BaseTool):
                 new_crontab = f"{existing}\n{job_line}\n".strip()
                 # Use a temp file approach to avoid shell injection
                 import tempfile
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.crontab', delete=False) as f:
+
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".crontab", delete=False) as f:
                     f.write(new_crontab + "\n")
                     tmpfile = f.name
                 try:
@@ -76,6 +77,7 @@ class CronSchedule(BaseTool):
                     )
                 finally:
                     import os
+
                     os.unlink(tmpfile)
 
                 if result.returncode == 0:
@@ -99,7 +101,8 @@ class CronSchedule(BaseTool):
                 new_crontab = "\n".join(filtered)
                 # Use a temp file approach to avoid shell injection
                 import tempfile
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.crontab', delete=False) as f:
+
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".crontab", delete=False) as f:
                     f.write(new_crontab + "\n" if new_crontab else "")
                     tmpfile = f.name
                 try:
@@ -109,6 +112,7 @@ class CronSchedule(BaseTool):
                     )
                 finally:
                     import os
+
                     os.unlink(tmpfile)
 
                 if result.returncode == 0:

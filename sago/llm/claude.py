@@ -85,7 +85,8 @@ class ClaudeProvider(BaseLLMProvider):
         if not self.api_key:
             return False
         try:
-            import anthropic
+            import anthropic  # noqa: F401
+
             return True
         except ImportError:
             return False

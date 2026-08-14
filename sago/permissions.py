@@ -59,7 +59,6 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
     "formatter": RiskLevel.LOW,
     "prompt_generator": RiskLevel.LOW,
     "git_ops": RiskLevel.LOW,
-    "spawn_agent": RiskLevel.LOW,
     # Medium - moderate side effects
     "execute_shell": RiskLevel.MEDIUM,
     "background_process": RiskLevel.MEDIUM,

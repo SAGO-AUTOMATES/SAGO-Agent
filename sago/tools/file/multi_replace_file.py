@@ -31,7 +31,9 @@ class MultiReplaceTool(BaseTool):
     """Tool for applying multiple non-contiguous edits to a file atomically."""
 
     name = "multi_replace_file"
-    description = "Apply multiple non-contiguous replacements to a single file in one atomic operation."
+    description = (
+        "Apply multiple non-contiguous replacements to a single file in one atomic operation."
+    )
     args_model = MultiReplaceArgs
 
     def _run(
@@ -77,6 +79,8 @@ class MultiReplaceTool(BaseTool):
                 pass
 
             path.write_text(new_content, encoding=encoding)
-            return f"Successfully applied {len(chunks)} replacement(s) to {path}:\n" + "\n".join(logs)
+            return f"Successfully applied {len(chunks)} replacement(s) to {path}:\n" + "\n".join(
+                logs
+            )
         except Exception as e:
             return f"Error writing updated file: {e}"

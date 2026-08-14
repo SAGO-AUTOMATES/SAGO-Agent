@@ -4608,7 +4608,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "rich", specifier = ">=14.3.4" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = "==0.16.2" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
     { name = "textual", specifier = ">=8.2.8" },
 ]
 provides-extras = ["gemini", "openai", "claude", "ollama", "dev"]

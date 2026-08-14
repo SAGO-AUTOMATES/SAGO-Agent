@@ -13,10 +13,7 @@ Features:
 from __future__ import annotations
 
 import difflib
-import re
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 
 
 @dataclass
@@ -68,11 +65,11 @@ class ResilientEditor:
             # Slide window over lines
             for i in range(len(content_lines) - num_t_lines + 1):
                 window = content_lines[i : i + num_t_lines]
-                window_stripped = [l.strip() for l in window if l.strip()]
+                window_stripped = [w_line.strip() for w_line in window if w_line.strip()]
 
                 if window_stripped == target_lines:
                     # Found normalized match
-                    start_char = sum(len(l) for l in content_lines[:i])
+                    start_char = sum(len(w_line) for w_line in content_lines[:i])
                     matched_block = "".join(window)
                     end_char = start_char + len(matched_block)
                     return MatchResult(
@@ -86,7 +83,6 @@ class ResilientEditor:
 
         # Tier 3: Fuzzy sequence matching
         if len(norm_target) > 20:
-            target_len = len(norm_target)
             best_ratio = 0.0
             best_start = -1
             best_end = -1
@@ -105,7 +101,7 @@ class ResilientEditor:
                     ratio = difflib.SequenceMatcher(None, window, norm_target).ratio()
                     if ratio > best_ratio and ratio >= fuzzy_threshold:
                         best_ratio = ratio
-                        best_start = sum(len(l) for l in content_lines[:i])
+                        best_start = sum(len(w_line) for w_line in content_lines[:i])
                         best_end = best_start + len(window)
 
             if best_ratio >= fuzzy_threshold and best_start != -1:
@@ -130,7 +126,7 @@ class ResilientEditor:
         fuzzy_threshold: float = 0.82,
     ) -> tuple[bool, str, str]:
         """Apply replacement using resilient matching.
-        
+
         Returns:
             (success: bool, modified_content: str, message: str)
         """
@@ -146,14 +142,14 @@ class ResilientEditor:
 
         match = cls.find_best_match(norm_content, norm_old, fuzzy_threshold=fuzzy_threshold)
         if not match.found:
-            return False, content, f"Target string not found (even with fuzzy tolerance)."
+            return False, content, "Target string not found (even with fuzzy tolerance)."
 
-        new_content = (
-            norm_content[: match.start_idx]
-            + norm_new
-            + norm_content[match.end_idx :]
+        new_content = norm_content[: match.start_idx] + norm_new + norm_content[match.end_idx :]
+        return (
+            True,
+            new_content,
+            f"Applied edit via {match.match_tier} match (confidence: {match.confidence:.2f})",
         )
-        return True, new_content, f"Applied edit via {match.match_tier} match (confidence: {match.confidence:.2f})"
 
     @classmethod
     def apply_multi_replace(
@@ -162,7 +158,7 @@ class ResilientEditor:
         chunks: list[dict[str, str]],
     ) -> tuple[bool, str, list[str]]:
         """Apply multiple replacement chunks atomically.
-        
+
         chunks = [{"old": "...", "new": "..."}, ...]
         """
         current_content = cls.normalize_newlines(content)

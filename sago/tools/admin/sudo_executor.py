@@ -77,11 +77,13 @@ class SudoExecutorTool(BaseTool):
         if password:
             # Use printf to avoid shell interpretation of password
             import shlex
+
             safe_password = shlex.quote(password)
             safe_command = shlex.quote(command)
             full_cmd = f"printf %s {safe_password} | sudo -S {safe_command}"
         else:
             import shlex
+
             full_cmd = f"sudo {shlex.quote(command)}"
 
         try:

@@ -272,10 +272,7 @@ class TokenTracker:
 
     def get_for_session(self, session_id: str) -> list[dict[str, Any]]:
         """Get token usages for a specific session (filtered by metadata)."""
-        return [
-            u.to_dict() for u in self._usages
-            if u.metadata.get("session_id") == session_id
-        ]
+        return [u.to_dict() for u in self._usages if u.metadata.get("session_id") == session_id]
 
     def _calculate_cost(
         self,

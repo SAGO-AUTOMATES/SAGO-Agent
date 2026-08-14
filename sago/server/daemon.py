@@ -175,7 +175,9 @@ class SagoDaemon:
                     if self._active_connections >= self._max_connections:
                         try:
                             client, addr = server.accept()
-                            client.send(json.dumps({"error": "Connection limit reached"}).encode() + b"\n")
+                            client.send(
+                                json.dumps({"error": "Connection limit reached"}).encode() + b"\n"
+                            )
                             client.close()
                         except (TimeoutError, OSError):
                             pass

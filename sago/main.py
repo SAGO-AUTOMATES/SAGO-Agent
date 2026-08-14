@@ -1059,9 +1059,17 @@ def verify_cmd(dir: str) -> None:
     report = verifier.verify_project()
 
     if report.passed:
-        console.print(Panel("[bold green]✓ ALL CHECKS PASSED[/]\n" + report.summary, border_style="green"))
+        console.print(
+            Panel("[bold green]✓ ALL CHECKS PASSED[/]\n" + report.summary, border_style="green")
+        )
     else:
-        console.print(Panel(report.to_prompt_feedback(), title="[bold red]Verification Failed[/]", border_style="red"))
+        console.print(
+            Panel(
+                report.to_prompt_feedback(),
+                title="[bold red]Verification Failed[/]",
+                border_style="red",
+            )
+        )
 
 
 def main() -> None:
@@ -1071,4 +1079,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

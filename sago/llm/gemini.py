@@ -51,9 +51,7 @@ class GeminiProvider(BaseLLMProvider):
                 generation_config=genai.GenerationConfig(**gen_config),
             )
             if response.prompt_feedback and response.prompt_feedback.block_reason:
-                logger.warning(
-                    "Gemini response blocked: %s", response.prompt_feedback.block_reason
-                )
+                logger.warning("Gemini response blocked: %s", response.prompt_feedback.block_reason)
                 return f"[Response blocked: {response.prompt_feedback.block_reason}]"
             if not response.text:
                 logger.warning("Gemini returned empty text for prompt length=%d", len(prompt))
@@ -98,7 +96,8 @@ class GeminiProvider(BaseLLMProvider):
         if not self.api_key:
             return False
         try:
-            import google.generativeai
+            import google.generativeai  # noqa: F401
+
             return True
         except ImportError:
             return False

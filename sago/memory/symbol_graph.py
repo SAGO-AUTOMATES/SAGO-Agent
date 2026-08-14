@@ -12,7 +12,6 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 
 @dataclass
@@ -91,7 +90,9 @@ class SymbolGraph:
                         imports.append(f"{mod}.{alias.name}")
 
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                sym_type = "async_function" if isinstance(node, ast.AsyncFunctionDef) else "function"
+                sym_type = (
+                    "async_function" if isinstance(node, ast.AsyncFunctionDef) else "function"
+                )
                 args = [a.arg for a in node.args.args]
                 sig = ", ".join(args)
                 doc = ast.get_docstring(node) or ""
@@ -118,7 +119,9 @@ class SymbolGraph:
 
                 for item in node.body:
                     if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        m_type = "async_method" if isinstance(item, ast.AsyncFunctionDef) else "method"
+                        m_type = (
+                            "async_method" if isinstance(item, ast.AsyncFunctionDef) else "method"
+                        )
                         m_args = [a.arg for a in item.args.args]
                         m_sig = ", ".join(m_args)
                         m_doc = ast.get_docstring(item) or ""
@@ -134,7 +137,11 @@ class SymbolGraph:
                 symbols.append(class_sym)
 
         return FileSymbols(
-            file_path=str(file_path.relative_to(self.root_dir) if file_path.is_relative_to(self.root_dir) else file_path),
+            file_path=str(
+                file_path.relative_to(self.root_dir)
+                if file_path.is_relative_to(self.root_dir)
+                else file_path
+            ),
             language="python",
             symbols=symbols,
             imports=imports,
@@ -176,7 +183,11 @@ class SymbolGraph:
                     break
 
         return FileSymbols(
-            file_path=str(file_path.relative_to(self.root_dir) if file_path.is_relative_to(self.root_dir) else file_path),
+            file_path=str(
+                file_path.relative_to(self.root_dir)
+                if file_path.is_relative_to(self.root_dir)
+                else file_path
+            ),
             language=lang,
             symbols=symbols,
             line_count=len(lines),
@@ -205,7 +216,11 @@ class SymbolGraph:
                 fs = self.extract_generic_symbols(file_path, content, "go")
             else:
                 fs = FileSymbols(
-                    file_path=str(file_path.relative_to(self.root_dir) if file_path.is_relative_to(self.root_dir) else file_path),
+                    file_path=str(
+                        file_path.relative_to(self.root_dir)
+                        if file_path.is_relative_to(self.root_dir)
+                        else file_path
+                    ),
                     language="other",
                     line_count=len(content.splitlines()),
                     size_bytes=len(content),
@@ -225,8 +240,19 @@ class SymbolGraph:
     ) -> str:
         """Generate a compact, token-efficient repository symbol map."""
         ignore_dirs = {
-            ".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build",
-            ".pytest_cache", ".ruff_cache", ".next", ".cache", "target", "vendor",
+            ".git",
+            "node_modules",
+            "__pycache__",
+            ".venv",
+            "venv",
+            "dist",
+            "build",
+            ".pytest_cache",
+            ".ruff_cache",
+            ".next",
+            ".cache",
+            "target",
+            "vendor",
         }
         all_outlines: list[str] = []
         count = 0
@@ -234,14 +260,18 @@ class SymbolGraph:
         for root, dirs, files in os.walk(self.root_dir):
             dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith(".")]
             for f in sorted(files):
-                if f.startswith(".") or f.endswith((".pyc", ".min.js", ".map", ".lock", ".png", ".jpg", ".ico")):
+                if f.startswith(".") or f.endswith(
+                    (".pyc", ".min.js", ".map", ".lock", ".png", ".jpg", ".ico")
+                ):
                     continue
                 file_path = Path(root) / f
                 fs = self.scan_file(file_path)
                 if fs:
                     if filter_query and filter_query.lower() not in fs.file_path.lower():
                         # Check if symbol matches
-                        has_sym_match = any(filter_query.lower() in s.name.lower() for s in fs.symbols)
+                        has_sym_match = any(
+                            filter_query.lower() in s.name.lower() for s in fs.symbols
+                        )
                         if not has_sym_match:
                             continue
 
