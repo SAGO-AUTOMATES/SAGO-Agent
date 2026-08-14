@@ -1346,6 +1346,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             "/developer": lambda: self._handle_developer_command(args),
             "/dev": lambda: self._handle_developer_command(args),
             "/checkpoint": lambda: self._handle_checkpoint_command(args),
+            "/project_graph": lambda: self._show_project_graph(args),
+            "/graph": lambda: self._show_project_graph(args),
+            "/detach": lambda: self._detach_session(),
         }
 
         if cmd in handlers:

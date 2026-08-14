@@ -65,6 +65,9 @@ COMMANDS = {
     "/developer": "Toggle Developer Mode or inspect live traces (/dev [on|off|logs|traces|clear])",
     "/dev": "Alias for /developer",
     "/checkpoint": "Manage workspace checkpoints (/checkpoint [create|list|restore])",
+    "/project_graph": "Generate deep architecture & data graph (/project_graph [ascii|mermaid|json|llm] [focus])",
+    "/graph": "Alias for /project_graph",
+    "/detach": "Detach from session without killing background tasks (safe to close terminal)",
 }
 
 THEMES = {

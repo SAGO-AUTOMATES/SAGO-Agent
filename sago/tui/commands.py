@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from textual.widgets import Collapsible, Static
@@ -20,7 +21,17 @@ class CommandHandlers:
         container = self.query_one("#messages")
 
         categories = {
-            "CORE": ["/help", "/map", "/verify", "/plan", "/todos", "/done", "/compact", "/reset"],
+            "CORE": [
+                "/help",
+                "/map",
+                "/project_graph",
+                "/verify",
+                "/plan",
+                "/todos",
+                "/done",
+                "/compact",
+                "/reset",
+            ],
             "AGENT ORCHESTRATION": [
                 "/agents",
                 "/agent",
@@ -528,6 +539,36 @@ class CommandHandlers:
         print(f"\nSession saved: {sid} ({msg_count} messages)", file=sys.stderr)
         print(f"Resume: sago tui --resume {sid}", file=sys.stderr)
         print(f"Or: /load {sid}", file=sys.stderr)
+        self.exit()
+
+    def _detach_session(self: SagoApp) -> None:
+        """Detach from session cleanly without stopping background tasks."""
+        if hasattr(self, "_message_store") and self._message_store:
+            try:
+                self._message_store.flush()
+            except Exception:
+                pass
+        try:
+            from sago.database import Session, init_db
+
+            init_db()
+            s = Session(self.current_session_id)
+            s.update(title=f"Session {self.current_session_id[:8]}", status="detached")
+            s.close()
+        except Exception:
+            pass
+
+        sid = self.current_session_id[:8]
+        import sys
+
+        print("\n" + "=" * 60, file=sys.stderr)
+        print(f"[bold green]✓ SAGO DETACHED SUCCESSFULLY[/] (Session: {sid})", file=sys.stderr)
+        print("All background agent tasks and processes remain running.", file=sys.stderr)
+        print("You can safely close this terminal tab.", file=sys.stderr)
+        print("-" * 60, file=sys.stderr)
+        print(f"To reattach anytime, run:  sago attach {sid}", file=sys.stderr)
+        print(f"                      or:  sago tui --resume {sid}", file=sys.stderr)
+        print("=" * 60 + "\n", file=sys.stderr)
         self.exit()
 
     def _list_sessions(self: SagoApp) -> None:
@@ -1206,6 +1247,117 @@ class CommandHandlers:
             )
         except Exception as e:
             self._add_system_message(f"Error generating repo map: {e}")
+
+    def _show_project_graph(self: SagoApp, args: str = "") -> None:
+        """Generate and display comprehensive architecture, process map & data graph."""
+        from sago.memory.project_graph import ProjectGraph
+
+        try:
+            parts = args.strip().split()
+            view = "dashboard"
+            focus = None
+            target_dir = None
+
+            for p in parts:
+                p_lower = p.lower()
+                if p_lower in (
+                    "dashboard",
+                    "all",
+                    "arch",
+                    "architecture",
+                    "process",
+                    "pipeline",
+                    "tree",
+                    "ascii",
+                    "mermaid",
+                    "json",
+                    "llm",
+                ):
+                    view = p_lower
+                else:
+                    expanded = Path(p).expanduser().resolve()
+                    if expanded.is_dir():
+                        target_dir = expanded
+                    else:
+                        focus = p
+
+            root_path = target_dir or Path.cwd()
+            self._add_system_message(
+                f"Building Smart Project Architecture & Process Graph for '{root_path.name}' (view: {view})..."
+            )
+            pg = ProjectGraph(root_dir=root_path)
+            pg.build_graph(max_files=500)
+
+            container = self.query_one("#messages")
+
+            if view in ("arch", "architecture"):
+                content = pg.to_architecture_diagram()
+                container.mount(
+                    Collapsible(
+                        Static(f"```text\n{content}\n```"),
+                        title=f"System Architecture Map — Layered Box Diagram ({len(pg.nodes)} components)",
+                        collapsed=False,
+                    )
+                )
+            elif view in ("process", "pipeline"):
+                content = pg.to_process_map()
+                container.mount(
+                    Collapsible(
+                        Static(f"```text\n{content}\n```"),
+                        title="Autonomous Process & Execution Flywheel Map",
+                        collapsed=False,
+                    )
+                )
+            elif view in ("tree", "ascii"):
+                content = pg.to_ascii_tree()
+                container.mount(
+                    Collapsible(
+                        Static(f"```text\n{content}\n```"),
+                        title=f"File Dependency & Data Model Tree ({len(pg.nodes)} nodes, {len(pg.edges)} relations)",
+                        collapsed=False,
+                    )
+                )
+            elif view == "mermaid":
+                content = pg.to_mermaid(focus_filter=focus)
+                container.mount(
+                    Collapsible(
+                        Static(content),
+                        title=f"Project Graph (Mermaid Flowchart - {len(pg.nodes)} components)",
+                        collapsed=False,
+                    )
+                )
+            elif view == "json":
+                import json
+
+                content = json.dumps(pg.to_dict(), indent=2)
+                container.mount(
+                    Collapsible(
+                        Static(f"```json\n{content}\n```"),
+                        title=f"Project Graph (JSON - {len(pg.nodes)} nodes, {len(pg.edges)} edges)",
+                        collapsed=False,
+                    )
+                )
+            elif view == "llm":
+                content = pg.to_llm_context()
+                container.mount(
+                    Collapsible(
+                        Static(content),
+                        title="Project Topology & Hub Summary",
+                        collapsed=False,
+                    )
+                )
+            else:
+                # Curated Consolidated Dashboard
+                content = pg.to_curated_dashboard(focus_filter=focus)
+                container.mount(
+                    Collapsible(
+                        Static(content),
+                        title=f"SAGO Architecture & Process Graph Dashboard ({len(pg.nodes)} components)",
+                        collapsed=False,
+                    )
+                )
+        except Exception as e:
+            self._add_system_message(f"Error generating project graph: {e}")
 
     def _run_verify(self: SagoApp) -> None:
         """Run automated multi-language verifier."""

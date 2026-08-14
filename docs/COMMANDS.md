@@ -15,7 +15,29 @@ Execute with specific agent or sequential chain.
 
 ```bash
 sago run "task" --agent python-engineer
+sago run "Run long test suite" --detach   # Detach immediately; safe to close terminal tab
 sago run "task" --chain system-architect,backend-engineer,code-reviewer
+```
+
+### `sago attach`
+Attach to a running detached session or stream a background task log.
+
+```bash
+sago attach                   # Interactive list of running sessions & background tasks
+sago attach a62c0922          # Reattach to TUI session
+sago attach task_1700000000   # Live tail background task log
+```
+
+### `sago project-graph` / `sago graph`
+Generate a deep architecture box diagram, autonomous execution process map, data model schema topology, and file dependency graph across multi-language codebases.
+
+```bash
+sago project-graph                           # Curated full architecture dashboard
+sago project-graph --view arch               # Layered system architecture box diagram
+sago project-graph --view process            # End-to-end execution pipeline & flywheel map
+sago project-graph --view tree               # Formatted file dependency & symbol tree
+sago project-graph --view mermaid            # Visual Mermaid flowchart
+sago project-graph --dir ./services --view arch
 ```
 
 ### `sago map`
@@ -87,6 +109,8 @@ Show system and connection status.
 | Command | Description |
 |---------|-------------|
 | `/help` | Show categorized command reference |
+| `/project_graph [view] [path]` | Generate architecture box diagram, process flywheel, and data graph (`dashboard`, `arch`, `process`, `tree`, `mermaid`) |
+| `/graph` | Alias for `/project_graph` |
 | `/map [query]` | Generate compact AST symbol repo map |
 | `/verify` | Run automated linters, type checks, and test suites |
 | `/plan` | Show current multi-step task execution plan |
@@ -95,6 +119,7 @@ Show system and connection status.
 | `/done <id>` | Mark a todo item as completed |
 | `/compact` | Semantic context compression (prunes verbose tool outputs) |
 | `/reset` | Reset active session |
+| `/detach` | Cleanly detach from session while keeping background tasks running (safe to close terminal) |
 | `/version` | Show Sago version info |
 | `/exit` | Save session and quit |
 
