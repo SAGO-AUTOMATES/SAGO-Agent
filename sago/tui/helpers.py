@@ -52,14 +52,14 @@ class UIHelpers:
         self.messages.append({"role": "user", "content": content})
         self._save_message("user", content)
 
-        # Create a unified turn container (exchange-box)
-        exchange_box = Vertical(classes="exchange-box")
-        exchange_box.mount(
+        # Create a unified turn container (exchange-box) with initial prompt Static
+        exchange_box = Vertical(
             Static(
                 f"[bold cyan]● PROMPT[/bold cyan]  [bold white]{content}[/bold white]",
                 classes="exchange-prompt",
                 markup=True,
-            )
+            ),
+            classes="exchange-box",
         )
         self._active_exchange_card = exchange_box
         self.query_one("#messages").mount(exchange_box)
