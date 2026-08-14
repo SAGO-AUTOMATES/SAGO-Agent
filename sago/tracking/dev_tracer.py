@@ -14,6 +14,7 @@ import time
 from collections.abc import Callable, Generator
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("sago.tracking.dev_tracer")
@@ -164,6 +165,78 @@ class DevTracer:
     def clear(self) -> None:
         with self._lock:
             self._events.clear()
+
+    def export_traces(
+        self, file_path: str | Path | None = None, format: str = "json"
+    ) -> tuple[bool, str]:
+        """Export all recorded trace events to JSON or Markdown."""
+        import json
+        from pathlib import Path
+
+        with self._lock:
+            events = list(self._events)
+
+        if not events:
+            return False, "No trace events recorded to export."
+
+        ts_str = time.strftime("%Y%m%d_%H%M%S")
+        fmt = format.lower().strip().lstrip(".")
+        if file_path is None or not str(file_path).strip():
+            ext = "md" if fmt in ("md", "markdown") else "json"
+            target_path = Path.cwd() / f"sago_trace_{ts_str}.{ext}"
+        else:
+            target_path = Path(file_path)
+            if target_path.suffix in (".md", ".markdown"):
+                fmt = "md"
+            elif target_path.suffix in (".json",):
+                fmt = "json"
+
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            if fmt in ("md", "markdown"):
+                lines = [
+                    f"# SAGO Execution Trace Report ({ts_str})",
+                    f"- **Total Events**: {len(events)}",
+                    f"- **Export Time**: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+                    "",
+                    "## Summary",
+                    "| Timestamp | Type | Source | Action | Status | Latency |",
+                    "| :--- | :--- | :--- | :--- | :--- | :--- |",
+                ]
+                for e in events:
+                    t_str = time.strftime("%H:%M:%S", time.localtime(e.timestamp))
+                    dur = f"{e.duration_ms:.1f}ms" if e.duration_ms > 0 else "-"
+                    lines.append(
+                        f"| {t_str} | `{e.event_type.value}` | `{e.source}` | `{e.action}` | {e.status} | {dur} |"
+                    )
+
+                lines.append("\n## Detailed Event Payloads\n")
+                for idx, e in enumerate(events, 1):
+                    lines.append(
+                        f"### Event {idx}: {e.event_type.value} - {e.source} -> {e.action}"
+                    )
+                    lines.append(f"- **Status**: {e.status}")
+                    lines.append(f"- **Latency**: {e.duration_ms:.2f}ms")
+                    if e.data:
+                        lines.append("```json")
+                        lines.append(json.dumps(e.data, indent=2, default=str))
+                        lines.append("```")
+                    lines.append("")
+
+                target_path.write_text("\n".join(lines), encoding="utf-8")
+            else:
+                data = {
+                    "export_timestamp": time.time(),
+                    "export_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "total_events": len(events),
+                    "events": [e.to_dict() for e in events],
+                }
+                target_path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+
+            return True, str(target_path.resolve())
+        except Exception as err:
+            return False, f"Export failed: {err}"
 
 
 _GLOBAL_TRACER: DevTracer | None = None

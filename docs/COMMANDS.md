@@ -134,6 +134,7 @@ Show system and connection status.
 | `/developer [on\|off\|toggle]` | Toggle Developer Mode (`/dev [on\|off\|toggle]`) |
 | `/dev logs` | Stream real-time function execution and LLM trace logs |
 | `/dev traces` | Inspect function latency and execution durations |
+| `/dev export [file]` | Export deep traces and payloads to JSON (`.json`) or Markdown (`.md`) |
 | `/dev clear` | Clear the developer trace telemetry buffer |
 
 ### Themes & UI Controls

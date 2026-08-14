@@ -53,3 +53,19 @@ def test_dev_tracer_clear():
     assert len(tracer.get_recent_traces()) == 1
     tracer.clear()
     assert len(tracer.get_recent_traces()) == 0
+
+
+def test_dev_tracer_export(tmp_path):
+    tracer = DevTracer()
+    tracer.record(TraceEventType.LLM_PAYLOAD, "llm", "create", data={"model": "gpt-4o"})
+    tracer.record(TraceEventType.TOOL_DISPATCH, "dispatcher", "run", data={"tool": "read_file"})
+
+    json_file = tmp_path / "traces.json"
+    ok, path = tracer.export_traces(json_file, format="json")
+    assert ok is True
+    assert json_file.exists()
+
+    md_file = tmp_path / "traces.md"
+    ok, path = tracer.export_traces(md_file, format="md")
+    assert ok is True
+    assert md_file.exists()

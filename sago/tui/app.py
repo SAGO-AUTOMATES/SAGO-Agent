@@ -949,6 +949,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 "toggle": "Toggle developer mode",
                 "logs": "View live telemetry log buffer",
                 "traces": "View microsecond function latency traces",
+                "export": "Export traces to JSON/Markdown (/dev export [file])",
                 "clear": "Clear trace buffer",
             }
             matches = [k for k in dev_opts if query.lower() in k.lower()] or list(dev_opts.keys())

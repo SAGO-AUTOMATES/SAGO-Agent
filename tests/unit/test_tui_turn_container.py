@@ -86,9 +86,10 @@ async def test_tui_developer_mode():
         await pilot.pause()
         assert app.developer_mode is True
 
-        # Check logs / traces subcommands
+        # Check logs / traces / export subcommands
         app._handle_developer_command("logs")
         app._handle_developer_command("traces")
+        app._handle_developer_command("export")
         await pilot.pause()
 
         # Turn OFF

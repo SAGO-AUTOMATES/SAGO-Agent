@@ -1376,18 +1376,35 @@ class CommandHandlers:
         from sago.tracking.dev_tracer import get_dev_tracer
 
         tracer = get_dev_tracer()
-        action = args.strip().lower()
+        parts = args.strip().split(None, 1)
+        action = parts[0].lower() if parts else ""
+        subarg = parts[1] if len(parts) > 1 else ""
 
         if action in ("on", "enable", "1", "true"):
             self.developer_mode = True
             tracer.set_enabled(True)
-            self._add_system_message(
-                "⚡ [bold red][DEV MODE ON][/bold red] Real-time function call tracing, LLM payload inspection, and millisecond latency telemetry enabled."
+            msg = (
+                "[bold red]╔═══════════════════════════════════════════════════════════════╗[/bold red]\n"
+                "[bold red]║  ⚡ SAGO DEVELOPER MODE ACTIVATED                             ║[/bold red]\n"
+                "[bold red]╚═══════════════════════════════════════════════════════════════╝[/bold red]\n"
+                "  • [bold cyan]Deep Tracing[/bold cyan]: LLM payloads, token metrics, exact tool parameters\n"
+                "  • [bold magenta]Telemetry[/bold magenta]: Microsecond function duration & state transitions\n"
+                "  • [bold yellow]Commands[/bold yellow]: `/dev logs` | `/dev traces` | `/dev export [file]` | `/dev off`"
             )
+            self._add_system_message(msg)
         elif action in ("off", "disable", "0", "false"):
             self.developer_mode = False
             tracer.set_enabled(False)
             self._add_system_message("⚡ [dim][DEV MODE OFF][/dim] Developer diagnostics disabled.")
+        elif action in ("export", "save"):
+            fmt = "md" if subarg.endswith(".md") else "json"
+            success, res = tracer.export_traces(file_path=subarg or None, format=fmt)
+            if success:
+                self._add_system_message(
+                    f"● [bold green]Traces Exported Successfully[/bold green]:\n  `{res}`"
+                )
+            else:
+                self._add_system_message(f"● [bold red]Export Failed[/bold red]: {res}")
         elif action in ("clear", "reset"):
             tracer.clear()
             self._add_system_message("⚡ Developer trace telemetry buffer cleared.")
@@ -1403,6 +1420,7 @@ class CommandHandlers:
                 if t.data:
                     data_str = ", ".join(f"{k}={str(v)[:80]}" for k, v in t.data.items())
                     lines.append(f"    [dim]↳ data: {data_str}[/dim]")
+            lines.append("\n[dim]To export to file: /dev export [filepath.json|filepath.md][/dim]")
             self._add_system_message("\n".join(lines))
         else:
             # Toggle mode
@@ -1413,7 +1431,7 @@ class CommandHandlers:
                 "[bold red]ENABLED[/bold red]" if self.developer_mode else "[dim]DISABLED[/dim]"
             )
             self._add_system_message(
-                f"⚡ Developer Mode is now {state_str}.\nUsage: /dev [on|off|logs|traces|clear]"
+                f"⚡ Developer Mode is now {state_str}.\nUsage: `/dev [on|off|logs|traces|export|clear]`"
             )
 
     def _handle_checkpoint_command(self: SagoApp, args: str = "") -> None:

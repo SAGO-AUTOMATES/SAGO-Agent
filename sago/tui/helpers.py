@@ -207,6 +207,7 @@ class UIHelpers:
             if traces:
                 llm_traces = [t for t in traces if t.event_type == TraceEventType.LLM_PAYLOAD]
                 tool_traces = [t for t in traces if t.event_type == TraceEventType.TOOL_DISPATCH]
+                routing_traces = [t for t in traces if t.event_type == TraceEventType.AGENT_ROUTING]
                 fn_traces = [
                     t
                     for t in traces
@@ -214,12 +215,11 @@ class UIHelpers:
                     in (
                         TraceEventType.FUNCTION_CALL,
                         TraceEventType.FUNCTION_RETURN,
-                        TraceEventType.AGENT_ROUTING,
                     )
                 ]
 
                 dev_sections = [
-                    f"[bold red]⚡ DEV TRACE OVERVIEW[/bold red] - Total Events: [bold white]{len(traces)}[/bold white] | LLM Calls: [bold magenta]{len(llm_traces)}[/bold magenta] | Tools: [bold cyan]{len(tool_traces)}[/bold cyan]"
+                    f"[bold red]⚡ DEV TRACE OVERVIEW[/bold red] - Total Events: [bold white]{len(traces)}[/bold white] | LLM Calls: [bold magenta]{len(llm_traces)}[/bold magenta] | Tools: [bold cyan]{len(tool_traces)}[/bold cyan] | Handoffs: [bold green]{len(routing_traces)}[/bold green]"
                 ]
 
                 if llm_traces:
@@ -256,12 +256,28 @@ class UIHelpers:
                             args_prev = str(tt.data["arguments"])[:120]
                             dev_sections.append(f"    [dim]Args: {args_prev}[/dim]")
 
+                if routing_traces:
+                    dev_sections.append(
+                        "\n[bold green]─── Agent Orchestration & Handoffs ───[/bold green]"
+                    )
+                    for rt in routing_traces:
+                        src = rt.source
+                        act = rt.action
+                        task_prev = rt.data.get("task", "")[:60]
+                        dev_sections.append(
+                            f"  • [bold green]{src}[/bold green] ➔ [bold cyan]{act}[/bold cyan] [dim]({task_prev})[/dim]"
+                        )
+
                 if fn_traces:
                     dev_sections.append(
                         "\n[bold yellow]─── Function Execution Traces ───[/bold yellow]"
                     )
                     for ft in fn_traces[-10:]:
                         dev_sections.append(f"  {ft.format_line()}")
+
+                dev_sections.append(
+                    "\n[dim]Tip: Type `/dev export [file.json|file.md]` to export complete raw trace payloads.[/dim]"
+                )
 
                 trace_body = "\n".join(dev_sections)
                 _mount_element(
