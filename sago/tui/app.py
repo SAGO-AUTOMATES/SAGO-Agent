@@ -85,7 +85,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
     #messages {
         height: 1fr;
-        padding: 0 1;
+        padding: 1 2;
         overflow-y: auto;
         scrollbar-size: 1 1;
         scrollbar-color: #30363d #0a0d12;
@@ -94,55 +94,58 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
     .msg-user {
         background: #111418;
+        border: solid #21262d;
         border-left: solid #388bfd;
         color: #58a6ff;
-        padding: 0 1;
-        margin: 0 0 1 0;
+        padding: 1 2;
+        margin: 1 0;
     }
     .msg-assistant {
         background: #0d1117;
         border: solid #21262d;
         color: #e6edf3;
-        padding: 0 1;
-        margin: 0 0 1 0;
+        padding: 1 2;
+        margin: 1 0;
     }
     .msg-system {
-        background: #111418;
-        border-left: solid #8b949e;
-        color: #c9d1d9;
-        padding: 0 1;
-        margin: 0 0 1 0;
+        background: #111822;
+        border: solid #21262d;
+        border-left: solid #d29922;
+        color: #e6edf3;
+        padding: 1 2;
+        margin: 1 0;
     }
     .msg-meta { color: #6e7681; padding: 0; }
     .msg-parallel {
         background: #111418;
         color: #d2a8ff;
+        border: solid #21262d;
         border-left: solid #d2a8ff;
-        padding: 0 1;
-        margin: 0 0 1 0;
+        padding: 1 2;
+        margin: 1 0;
     }
 
     .exchange-box {
-        background: #111418;
+        background: #0d1117;
         border: solid #21262d;
         border-left: solid #388bfd;
         padding: 0;
-        margin: 0 0 1 0;
+        margin: 1 0;
         height: auto;
     }
     .exchange-prompt-header {
-        background: #161b22;
+        background: #161f2e;
         color: #58a6ff;
         text-style: bold;
-        padding: 0 1;
+        padding: 0 2;
         border-bottom: solid #21262d;
     }
     .exchange-prompt-header:hover {
-        background: #21262d;
+        background: #212b3b;
         color: #79c0ff;
     }
     .exchange-body {
-        padding: 0 1;
+        padding: 1 2;
         height: auto;
     }
     .exchange-prompt {
@@ -158,14 +161,19 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .thinking-text {
         color: #8b949e;
         text-style: italic;
-        padding: 0 1;
-        background: #0d1117;
+        padding: 1 2;
+        background: #080c14;
+        border: solid #21262d;
         border-left: solid #d2a8ff;
+        margin: 1 0;
     }
     .plan-text {
         color: #7ee787;
-        padding: 0 1;
-        background: #0d1117;
+        padding: 1 2;
+        background: #080c14;
+        border: solid #21262d;
+        border-left: solid #3fb950;
+        margin: 1 0;
     }
 
     /* Nord Theme */
@@ -173,86 +181,98 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-nord #agent-dashboard { background: #2e3440; border-left: solid #434c5e; }
     .theme-nord .exchange-box { background: #2e3440; border: solid #434c5e; border-left: solid #88c0d0; }
     .theme-nord .exchange-prompt-header { background: #3b4252; color: #88c0d0; border-bottom: solid #434c5e; }
+    .theme-nord .msg-system { background: #2e3440; border: solid #434c5e; border-left: solid #ebcb8b; }
 
     /* Dracula Theme */
     .theme-dracula { background: #1e1f29; }
     .theme-dracula #agent-dashboard { background: #282a36; border-left: solid #44475a; }
     .theme-dracula .exchange-box { background: #282a36; border: solid #44475a; border-left: solid #bd93f9; }
     .theme-dracula .exchange-prompt-header { background: #44475a; color: #bd93f9; border-bottom: solid #6272a4; }
+    .theme-dracula .msg-system { background: #282a36; border: solid #44475a; border-left: solid #f1fa8c; }
 
     /* Monokai Theme */
     .theme-monokai { background: #1e1f1c; }
     .theme-monokai #agent-dashboard { background: #272822; border-left: solid #3e3d32; }
     .theme-monokai .exchange-box { background: #272822; border: solid #3e3d32; border-left: solid #a6e22e; }
     .theme-monokai .exchange-prompt-header { background: #3e3d32; color: #a6e22e; border-bottom: solid #49483e; }
+    .theme-monokai .msg-system { background: #272822; border: solid #3e3d32; border-left: solid #e6db74; }
 
     /* Tokyo Night Theme */
     .theme-tokyo-night { background: #16161e; }
     .theme-tokyo-night #agent-dashboard { background: #1a1b26; border-left: solid #292e42; }
     .theme-tokyo-night .exchange-box { background: #1a1b26; border: solid #292e42; border-left: solid #7aa2f7; }
     .theme-tokyo-night .exchange-prompt-header { background: #292e42; color: #7aa2f7; border-bottom: solid #3b4261; }
+    .theme-tokyo-night .msg-system { background: #1a1b26; border: solid #292e42; border-left: solid #e0af68; }
 
     /* Solarized Dark Theme */
     .theme-solarized-dark { background: #00212b; }
     .theme-solarized-dark #agent-dashboard { background: #002b36; border-left: solid #073642; }
     .theme-solarized-dark .exchange-box { background: #002b36; border: solid #073642; border-left: solid #268bd2; }
     .theme-solarized-dark .exchange-prompt-header { background: #073642; color: #268bd2; border-bottom: solid #586e75; }
+    .theme-solarized-dark .msg-system { background: #002b36; border: solid #073642; border-left: solid #b58900; }
 
     /* Cyberpunk Theme */
     .theme-cyberpunk { background: #08090f; }
     .theme-cyberpunk #agent-dashboard { background: #10121d; border-left: solid #00f0ff; }
     .theme-cyberpunk .exchange-box { background: #10121d; border: solid #202637; border-left: solid #ffee00; }
     .theme-cyberpunk .exchange-prompt-header { background: #181d2e; color: #00f0ff; border-bottom: solid #00f0ff; }
+    .theme-cyberpunk .msg-system { background: #10121d; border: solid #202637; border-left: solid #00f0ff; }
 
     /* Catppuccin Mocha Theme */
     .theme-catppuccin-mocha { background: #1e1e2e; }
     .theme-catppuccin-mocha #agent-dashboard { background: #181825; border-left: solid #313244; }
     .theme-catppuccin-mocha .exchange-box { background: #181825; border: solid #313244; border-left: solid #cba6f7; }
     .theme-catppuccin-mocha .exchange-prompt-header { background: #313244; color: #cba6f7; border-bottom: solid #45475a; }
+    .theme-catppuccin-mocha .msg-system { background: #181825; border: solid #313244; border-left: solid #f9e2af; }
 
     /* Gruvbox Dark Theme */
     .theme-gruvbox-dark { background: #1d2021; }
     .theme-gruvbox-dark #agent-dashboard { background: #282828; border-left: solid #3c3836; }
     .theme-gruvbox-dark .exchange-box { background: #282828; border: solid #3c3836; border-left: solid #fabd2f; }
     .theme-gruvbox-dark .exchange-prompt-header { background: #3c3836; color: #fabd2f; border-bottom: solid #504945; }
+    .theme-gruvbox-dark .msg-system { background: #282828; border: solid #3c3836; border-left: solid #fabd2f; }
 
     /* Rosé Pine Theme */
     .theme-rose-pine { background: #191724; }
     .theme-rose-pine #agent-dashboard { background: #1f1d2e; border-left: solid #26233a; }
     .theme-rose-pine .exchange-box { background: #1f1d2e; border: solid #26233a; border-left: solid #eb6f92; }
     .theme-rose-pine .exchange-prompt-header { background: #26233a; color: #eb6f92; border-bottom: solid #393552; }
+    .theme-rose-pine .msg-system { background: #1f1d2e; border: solid #26233a; border-left: solid #f6c177; }
 
     /* Clean Light Theme */
     .theme-light { background: #f6f8fa; }
     .theme-light #agent-dashboard { background: #ffffff; border-left: solid #d0d7de; }
     .theme-light .exchange-box { background: #ffffff; border: solid #d0d7de; border-left: solid #0969da; }
     .theme-light .exchange-prompt-header { background: #f1f3f5; color: #0969da; border-bottom: solid #d0d7de; }
+    .theme-light .msg-system { background: #ffffff; border: solid #d0d7de; border-left: solid #9a6700; color: #24292f; }
     .theme-light .exchange-assistant { color: #24292f; }
 
     .dev-trace-text {
         color: #79c0ff;
-        padding: 0 1;
-        background: #090d13;
+        padding: 1 2;
+        background: #06090e;
+        border: solid #21262d;
         border-left: solid #f85149;
+        margin: 1 0;
     }
 
     Collapsible {
-        background: #111418;
+        background: #0d1117;
         border: solid #21262d;
-        margin: 0 0 1 0;
+        margin: 1 0;
         padding: 0;
         height: auto;
     }
     Collapsible .collapsible-title {
         background: #161b22;
         color: #58a6ff;
-        padding: 0 1;
+        padding: 0 2;
         text-style: bold;
     }
     Collapsible .collapsible-body {
         background: #0d1117;
         color: #e6edf3;
-        padding: 0 1;
+        padding: 1 2;
         overflow-y: auto;
         scrollbar-size: 1 1;
         scrollbar-color: #30363d #111418;
