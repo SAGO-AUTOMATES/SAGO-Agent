@@ -175,6 +175,26 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         border-left: solid #3fb950;
         margin: 1 0;
     }
+    .exchange-footer {
+        height: auto;
+        padding: 0 1 1 0;
+    }
+    .exchange-footer-spacer {
+        width: 1fr;
+    }
+    .btn-collapse-turn {
+        min-width: 18;
+        height: 1;
+        background: #161b22;
+        color: #8b949e;
+        border: solid #21262d;
+        padding: 0 1;
+    }
+    .btn-collapse-turn:hover {
+        background: #21262d;
+        color: #58a6ff;
+        border: solid #58a6ff;
+    }
 
     /* Nord Theme */
     .theme-nord { background: #242933; }

@@ -6,8 +6,8 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from rich.syntax import Syntax
-from textual.containers import Vertical
-from textual.widgets import Collapsible, Static
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Button, Collapsible, Static
 
 from sago.tui.widgets import AgentStatus, get_agent_color
 
@@ -61,14 +61,26 @@ class ExchangeTurnCard(Vertical):
             markup=True,
         )
         yield Vertical(classes="exchange-body")
+        yield Horizontal(
+            Static("", classes="exchange-footer-spacer"),
+            Button("▲ Collapse Message", variant="default", classes="btn-collapse-turn"),
+            classes="exchange-footer",
+        )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if "btn-collapse-turn" in event.button.classes:
+            event.stop()
+            self.toggle_collapse()
 
     def toggle_collapse(self) -> None:
-        """Toggle collapsed state of entire exchange body."""
+        """Toggle collapsed state of entire exchange body and footer."""
         try:
             body = self.query_one(".exchange-body")
+            footer = self.query_one(".exchange-footer")
             hdr = self.query_one(".exchange-prompt-header", Static)
             self.is_turn_collapsed = not self.is_turn_collapsed
             body.display = not self.is_turn_collapsed
+            footer.display = not self.is_turn_collapsed
 
             preview = self.prompt.replace("\n", " ").strip()
             title_snippet = f"{preview[:75]}..." if len(preview) > 75 else preview
