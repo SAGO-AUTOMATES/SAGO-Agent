@@ -795,7 +795,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             elif event.key == "up":
                 event.prevent_default()
                 self._move_sel(-1)
+            elif event.key == "tab":
+                event.prevent_default()
+                self._select_current()
             elif event.key == "escape":
+                event.prevent_default()
                 self._hide_suggestions()
         else:
             # Dedicated keyboard scrolling for messages pane
@@ -833,19 +837,26 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         if self.suggestion_values:
             val = self.suggestion_values[self.suggestion_index]
             inp = self.query_one("#msg-input")
-            inp.value = val + " "
-            inp.cursor_position = len(inp.value)
-            # If selecting a model suggestion, set provider too
-            if (
-                val.startswith("/model ")
-                and not val.startswith("/model add")
-                and not val.startswith("/model remove")
-                and not val.startswith("/model refresh")
-            ):
-                model_id = val[7:].strip()
-                provider = model_id.split("/")[0]
-                self.current_provider = provider
-                self.current_model = model_id
+            if val.startswith("/"):
+                inp.value = val + " "
+                inp.cursor_position = len(inp.value)
+                if (
+                    val.startswith("/model ")
+                    and not val.startswith("/model add")
+                    and not val.startswith("/model remove")
+                    and not val.startswith("/model refresh")
+                ):
+                    model_id = val[7:].strip()
+                    provider = model_id.split("/")[0]
+                    self.current_provider = provider
+                    self.current_model = model_id
+            else:
+                v = inp.value
+                last_space = v.rfind(" ")
+                current_word_start = last_space + 1 if last_space >= 0 else 0
+                new_val = val + " "
+                inp.value = v[:current_word_start] + new_val
+                inp.cursor_position = len(inp.value)
             self._hide_suggestions()
 
     def _update_highlight(self) -> None:
@@ -924,7 +935,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             from sago.tui.models import THEMES
 
             matches = [k for k in THEMES if query.lower() in k.lower()] or list(THEMES.keys())
-            items = [f"● {k:<16} - {THEMES[k]}" for k in matches]
+            items = [f"[bold cyan]● {k:<16}[/bold cyan] [dim]{THEMES[k]}[/dim]" for k in matches]
             values = [f"/theme {k}" for k in matches]
             self._show_suggestions(items, values)
             return
@@ -941,7 +952,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 "clear": "Clear trace buffer",
             }
             matches = [k for k in dev_opts if query.lower() in k.lower()] or list(dev_opts.keys())
-            items = [f"⚡ {k:<10} - {dev_opts[k]}" for k in matches]
+            items = [
+                f"[bold yellow]⚡ {k:<10}[/bold yellow] [dim]{dev_opts[k]}[/dim]" for k in matches
+            ]
             values = [f"/dev {k}" for k in matches]
             self._show_suggestions(items, values)
             return
@@ -956,7 +969,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 "max": "Maximum compute, exhaustive exploration",
             }
             matches = [k for k in efforts if query.lower() in k.lower()] or list(efforts.keys())
-            items = [f"● {k:<8} - {efforts[k]}" for k in matches]
+            items = [f"[bold green]● {k:<8}[/bold green] [dim]{efforts[k]}[/dim]" for k in matches]
             values = [f"/effort {k}" for k in matches]
             self._show_suggestions(items, values)
             return
@@ -969,7 +982,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                 agents = list_agents()
                 matches = [a for a in agents if query.lower() in a["name"].lower()]
-                items = [f"@{a['name']} - {a.get('description', '')[:40]}" for a in matches[:25]]
+                items = [
+                    f"[bold magenta]@{a['name']}[/bold magenta] [dim]{a.get('description', '')[:40]}[/dim]"
+                    for a in matches[:25]
+                ]
                 values = [f"/agent {a['name']}" for a in matches[:25]]
                 self._show_suggestions(items, values)
                 return
@@ -985,7 +1001,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 "restore": "Restore workspace to a checkpoint (/checkpoint restore <id>)",
             }
             matches = [k for k in opts if query.lower() in k.lower()] or list(opts.keys())
-            items = [f"● {k:<10} - {opts[k]}" for k in matches]
+            items = [f"[bold blue]● {k:<10}[/bold blue] [dim]{opts[k]}[/dim]" for k in matches]
             values = [f"/checkpoint {k}" for k in matches]
             self._show_suggestions(items, values)
             return
@@ -995,7 +1011,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         if not matches:
             matches = [cmd for cmd in COMMANDS if raw.lower().lstrip("/") in cmd]
         values = matches
-        items = [f"{cmd:<14} - {COMMANDS[cmd]}" for cmd in matches]
+        items = [f"[bold cyan]{cmd:<14}[/bold cyan] [dim]{COMMANDS[cmd]}[/dim]" for cmd in matches]
         self._show_suggestions(items, values)
 
     def _show_model_suggestions(self, query: str, provider_filter: str = "") -> None:
@@ -1017,7 +1033,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         if not models:
             models = [m for m in BUILTIN_MODELS if query in m.lower()]
 
-        items = [f"● {m}" for m in models[:30]]
+        items = [f"[bold cyan]● {m}[/bold cyan]" for m in models[:30]]
         values = [f"/model {m}" for m in models[:30]]
         self._show_suggestions(items, values)
 
@@ -1026,67 +1042,56 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             from sago.agents.registry import list_agents
 
             agents = list_agents()
-            # Support comma-separated multiple agents
-            # If prefix contains commas, suggest remaining agents
             if "," in prefix:
                 already_selected = [a.strip() for a in prefix.split(",")]
-                last_selected = already_selected[-1] if already_selected else ""
+                current_typing = already_selected[-1]
+                prefix_before = ",".join(already_selected[:-1]) + ","
                 matches = [
                     a["name"]
                     for a in agents
-                    if a["name"].startswith(last_selected)
-                    and a["name"] not in already_selected[:-1]
+                    if a["name"].startswith(current_typing) and a["name"] not in already_selected
                 ]
-                # Format: show as comma-separated list
-                items = [f"{', '.join(already_selected[:-1])}, {a['name']}" for a in matches]
-                values = [f"@{', '.join(already_selected[:-1])}, {a['name']}" for a in matches]
+                items = [f"@{name}" for name in matches]
+                values = [f"@{prefix_before}{name}" for name in matches]
             else:
                 matches = [a["name"] for a in agents if a["name"].startswith(prefix)]
-                items = [
-                    f"{a['name']} - {a.get('description', '')[:30]}"
-                    for a in agents
-                    if a["name"].startswith(prefix)
-                ]
-                values = [f"@{a['name']}" for a in agents if a["name"].startswith(prefix)]
+                items = [f"@{name}" for name in matches]
+                values = [f"@{name}" for name in matches]
             self._show_suggestions(items, values)
-        except Exception as e:
-            logger.debug("Agent suggestions failed: %s", e)
+        except Exception:
+            pass
 
     def _show_file_suggestions(self, prefix: str, home: bool = False) -> None:
+        import os
         from pathlib import Path
 
-        # Determine base path and trigger
         if home:
-            base = Path.home()
-        elif prefix.startswith("~"):
-            # Handle #~/.sago/config style paths
-            base = Path.home() / prefix[1:].split("/")[0] if "/" in prefix else Path.home()
+            base_path = Path.home()
+            search_prefix = prefix
+        elif "/" in prefix:
+            last_slash = prefix.rfind("/")
+            dir_part = prefix[:last_slash]
+            search_prefix = prefix[last_slash + 1 :]
+            base_path = Path.cwd() / dir_part if not os.path.isabs(dir_part) else Path(dir_part)
         else:
-            base = Path(".")
+            base_path = Path.cwd()
+            search_prefix = prefix
 
-        # Build search path from prefix
-        search_prefix = prefix.lstrip("~/")
-        if search_prefix:
-            search_path = base / search_prefix
-            if search_path.is_dir():
-                # Searching inside a directory
-                items = []
-                values = []
-                for f in sorted(search_path.iterdir())[:15]:
-                    name = f.name + "/" if f.is_dir() else f.name
-                    items.append(name)
-                    # Reconstruct full path for the value
-                    if home:
-                        values.append(f"~{search_prefix}/{name}")
-                    else:
-                        values.append(f"#{search_prefix}/{name}")
-                self._show_suggestions(items, values)
-                return
+        if not base_path.exists() or not base_path.is_dir():
+            self._hide_suggestions()
+            return
 
-        # Default: show root level files
         items = []
         values = []
-        for f in sorted(base.iterdir())[:15]:
+        try:
+            entries = sorted(base_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        except PermissionError:
+            self._hide_suggestions()
+            return
+
+        for f in entries:
+            if not f.name.lower().startswith(search_prefix.lower()):
+                continue
             if f.name.startswith(".") and not search_prefix.startswith("."):
                 continue  # Skip hidden files unless explicitly searching
             name = f.name + "/" if f.is_dir() else f.name
@@ -1107,8 +1112,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self.show_suggestions = True
         container = self.query_one("#suggestions")
         container.remove_children()
-        for i, item in enumerate(items):
-            container.mount(Static(item, classes="suggestion-item"))
+        for item in items:
+            container.mount(Static(item, classes="suggestion-item", markup=True))
         container.add_class("visible")
         self._update_highlight()
 
@@ -1677,6 +1682,19 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     return
 
                 start_time = _time.time()
+
+                from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                get_dev_tracer().record(
+                    event_type=TraceEventType.FUNCTION_CALL,
+                    source="sago.tui.app",
+                    action=f"process_message({self.current_agent})",
+                    data={
+                        "task": message[:120],
+                        "model": self.current_model,
+                        "provider": self.current_provider,
+                    },
+                )
 
                 # Detect project context
                 project_context = _detect_project_context()

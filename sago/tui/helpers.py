@@ -268,7 +268,7 @@ class UIHelpers:
                     Collapsible(
                         Static(trace_body, classes="dev-trace-text", markup=True),
                         title=f"● ⚡ DEVELOPER TRACE ({len(traces)} events | {len(llm_traces)} LLM | {len(tool_traces)} Tools)",
-                        collapsed=True,
+                        collapsed=False,
                     )
                 )
 
@@ -314,6 +314,7 @@ class UIHelpers:
         self._add_assistant_message(content, agent_name=agent_name)
 
     def _add_system_message(self: SagoApp, content: str) -> None:
+        self._hide_welcome_screen()
         self.query_one("#messages").mount(
             Static(
                 f"[bold yellow][SYSTEM][/bold yellow] {content}", classes="msg-system", markup=True
