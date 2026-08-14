@@ -57,6 +57,8 @@ class SqlMigrationTool(BaseTool):
             up_sql = f"CREATE TABLE IF NOT EXISTS {table_name} (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    {details},\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);"
             if d == "postgresql":
                 up_sql = f"CREATE TABLE IF NOT EXISTS {table_name} (\n    id SERIAL PRIMARY KEY,\n    {details},\n    created_at TIMESTAMPTZ DEFAULT NOW()\n);"
+            elif d == "mysql":
+                up_sql = f"CREATE TABLE IF NOT EXISTS {table_name} (\n    id INT AUTO_INCREMENT PRIMARY KEY,\n    {details},\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);"
             down_sql = f"DROP TABLE IF EXISTS {table_name};"
 
         elif op in ("add_column", "column"):

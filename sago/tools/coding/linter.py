@@ -84,12 +84,14 @@ class LinterTool(BaseTool):
         if not linter_cmd:
             return f"No linter found for extension: {ext}"
 
-        # Build command
-        cmd = linter_cmd + [str(path)]
-        if fix and linter_cmd[0] in ("ruff", "eslint", "black", "isort"):
-            cmd = linter_cmd + ["--fix", str(path)]
+        # When autofix is requested, run the linter's fix command first so that
+        # fixes are actually applied to the file before reporting results.
+        if fix:
+            fix_cmd = self._build_fix_command(linter_cmd, str(path))
+            self._run_command(fix_cmd, timeout=120)
 
-        # Execute
+        # Build report command and execute
+        cmd = " ".join(linter_cmd + [str(path)])
         result = self._run_command(cmd, timeout=120)
 
         output_parts = [f"Linter: {linter_cmd[0]}"]
@@ -116,3 +118,21 @@ class LinterTool(BaseTool):
             if shutil.which(linter_cmd[0]):
                 return linter_cmd
         return None
+
+    def _build_fix_command(self, linter_cmd: list[str], path: str) -> str:
+        """Build the autofix command for the given linter.
+
+        The returned command is a shell string suitable for ``_run_command``
+        (which runs with ``shell=True``).
+        """
+        name = linter_cmd[0]
+        if name == "ruff":
+            return " ".join(["ruff", "check", "--fix", path])
+        if name == "eslint":
+            return " ".join(["eslint", "--fix", path])
+        if name == "black":
+            return " ".join(["black", path])
+        if name == "isort":
+            return " ".join(["isort", path])
+        # Generic fallback: append the common --fix flag.
+        return " ".join(linter_cmd + ["--fix", path])

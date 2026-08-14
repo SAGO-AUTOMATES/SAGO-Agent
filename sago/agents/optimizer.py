@@ -39,20 +39,31 @@ DOMAIN_TOOL_AUGMENTATIONS = {
 
 
 def optimize_profile_file(profile_path: Path) -> bool:
-    """Optimize a single agent profile file in-place."""
+    """Optimize a single agent profile file in-place.
+
+    Returns True only when the profile was already optimized or an optimization
+    was successfully applied; False when the profile cannot be optimized (e.g. it
+    is not a recognized profile, or has no injection point for the guidelines).
+    """
     try:
         content = profile_path.read_text(encoding="utf-8")
         if not content.startswith('"""Agent Profile:'):
             return False
 
-        # Add enterprise guidelines if not already present
-        if "Enterprise Execution Guidelines" not in content:
-            # Inject into system_prompt
-            if 'system_prompt="""' in content:
-                content = content.replace(
-                    'system_prompt="""',
-                    f'system_prompt="""{ENTERPRISE_INSTRUCTION_HEADER}\n',
-                )
+        # Already optimized: nothing to do.
+        if "Enterprise Execution Guidelines" in content:
+            return True
+
+        # Add enterprise guidelines if not already present.
+        if 'system_prompt="""' not in content:
+            # No known injection point -> cannot optimize this profile.
+            return False
+
+        content = content.replace(
+            'system_prompt="""',
+            f'system_prompt="""{ENTERPRISE_INSTRUCTION_HEADER}\n',
+            1,
+        )
 
         profile_path.write_text(content, encoding="utf-8")
         return True

@@ -80,8 +80,9 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run mypy
-        # Incremental rollout: reports type errors without blocking the
-        # pipeline yet. Work the codebase toward a clean `uv run mypy sago`.
+        # Currently ~271 errors across 87 files (pre-existing). Kept advisory
+        # (non-blocking) until the type surface is cleaned up. Tracked as
+        # technical debt; flip to required once `uv run mypy sago` is clean.
         run: uv run mypy sago
         continue-on-error: true
 
@@ -103,8 +104,9 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run tests with coverage
-        run: uv run pytest --cov=sago --cov-report=term-missing --cov-report=xml -q
-        continue-on-error: true
+        # Gate: repo currently measures ~57% line coverage. Fail the build if
+        # it drops below 55% to catch coverage regressions. Tighten over time.
+        run: uv run pytest --cov=sago --cov-report=term-missing --cov-report=xml --cov-fail-under=55 -q
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
@@ -115,7 +117,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    needs: [lint, test, coverage]
     steps:
       - uses: actions/checkout@v4
 

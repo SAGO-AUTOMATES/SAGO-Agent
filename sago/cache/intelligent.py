@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sago.utils.errors import log_error
+
 
 @dataclass
 class CacheEntry:
@@ -135,7 +137,8 @@ class Cache:
             # Calculate size
             try:
                 size_bytes = len(json.dumps(value, default=str).encode())
-            except Exception:
+            except Exception as e:
+                log_error("Failed to compute cache entry size", e)
                 size_bytes = 0
 
             entry = CacheEntry(

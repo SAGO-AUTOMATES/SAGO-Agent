@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+from sago.utils.errors import log_error
 
 
 class WriteFileArgs(BaseModel):
@@ -77,8 +78,8 @@ class WriteFileTool(BaseTool):
                     tracker.track_modify(str(path), old_content, content)
                 else:
                     tracker.track_create(str(path), content)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("Failed to track write change", e, context={"path": str(path)})
 
             path.write_text(content, encoding=encoding)
             size = len(content)

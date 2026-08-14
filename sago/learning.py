@@ -12,6 +12,7 @@ import time
 from typing import Any
 
 from sago.paths import get_sago_home
+from sago.utils.errors import log_error
 
 
 class LearningStore:
@@ -26,8 +27,8 @@ class LearningStore:
         if self._path.exists():
             try:
                 return json.loads(self._path.read_text())
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("Failed to load learning store", e)
         return {
             "successful_patterns": {},
             "failed_patterns": {},
@@ -40,8 +41,8 @@ class LearningStore:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(json.dumps(self._data, indent=2, default=str))
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("Failed to save learning store", e)
 
     def record_success(self, task_type: str, tools_used: list[str], approach: str) -> None:
         """Record a successful approach for a task type."""

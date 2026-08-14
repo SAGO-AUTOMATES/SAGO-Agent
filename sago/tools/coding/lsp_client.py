@@ -512,6 +512,117 @@ class LSPClient:
             return []
 
     @staticmethod
+    def _symbol_at(file_path: str, line: int, column: int) -> str | None:
+        """Return the identifier under the given (line, column) position, if any."""
+        try:
+            path = Path(file_path)
+            if not path.exists():
+                return None
+            lines = path.read_text(encoding="utf-8", errors="replace").split("\n")
+            if line < 1 or line > len(lines):
+                return None
+            line_text = lines[line - 1]
+            # Expand the cursor position to the full word it sits within.
+            start = max(0, min(column, len(line_text)))
+            while start > 0 and (line_text[start - 1].isalnum() or line_text[start - 1] == "_"):
+                start -= 1
+            end = min(column, len(line_text))
+            while end < len(line_text) and (line_text[end].isalnum() or line_text[end] == "_"):
+                end += 1
+            symbol = line_text[start:end]
+            if not symbol or not (symbol[0].isalpha() or symbol[0] == "_"):
+                return None
+            return symbol
+        except Exception:
+            return None
+
+    def get_references(self, file_path: str, line: int, column: int) -> list[Definition]:
+        """Find all references (usages) of the symbol under the given position.
+
+        Reuses the project-wide source scan used by :meth:`get_definitions` but
+        looks for every occurrence of the symbol's word rather than only its
+        definition patterns.
+        """
+        try:
+            symbol = self._symbol_at(file_path, line, column)
+            if not symbol:
+                return []
+
+            root = self._find_project_root(Path(file_path).parent)
+            pattern = re.compile(rf"\b{re.escape(symbol)}\b")
+
+            references: list[Definition] = []
+            seen: set[tuple[str, int]] = set()
+            for source in self._iter_source_files(root):
+                try:
+                    text = source.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    continue
+                for idx, src_line in enumerate(text.split("\n"), 1):
+                    if pattern.search(src_line):
+                        key = (str(source), idx)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        references.append(Definition(file=str(source), line=idx, column=1))
+                        if len(references) >= 200:
+                            return references
+            return references
+        except Exception:
+            return []
+
+    def get_hover(self, file_path: str, line: int, column: int) -> dict[str, Any] | None:
+        """Return hover information for the symbol under the given position.
+
+        Locates the symbol's real definition (reusing :meth:`get_definitions`)
+        and returns its kind and the definition's source line as detail.
+        """
+        try:
+            symbol = self._symbol_at(file_path, line, column)
+            if not symbol:
+                return None
+
+            kind = "variable"
+            detail: str | None = None
+
+            definitions = self.get_definitions(file_path, line, column)
+            if definitions:
+                definition = definitions[0]
+                detail = None
+                try:
+                    def_text = (
+                        Path(definition.file)
+                        .read_text(encoding="utf-8", errors="replace")
+                        .split("\n")
+                    )
+                    if 1 <= definition.line <= len(def_text):
+                        detail = def_text[definition.line - 1].strip()
+                except Exception:
+                    detail = None
+                if detail is not None:
+                    if re.search(rf"(?:def|async\s+def)\s+{re.escape(symbol)}\b", detail):
+                        kind = "function"
+                    elif re.search(rf"\bclass\s+{re.escape(symbol)}\b", detail):
+                        kind = "class"
+                    else:
+                        kind = "variable"
+
+            return {"symbol": symbol, "kind": kind, "detail": detail}
+        except Exception:
+            return None
+
+    def get_diagnostics(self, file_path: str) -> list[Diagnostic]:
+        """Return diagnostics (type errors / warnings) for a file.
+
+        Delegates to the existing type-checking pipeline so it reports the same
+        diagnostics a real LSP ``textDocument/publishDiagnostics`` would surface.
+        """
+        try:
+            return self.check_types(file_path)
+        except Exception:
+            return []
+
+    @staticmethod
     def _find_project_root(start: Path) -> Path:
         markers = {
             "pyproject.toml",

@@ -13,6 +13,7 @@ Features:
 from __future__ import annotations
 
 import difflib
+import re
 from dataclasses import dataclass
 
 
@@ -156,13 +157,19 @@ class ResilientEditor:
         cls,
         content: str,
         chunks: list[dict[str, str]],
-    ) -> tuple[bool, str, list[str]]:
+    ) -> tuple[bool, str, list[str], int]:
         """Apply multiple replacement chunks atomically.
 
         chunks = [{"old": "...", "new": "..."}, ...]
+
+        Each ``old`` string is replaced across ALL non-overlapping occurrences
+        (the intended behaviour for multi-replace). Returns a 4-tuple of
+        ``(success, new_content, logs, total_replacements)`` where
+        ``total_replacements`` is the accurate count of applied edits.
         """
         current_content = cls.normalize_newlines(content)
-        logs = []
+        logs: list[str] = []
+        total_replacements = 0
 
         for idx, chunk in enumerate(chunks, 1):
             old_str = chunk.get("old", "")
@@ -171,10 +178,19 @@ class ResilientEditor:
                 logs.append(f"Chunk #{idx} skipped: empty old string")
                 continue
 
-            success, updated, msg = cls.apply_replacement(current_content, old_str, new_str)
+            success, updated, msg = cls.apply_replacement(
+                current_content, old_str, new_str, replace_all=True
+            )
             if not success:
-                return False, content, logs + [f"Chunk #{idx} failed: {msg}"]
+                return False, content, logs + [f"Chunk #{idx} failed: {msg}"], total_replacements
             current_content = updated
+
+            # Extract the accurate occurrence count from the replacement message.
+            try:
+                count = int(re.search(r"(\d+)", msg).group(1))
+            except (AttributeError, ValueError):
+                count = 1
+            total_replacements += count
             logs.append(f"Chunk #{idx} succeeded: {msg}")
 
-        return True, current_content, logs
+        return True, current_content, logs, total_replacements

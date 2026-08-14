@@ -52,7 +52,7 @@ class _DDGHTMLParser(HTMLParser):
                     if match:
                         href = unquote(match.group(1))
                 self._current_url = href
-        elif tag in ("a", "td", "div") and "result__snippet" in attrs_dict.get("class", ""):
+        elif tag in ("td", "div") and "result__snippet" in attrs_dict.get("class", ""):
             self._in_snippet = True
 
     def handle_endtag(self, tag: str) -> None:

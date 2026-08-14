@@ -85,6 +85,41 @@ def _get_registry() -> dict[str, Any]:
     return _CREWAI_TOOLS
 
 
+class _CrewAIToolsProxy:
+    """Dict-like lazy proxy exposing the discovered CrewAI tool registry.
+
+    Resolves the registry on first access so importing this module stays cheap
+    and only triggers tool discovery when the registry is actually used.
+    """
+
+    def _registry(self) -> dict[str, Any]:
+        return _get_registry()
+
+    def __getitem__(self, key: str) -> Any:
+        return self._registry()[key]
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._registry()
+
+    def __iter__(self):
+        return iter(self._registry())
+
+    def __len__(self) -> int:
+        return len(self._registry())
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._registry().get(key, default)
+
+    def keys(self):
+        return self._registry().keys()
+
+    def values(self):
+        return self._registry().values()
+
+    def items(self):
+        return self._registry().items()
+
+
 def get_crewai_tool(tool_name: str) -> Any | None:
     """Get a CrewAI tool by name.
 
@@ -102,5 +137,5 @@ def list_crewai_tools() -> list[str]:
     return sorted(_get_registry().keys())
 
 
-# Also export the full registry for direct access
-CREWAI_TOOLS = property(lambda self: _get_registry())
+# Also export the full registry for direct access (lazy, dict-like).
+CREWAI_TOOLS = _CrewAIToolsProxy()

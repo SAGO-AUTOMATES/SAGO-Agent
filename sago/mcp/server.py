@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sago.utils.errors import log_error
+
 
 @dataclass
 class MCPTool:
@@ -199,7 +201,8 @@ class MCPClient:
 
             return True
 
-        except Exception:
+        except Exception as e:
+            log_error("Failed to connect to MCP server", e)
             self._connected = False
             return False
 

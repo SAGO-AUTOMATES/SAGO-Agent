@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
 from sago.tools.file.resilient_editor import ResilientEditor
+from sago.utils.errors import log_error
 
 
 class ReplacementChunk(BaseModel):
@@ -62,7 +63,7 @@ class MultiReplaceTool(BaseTool):
             new_s = c.get("new_string") or c.get("new") or ""
             standardized_chunks.append({"old": old_s, "new": new_s})
 
-        success, new_content, logs = ResilientEditor.apply_multi_replace(
+        success, new_content, logs, total_replaced = ResilientEditor.apply_multi_replace(
             content=content, chunks=standardized_chunks
         )
 
@@ -75,11 +76,11 @@ class MultiReplaceTool(BaseTool):
 
                 tracker = get_change_tracker()
                 tracker.track_modify(str(path), content, new_content)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("Failed to track multi-replace change", e, context={"path": str(path)})
 
             path.write_text(new_content, encoding=encoding)
-            return f"Successfully applied {len(chunks)} replacement(s) to {path}:\n" + "\n".join(
+            return f"Successfully applied {total_replaced} replacement(s) to {path}:\n" + "\n".join(
                 logs
             )
         except Exception as e:

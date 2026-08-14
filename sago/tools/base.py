@@ -86,7 +86,27 @@ class BaseTool(ABC):
             String result of the tool execution.
         """
         try:
-            return self._run(**kwargs)
+            from sago.observability.tracing import end_span, record_tool_call, start_span
+
+            _span = start_span(f"tool:{self.name}", tool=self.name)
+            try:
+                result = self._run(**kwargs)
+                try:
+                    record_tool_call(self.name, duration=_span.duration, success=True)
+                except Exception:
+                    pass
+                return result
+            except Exception:
+                try:
+                    record_tool_call(self.name, duration=_span.duration, success=False)
+                except Exception:
+                    pass
+                raise
+            finally:
+                try:
+                    end_span(_span)
+                except Exception:
+                    pass
         except Exception as e:
             error_msg = f"{type(e).__name__}: {e}"
 

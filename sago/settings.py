@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
+from pydantic import RootModel, ValidationError
+
 from sago.paths import get_sago_home
 
+logger = logging.getLogger(__name__)
+
 GLOBAL_SETTINGS = get_sago_home() / "settings.json"
+
+# Validates that a settings document is a JSON object (free-form otherwise).
+SettingsData = RootModel[dict[str, Any]]
 
 
 def _find_project_root() -> Path | None:
@@ -27,22 +35,41 @@ def _project_settings_path() -> Path | None:
     return None
 
 
+def _load_settings_file(path: Path) -> dict[str, Any]:
+    """Read and validate a single settings JSON file.
+
+    Raises ValueError with a clear message when the file is malformed or is not
+    a JSON object, instead of silently ignoring the error.
+    """
+    try:
+        raw = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        logger.error("Failed to parse settings file %s: %s", path, exc)
+        raise ValueError(f"Malformed settings JSON in {path}: {exc}") from exc
+
+    try:
+        validated = SettingsData.model_validate(raw)
+    except ValidationError as exc:
+        logger.error("Invalid settings structure in %s", path)
+        raise ValueError(f"Invalid settings in {path}: {exc}") from exc
+
+    if not isinstance(validated.root, dict):
+        logger.error("Settings file %s is not a JSON object", path)
+        raise ValueError(f"Settings in {path} must be a JSON object")
+
+    return validated.root
+
+
 def load_settings() -> dict[str, Any]:
     """Load merged settings: global base + project overrides."""
     settings: dict[str, Any] = {}
     # Global base
     if GLOBAL_SETTINGS.exists():
-        try:
-            settings.update(json.loads(GLOBAL_SETTINGS.read_text()))
-        except Exception:
-            pass
+        settings.update(_load_settings_file(GLOBAL_SETTINGS))
     # Project overrides
     proj = _project_settings_path()
     if proj and proj.exists():
-        try:
-            settings.update(json.loads(proj.read_text()))
-        except Exception:
-            pass
+        settings.update(_load_settings_file(proj))
     return settings
 
 
@@ -61,8 +88,13 @@ def save_setting(key: str, value: Any, scope: str = "global") -> None:
     if path.exists():
         try:
             data = json.loads(path.read_text())
-        except Exception:
-            pass
+            SettingsData.model_validate(data)
+        except (json.JSONDecodeError, ValidationError) as exc:
+            logger.warning(
+                "Existing settings file %s is malformed (%s); it will be overwritten",
+                path,
+                exc,
+            )
     data[key] = value
     path.write_text(json.dumps(data, indent=2))
 
@@ -72,18 +104,12 @@ def load_setting(key: str, default: Any = None) -> Any:
     # Project wins
     proj = _project_settings_path()
     if proj and proj.exists():
-        try:
-            data = json.loads(proj.read_text())
-            if key in data:
-                return data[key]
-        except Exception:
-            pass
+        data = _load_settings_file(proj)
+        if key in data:
+            return data[key]
     # Then global
     if GLOBAL_SETTINGS.exists():
-        try:
-            data = json.loads(GLOBAL_SETTINGS.read_text())
-            if key in data:
-                return data[key]
-        except Exception:
-            pass
+        data = _load_settings_file(GLOBAL_SETTINGS)
+        if key in data:
+            return data[key]
     return default

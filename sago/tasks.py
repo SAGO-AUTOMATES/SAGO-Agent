@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from sago.paths import get_sago_home
+from sago.utils.errors import log_error
 
 
 class TaskStatus(Enum):
@@ -145,8 +146,8 @@ class TaskManager:
                         )
                         plan.todos.append(todo)
                     self.plans[plan.id] = plan
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("Failed to load persisted task plans", e)
 
     def _save(self) -> None:
         path = self._get_storage_path()
@@ -162,8 +163,8 @@ class TaskManager:
         for cb in self._callbacks:
             try:
                 cb(event, data)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("Task update callback raised", e, context={"event": event})
 
     def create_plan(self, goal: str, todos: list[str] | None = None) -> TaskPlan:
         """Create a new task plan."""

@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+from sago.utils.errors import log_error
 
 
 class GrepContentArgs(BaseModel):
@@ -93,7 +94,8 @@ class GrepContentTool(BaseTool):
             files_searched += 1
             try:
                 lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
-            except Exception:
+            except Exception as e:
+                log_error("Failed to read file during grep", e, context={"path": str(file_path)})
                 continue
 
             for i, line in enumerate(lines):

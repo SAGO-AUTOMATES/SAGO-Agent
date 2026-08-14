@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sago.paths import get_db_path
+from sago.utils.errors import log_error
 
 # ---------------------------------------------------------------------------
 # Connection pool - single shared connection per thread
@@ -60,8 +61,8 @@ def close_all_connections() -> None:
     for conn in conns:
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("Failed to close database connection", e)
 
 
 atexit.register(close_all_connections)

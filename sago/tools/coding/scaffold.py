@@ -25,7 +25,7 @@ TEMPLATES: dict[str, dict[str, str]] = {
     "python": {
         "README.md": "# {project_name}\n\nA Python project.\n\n## Installation\n\n```bash\npip install -e .\n```\n\n## Usage\n\n```bash\npython -m {project_name}\n```\n",
         "pyproject.toml": '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n\n[project]\nname = "{project_name}"\nversion = "0.1.0"\ndescription = ""\nrequires-python = ">=3.10"\n\n[project.scripts]\n{project_name} = "{project_name}.main:main"\n',
-        "{project_name}/__init__.py": '"""${project_name}"""\n\n__version__ = "0.1.0"\n',
+        "{project_name}/__init__.py": '"""{project_name}"""\n\n__version__ = "0.1.0"\n',
         "{project_name}/main.py": '"""Main entry point."""\n\n\ndef main() -> None:\n    print("Hello from {project_name}!")\n\n\nif __name__ == "__main__":\n    main()\n',
         "tests/__init__.py": "",
         "tests/test_main.py": '"""Tests for main module."""\n\nfrom {project_name}.main import main\n\n\ndef test_main(capsys):\n    main()\n    captured = capsys.readouterr()\n    assert "Hello" in captured.out\n',
@@ -34,7 +34,7 @@ TEMPLATES: dict[str, dict[str, str]] = {
     "python-cli": {
         "README.md": "# {project_name}\n\nA Python CLI tool.\n\n## Installation\n\n```bash\npip install -e .\n```\n\n## Usage\n\n```bash\n{project_name} --help\n```\n",
         "pyproject.toml": '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n\n[project]\nname = "{project_name}"\nversion = "0.1.0"\ndescription = ""\nrequires-python = ">=3.10"\ndependencies = [\n    "typer>=0.9",\n    "rich>=13.0",\n]\n\n[project.scripts]\n{project_name} = "{project_name}.cli:app"\n',
-        "{project_name}/__init__.py": '"""${project_name}"""\n\n__version__ = "0.1.0"\n',
+        "{project_name}/__init__.py": '"""{project_name}"""\n\n__version__ = "0.1.0"\n',
         "{project_name}/cli.py": '"""CLI interface."""\n\nimport typer\nfrom rich.console import Console\n\napp = typer.Typer(help="{project_name} CLI tool")\nconsole = Console()\n\n\n@app.command()\ndef main(name: str = "World") -> None:\n    """Greet someone."""\n    console.print(f"Hello, {name}!")\n\n\nif __name__ == "__main__":\n    app()\n',
         "tests/__init__.py": "",
         "tests/test_cli.py": '"""Tests for CLI."""\n\nfrom typer.testing import CliRunner\nfrom {project_name}.cli import app\n\nrunner = CliRunner()\n\n\ndef test_main():\n    result = runner.invoke(app, ["--help"])\n    assert result.exit_code == 0\n    assert "Greet" in result.output\n',
@@ -43,7 +43,7 @@ TEMPLATES: dict[str, dict[str, str]] = {
     "python-web": {
         "README.md": "# {project_name}\n\nA Python web application.\n\n## Installation\n\n```bash\npip install -e .\n```\n\n## Usage\n\n```bash\npython -m {project_name}.app\n```\n",
         "pyproject.toml": '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n\n[project]\nname = "{project_name}"\nversion = "0.1.0"\ndescription = ""\nrequires-python = ">=3.10"\ndependencies = [\n    "flask>=3.0",\n]\n\n[project.scripts]\n{project_name} = "{project_name}.app:main"\n',
-        "{project_name}/__init__.py": '"""${project_name}"""\n\n__version__ = "0.1.0"\n',
+        "{project_name}/__init__.py": '"""{project_name}"""\n\n__version__ = "0.1.0"\n',
         "{project_name}/app.py": '"""Flask web application."""\n\nfrom flask import Flask, jsonify\n\napp = Flask(__name__)\n\n\n@app.route("/")\ndef index() -> dict:\n    return jsonify({"message": "Hello from {project_name}!"})\n\n\n@app.route("/health")\ndef health() -> dict:\n    return jsonify({"status": "ok"})\n\n\ndef main() -> None:\n    app.run(debug=True)\n\n\nif __name__ == "__main__":\n    main()\n',
         "tests/__init__.py": "",
         "tests/test_app.py": '"""Tests for web app."""\n\nimport pytest\nfrom {project_name}.app import app\n\n\n@pytest.fixture\ndef client():\n    app.config["TESTING"] = True\n    with app.test_client() as c:\n        yield c\n\n\ndef test_index(client):\n    resp = client.get("/")\n    assert resp.status_code == 200\n    assert b"Hello" in resp.data\n\n\ndef test_health(client):\n    resp = client.get("/health")\n    assert resp.status_code == 200\n    assert resp.json["status"] == "ok"\n',

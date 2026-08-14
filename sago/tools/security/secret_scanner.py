@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+from sago.utils.errors import log_error
 
 # Common sensitive regex patterns
 SECRET_PATTERNS = {
@@ -70,7 +71,8 @@ class SecretScannerTool(BaseTool):
                         findings.append(
                             f"• [line {line_no}] {p.relative_to(root)}: {secret_type} ({masked})"
                         )
-            except Exception:
+            except Exception as e:
+                log_error("Error scanning file for secrets", e, context={"path": str(p)})
                 continue
 
         if not findings:
