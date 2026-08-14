@@ -1144,6 +1144,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             "/plugins": lambda: self._show_plugins(),
             "/theme": lambda: self._set_theme(args),
             "/themes": lambda: self._set_theme(args),
+            "/collapse": lambda: self._collapse_chats(args),
         }
 
         if cmd in handlers:

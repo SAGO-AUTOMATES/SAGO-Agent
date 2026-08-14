@@ -52,13 +52,20 @@ class UIHelpers:
         self.messages.append({"role": "user", "content": content})
         self._save_message("user", content)
 
-        # Create a unified turn container (exchange-box) with initial prompt Static
-        exchange_box = Vertical(
+        # Format a clean title preview for collapsible header
+        preview = content.replace("\n", " ").strip()
+        title_snippet = f"{preview[:60]}..." if len(preview) > 60 else preview
+        turn_title = f"● PROMPT: {title_snippet}"
+
+        # Create a unified collapsible turn container (exchange-box)
+        exchange_box = Collapsible(
             Static(
                 f"[bold cyan]● PROMPT[/bold cyan]  [bold white]{content}[/bold white]",
                 classes="exchange-prompt",
                 markup=True,
             ),
+            title=turn_title,
+            collapsed=False,
             classes="exchange-box",
         )
         self._active_exchange_card = exchange_box

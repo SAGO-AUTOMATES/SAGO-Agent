@@ -1347,3 +1347,24 @@ class CommandHandlers:
             self._add_system_message(f"Switched theme to [bold cyan]{themes[name]}[/bold cyan]")
         except Exception as e:
             self._add_system_message(f"Failed to switch theme: {e}")
+
+    def _collapse_chats(self: SagoApp, action: str = "") -> None:
+        """Collapse or expand all chat turns in the message pane."""
+        from textual.widgets import Collapsible
+
+        action = action.strip().lower()
+        messages_container = self.query_one("#messages")
+        turn_cards = messages_container.query(Collapsible)
+
+        if not turn_cards:
+            self._add_system_message("No chat turns to collapse.")
+            return
+
+        if action in ("expand", "all-open", "open"):
+            for card in turn_cards:
+                card.collapsed = False
+            self._add_system_message(f"Expanded all ({len(turn_cards)}) cards in chat.")
+        else:
+            for card in turn_cards:
+                card.collapsed = True
+            self._add_system_message(f"Collapsed all ({len(turn_cards)}) cards in chat.")

@@ -1,6 +1,7 @@
 """Tests for TUI turn containerization, thinking step containment, and theme switching."""
 
 import pytest
+from textual.widgets import Collapsible
 
 from sago.tui.app import SagoApp
 
@@ -52,3 +53,30 @@ async def test_tui_theme_switching():
         app._set_theme("obsidian")
         await pilot.pause()
         assert app.sago_theme == "obsidian"
+
+
+@pytest.mark.anyio
+async def test_tui_collapse_command():
+    app = SagoApp()
+    async with app.run_test() as pilot:
+        app._add_user_message("First query")
+        app._add_assistant_message("First response")
+        await pilot.pause()
+
+        app._add_user_message("Second query")
+        app._add_assistant_message("Second response")
+        await pilot.pause()
+
+        # Collapse all
+        app._collapse_chats()
+        await pilot.pause()
+
+        turn_cards = app.query_one("#messages").query(Collapsible)
+        for c in turn_cards:
+            assert c.collapsed is True
+
+        # Expand all
+        app._collapse_chats("expand")
+        await pilot.pause()
+        for c in turn_cards:
+            assert c.collapsed is False

@@ -59,6 +59,7 @@ COMMANDS = {
     "/skills": "List available skills (/skills [filter] or /skill <name>)",
     "/plugins": "List installed third-party plugins (/plugins)",
     "/theme": "Switch TUI color theme (/theme [name] or /themes)",
+    "/collapse": "Collapse or expand chat exchanges (/collapse [all|expand])",
 }
 
 BUILTIN_MODELS = [
