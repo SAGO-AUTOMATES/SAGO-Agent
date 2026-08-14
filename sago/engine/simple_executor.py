@@ -668,97 +668,13 @@ PROMPTS = {
 
 
 def _detect_task_type(task: str) -> str:
-    task_lower = task.lower().strip()
-    chat_words = [
-        "joke",
-        "jokes",
-        "funny",
-        "pun",
-        "puns",
-        "riddle",
-        "story",
-        "poem",
-        "hello",
-        "hi",
-        "hey",
-        "thanks",
-        "thank you",
-        "who are you",
-        "how are you",
-        "tell me a joke",
-        "more joke",
-    ]
-    fix_words = [
-        "fix",
-        "debug",
-        "repair",
-        "resolve",
-        "patch",
-        "correct",
-        "solve",
-        "issue",
-        "error",
-        "bug",
-        "broken",
-    ]
-    create_words = [
-        "create",
-        "build",
-        "write",
-        "implement",
-        "make",
-        "generate",
-        "setup",
-        "set up",
-        "add",
-        "new",
-    ]
-    analyze_words = [
-        "analyze",
-        "review",
-        "explain",
-        "describe",
-        "show",
-        "list",
-        "find",
-        "search",
-        "what",
-        "how",
-        "why",
-    ]
+    """Detect task type using semantic IntentClassifier with micro-LLM and fast-path cache."""
+    from sago.engine.intent_classifier import get_intent_classifier
 
-    has_code_intent = any(
-        re.search(r"\b" + re.escape(w) + r"\b", task_lower)
-        for w in (
-            "file",
-            "files",
-            "code",
-            "repo",
-            "function",
-            "class",
-            "test",
-            "tests",
-            "build",
-            "script",
-            "directory",
-            "folder",
-        )
-    )
-
-    # Explicit conversational patterns (jokes, greetings, banter)
-    is_chat = any(re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in chat_words) or bool(
-        re.search(r"^\d+-\d+\s+more", task_lower)
-    )
-    if is_chat and not has_code_intent:
-        return "chat"
-
-    if any(re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in fix_words):
-        return "fix"
-    if any(re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in create_words):
+    try:
+        return get_intent_classifier().classify(task).task_type
+    except Exception:
         return "create"
-    if any(re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in analyze_words):
-        return "analyze"
-    return "create"
 
 
 def _load_agent_profile(agent_name: str) -> dict[str, Any] | None:

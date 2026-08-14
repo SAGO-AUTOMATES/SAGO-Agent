@@ -443,13 +443,14 @@ sago/
 
 Sago includes comprehensive coverage across unit, integration, and security categories.
 
-**428 tests** — all passing. See [docs/ERRORS.md](docs/ERRORS.md) for error handling and [docs/FLOWS.md](docs/FLOWS.md) for system flowcharts.
+**432 tests** — all passing. See [docs/ERRORS.md](docs/ERRORS.md) for error handling and [docs/FLOWS.md](docs/FLOWS.md) for system flowcharts.
 
 ### Quality Areas
 
 | Category | Coverage |
 |----------|----------|
 | Unit - Tools | All 57+ tools with proper arguments |
+| Unit - Semantic Intent Classifier | Micro-LLM intent detection, LRU cache & conversational classification |
 | Unit - Hybrid Indexer & BM25 | BM25 probabilistic ranking & dense semantic vector similarity |
 | Unit - Continuous Verifier | Background non-blocking verification queue & diagnostic extraction |
 | Unit - OpenTelemetry & Prometheus | OTel Trace JSON specification & Prometheus exposition format |
