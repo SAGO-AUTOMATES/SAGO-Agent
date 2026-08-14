@@ -152,9 +152,18 @@ class TestProjectGraphHardened(unittest.TestCase):
         self.assertIn("Topology Metrics", pg.to_curated_dashboard())
         self.assertIn("No explicit data models", pg.to_er_diagram())
 
+    def test_visual_flowchart_generation(self):
+        pg = ProjectGraph(root_dir=self.root)
+        pg.build_graph()
+
+        flow = pg.to_visual_flowchart()
+        self.assertIn("COMPONENT DEPENDENCY & DATA FLOW PIPELINE", flow)
+        self.assertIn("routes.py", flow)
+        self.assertIn("models.py", flow)
+
     def test_project_graph_tool_all_views(self):
         tool = ProjectGraphTool()
-        views = ["dashboard", "arch", "process", "er", "tree", "mermaid", "json", "llm"]
+        views = ["dashboard", "arch", "process", "er", "flow", "tree", "mermaid", "json", "llm"]
         for v in views:
             res = tool.run(directory=str(self.root), view=v)
             self.assertIsInstance(res, str)

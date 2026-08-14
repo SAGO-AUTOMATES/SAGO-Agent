@@ -57,6 +57,8 @@ class ProjectGraphTool(BaseTool):
             return graph.to_process_map()
         elif v in ("er", "data", "models"):
             return graph.to_er_diagram()
+        elif v in ("flow", "flowchart"):
+            return graph.to_visual_flowchart(focus_filter=focus)
         elif v in ("tree", "ascii"):
             return graph.to_ascii_tree()
         elif v == "mermaid":

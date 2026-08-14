@@ -1273,6 +1273,8 @@ class CommandHandlers:
                     "models",
                     "tree",
                     "ascii",
+                    "flow",
+                    "flowchart",
                     "mermaid",
                     "json",
                     "llm",
@@ -1306,6 +1308,12 @@ class CommandHandlers:
                     elif view in ("er", "data", "models"):
                         content = pg.to_er_diagram()
                         title = f"Entity Relationship & Data Model Map ({len(pg.data_models)} models/schemas)"
+                        render_text = f"```text\n{content}\n```"
+                    elif view in ("flow", "flowchart"):
+                        content = pg.to_visual_flowchart(focus_filter=focus)
+                        title = (
+                            f"Component Dependency & Data Flow Pipeline ({len(pg.edges)} relations)"
+                        )
                         render_text = f"```text\n{content}\n```"
                     elif view in ("tree", "ascii"):
                         content = pg.to_ascii_tree()

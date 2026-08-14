@@ -833,11 +833,58 @@ class ProjectGraph:
             ]
             sections.append("\n".join(hub_items) + "\n")
 
-        # 6. Mermaid Flowchart Block
-        sections.append("#### 📈 Interactive Visual Flowchart")
-        sections.append(self.to_mermaid(max_edges=30, focus_filter=focus_filter))
+        # 6. Interactive Visual Flowchart & Data Pipeline
+        sections.append("#### 📈 Interactive Visual Flowchart & Data Pipeline")
+        sections.append(
+            f"```text\n{self.to_visual_flowchart(max_edges=25, focus_filter=focus_filter)}\n```\n"
+        )
 
         return "\n".join(sections)
+
+    def to_visual_flowchart(self, max_edges: int = 25, focus_filter: str | None = None) -> str:
+        """Render a terminal-native, visual flowchart with ASCII/Unicode boxes, arrows, and data paths."""
+        w = 78
+        lines = [
+            "╔" + "═" * (w - 2) + "╗",
+            "║" + "COMPONENT DEPENDENCY & DATA FLOW PIPELINE".center(w - 2) + "║",
+            "╚" + "═" * (w - 2) + "╝",
+            "",
+        ]
+
+        filtered_edges = self.edges
+        if focus_filter:
+            q = focus_filter.lower()
+            filtered_edges = [
+                e for e in self.edges if q in e.source.lower() or q in e.target.lower()
+            ]
+
+        # Group edges by source
+        flows: dict[str, list[tuple[str, str]]] = defaultdict(list)
+        for e in filtered_edges[:max_edges]:
+            src = self.nodes.get(e.source)
+            tgt = self.nodes.get(e.target)
+            src_lbl = src.label if src else e.source.split(":")[-1]
+            tgt_lbl = tgt.label if tgt else e.target.split(":")[-1]
+            flows[src_lbl].append((tgt_lbl, e.relation))
+
+        if not flows:
+            lines.append("No active component dependency flows found in scope.")
+            return "\n".join(lines)
+
+        for src_name, targets in list(flows.items())[:12]:
+            lines.append(f"  ┌── [ {src_name} ]")
+            for i, (tgt_name, rel) in enumerate(targets[:4]):
+                connector = "└──►" if i == len(targets[:4]) - 1 else "├──►"
+                rel_badge = f"({rel})" if rel != "imports" else ""
+                lines.append(f"  │    {connector} [ {tgt_name} ] {rel_badge}")
+            if len(targets) > 4:
+                lines.append(f"  │    └──► ... and {len(targets) - 4} more targets")
+            lines.append("  │")
+
+        if lines and lines[-1] == "  │":
+            lines.pop()
+
+        return "\n".join(lines)
 
     def to_mermaid(self, max_edges: int = 40, focus_filter: str | None = None) -> str:
         """Render the project graph in Mermaid flowchart syntax."""
