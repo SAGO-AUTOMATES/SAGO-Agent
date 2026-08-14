@@ -1331,15 +1331,19 @@ class CommandHandlers:
                         title = f"SAGO Architecture & Process Graph Dashboard ({len(pg.nodes)} components)"
 
                     def _mount_result() -> None:
+                        from rich.markdown import Markdown
+
                         container = self.query_one("#messages")
+                        md_widget = Markdown(render_text, code_theme="monokai")
                         c = Collapsible(
-                            Static(render_text),
+                            Static(md_widget),
                             title=title,
                             collapsed=False,
                         )
                         container.mount(c)
                         try:
                             container.scroll_end(animate=False)
+                            self.query_one("#msg-input").focus()
                         except Exception:
                             pass
                         self.is_thinking = False
@@ -1350,6 +1354,10 @@ class CommandHandlers:
 
                     def _mount_error() -> None:
                         self._add_system_message(f"Error generating graph: {err_msg}")
+                        try:
+                            self.query_one("#msg-input").focus()
+                        except Exception:
+                            pass
                         self.is_thinking = False
 
                     self.call_from_thread(_mount_error)
@@ -1357,6 +1365,10 @@ class CommandHandlers:
             threading.Thread(target=_worker, daemon=True).start()
         except Exception as e:
             self.is_thinking = False
+            try:
+                self.query_one("#msg-input").focus()
+            except Exception:
+                pass
             self._add_system_message(f"Error generating project graph: {e}")
 
     def _run_verify(self: SagoApp) -> None:
