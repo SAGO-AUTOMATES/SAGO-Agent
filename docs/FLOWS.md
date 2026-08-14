@@ -33,9 +33,9 @@ flowchart TD
     Context --> Orchestrator["⚙️ Master Orchestrator & TaskDelegator"]
     
     subgraph Swarm["🤖 Multi-Agent Swarm (339 Specialists / 22 Domains)"]
-        Orchestrator --> AgentA["Specialist Agent A (e.g. Architect)"]
-        AgentA -->|Handoff / Chain| AgentB["Specialist Agent B (e.g. Developer)"]
-        AgentB -->|Feedback / Review| AgentC["Specialist Agent C (e.g. Reviewer)"]
+        Orchestrator --> AgentA["Specialist Agent A (e.g. System Architect)"]
+        AgentA -->|Handoff / Chain| AgentB["Specialist Agent B (e.g. Backend Engineer)"]
+        AgentB -->|Feedback / Review| AgentC["Specialist Agent C (e.g. Code Reviewer)"]
     end
     
     Swarm --> Tools["🛠️ Tool Matrix (56+ Safe / Risk-Gated Tools)"]
@@ -51,18 +51,22 @@ flowchart TD
 
 ## 2. Database Structure & Persistence Engine
 
-Implemented in [`sago/database.py`](file:///mnt/ramdisk/sago/sago/database.py), SAGO uses an embedded, high-performance SQLite engine with write-ahead logging (WAL) and thread-isolated connection pooling.
+Implemented in [`sago/database.py`](file:///mnt/ramdisk/sago/sago/database.py), SAGO uses an embedded, high-performance SQLite database with write-ahead logging (WAL mode) and thread-isolated connection pooling.
 
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│                        SQLite Persistent Core                          │
-│        (Thread-Isolated Connection Pool • WAL Mode Enabled)            │
-├─────────────────┬──────────────────┬─────────────────┬─────────────────┤
-│  sessions table │  messages table  │   tasks table   │tool_usage table │
-│ • id (UUID)     │ • id & role      │ • id & chain    │ • tool name     │
-│ • title & status│ • content & token│ • circular guard│ • success/error │
-│ • created_at    │ • batch flushed  │ • status & deps │ • latency & args│
-└─────────────────┴──────────────────┴─────────────────┴─────────────────┘
+```mermaid
+flowchart LR
+    subgraph SQLite_Core["SQLite Persistent Storage (WAL Mode)"]
+        direction TB
+        Sessions["📁 sessions table\n• id (UUID)\n• title & status\n• created_at"]
+        Messages["💬 messages table\n• id & role\n• content & tokens\n• batch flushed"]
+        Tasks["📋 tasks table\n• id & parent_id\n• chain & deps\n• circular guard"]
+        ToolUsage["📊 tool_usage table\n• tool_name\n• success / failure\n• latency & args"]
+    end
+
+    Pool["🔄 ConnectionPool (Thread-Local)"] --> Sessions
+    Pool --> Messages
+    Pool --> Tasks
+    Pool --> ToolUsage
 ```
 
 ### Key Database Subsystems:
@@ -91,29 +95,20 @@ SAGO employs a 5-layer defensive safety matrix to ensure autonomous execution ne
 
 SAGO uses three complementary context providers in [`sago/memory/`](file:///mnt/ramdisk/sago/sago/memory/) to supply agents with exact workspace context while preventing context-window blowout.
 
-```text
-               ┌────────────────────────────────────────────────┐
-               │              Active User Request               │
-               └───────────────────────┬────────────────────────┘
-                                       │
-     ┌─────────────────────────────────┼─────────────────────────────────┐
-     │                                 │                                 │
-     ▼                                 ▼                                 ▼
-┌─────────────────────────┐ ┌─────────────────────────┐ ┌─────────────────────────┐
-│ AST Symbol Graph & Maps │ │  ChromaDB Vector RAG    │ │ Semantic Context        │
-│ (Zero-Token Topology)   │ │ (Sliding-Window Chunks) │ │ Compactor (Turn Pruning)│
-├─────────────────────────┤ ├─────────────────────────┤ ├─────────────────────────┤
-│ • Classes, interfaces   │ │ • Overlapping code block│ │ • Prunes verbose tools  │
-│ • Function signatures   │ │ • Dense neural embed    │ │ • Preserves file diffs  │
-│ • DB entity models (ER) │ │ • Cosine + recency rank │ │ • Retains active todos  │
-└────────────┬────────────┘ └────────────┬────────────┘ └────────────┬────────────┘
-             │                           │                           │
-             └───────────────────────────┼───────────────────────────┘
-                                         │
-                                         ▼
-                         ┌───────────────────────────────┐
-                         │ Assembled High-Density Prompt │
-                         └───────────────────────────────┘
+```mermaid
+flowchart TD
+    UserRequest["Active User Request / Goal"] --> Router{"Context Assembler"}
+    
+    subgraph Context_Tiers["Tri-Partite Context Assembly"]
+        Router -->|1. Structural Outline| SymbolGraph["AST Symbol Graph & Maps\n• Classes, signatures, interfaces\n• Entity models & ER schema\n• Zero-token topology"]
+        Router -->|2. Semantic Search| VectorRAG["ChromaDB Vector RAG\n• Overlapping sliding-window chunks\n• Dense neural vector embeddings\n• Cosine similarity + recency rank"]
+        Router -->|3. Historical Compaction| Compactor["Context Compactor\n• Prunes verbose tool outputs\n• Retains file diffs & decisions\n• Preserves active todos"]
+    end
+    
+    SymbolGraph --> HighDensityPrompt["High-Density Assembled Prompt"]
+    VectorRAG --> HighDensityPrompt
+    Compactor --> HighDensityPrompt
+    HighDensityPrompt --> LLM["LLM Inference Engine"]
 ```
 
 1. **AST Structural Graph Provider (`ProjectGraph` & `SymbolGraph`)**:
@@ -147,26 +142,29 @@ flowchart LR
 
 SAGO provides four distinct orchestration execution paradigms:
 
-```text
-1. DIRECT DELEGATION (/delegate <agent> <task>)
-   User ──► Master Orchestrator ──► Specialist Agent ──► Result
+```mermaid
+flowchart TD
+    subgraph Mode1["1. Direct Delegation (/delegate)"]
+        User1["User"] --> Orch1["Orchestrator"] --> Spec1["Specialist Agent"] --> Res1["Result"]
+    end
 
-2. SEQUENTIAL AGENT CHAINING (/chain <agent1,agent2,agent3> <task>)
-   User ──► [ System Architect ]
-                  │ (Spec & Design)
-                  ▼
-            [ Backend Engineer ]
-                  │ (Code Implementation)
-                  ▼
-            [ Code Reviewer ] ──► Verified Result
+    subgraph Mode2["2. Sequential Chain (/chain)"]
+        User2["User"] --> Arch["System Architect"] --> Back["Backend Engineer"] --> Rev["Code Reviewer"] --> Res2["Verified Code"]
+    end
 
-3. PARALLEL AGENT SWARM (/parallel <agent1,agent2> <task>)
-   User ──► Dispatcher ──┬──► [ Security Auditor ]   (Thread 1) ──┐
-                         ├──► [ Performance Engineer] (Thread 2) ──┼──► Aggregate Report
-                         └──► [ Test Engineer ]       (Thread 3) ──┘
+    subgraph Mode3["3. Parallel Swarm (/parallel)"]
+        User3["User"] --> Disp["Dispatcher"]
+        Disp --> Th1["Security Auditor"]
+        Disp --> Th2["Performance Engineer"]
+        Disp --> Th3["Test Engineer"]
+        Th1 --> Agg["Aggregate Report"]
+        Th2 --> Agg
+        Th3 --> Agg
+    end
 
-4. STATEFUL WORKFLOW ENGINE (sago workflow "<task>")
-   State Graph (LangGraph) with Checkpoints, Retries, Condition Nodes & Resumption
+    subgraph Mode4["4. Stateful Workflow Engine (sago workflow)"]
+        User4["User"] --> LangGraph["State Graph with Checkpoints, Retries & Conditional Nodes"]
+    end
 ```
 
 ---
@@ -199,33 +197,15 @@ Agents interact with the environment via **56+ production tools** registered und
 
 When agents edit code, SAGO automatically runs a background verification loop ([`sago/engine/verifier.py`](file:///mnt/ramdisk/sago/sago/engine/verifier.py)):
 
-```text
-                  ┌──────────────────────────────┐
-                  │    Agent Writes / Modifies   │
-                  │         Code Files           │
-                  └──────────────┬───────────────┘
-                                 │
-                                 ▼
-                  ┌──────────────────────────────┐
-                  │  Virtualenv-Aware Verifier   │
-                  │  Auto-resolves .venv/bin/*,  │
-                  │  ruff, pytest, mypy, tsc,    │
-                  │  cargo check, go vet         │
-                  └──────────────┬───────────────┘
-                                 │
-                 ┌───────────────┴───────────────┐
-                 │                               │
-                 ▼                               ▼
-       [ ✅ Checks Passed ]            [ ❌ Errors / Lints Found ]
-                 │                               │
-                 ▼                               ▼
-      ┌─────────────────────┐         ┌─────────────────────┐
-      │ Commit Workspace &  │         │ Auto-Feed Compiler  │
-      │ Stream Success      │         │ Diagnostics back to │
-      │                     │         │ Agent Loop to Fix   │
-      └─────────────────────┘         └──────────┬──────────┘
-                                                 │
-                                                 └─► Loop back to Step 1
+```mermaid
+flowchart TD
+    Edit["Agent Writes / Modifies Code"] --> Verifier["Virtualenv-Aware Verifier\nAuto-resolves .venv/bin/*, ruff, pytest, mypy, tsc, cargo, go"]
+    
+    Verifier --> Decision{"Checks Passed?"}
+    Decision -->|✅ Yes| Commit["Commit Workspace & Stream Success"]
+    Decision -->|❌ No| Diagnostics["Capture Compiler Errors & Lints"]
+    Diagnostics --> Loopback["Auto-Feed Diagnostics to Agent Loop"]
+    Loopback --> Edit
 ```
 
 ---
@@ -244,20 +224,18 @@ Before executing high-impact multi-file refactors, SAGO's `CheckpointManager` ([
 
 SAGO supports non-blocking detached execution across both CLI and TUI:
 
-```text
-1. DETACHED EXECUTION (CLI)
-   $ sago run "Run integration test suite" --detach
-   ↳ Spawns detached background worker (PID / Daemon)
-   ↳ Outputs Task ID and log path (.sago/logs/task_xxx.log)
-   ↳ Safe to immediately close the terminal tab
+```mermaid
+flowchart LR
+    subgraph Detached_Launch["1. Detached Launch (CLI)"]
+        Cmd["$ sago run 'Task' --detach"] --> Daemon["Spawn Detached Process"]
+        Daemon --> LogFile["Write to .sago/logs/task_xxx.log"]
+        Daemon --> SafeClose["Terminal Tab Safe to Close"]
+    end
 
-2. REATTACHING ANYTIME (CLI / TUI)
-   $ sago attach
-   ↳ Displays active sessions and background task logs
-   $ sago attach task_xxx
-   ↳ Live-tails streaming log (Ctrl+C cleanly detaches again)
-   $ sago attach session_id
-   ↳ Resumes interactive TUI session directly
+    subgraph Reattach_Flow["2. Reattach Flow"]
+        AttachCmd["$ sago attach task_xxx"] --> Stream["Stream Live Task Log"]
+        TuiAttach["$ sago attach session_id"] --> Resume["Resume Interactive TUI Session"]
+    end
 ```
 
 ---
