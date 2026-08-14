@@ -1309,15 +1309,8 @@ class CommandHandlers:
 
     def _set_theme(self: SagoApp, name: str) -> None:
         """Switch or list available TUI color themes."""
-        themes = {
-            "obsidian": "Obsidian Deep Dark (Default)",
-            "nord": "Nord Arctic Cold Blue",
-            "dracula": "Dracula Vampire Dark",
-            "monokai": "Monokai Pro High Contrast",
-            "solarized-dark": "Solarized Precision Teal",
-            "tokyo-night": "Tokyo Night Indigo",
-            "light": "Clean Day Light Mode",
-        }
+        from sago.tui.models import THEMES as themes
+
         name = name.strip().lower()
         if not name or name == "list":
             current = getattr(self, "sago_theme", "obsidian")
@@ -1377,3 +1370,89 @@ class CommandHandlers:
             for c in collapsibles:
                 c.collapsed = True
             self._add_system_message("Collapsed all chat turns and cards.")
+
+    def _handle_developer_command(self: SagoApp, args: str = "") -> None:
+        """Handle /developer or /dev command."""
+        from sago.tracking.dev_tracer import get_dev_tracer
+
+        tracer = get_dev_tracer()
+        action = args.strip().lower()
+
+        if action in ("on", "enable", "1", "true"):
+            self.developer_mode = True
+            tracer.set_enabled(True)
+            self._add_system_message(
+                "⚡ [bold red][DEV MODE ON][/bold red] Real-time function call tracing, LLM payload inspection, and millisecond latency telemetry enabled."
+            )
+        elif action in ("off", "disable", "0", "false"):
+            self.developer_mode = False
+            tracer.set_enabled(False)
+            self._add_system_message("⚡ [dim][DEV MODE OFF][/dim] Developer diagnostics disabled.")
+        elif action in ("clear", "reset"):
+            tracer.clear()
+            self._add_system_message("⚡ Developer trace telemetry buffer cleared.")
+        elif action in ("logs", "log", "traces", "trace"):
+            traces = tracer.get_recent_traces(limit=25)
+            if not traces:
+                self._add_system_message("⚡ No developer traces recorded yet.")
+                return
+
+            lines = ["[bold red]═══ SAGO DEVELOPER EXECUTION TRACES ═══[/bold red]"]
+            for t in traces:
+                lines.append(f"  {t.format_line()}")
+                if t.data:
+                    data_str = ", ".join(f"{k}={str(v)[:80]}" for k, v in t.data.items())
+                    lines.append(f"    [dim]↳ data: {data_str}[/dim]")
+            self._add_system_message("\n".join(lines))
+        else:
+            # Toggle mode
+            current = getattr(self, "developer_mode", False)
+            self.developer_mode = not current
+            tracer.set_enabled(self.developer_mode)
+            state_str = (
+                "[bold red]ENABLED[/bold red]" if self.developer_mode else "[dim]DISABLED[/dim]"
+            )
+            self._add_system_message(
+                f"⚡ Developer Mode is now {state_str}.\nUsage: /dev [on|off|logs|traces|clear]"
+            )
+
+    def _handle_checkpoint_command(self: SagoApp, args: str = "") -> None:
+        """Handle /checkpoint [create|list|restore] command."""
+        from sago.engine.checkpoint import get_checkpoint_manager
+
+        mgr = get_checkpoint_manager()
+        parts = args.strip().split(None, 1)
+        subcmd = parts[0].lower() if parts else "list"
+        subargs = parts[1] if len(parts) > 1 else ""
+
+        if subcmd == "create":
+            cp = mgr.create_checkpoint(description=subargs or "TUI Manual Snapshot")
+            self._add_system_message(
+                f"● [bold green]Checkpoint Created[/bold green]: `{cp.checkpoint_id}` ({len(cp.file_paths)} files snapshot)\n[dim]{cp.description}[/dim]"
+            )
+        elif subcmd == "restore":
+            if not subargs:
+                self._add_system_message("Usage: /checkpoint restore <checkpoint-id>")
+                return
+            success, msg = mgr.restore_checkpoint(subargs.strip())
+            if success:
+                self._add_system_message(f"● [bold green]Restored[/bold green]: {msg}")
+            else:
+                self._add_system_message(f"● [bold red]Restore Failed[/bold red]: {msg}")
+        else:
+            import time
+
+            cps = mgr.list_checkpoints(limit=10)
+            if not cps:
+                self._add_system_message(
+                    "No checkpoints found. Create one with: `/checkpoint create [description]`"
+                )
+                return
+            lines = ["[bold cyan]═══ WORKSPACE CHECKPOINTS ═══[/bold cyan]"]
+            for cp in cps:
+                t_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(cp.timestamp))
+                lines.append(
+                    f"  • `{cp.checkpoint_id}` - [dim]{t_str}[/dim] ({len(cp.file_paths)} files) - {cp.description}"
+                )
+            lines.append("\n[dim]To restore: /checkpoint restore <id>[/dim]")
+            self._add_system_message("\n".join(lines))

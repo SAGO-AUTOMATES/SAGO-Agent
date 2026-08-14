@@ -26,7 +26,9 @@ Sago is a **production-grade multi-agent orchestration system** built for real-w
 | **Permission System** | Risk-based tool permissions (safe/low/medium/high/critical) with approval workflow |
 | **Session Persistence** | SQLite database + JSON file save/load with full state preservation |
 | **Workflow Engine** | Stateful multi-step workflows with dependencies, retries, and pausing |
-| **Containerized Card TUI** | Rich terminal UI with exchange turn cards, live agent dashboard, autocomplete, and smooth scrolling |
+| **Developer Mode (`/dev`)** | Real-time function execution tracing, LLM payload inspection, and microsecond latency diagnostics |
+| **Atomic Checkpoints & Rollback** | Point-in-time workspace snapshotting and 1-click restore for large-scale refactoring safety |
+| **Containerized Card TUI** | High-density terminal UI with 11 themes, collapsible turn cards, live agent dashboard, smart autocomplete, and fluid animations |
 | **Multi-LLM Support** | OpenRouter, OpenAI, Gemini, Claude, Ollama |
 | **Token Cost Tracking** | Per-model pricing with cache hit/miss analytics |
 | **Security Audit** | Path traversal protection, secret scanner, input validation, sensitive data filtering |

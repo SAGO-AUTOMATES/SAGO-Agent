@@ -127,10 +127,30 @@ Show system and connection status.
 | `/tasks` | Show running background tasks (`Ctrl+T`) |
 | `/cancel <id\|all>` | Cancel running background task (`Ctrl+C`) |
 
-### Version Control & Rollbacks
+### Developer Diagnostics & Telemetry
 
 | Command | Description |
 |---------|-------------|
+| `/developer [on\|off\|toggle]` | Toggle Developer Mode (`/dev [on\|off\|toggle]`) |
+| `/dev logs` | Stream real-time function execution and LLM trace logs |
+| `/dev traces` | Inspect function latency and execution durations |
+| `/dev clear` | Clear the developer trace telemetry buffer |
+
+### Themes & UI Controls
+
+| Command | Description |
+|---------|-------------|
+| `/theme <name>` | Switch color theme (11 themes available: `obsidian`, `nord`, `dracula`, `monokai`, `tokyo-night`, `solarized-dark`, `cyberpunk`, `catppuccin-mocha`, `gruvbox-dark`, `rose-pine`, `light`) |
+| `/themes` | List all available color themes with active status indicator |
+| `/collapse [all\|expand]` | Collapse or expand all conversational turns and tool cards |
+
+### Version Control, Checkpoints & Rollbacks
+
+| Command | Description |
+|---------|-------------|
+| `/checkpoint create [desc]` | Create an atomic point-in-time workspace snapshot |
+| `/checkpoint list` | List available workspace checkpoints |
+| `/checkpoint restore <id>` | Instantly restore workspace to a previous checkpoint |
 | `/git` | Show git status |
 | `/diff [file]` | View diff of modified files |
 | `/commit <message>` | Commit changes to git |

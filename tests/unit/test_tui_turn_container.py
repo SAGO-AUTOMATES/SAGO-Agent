@@ -1,9 +1,10 @@
-"""Tests for TUI turn containerization, thinking step containment, and theme switching."""
+"""Tests for TUI turn containerization, thinking step containment, theme switching, developer mode, and autocompletion."""
 
 import pytest
 
 from sago.tui.app import SagoApp
 from sago.tui.helpers import ExchangeTurnCard
+from sago.tui.models import THEMES
 
 
 @pytest.mark.anyio
@@ -40,22 +41,10 @@ async def test_tui_message_exchange_mounting():
 async def test_tui_theme_switching():
     app = SagoApp()
     async with app.run_test() as pilot:
-        # Test theme command
-        app._set_theme("nord")
-        await pilot.pause()
-        assert app.sago_theme == "nord"
-
-        app._set_theme("dracula")
-        await pilot.pause()
-        assert app.sago_theme == "dracula"
-
-        app._set_theme("monokai")
-        await pilot.pause()
-        assert app.sago_theme == "monokai"
-
-        app._set_theme("obsidian")
-        await pilot.pause()
-        assert app.sago_theme == "obsidian"
+        for theme_name in THEMES:
+            app._set_theme(theme_name)
+            await pilot.pause()
+            assert app.sago_theme == theme_name
 
 
 @pytest.mark.anyio
@@ -84,3 +73,54 @@ async def test_tui_collapse_command():
         await pilot.pause()
         for c in turn_cards:
             assert c.is_turn_collapsed is False
+
+
+@pytest.mark.anyio
+async def test_tui_developer_mode():
+    app = SagoApp()
+    async with app.run_test() as pilot:
+        assert app.developer_mode is False
+
+        # Turn ON
+        app._handle_developer_command("on")
+        await pilot.pause()
+        assert app.developer_mode is True
+
+        # Check logs / traces subcommands
+        app._handle_developer_command("logs")
+        app._handle_developer_command("traces")
+        await pilot.pause()
+
+        # Turn OFF
+        app._handle_developer_command("off")
+        await pilot.pause()
+        assert app.developer_mode is False
+
+
+@pytest.mark.anyio
+async def test_tui_smart_suggestions():
+    app = SagoApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # /model suggestion
+        app._show_cmd_suggestions("/model gpt")
+        assert app.show_suggestions is True
+        assert any("gpt" in v.lower() for v in app.suggestion_values)
+
+        # /theme suggestion
+        app._show_cmd_suggestions("/theme drac")
+        assert any("dracula" in v.lower() for v in app.suggestion_values)
+
+        # /dev suggestion
+        app._show_cmd_suggestions("/dev ")
+        assert any("on" in v.lower() for v in app.suggestion_values)
+
+
+@pytest.mark.anyio
+async def test_tui_checkpoint_command():
+    app = SagoApp()
+    async with app.run_test() as pilot:
+        app._handle_checkpoint_command("list")
+        await pilot.pause()
+        app._handle_checkpoint_command("create Unit Test Snapshot")
+        await pilot.pause()

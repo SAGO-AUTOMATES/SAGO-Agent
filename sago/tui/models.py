@@ -60,6 +60,23 @@ COMMANDS = {
     "/plugins": "List installed third-party plugins (/plugins)",
     "/theme": "Switch TUI color theme (/theme [name] or /themes)",
     "/collapse": "Collapse or expand chat exchanges (/collapse [all|expand])",
+    "/developer": "Toggle Developer Mode or inspect live traces (/dev [on|off|logs|traces|clear])",
+    "/dev": "Alias for /developer",
+    "/checkpoint": "Manage workspace checkpoints (/checkpoint [create|list|restore])",
+}
+
+THEMES = {
+    "obsidian": "Obsidian Deep Dark (Default)",
+    "nord": "Nord Arctic Frost",
+    "dracula": "Dracula Gothic Night",
+    "monokai": "Monokai Retro Hacker",
+    "tokyo-night": "Tokyo Night Cyber Dark",
+    "solarized-dark": "Solarized Dark Studio",
+    "cyberpunk": "Cyberpunk Neon Matrix",
+    "catppuccin-mocha": "Catppuccin Mocha Pastel",
+    "gruvbox-dark": "Gruvbox Dark Warm Retro",
+    "rose-pine": "Rosé Pine Minimal Muted",
+    "light": "Clean Minimalist Light",
 }
 
 BUILTIN_MODELS = [

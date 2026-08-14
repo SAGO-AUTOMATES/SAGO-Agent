@@ -106,13 +106,15 @@ class CheckpointManager:
         )
         return meta
 
-    def list_checkpoints(self) -> list[CheckpointMeta]:
+    def list_checkpoints(self, limit: int = 50) -> list[CheckpointMeta]:
         """List all available snapshots ordered from newest to oldest."""
         results = []
         if not self.checkpoints_dir.exists():
             return []
 
         for p in sorted(self.checkpoints_dir.iterdir(), reverse=True):
+            if len(results) >= limit:
+                break
             meta_file = p / "meta.json"
             if meta_file.is_file():
                 try:
@@ -159,3 +161,14 @@ class CheckpointManager:
             "restored_count": len(restored_files),
             "files": restored_files,
         }
+
+
+_GLOBAL_CHECKPOINT_MGR: CheckpointManager | None = None
+
+
+def get_checkpoint_manager(workspace_root: str | Path | None = None) -> CheckpointManager:
+    """Get or instantiate global CheckpointManager."""
+    global _GLOBAL_CHECKPOINT_MGR
+    if _GLOBAL_CHECKPOINT_MGR is None or workspace_root is not None:
+        _GLOBAL_CHECKPOINT_MGR = CheckpointManager(workspace_root=workspace_root)
+    return _GLOBAL_CHECKPOINT_MGR

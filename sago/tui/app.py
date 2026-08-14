@@ -196,12 +196,43 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-solarized-dark .exchange-box { background: #002b36; border: solid #073642; border-left: solid #268bd2; }
     .theme-solarized-dark .exchange-prompt-header { background: #073642; color: #268bd2; border-bottom: solid #586e75; }
 
+    /* Cyberpunk Theme */
+    .theme-cyberpunk { background: #08090f; }
+    .theme-cyberpunk #agent-dashboard { background: #10121d; border-left: solid #00f0ff; }
+    .theme-cyberpunk .exchange-box { background: #10121d; border: solid #202637; border-left: solid #ffee00; }
+    .theme-cyberpunk .exchange-prompt-header { background: #181d2e; color: #00f0ff; border-bottom: solid #00f0ff; }
+
+    /* Catppuccin Mocha Theme */
+    .theme-catppuccin-mocha { background: #1e1e2e; }
+    .theme-catppuccin-mocha #agent-dashboard { background: #181825; border-left: solid #313244; }
+    .theme-catppuccin-mocha .exchange-box { background: #181825; border: solid #313244; border-left: solid #cba6f7; }
+    .theme-catppuccin-mocha .exchange-prompt-header { background: #313244; color: #cba6f7; border-bottom: solid #45475a; }
+
+    /* Gruvbox Dark Theme */
+    .theme-gruvbox-dark { background: #1d2021; }
+    .theme-gruvbox-dark #agent-dashboard { background: #282828; border-left: solid #3c3836; }
+    .theme-gruvbox-dark .exchange-box { background: #282828; border: solid #3c3836; border-left: solid #fabd2f; }
+    .theme-gruvbox-dark .exchange-prompt-header { background: #3c3836; color: #fabd2f; border-bottom: solid #504945; }
+
+    /* Rosé Pine Theme */
+    .theme-rose-pine { background: #191724; }
+    .theme-rose-pine #agent-dashboard { background: #1f1d2e; border-left: solid #26233a; }
+    .theme-rose-pine .exchange-box { background: #1f1d2e; border: solid #26233a; border-left: solid #eb6f92; }
+    .theme-rose-pine .exchange-prompt-header { background: #26233a; color: #eb6f92; border-bottom: solid #393552; }
+
     /* Clean Light Theme */
     .theme-light { background: #f6f8fa; }
     .theme-light #agent-dashboard { background: #ffffff; border-left: solid #d0d7de; }
     .theme-light .exchange-box { background: #ffffff; border: solid #d0d7de; border-left: solid #0969da; }
     .theme-light .exchange-prompt-header { background: #f1f3f5; color: #0969da; border-bottom: solid #d0d7de; }
     .theme-light .exchange-assistant { color: #24292f; }
+
+    .dev-trace-text {
+        color: #79c0ff;
+        padding: 0 1;
+        background: #090d13;
+        border-left: solid #f85149;
+    }
 
     Collapsible {
         background: #111418;
@@ -412,6 +443,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     _orchestration_lock: threading.Lock | None = None
     approval_message: reactive[str] = reactive("")
     yolo_mode: reactive[bool] = reactive(False)
+    developer_mode: reactive[bool] = reactive(False)
     show_summary: reactive[bool] = reactive(False)
     # Pause/resume mechanism for todo confirmations
     _executor_pause_event: threading.Event | None = None
@@ -683,29 +715,24 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     def on_input_changed(self, event: Input.Changed) -> None:
         v = event.value
 
-        # Find the last space to determine current "word"
+        # If the input starts with a slash command, trigger smart command autocompleter
+        if v.startswith("/"):
+            self._show_cmd_suggestions(v)
+            return
+
+        # Find the last space to determine current "word" for @ and # triggers
         last_space = v.rfind(" ")
         current_word = v[last_space + 1 :] if last_space >= 0 else v
 
-        # Check for triggers in the current word (not across spaces)
-        # Priority: # and @ take precedence over / for paths
         if current_word.startswith("#"):
-            # File reference - support paths like #~/.sago/config
             prefix = current_word[1:]  # remove #
             self._show_file_suggestions(prefix)
         elif current_word.startswith("@"):
-            # Agent reference
             prefix = current_word[1:]  # remove @
             self._show_agent_suggestions(prefix)
         elif current_word.startswith("~"):
-            # Home directory reference
             prefix = current_word[1:]  # remove ~
             self._show_file_suggestions(prefix, home=True)
-        elif current_word.startswith("/") and not any(
-            current_word.startswith(p) for p in ["#/", "#~", "@/", "@~"]
-        ):
-            # Command reference - but NOT if it's part of a path after # or @
-            self._show_cmd_suggestions(current_word)
         else:
             self._hide_suggestions()
 
@@ -729,47 +756,21 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
         if self.show_suggestions and self.suggestion_values:
             val = self.suggestion_values[self.suggestion_index]
-            # If exact match on a command, submit it directly
-            if val in COMMANDS and msg.strip() == val:
-                self._hide_suggestions()
+            self._hide_suggestions()
+
+            if val.startswith("/"):
+                # Complete command selected -> execute immediately
                 event.input.value = ""
                 self._handle_command(val)
                 return
-
-            # Find the current word being typed and replace it
-            v = event.value
-            last_space = v.rfind(" ")
-            current_word_start = last_space + 1 if last_space >= 0 else 0
-
-            # For comma-separated values, append to existing list
-            if "," in v[current_word_start:] and (
-                v[current_word_start:].startswith("@") or v[current_word_start:].startswith("#")
-            ):
-                # Get the base part (before current word)
-                base = v[:current_word_start] if last_space >= 0 else ""
-                # Get the new value (remove trigger char and add comma)
+            elif val.startswith("@") or val.startswith("#") or val.startswith("~"):
+                v = event.value
+                last_space = v.rfind(" ")
+                current_word_start = last_space + 1 if last_space >= 0 else 0
                 new_val = val + " "
-                event.input.value = base + new_val
+                event.input.value = v[:current_word_start] + new_val
                 event.input.cursor_position = len(event.input.value)
-            else:
-                # Replace current word with selection
-                new_value = v[:current_word_start] + val + " "
-                event.input.value = new_value
-                event.input.cursor_position = len(new_value)
-
-            # If selecting a model suggestion, set provider too
-            if (
-                val.startswith("/model ")
-                and not val.startswith("/model add")
-                and not val.startswith("/model remove")
-                and not val.startswith("/model refresh")
-            ):
-                model_id = val[7:].strip()
-                provider = model_id.split("/")[0]
-                self.current_provider = provider
-                self.current_model = model_id
-            self._hide_suggestions()
-            return
+                return
 
         event.input.value = ""
         self._hide_suggestions()
@@ -907,43 +908,114 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self._add_system_message("No active tasks to cancel")
 
     def _show_cmd_suggestions(self, prefix: str) -> None:
-        # "/model provider query" — show filtered models for that provider
-        if prefix.startswith("/model "):
-            parts = prefix[7:].split(None, 1)
-            if len(parts) == 2:
-                # "/model google gemini" → filter google models by "gemini"
-                provider_filter, query = parts
-                self._show_model_suggestions(query, provider_filter)
-            elif len(parts) == 1:
-                # "/model google" → show all google models
-                self._show_model_suggestions("", parts[0])
-            else:
-                # "/model " → show all models
-                self._show_model_suggestions("", "")
+        raw = prefix.strip()
+
+        # 1. /model suggestions
+        if raw.startswith("/model"):
+            query = raw[6:].strip()
+            self._show_model_suggestions(query)
             return
-        # "/model" with no space yet — show command
-        if prefix == "/model":
-            matches = ["/model"]
-            items = ["/model - Change model"]
-            self._show_suggestions(items, matches)
+
+        # 2. /theme or /themes suggestions
+        if raw.startswith("/theme") or raw.startswith("/themes"):
+            query = raw.split(None, 1)[1].strip() if " " in raw else ""
+            from sago.tui.models import THEMES
+
+            matches = [k for k in THEMES if query.lower() in k.lower()] or list(THEMES.keys())
+            items = [f"● {k:<16} - {THEMES[k]}" for k in matches]
+            values = [f"/theme {k}" for k in matches]
+            self._show_suggestions(items, values)
             return
-        # Other commands
-        matches = [cmd for cmd in COMMANDS if cmd.startswith(prefix)]
+
+        # 3. /developer or /dev suggestions
+        if raw.startswith("/dev") or raw.startswith("/developer"):
+            query = raw.split(None, 1)[1].strip() if " " in raw else ""
+            dev_opts = {
+                "on": "Enable full execution tracing & telemetry",
+                "off": "Disable developer mode",
+                "toggle": "Toggle developer mode",
+                "logs": "View live telemetry log buffer",
+                "traces": "View microsecond function latency traces",
+                "clear": "Clear trace buffer",
+            }
+            matches = [k for k in dev_opts if query.lower() in k.lower()] or list(dev_opts.keys())
+            items = [f"⚡ {k:<10} - {dev_opts[k]}" for k in matches]
+            values = [f"/dev {k}" for k in matches]
+            self._show_suggestions(items, values)
+            return
+
+        # 4. /effort suggestions
+        if raw.startswith("/effort"):
+            query = raw[7:].strip()
+            efforts = {
+                "low": "Fast responses, minimal reasoning tokens",
+                "medium": "Balanced reasoning and speed (default)",
+                "high": "Deep reasoning and extensive analysis",
+                "max": "Maximum compute, exhaustive exploration",
+            }
+            matches = [k for k in efforts if query.lower() in k.lower()] or list(efforts.keys())
+            items = [f"● {k:<8} - {efforts[k]}" for k in matches]
+            values = [f"/effort {k}" for k in matches]
+            self._show_suggestions(items, values)
+            return
+
+        # 5. /agent suggestions
+        if raw.startswith("/agent "):
+            query = raw[7:].strip()
+            try:
+                from sago.agents.registry import list_agents
+
+                agents = list_agents()
+                matches = [a for a in agents if query.lower() in a["name"].lower()]
+                items = [f"@{a['name']} - {a.get('description', '')[:40]}" for a in matches[:25]]
+                values = [f"/agent {a['name']}" for a in matches[:25]]
+                self._show_suggestions(items, values)
+                return
+            except Exception:
+                pass
+
+        # 6. /checkpoint suggestions
+        if raw.startswith("/checkpoint"):
+            query = raw.split(None, 1)[1].strip() if " " in raw else ""
+            opts = {
+                "create": "Create a new atomic point-in-time snapshot",
+                "list": "List available workspace checkpoints",
+                "restore": "Restore workspace to a checkpoint (/checkpoint restore <id>)",
+            }
+            matches = [k for k in opts if query.lower() in k.lower()] or list(opts.keys())
+            items = [f"● {k:<10} - {opts[k]}" for k in matches]
+            values = [f"/checkpoint {k}" for k in matches]
+            self._show_suggestions(items, values)
+            return
+
+        # 7. General command prefix matching
+        matches = [cmd for cmd in COMMANDS if cmd.startswith(raw.lower())]
+        if not matches:
+            matches = [cmd for cmd in COMMANDS if raw.lower().lstrip("/") in cmd]
         values = matches
-        items = [f"{cmd} - {COMMANDS[cmd]}" for cmd in matches]
+        items = [f"{cmd:<14} - {COMMANDS[cmd]}" for cmd in matches]
         self._show_suggestions(items, values)
 
     def _show_model_suggestions(self, query: str, provider_filter: str = "") -> None:
-        from sago.tui.models import get_all_models
+        from sago.tui.models import BUILTIN_MODELS, get_all_models
 
         models = get_all_models()
-        if provider_filter:
-            # Filter by provider prefix
-            models = [m for m in models if m.startswith(f"{provider_filter}/")]
-        if query:
-            models = [m for m in models if query.lower() in m.lower()]
+        query = query.strip().lower()
+        if "/" in query:
+            parts = query.split("/", 1)
+            provider_filter = parts[0]
+            query = parts[1]
 
-        items = [f"  {m}" for m in models[:30]]
+        if provider_filter:
+            models = [m for m in models if m.lower().startswith(provider_filter.lower())]
+
+        if query:
+            models = [m for m in models if query in m.lower()]
+
+        if not models:
+            models = [m for m in BUILTIN_MODELS if query in m.lower()]
+
+        items = [f"● {m}" for m in models[:30]]
         values = [f"/model {m}" for m in models[:30]]
         self._show_suggestions(items, values)
 
@@ -1179,6 +1251,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             "/theme": lambda: self._set_theme(args),
             "/themes": lambda: self._set_theme(args),
             "/collapse": lambda: self._collapse_chats(args),
+            "/developer": lambda: self._handle_developer_command(args),
+            "/dev": lambda: self._handle_developer_command(args),
+            "/checkpoint": lambda: self._handle_checkpoint_command(args),
         }
 
         if cmd in handlers:

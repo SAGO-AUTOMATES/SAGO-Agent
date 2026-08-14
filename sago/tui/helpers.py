@@ -198,6 +198,27 @@ class UIHelpers:
                     except Exception:
                         _mount_element(Static(code, classes="code-block", markup=False))
 
+        # If developer mode is active, mount execution telemetry trace block
+        if getattr(self, "developer_mode", False):
+            from sago.tracking.dev_tracer import get_dev_tracer
+
+            traces = get_dev_tracer().get_recent_traces(limit=15)
+            if traces:
+                trace_lines = []
+                for t in traces:
+                    trace_lines.append(t.format_line())
+                    if t.data:
+                        data_str = ", ".join(f"{k}={str(v)[:60]}" for k, v in t.data.items())
+                        trace_lines.append(f"  ↳ {data_str}")
+                trace_body = "\n".join(trace_lines)
+                _mount_element(
+                    Collapsible(
+                        Static(trace_body, classes="dev-trace-text", markup=False),
+                        title=f"● ⚡ DEV TRACE ({len(traces)} execution events)",
+                        collapsed=True,
+                    )
+                )
+
         # Turn finished -> clear active exchange card
         self._active_exchange_card = None
         self.query_one("#messages").scroll_end()

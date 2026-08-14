@@ -54,20 +54,33 @@ class UnifiedExecutor:
         Returns:
             Execution result with output, tool_calls, tokens, etc.
         """
-        if backend == "crewai":
-            return self._execute_crewai(task, agent_name, system_prompt, max_tokens, max_iterations)
-        elif backend == "langgraph":
-            return self._execute_langgraph(task, agent_name, max_iterations)
-        else:
-            return self._execute_simple(
-                task,
-                agent_name,
-                system_prompt,
-                max_tokens,
-                max_iterations,
-                on_tool_call,
-                on_thinking,
-            )
+        from sago.tracking.dev_tracer import get_dev_tracer
+
+        tracer = get_dev_tracer()
+        with tracer.trace_block(
+            source=f"sago.engine.{backend}",
+            action=f"execute({agent_name})",
+            data={"task": task[:120], "agent": agent_name, "model": self.model, "backend": backend},
+        ) as trace_data:
+            if backend == "crewai":
+                res = self._execute_crewai(
+                    task, agent_name, system_prompt, max_tokens, max_iterations
+                )
+            elif backend == "langgraph":
+                res = self._execute_langgraph(task, agent_name, max_iterations)
+            else:
+                res = self._execute_simple(
+                    task,
+                    agent_name,
+                    system_prompt,
+                    max_tokens,
+                    max_iterations,
+                    on_tool_call,
+                    on_thinking,
+                )
+            trace_data["tool_calls"] = len(res.get("tool_calls", []))
+            trace_data["iterations"] = res.get("iterations", 1)
+            return res
 
     def _execute_simple(
         self,
