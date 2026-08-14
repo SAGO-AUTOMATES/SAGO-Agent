@@ -125,3 +125,28 @@ async def test_tui_checkpoint_command():
         await pilot.pause()
         app._handle_checkpoint_command("create Unit Test Snapshot")
         await pilot.pause()
+
+
+@pytest.mark.anyio
+async def test_tui_shortcuts_modal():
+    from sago.tui.screens.shortcuts import ShortcutsScreen
+
+    app = SagoApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Test shortcuts screen composition
+        screen = ShortcutsScreen()
+        app.push_screen(screen)
+        await pilot.pause()
+        assert len(app.screen_stack) >= 2
+        screen.dismiss()
+        await pilot.pause()
+
+        # Test trigger via command
+        app._handle_shortcuts_command()
+        await pilot.pause()
+
+        # Test ? trigger suggestion
+        app._show_shortcuts_suggestions("?")
+        assert app.show_suggestions is True
+        assert any("?" in v for v in app.suggestion_values)

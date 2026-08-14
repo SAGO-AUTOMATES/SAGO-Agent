@@ -178,11 +178,15 @@ Show system and connection status.
 
 | Shortcut | Action |
 | :--- | :--- |
+| `F1` or `?` | Open interactive Keyboard Shortcuts & Quick Reference Modal |
 | `PageUp` / `Shift+Up` | Scroll messages pane up |
 | `PageDown` / `Shift+Down` | Scroll messages pane down |
 | `Ctrl+D` | Toggle agent dashboard sidebar |
 | `Ctrl+T` | Show background tasks |
 | `Ctrl+C` | Cancel current task |
+| `Ctrl+L` | Clear chat log |
+| `Ctrl+Q` | Quit Sago TUI |
 | `Up` / `Down` | Navigate command history / autocomplete suggestions |
 | `Tab` / `Enter` | Accept autocomplete suggestion |
-| `Escape` | Close autocomplete suggestions |
+| `Escape` | Close autocomplete suggestions / dismiss modals |
+| `y` / `n` | Approve or Deny permission requests |

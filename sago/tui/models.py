@@ -8,6 +8,8 @@ from sago.paths import get_sago_home
 
 COMMANDS = {
     "/help": "Show all commands",
+    "/?": "Show keyboard shortcuts & quick cheat sheet",
+    "/shortcuts": "Interactive shortcuts and hotkeys reference modal",
     "/agents": "List agents (or /agents <filter>)",
     "/agent": "Set current agent (/agent <name>)",
     "/delegate": "Delegate task to specialist (/delegate <agent> <task>)",

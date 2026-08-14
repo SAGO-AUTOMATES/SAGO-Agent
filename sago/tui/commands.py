@@ -1384,9 +1384,7 @@ class CommandHandlers:
             self.developer_mode = True
             tracer.set_enabled(True)
             msg = (
-                "[bold red]╔═══════════════════════════════════════════════════════════════╗[/bold red]\n"
-                "[bold red]║  ⚡ SAGO DEVELOPER MODE ACTIVATED                             ║[/bold red]\n"
-                "[bold red]╚═══════════════════════════════════════════════════════════════╝[/bold red]\n"
+                "[bold red]   ⚡ SAGO DEVELOPER MODE ACTIVATED                             [/bold red]\n"
                 "  • [bold cyan]Deep Tracing[/bold cyan]: LLM payloads, token metrics, exact tool parameters\n"
                 "  • [bold magenta]Telemetry[/bold magenta]: Microsecond function duration & state transitions\n"
                 "  • [bold yellow]Commands[/bold yellow]: `/dev logs` | `/dev traces` | `/dev export [file]` | `/dev off`"
@@ -1474,3 +1472,34 @@ class CommandHandlers:
                 )
             lines.append("\n[dim]To restore: /checkpoint restore <id>[/dim]")
             self._add_system_message("\n".join(lines))
+
+    def _handle_shortcuts_command(self: SagoApp, args: str = "") -> None:
+        """Handle ? / /? / /shortcuts command."""
+        try:
+            from sago.tui.screens.shortcuts import ShortcutsScreen
+
+            self.push_screen(ShortcutsScreen())
+        except Exception:
+            msg = (
+                "[bold cyan]╔════════════════════════════════════════════════════════════════╗[/bold cyan]\n"
+                "[bold cyan]║  ⌨️  SAGO SHORTCUTS & POWER COMMANDS                           ║[/bold cyan]\n"
+                "[bold cyan]╚════════════════════════════════════════════════════════════════╝[/bold cyan]\n"
+                "  [bold yellow]Keyboard Shortcuts:[/bold yellow]\n"
+                "  • [bold white]F1[/bold white] or [bold white]?[/bold white]         : Open Shortcuts & Reference Sheet\n"
+                "  • [bold white]Ctrl + D[/bold white]       : Toggle Agent Dashboard sidebar\n"
+                "  • [bold white]Ctrl + T[/bold white]       : Show background tasks\n"
+                "  • [bold white]Ctrl + C[/bold white]       : Cancel running task or agent execution\n"
+                "  • [bold white]Ctrl + L[/bold white]       : Clear conversation chat log\n"
+                "  • [bold white]Ctrl + Q[/bold white]       : Quit Sago\n"
+                "  • [bold white]Tab / Enter[/bold white]    : Accept autocomplete suggestion\n"
+                "  • [bold white]y / n[/bold white]          : Approve or Deny permission requests\n\n"
+                "  [bold magenta]Core Commands:[/bold magenta]\n"
+                "  • `/dev on|off|export`  : Developer mode & JSON/MD trace exporter\n"
+                "  • `/theme <name>`      : Switch between 11 terminal themes\n"
+                "  • `/collapse all`      : Collapse or expand conversational cards\n"
+                "  • `/checkpoint`        : Instant project snapshots & rollback\n"
+                "  • `/model <id>`        : Switch active AI model\n"
+                "  • `/effort <level>`    : Adjust reasoning depth (low, med, high, max)\n"
+                "  • `@agent / #file`     : Mention agent or reference file"
+            )
+            self._add_system_message(msg)

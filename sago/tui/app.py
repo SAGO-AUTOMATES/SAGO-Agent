@@ -437,6 +437,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear"),
+        Binding("f1", "show_shortcuts", "Help / ?"),
         Binding("escape", "dismiss_suggestions", "Dismiss"),
         Binding("y", "approve_action", "Approve", show=True, priority=True),
         Binding("n", "deny_action", "Deny", show=True, priority=True),
@@ -737,6 +738,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     def on_input_changed(self, event: Input.Changed) -> None:
         v = event.value
 
+        # If the input starts with ?, show shortcuts quick suggestions
+        if v.startswith("?"):
+            self._show_shortcuts_suggestions(v)
+            return
+
         # If the input starts with a slash command, trigger smart command autocompleter
         if v.startswith("/"):
             self._show_cmd_suggestions(v)
@@ -798,7 +804,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self._hide_suggestions()
         self.history_index = -1
 
-        if msg.startswith("/"):
+        if msg in ("?", "/?", "/shortcuts", "/shortcut", "/keys"):
+            self._handle_shortcuts_command()
+        elif msg.startswith("/"):
             if msg != "/history":
                 self._add_to_history(msg)
             self._handle_command(msg)
@@ -939,6 +947,22 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self._add_system_message(f"Cancelled: {last.agent_name} ({last.agent_id})")
         else:
             self._add_system_message("No active tasks to cancel")
+
+    def action_show_shortcuts(self) -> None:
+        """Show shortcuts reference modal."""
+        self._handle_shortcuts_command()
+
+    def _show_shortcuts_suggestions(self, query: str = "") -> None:
+        """Show shortcuts and quick help suggestions."""
+        items = [
+            "[bold cyan]⌨️  ?[/bold cyan] [dim]Open interactive shortcuts & quick reference sheet (F1)[/dim]",
+            "[bold yellow]⚡ /dev on[/bold yellow] [dim]Enable live developer telemetry & LLM traces[/dim]",
+            "[bold magenta]● /theme <name>[/bold magenta] [dim]Switch between 11 terminal color themes[/dim]",
+            "[bold green]● /checkpoint[/bold green] [dim]Atomic snapshot & workspace rollback[/dim]",
+            "[bold blue]● /collapse all[/bold blue] [dim]Collapse/expand conversational turns[/dim]",
+        ]
+        values = ["?", "/dev on", "/theme obsidian", "/checkpoint list", "/collapse all"]
+        self._show_suggestions(items, values)
 
     def _show_cmd_suggestions(self, prefix: str) -> None:
         raw = prefix.strip()
@@ -1226,6 +1250,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
         handlers = {
             "/help": lambda: self._show_help(),
+            "/?": lambda: self._handle_shortcuts_command(args),
+            "/shortcuts": lambda: self._handle_shortcuts_command(args),
+            "/shortcut": lambda: self._handle_shortcuts_command(args),
+            "/keys": lambda: self._handle_shortcuts_command(args),
             "/agents": lambda: self._show_agents(args),
             "/agent": lambda: self._set_agent(args),
             "/delegate": lambda: self._delegate_task(args),
