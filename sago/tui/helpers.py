@@ -16,27 +16,30 @@ if TYPE_CHECKING:
 
 
 def _render_markdown(content: str) -> str:
-    """Render markdown content to a plain-text approximation with formatting hints."""
+    """Format markdown content cleanly into Rich terminal markup."""
     text = content
 
-    # Bold: **text** or __text__
-    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
-    text = re.sub(r"__(.+?)__", r"\1", text)
+    # Headers: ### text -> [bold yellow]text[/bold yellow]
+    text = re.sub(r"^###\s+(.+)$", r"[bold yellow]\1[/bold yellow]", text, flags=re.MULTILINE)
+    text = re.sub(r"^##\s+(.+)$", r"[bold cyan]\1[/bold cyan]", text, flags=re.MULTILINE)
+    text = re.sub(
+        r"^#\s+(.+)$", r"[bold underline cyan]\1[/bold underline cyan]", text, flags=re.MULTILINE
+    )
 
-    # Italic: *text* or _text_ (but not inside words)
-    text = re.sub(r"(?<!\w)\*(.+?)\*(?!\w)", r"\1", text)
+    # Bold: **text** -> [bold]text[/bold]
+    text = re.sub(r"\*\*(.+?)\*\*", r"[bold]\1[/bold]", text)
 
-    # Inline code: `code`
-    text = re.sub(r"`(.+?)`", r"\1", text)
+    # Italic: *text* -> [italic]text[/italic]
+    text = re.sub(r"(?<!\w)\*(.+?)\*(?!\w)", r"[italic]\1[/italic]", text)
 
-    # Headers: ### text → text
-    text = re.sub(r"^#{1,6}\s+(.+)$", r"\1", text, flags=re.MULTILINE)
+    # Inline code: `code` -> [cyan]`code`[/cyan]
+    text = re.sub(r"`(.+?)`", r"[cyan]`\1`[/cyan]", text)
 
-    # Unordered list: - item → • item
-    text = re.sub(r"^(\s*)[-*]\s+", r"\1• ", text, flags=re.MULTILINE)
+    # Unordered list: - item ->   [cyan]•[/cyan] item
+    text = re.sub(r"^(\s*)[-*]\s+", r"\1[cyan]•[/cyan] ", text, flags=re.MULTILINE)
 
-    # Links: [text](url) → text (url)
-    text = re.sub(r"\[(.+?)\]\((.+?)\)", r"\1 (\2)", text)
+    # Numbered list: 1. item ->   [bold cyan]1.[/bold cyan] item
+    text = re.sub(r"^(\s*)(\d+\.)\s+", r"\1[bold cyan]\2[/bold cyan] ", text, flags=re.MULTILINE)
 
     return text
 
@@ -47,7 +50,9 @@ class UIHelpers:
     def _add_user_message(self: SagoApp, content: str) -> None:
         self._hide_welcome_screen()
         self.messages.append({"role": "user", "content": content})
-        self.query_one("#messages").mount(Static(f"> {content}", classes="msg-user", markup=False))
+        self.query_one("#messages").mount(
+            Static(f"[bold cyan][USER][/bold cyan] {content}", classes="msg-user", markup=True)
+        )
         self.query_one("#messages").scroll_end()
         self._save_message("user", content)
 
@@ -60,52 +65,41 @@ class UIHelpers:
 
         display = content
         if meta:
-            display += f"\n\n{meta}"
+            display += f"\n\n[dim]{meta}[/dim]"
 
         # Prepend agent tag if specified
-        agent_prefix = ""
         if agent_name:
             color = get_agent_color(agent_name)
-            agent_prefix = f"[{color}]({agent_name})[/{color}] "
-
-        from rich.markup import escape
+            agent_prefix = f"[{color}][AGENT: {agent_name}][/{color}]\n"
+        else:
+            agent_prefix = "[bold green][SAGO][/bold green]\n"
 
         if "```" not in display:
-            # Plain text — render markdown formatting
             rendered = _render_markdown(display)
-            container.mount(Static(f"{agent_prefix}{escape(rendered)}", classes="msg-assistant"))
+            container.mount(
+                Static(f"{agent_prefix}{rendered}", classes="msg-assistant", markup=True)
+            )
         else:
-            # Has code blocks — render each part
             parts = display.split("```")
             first_text = True
             for i, part in enumerate(parts):
                 if i % 2 == 0:
-                    # Text outside code blocks
                     rendered = _render_markdown(part.strip())
                     if rendered.strip():
                         prefix = agent_prefix if first_text else ""
                         first_text = False
                         container.mount(
-                            Static(f"{prefix}{escape(rendered)}", classes="msg-assistant")
+                            Static(f"{prefix}{rendered}", classes="msg-assistant", markup=True)
                         )
                 else:
-                    # Inside code block
                     lines = part.split("\n", 1)
-                    lang = ""
-                    code = lines[0]
-                    if len(lines) > 1:
-                        lang = lines[0].strip()
-                        code = lines[1]
-                    else:
-                        code = lines[0]
-
-                    # Strip trailing backticks from code
+                    lang = lines[0].strip() if len(lines) > 1 else "text"
+                    code = lines[1] if len(lines) > 1 else lines[0]
                     code = code.rstrip().removesuffix("```").rstrip()
 
                     if not code.strip():
                         continue
 
-                    # Try rich syntax highlighting
                     try:
                         syntax = Syntax(
                             code,
@@ -117,7 +111,7 @@ class UIHelpers:
                         container.mount(
                             Collapsible(
                                 Static(syntax),
-                                title=f"Code ({lang or 'text'})",
+                                title=f"Code snippet ({lang or 'text'})",
                                 collapsed=False,
                             )
                         )
@@ -132,23 +126,30 @@ class UIHelpers:
         self._add_assistant_message(content, agent_name=agent_name)
 
     def _add_system_message(self: SagoApp, content: str) -> None:
-        self.query_one("#messages").mount(Static(content, classes="msg-system", markup=False))
+        self.query_one("#messages").mount(
+            Static(
+                f"[bold yellow][SYSTEM][/bold yellow] {content}", classes="msg-system", markup=True
+            )
+        )
         self.query_one("#messages").scroll_end()
 
     def _add_tool_call(
         self: SagoApp, tool_name: str, args: dict, result: str, success: bool = True
     ) -> None:
-        args_str = "\n".join(f"  {k}: {str(v)[:200]}" for k, v in args.items())
-        status = "OK" if success else "ERROR"
-        title = f"[{status}] {tool_name}"
-        body = f"Input:\n{args_str}\n\nOutput:\n{result[:1000]}"
-        if len(result) > 1000:
-            body += f"\n... ({len(result)} chars total)"
+        status_tag = "[bold green]● OK[/bold green]" if success else "[bold red]✗ FAILED[/bold red]"
+        title = f"{status_tag} Tool: [bold cyan]{tool_name}[/bold cyan]"
+
+        args_str = "\n".join(f"  [cyan]{k}[/cyan]: {str(v)[:200]}" for k, v in args.items())
+        preview_res = result[:1500] if result else "(empty)"
+        if len(result) > 1500:
+            preview_res += f"\n... [dim]({len(result)} characters total)[/dim]"
+
+        body = f"[bold]Parameters:[/bold]\n{args_str}\n\n[bold]Output:[/bold]\n{preview_res}"
 
         c = self.query_one("#messages")
         c.mount(
             Collapsible(
-                Static(body, classes="msg-system", markup=False),
+                Static(body, classes="msg-system", markup=True),
                 title=title,
                 collapsed=True,
             )

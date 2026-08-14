@@ -34,7 +34,7 @@ logger = logging.getLogger("sago.tui.app")
 
 class SagoApp(App, CommandHandlers, UIHelpers):
     CSS = """
-    Screen { background: #0d1117; }
+    Screen { background: #0a0d12; }
 
     #main-layout {
         height: 1fr;
@@ -46,12 +46,14 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     }
 
     #agent-dashboard {
-        width: 35;
+        width: 38;
         height: 1fr;
         background: #161b22;
-        border: solid #30363d;
+        border-left: solid #30363d;
         padding: 1;
         overflow-y: auto;
+        scrollbar-size: 1 1;
+        scrollbar-color: #30363d #161b22;
     }
     #agent-dashboard.hidden { display: none; }
 
@@ -61,12 +63,17 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         padding: 0 0 1 0;
         content-align: center middle;
     }
-    .agent-entry { padding: 0 0 1 0; }
+    .agent-entry {
+        background: #0d1117;
+        border: solid #21262d;
+        padding: 1;
+        margin: 0 0 1 0;
+    }
     .agent-name { text-style: bold; }
     .agent-status { color: #8b949e; padding: 0 0 0 1; }
-    .agent-task { color: #6e7681; text-style: italic; padding: 0 0 0 1; max-width: 32; }
-    .agent-tools { color: #6e7681; padding: 0 0 0 1; }
-    .agent-progress { padding: 0 0 0 1; }
+    .agent-task { color: #8b949e; text-style: italic; padding: 0; max-width: 34; }
+    .agent-tools { color: #58a6ff; padding: 0; }
+    .agent-progress { padding: 0; color: #3fb950; }
     .dashboard-separator { color: #30363d; padding: 0 0 1 0; }
     .dashboard-stats { color: #8b949e; }
     .active-color { color: #3fb950; }
@@ -79,15 +86,39 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         padding: 1 2 2 2;
         overflow-y: auto;
         scrollbar-size: 1 1;
-        scrollbar-color: #30363d #0d1117;
+        scrollbar-color: #30363d #0a0d12;
         scrollbar-color-hover: #58a6ff #161b22;
     }
 
-    .msg-user { color: #58a6ff; padding: 0 0 1 0; }
-    .msg-assistant { color: #c9d1d9; padding: 0 0 1 0; }
-    .msg-system { color: #8b949e; padding: 0 0 1 0; }
-    .msg-meta { color: #484f58; padding: 0 0 0 0; }
-    .msg-parallel { color: #d2a8ff; padding: 0 0 1 0; border-left: solid #d2a8ff; padding-left: 1; }
+    .msg-user {
+        background: #161b22;
+        border-left: solid #388bfd;
+        color: #58a6ff;
+        padding: 1;
+        margin: 0 0 1 0;
+    }
+    .msg-assistant {
+        background: #0d1117;
+        border: solid #21262d;
+        color: #e6edf3;
+        padding: 1;
+        margin: 0 0 1 0;
+    }
+    .msg-system {
+        background: #161b22;
+        border-left: solid #8b949e;
+        color: #c9d1d9;
+        padding: 1;
+        margin: 0 0 1 0;
+    }
+    .msg-meta { color: #6e7681; padding: 0; }
+    .msg-parallel {
+        background: #161b22;
+        color: #d2a8ff;
+        border-left: solid #d2a8ff;
+        padding: 1;
+        margin: 0 0 1 0;
+    }
 
     Collapsible {
         background: #161b22;
@@ -95,17 +126,28 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         margin: 0 0 1 0;
         padding: 0;
         height: auto;
-        max-height: 28;
     }
-    Collapsible .collapsible-title { background: #1f242c; color: #58a6ff; padding: 0 1; text-style: bold; }
-    Collapsible .collapsible-body { background: #0d1117; color: #c9d1d9; padding: 1; overflow-y: auto; scrollbar-size: 1 1; scrollbar-color: #30363d #161b22; }
+    Collapsible .collapsible-title {
+        background: #1c2128;
+        color: #58a6ff;
+        padding: 0 1;
+        text-style: bold;
+    }
+    Collapsible .collapsible-body {
+        background: #0d1117;
+        color: #e6edf3;
+        padding: 1;
+        overflow-y: auto;
+        scrollbar-size: 1 1;
+        scrollbar-color: #30363d #161b22;
+    }
 
     #input-area {
         height: auto;
         padding: 1 2;
         background: #161b22;
-        border: solid #30363d;
-        margin: 0 1 1 1;
+        border-top: solid #30363d;
+        margin: 0;
     }
 
     #msg-input {
