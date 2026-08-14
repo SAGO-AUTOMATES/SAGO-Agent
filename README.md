@@ -104,6 +104,8 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for full CLI and TUI command reference.
 | `sago run "task" --agent X` | Use specific agent |
 | `sago run "task" --chain X,Y,Z` | Sequential agent chain |
 | `sago run "task" --effort high` | Control execution depth (low/medium/high/max) |
+| `sago map [--dir .]` | **Symbol Repo Map** — Compact AST symbol map across 1,000+ files |
+| `sago verify [--dir .]` | **Self-Healing Verification** — Automated linters, type checks & tests |
 
 ### Interactive TUI
 

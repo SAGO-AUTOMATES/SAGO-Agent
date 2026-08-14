@@ -267,94 +267,55 @@ class UIHelpers:
         self.query_one("#messages").scroll_end()
 
     def _update_dashboard(self: SagoApp) -> None:
-        """Update the agent dashboard with current status."""
-        dashboard = self.query_one("#agent-dashboard")
-        if not dashboard or not self._dashboard_visible:
-            return
-
-        # Try to update in-place; fall back to rebuild if structure changed
-        existing_entries = dashboard.query(".agent-entry")
-
-        # Build current status entries
-        status_items = []
-
-        # Always show current agent info
-        status_items.append(("agent", self.current_agent, "active"))
-        status_items.append(("model", f"{self.current_provider}/{self.current_model}", "info"))
-        status_items.append(("effort", self.current_effort, "info"))
-        status_items.append(("session", self.current_session_id[:8] if self.current_session_id else "none", "info"))
-
-        # Show YOLO mode
-        yolo_status = "ON" if self.yolo_mode else "OFF"
-        status_items.append(("yolo", yolo_status, "active" if self.yolo_mode else "idle"))
-
-        # Show message count
-        status_items.append(("messages", str(len(self.messages)), "info"))
-
-        # Show background tasks if any
+        """Update the agent dashboard safely with Rich formatted markup."""
         try:
-            from sago.tui.widgets import AgentStatus, get_task_manager
-            tm = get_task_manager()
-            tasks = tm.get_all_tasks()
-            running = [t for t in tasks if t.status == AgentStatus.RUNNING]
-            if running:
-                for t in running:
-                    status_items.append(("task", f"{t.agent_name}: {t.task[:30]}", "running"))
-        except Exception:
-            pass
+            dashboards = self.query("#agent-dashboard")
+            if not dashboards or not getattr(self, "_dashboard_visible", False):
+                return
 
-        # Show if thinking
-        if self.is_thinking:
-            status_items.append(("status", "Thinking...", "running"))
+            content_widgets = self.query("#agent-dashboard-content")
+            if not content_widgets:
+                return
+            content_widget = content_widgets[0]
 
-        # Rebuild dashboard if structure changed
-        if len(existing_entries) != len(status_items):
-            dashboard.remove_children()
-            dashboard.mount(Static("Agent Dashboard", classes="dashboard-title", markup=False))
-            for key, value, status in status_items:
-                entry = Vertical(classes="agent-entry")
-                color_class = f"{status}-color"
-                entry.mount(
-                    Static(
-                        f"{key}: {value}",
-                        classes=f"agent-name {color_class}",
-                        markup=False,
-                    )
-                )
-                dashboard.mount(entry)
-            dashboard.mount(Static("---" * 15, classes="dashboard-separator", markup=False))
-        else:
-            # Update in-place
-            for idx, (key, value, status) in enumerate(status_items):
-                entry = existing_entries[idx]
-                entry.remove_children()
-                color_class = f"{status}-color"
-                entry.mount(
-                    Static(
-                        f"{key}: {value}",
-                        classes=f"agent-name {color_class}",
-                        markup=False,
-                    )
-                )
+            lines = []
+            cur_agent = getattr(self, "current_agent", "sago")
+            prov = getattr(self, "current_provider", "openrouter")
+            model = getattr(self, "current_model", "openrouter/free")
+            effort = getattr(self, "current_effort", "medium")
+            yolo = getattr(self, "yolo_mode", False)
+            thinking = getattr(self, "is_thinking", False)
+            session_id = getattr(self, "current_session_id", "local")
 
-        # Update stats
-        stats_widgets = dashboard.query(".dashboard-stats")
-        if stats_widgets:
-            parts = []
-            if self.is_thinking:
-                parts.append("active")
+            lines.append(f"[bold cyan]Agent:[/] [white]{cur_agent}[/]")
+            lines.append(f"[bold cyan]Model:[/] [yellow]{prov}/{model}[/]")
+            lines.append(f"[bold cyan]Effort:[/] [magenta]{effort}[/]")
+            lines.append(f"[bold cyan]YOLO:[/] [{'green' if yolo else 'dim'}]{'ON' if yolo else 'OFF'}[/]")
+            lines.append(f"[bold cyan]Session:[/] [dim]{session_id[:8] if session_id else 'none'}[/]")
+            lines.append(f"[bold cyan]Messages:[/] [white]{len(getattr(self, 'messages', []))}[/]")
+
+            status_text = "[bold green]● Thinking[/]" if thinking else "[dim]○ Idle[/]"
+            lines.append(f"[bold cyan]Status:[/] {status_text}")
+            lines.append("\n[dim]────────────────────────────[/dim]\n")
+
+            # Background Tasks
             try:
                 from sago.tui.widgets import AgentStatus, get_task_manager
                 tm = get_task_manager()
                 tasks = tm.get_all_tasks()
-                running = sum(1 for t in tasks if t.status == AgentStatus.RUNNING)
+                running = [t for t in tasks if t.status == AgentStatus.RUNNING]
+                lines.append(f"[bold]Active Tasks ({len(running)}):[/bold]")
                 if running:
-                    parts.append(f"{running} tasks")
+                    for t in running[:5]:
+                        lines.append(f"  [green]●[/] [cyan]{t.agent_name}[/]: [dim]{t.task[:18]}...[/dim]")
+                else:
+                    lines.append("  [dim]No running tasks[/dim]")
             except Exception:
                 pass
-            if not parts:
-                parts.append("idle")
-            stats_widgets[0].update(f"Status: {', '.join(parts)}")
+
+            content_widget.update("\n".join(lines))
+        except Exception:
+            pass
 
     def _render_agent_entry(self, entry: Vertical, info: Any) -> None:
         """Render a single agent entry into a container."""

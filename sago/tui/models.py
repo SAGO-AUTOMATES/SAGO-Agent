@@ -54,6 +54,8 @@ COMMANDS = {
     "/handoff": "Show handoff graph for current chain",
     "/agents-color": "List agents with their colors",
     "/summary": "Toggle summary display after each task",
+    "/map": "Generate compact symbol repo map (/map [query])",
+    "/verify": "Run multi-language linters, type checks, and tests (/verify)",
 }
 
 BUILTIN_MODELS = [

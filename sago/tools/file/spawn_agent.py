@@ -131,7 +131,7 @@ class SpawnAgentTool(BaseTool):
                     api_key=api_key,
                     model=try_model,
                     max_tokens=8192,
-                    max_iterations=8,
+                    max_iterations=20,
                 )
 
                 output = result.get("output", "No response")

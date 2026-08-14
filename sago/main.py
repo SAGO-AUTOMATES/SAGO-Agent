@@ -1032,6 +1032,38 @@ def workflow(task: str, agent: str, iterations: int, stream: bool) -> None:
     )
 
 
+@cli.command("map")
+@click.option("--dir", "-d", default=".", help="Directory to map")
+@click.option("--query", "-q", default=None, help="Filter by file path or symbol name")
+@click.option("--max-files", "-m", default=200, help="Max files to include")
+def repo_map_cmd(dir: str, query: str | None, max_files: int) -> None:
+    """Generate a compact AST symbol outline map across the repository."""
+    from sago.memory.symbol_graph import SymbolGraph
+
+    root_path = Path(dir).resolve()
+    console.print(f"[bold green]Generating Symbol Repo Map for:[/] {root_path}")
+    graph = SymbolGraph(root_dir=root_path)
+    rmap = graph.generate_repo_map(max_files=max_files, filter_query=query)
+    console.print(Panel(rmap, title="[bold]Symbol Map[/]", border_style="cyan"))
+
+
+@cli.command("verify")
+@click.option("--dir", "-d", default=".", help="Project directory to verify")
+def verify_cmd(dir: str) -> None:
+    """Run automated multi-language linters, type checks, and test suites."""
+    from sago.engine.verifier import ProjectVerifier
+
+    root_path = Path(dir).resolve()
+    console.print(f"[bold green]Running Self-Healing Verification Suite on:[/] {root_path}")
+    verifier = ProjectVerifier(root_dir=root_path)
+    report = verifier.verify_project()
+
+    if report.passed:
+        console.print(Panel("[bold green]✓ ALL CHECKS PASSED[/]\n" + report.summary, border_style="green"))
+    else:
+        console.print(Panel(report.to_prompt_feedback(), title="[bold red]Verification Failed[/]", border_style="red"))
+
+
 def main() -> None:
     """Main entry point."""
     cli()
@@ -1039,3 +1071,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

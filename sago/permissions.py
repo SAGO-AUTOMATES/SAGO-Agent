@@ -25,7 +25,7 @@ class RiskLevel(Enum):
 
 # Default risk levels for known tools
 TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
-    # Safe - read only
+    # Safe - read only and internal agent delegation
     "read_file": RiskLevel.SAFE,
     "glob_files": RiskLevel.SAFE,
     "grep_content": RiskLevel.SAFE,
@@ -46,15 +46,20 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
     "web_crawler": RiskLevel.SAFE,
     "screenshot": RiskLevel.SAFE,
     "database_query": RiskLevel.SAFE,
+    "repo_map": RiskLevel.SAFE,
+    "delegate_to_agent": RiskLevel.SAFE,
+    "agent_delegator": RiskLevel.SAFE,
     # Low - minor side effects
     "write_file": RiskLevel.LOW,
     "edit_file": RiskLevel.LOW,
+    "multi_replace_file": RiskLevel.LOW,
     "file_operations": RiskLevel.LOW,
     "archive": RiskLevel.LOW,
     "data_processor": RiskLevel.LOW,
     "formatter": RiskLevel.LOW,
     "prompt_generator": RiskLevel.LOW,
     "git_ops": RiskLevel.LOW,
+    "spawn_agent": RiskLevel.LOW,
     # Medium - moderate side effects
     "execute_shell": RiskLevel.MEDIUM,
     "background_process": RiskLevel.MEDIUM,
@@ -75,6 +80,7 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
     "network_config": RiskLevel.HIGH,
     # Critical - irreversible operations
     "spawn_agent": RiskLevel.CRITICAL,
+    "system_format": RiskLevel.CRITICAL,
 }
 
 
@@ -100,6 +106,12 @@ class PermissionManager:
         self._approvals: dict[str, bool] = {}
         self._lock = threading.Lock()
         self._yolo_sessions: set[str] = set()
+        self._global_yolo: bool = False
+
+    def set_global_yolo(self, enabled: bool) -> None:
+        """Enable/disable YOLO mode globally."""
+        with self._lock:
+            self._global_yolo = enabled
 
     def set_yolo_mode(self, session_id: str, enabled: bool) -> None:
         """Enable/disable YOLO mode for a session."""
@@ -110,8 +122,13 @@ class PermissionManager:
                 self._yolo_sessions.discard(session_id)
 
     def is_yolo(self, session_id: str = "default") -> bool:
-        """Check if YOLO mode is enabled for a session."""
-        return session_id in self._yolo_sessions
+        """Check if YOLO mode is enabled globally or for a session."""
+        with self._lock:
+            if self._global_yolo:
+                return True
+            if "default" in self._yolo_sessions:
+                return True
+            return session_id in self._yolo_sessions
 
     def _load_config(self) -> PermissionConfig:
         """Load permission config from disk."""

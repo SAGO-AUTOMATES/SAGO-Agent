@@ -19,39 +19,33 @@ class CommandHandlers:
 
         container = self.query_one("#messages")
 
-        # Group commands by category
         categories = {
-            "Chat": ["/help", "/retry", "/compact", "/reset"],
-            "Agents": ["/agents", "/agent", "/delegate", "/chain", "/orchestrate", "/parallel", "/handoff"],
-            "Models": ["/model", "/provider", "/effort"],
-            "Sessions": ["/sessions", "/load", "/save", "/export", "/history"],
-            "Tasks": ["/plan", "/todo", "/todos", "/done", "/ask"],
-            "System": ["/status", "/version", "/cost", "/yolo", "/summary", "/undo", "/changes"],
-            "Git": ["/git", "/diff", "/commit"],
-            "Permissions": ["/permissions", "/allow", "/block"],
-            "UI": ["/dashboard", "/tasks", "/cancel"],
+            "CORE": ["/help", "/map", "/verify", "/plan", "/todos", "/done", "/compact", "/reset"],
+            "AGENT ORCHESTRATION": ["/agents", "/agent", "/delegate", "/chain", "/orchestrate", "/parallel", "/handoff"],
+            "MODEL & RUNTIME": ["/model", "/provider", "/effort", "/cost", "/yolo", "/dashboard"],
+            "VERSION CONTROL": ["/git", "/diff", "/commit", "/changes", "/undo"],
+            "SESSION & SECURITY": ["/sessions", "/save", "/load", "/export", "/permissions", "/allow", "/block"],
         }
 
-        # Build formatted help with Textual markup
-        lines = []
+        lines = ["[bold white on #21262d]  COMMAND REFERENCE  [/bold white on #21262d]\n"]
         for cat, cmds in categories.items():
             lines.append(f"[bold cyan]{cat}[/bold cyan]")
             for cmd in cmds:
                 desc = COMMANDS.get(cmd, "")
-                lines.append(f"  [yellow]{cmd:<18}[/yellow] {desc}")
+                lines.append(f"  [bold yellow]{cmd:<16}[/bold yellow] [white]{desc}[/white]")
             lines.append("")
 
-        lines.append("[dim]Tip: Use @agent-name to tag agents, #file to reference files[/dim]")
+        lines.append("[dim]Shortcuts: Ctrl+D Dashboard | Ctrl+T Tasks | Ctrl+C Cancel | @agent | #file[/dim]")
 
-        # Render as collapsible
         body = "\n".join(lines)
         container.mount(
             Collapsible(
                 Static(body),
-                title="Commands Reference",
+                title="Command Reference",
                 collapsed=False,
             )
         )
+        container.scroll_end()
 
     def _show_agents(self: SagoApp, f: str = "") -> None:
         try:
@@ -212,36 +206,40 @@ class CommandHandlers:
 
         parts = m.split(None, 2) if m else []
 
-        # /model — show all grouped by provider
+        # /model — show all cleanly in a single consolidated panel
         if not parts:
             models = get_all_models()
             providers: dict[str, list[str]] = {}
             for model in models:
-                provider = model.split("/")[0]
+                provider = model.split("/")[0] if "/" in model else "other"
                 providers.setdefault(provider, []).append(model)
             cur = getattr(self, "current_model", "?")
             prov = getattr(self, "current_provider", "?")
 
             container = self.query_one("#messages")
-            # Header
-            container.mount(
-                Static(f"Current: {prov} / {cur}", classes="msg-system", markup=False)
-            )
-            container.mount(
-                Static("Usage: /model <provider> <model>", classes="msg-system", markup=False)
-            )
-            # Each provider as a collapsible section
+            lines = [
+                f"[bold green]● Active Model:[/] [bold white]{cur}[/]  ([cyan]Provider: {prov}[/])\n",
+                "[dim]Switch model: /model <name>  |  Add: /model add <id>  |  Refresh: /model refresh[/dim]\n",
+            ]
+
             for provider, pmodels in sorted(providers.items()):
-                model_list = "\n".join(f"  {model}" for model in pmodels[:15])
-                if len(pmodels) > 15:
-                    model_list += f"\n  ... +{len(pmodels) - 15} more"
-                container.mount(
-                    Collapsible(
-                        Static(model_list, markup=False),
-                        title=f"[{provider}] ({len(pmodels)} models)",
-                        collapsed=True,
-                    )
+                lines.append(f"[bold cyan]▼ Provider: {provider.upper()} ({len(pmodels)} models)[/]")
+                # Display in clean bulleted list
+                for m in pmodels[:10]:
+                    marker = "[bold green]▶[/]" if m == cur else " "
+                    lines.append(f"  {marker} [yellow]{m}[/]")
+                if len(pmodels) > 10:
+                    lines.append(f"    [dim]... +{len(pmodels) - 10} more[/dim]")
+                lines.append("")
+
+            body = "\n".join(lines)
+            container.mount(
+                Collapsible(
+                    Static(body),
+                    title=f"Models (Active: {cur})",
+                    collapsed=False,
                 )
+            )
             container.scroll_end()
             return
 
@@ -763,6 +761,7 @@ class CommandHandlers:
             from sago.permissions import get_permission_manager
             pm = get_permission_manager()
             pm.set_yolo_mode(self.current_session_id, self.yolo_mode)
+            pm.set_global_yolo(self.yolo_mode)
         except Exception:
             pass
         if self.yolo_mode:
@@ -986,22 +985,27 @@ class CommandHandlers:
         self._process_parallel(agents, task)
 
     def _toggle_dashboard(self: SagoApp) -> None:
-        """Toggle the agent dashboard sidebar."""
-        if hasattr(self, "_dashboard_visible"):
-            self._dashboard_visible = not self._dashboard_visible
-        else:
-            self._dashboard_visible = True
+        """Toggle the agent dashboard sidebar safely."""
+        try:
+            if hasattr(self, "_dashboard_visible"):
+                self._dashboard_visible = not self._dashboard_visible
+            else:
+                self._dashboard_visible = True
 
-        dashboard = self.query_one("#agent-dashboard")
-        if self._dashboard_visible:
-            dashboard.remove_class("hidden")
-            if self._dashboard is None:
-                self._dashboard = dashboard
-            self._update_dashboard()
-            self._add_system_message("Dashboard: ON")
-        else:
-            dashboard.add_class("hidden")
-            self._add_system_message("Dashboard: OFF")
+            dashboards = self.query("#agent-dashboard")
+            if not dashboards:
+                return
+            dashboard = dashboards[0]
+
+            if self._dashboard_visible:
+                dashboard.remove_class("hidden")
+                self._update_dashboard()
+                self._add_system_message("Dashboard: ON")
+            else:
+                dashboard.add_class("hidden")
+                self._add_system_message("Dashboard: OFF")
+        except Exception as e:
+            self._add_system_message(f"Dashboard toggle note: {e}")
 
     def _show_tasks(self: SagoApp) -> None:
         """Show all background tasks."""
@@ -1099,3 +1103,50 @@ class CommandHandlers:
             self._add_system_message("Summary: ON — tool usage summary will appear after each task")
         else:
             self._add_system_message("Summary: OFF")
+
+    def _show_repo_map(self: SagoApp, query: str = "") -> None:
+        """Generate and display compact AST symbol repo map."""
+        from sago.memory.symbol_graph import SymbolGraph
+
+        try:
+            graph = SymbolGraph()
+            rmap = graph.generate_repo_map(filter_query=query.strip() or None)
+            container = self.query_one("#messages")
+            container.mount(
+                Collapsible(
+                    Static(f"```text\n{rmap}\n```"),
+                    title="Symbol Repo Map",
+                    collapsed=False,
+                )
+            )
+        except Exception as e:
+            self._add_system_message(f"Error generating repo map: {e}")
+
+    def _run_verify(self: SagoApp) -> None:
+        """Run automated multi-language verifier."""
+        from sago.engine.verifier import ProjectVerifier
+
+        try:
+            self._add_system_message("Running linters, type checks, and tests...")
+            verifier = ProjectVerifier()
+            report = verifier.verify_project()
+            container = self.query_one("#messages")
+            if report.passed:
+                container.mount(
+                    Collapsible(
+                        Static("[bold green]✓ ALL CHECKS PASSED[/bold green]\n" + report.summary),
+                        title="Verification Passed",
+                        collapsed=False,
+                    )
+                )
+            else:
+                container.mount(
+                    Collapsible(
+                        Static(report.to_prompt_feedback()),
+                        title="[bold red]Verification Failed[/bold red]",
+                        collapsed=False,
+                    )
+                )
+        except Exception as e:
+            self._add_system_message(f"Error running verification: {e}")
+

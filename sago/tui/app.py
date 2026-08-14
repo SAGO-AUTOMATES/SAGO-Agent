@@ -78,7 +78,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         height: 1fr;
         padding: 1 2 2 2;
         overflow-y: auto;
-        scrollbar-size: 0 0;
+        scrollbar-size: 1 1;
+        scrollbar-color: #30363d #0d1117;
+        scrollbar-color-hover: #58a6ff #161b22;
     }
 
     .msg-user { color: #58a6ff; padding: 0 0 1 0; }
@@ -88,15 +90,15 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .msg-parallel { color: #d2a8ff; padding: 0 0 1 0; border-left: solid #d2a8ff; padding-left: 1; }
 
     Collapsible {
-        background: transparent;
+        background: #161b22;
         border: solid #30363d;
         margin: 0 0 1 0;
         padding: 0;
         height: auto;
-        max-height: 25;
+        max-height: 28;
     }
-    Collapsible .collapsible-title { background: #161b22; color: #58a6ff; padding: 0 1; text-style: bold; }
-    Collapsible .collapsible-body { background: transparent; color: #c9d1d9; padding: 0; overflow-y: auto; scrollbar-size: 1 0; }
+    Collapsible .collapsible-title { background: #1f242c; color: #58a6ff; padding: 0 1; text-style: bold; }
+    Collapsible .collapsible-body { background: #0d1117; color: #c9d1d9; padding: 1; overflow-y: auto; scrollbar-size: 1 1; scrollbar-color: #30363d #161b22; }
 
     #input-area {
         height: auto;
@@ -331,7 +333,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     yield Vertical(id="parallel-agents")
                 with Vertical(id="input-area"):
                     yield Input(placeholder="/, @, # for autocomplete", id="msg-input")
-            yield Vertical(id="agent-dashboard", classes="hidden")
+            with Vertical(id="agent-dashboard", classes="hidden"):
+                yield Static("Agent Dashboard", classes="dashboard-title", markup=True)
+                yield Static("", id="agent-dashboard-content", markup=True)
 
     MAX_COMMAND_HISTORY = 200
 
@@ -649,6 +653,22 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             elif event.key == "escape":
                 self._hide_suggestions()
         else:
+            # Dedicated keyboard scrolling for messages pane
+            if event.key in ("pageup", "shift+up"):
+                event.prevent_default()
+                try:
+                    self.query_one("#messages").scroll_page_up(animate=False)
+                except Exception:
+                    pass
+                return
+            elif event.key in ("pagedown", "shift+down"):
+                event.prevent_default()
+                try:
+                    self.query_one("#messages").scroll_page_down(animate=False)
+                except Exception:
+                    pass
+                return
+
             # Command history navigation when no suggestions visible
             inp = self.query_one("#msg-input")
             if inp.cursor_position == 0 and not inp.value:
@@ -995,6 +1015,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             "/handoff": lambda: self._show_handoff(),
             "/agents-color": lambda: self._list_agents_color(),
             "/summary": lambda: self._toggle_summary(),
+            "/map": lambda: self._show_repo_map(args),
+            "/verify": lambda: self._run_verify(),
         }
 
         if cmd in handlers:

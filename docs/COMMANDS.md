@@ -3,7 +3,7 @@
 ## CLI Commands
 
 ### `sago smart`
-AI-powered agent routing.
+AI-powered agent routing and streaming execution.
 
 ```bash
 sago smart "Fix the auth bug"
@@ -11,188 +11,134 @@ sago smart "Create a React component" --effort high
 ```
 
 ### `sago run`
-Execute with specific agent.
+Execute with specific agent or sequential chain.
 
 ```bash
 sago run "task" --agent python-engineer
-sago run "task" --chain python-engineer,code-reviewer
+sago run "task" --chain system-architect,backend-engineer,code-reviewer
+```
+
+### `sago map`
+Generate an AST-parsed compact symbol repository map (classes, methods, signatures) across 1,000+ files.
+
+```bash
+sago map
+sago map --dir ./src --query UserService --max-files 100
+```
+
+### `sago verify`
+Run multi-language automated verification (linters, type checks, and test suites) with diagnostic reports.
+
+```bash
+sago verify
+sago verify --dir .
 ```
 
 ### `sago tui`
-Launch interactive TUI.
+Launch interactive Terminal User Interface.
 
 ```bash
 sago tui
 sago tui --resume abc123  # Resume a session
 ```
 
+### `sago workflow`
+Execute complex multi-step tasks using LangGraph stateful engine.
+
+```bash
+sago workflow "Build a complete REST API with auth and tests"
+```
+
 ### `sago agents`
-List all 339 agents.
+List and search all 339 specialist agents.
 
 ### `sago status`
-System status.
-
-### `sago tools`
-List all tools.
+Show system and connection status.
 
 ---
 
 ## TUI Commands
 
-### General
+### Core & Autonomous Coding
 
 | Command | Description |
 |---------|-------------|
-| `/help` | Show all commands |
-| `/version` | Show version |
+| `/help` | Show categorized command reference |
+| `/map [query]` | Generate compact AST symbol repo map |
+| `/verify` | Run automated linters, type checks, and test suites |
+| `/plan` | Show current multi-step task execution plan |
+| `/todos` | Show all tasks in plan |
+| `/todo <id>` | Show details of a specific todo item |
+| `/done <id>` | Mark a todo item as completed |
+| `/compact` | Semantic context compression (prunes verbose tool outputs) |
+| `/reset` | Reset active session |
+| `/version` | Show Sago version info |
 | `/exit` | Save session and quit |
 
-### Agents
+### Multi-Agent Swarm
 
 | Command | Description |
 |---------|-------------|
-| `/agents [filter]` | List all agents, optionally filtered |
-| `/agent <name>` | Set current agent |
-| `/agents-color` | List agents with their assigned colors |
+| `/agents [filter]` | List and filter all 339 specialist agents |
+| `/agent <name>` | Set current active agent |
+| `/delegate <agent> <task>` | Delegate task to a specialist |
+| `/chain <a1,a2> <task>` | Chain agents sequentially |
+| `/parallel <a1,a2> <task>` | Run agents in parallel on the same task |
+| `/orchestrate <task>` | Auto-delegate subtasks to specialists |
+| `/handoff` | Show handoff targets for current agent |
 
-### Chat
-
-| Command | Description |
-|---------|-------------|
-| `/clear` | Clear chat |
-| `/history` | Show recent messages |
-| `/retry` | Retry last message |
-| `/compact` | Summarize context |
-| `/reset` | Reset session |
-
-### Model & Provider
+### Model & Runtime
 
 | Command | Description |
 |---------|-------------|
-| `/model` | Show current model |
-| `/model <provider> <name>` | Change provider and model |
+| `/model` | Show LLM Models Manager |
+| `/model <name>` | Switch active model (fuzzy match) |
+| `/model <provider> <name>` | Set active provider and model |
 | `/model refresh` | Refresh model list from OpenRouter |
-| `/model add <name>` | Add a custom model |
+| `/model add <name>` | Add a custom model ID |
 | `/model remove <name>` | Remove a custom model |
-| `/effort <level>` | Set effort: low/medium/high/max |
+| `/provider` | Show or change active provider |
+| `/effort <level>` | Set reasoning effort (`low`, `medium`, `high`, `max`) |
+| `/cost` | Display token usage and cost analytics |
+| `/dashboard` | Toggle live agent dashboard sidebar (`Ctrl+D`) |
+| `/tasks` | Show running background tasks (`Ctrl+T`) |
+| `/cancel <id\|all>` | Cancel running background task (`Ctrl+C`) |
 
-### Sessions
-
-| Command | Description |
-|---------|-------------|
-| `/sessions` | List recent sessions |
-| `/session <id>` | Switch session |
-| `/save [name]` | Save context |
-| `/load <name>` | Load context |
-| `/export` | Export to markdown |
-
-### Monitoring
+### Version Control & Rollbacks
 
 | Command | Description |
 |---------|-------------|
-| `/status` | System status with agent count |
-| `/cost` | Token usage and cost |
-| `/summary` | Toggle task summary display (hidden by default) |
+| `/git` | Show git status |
+| `/diff [file]` | View diff of modified files |
+| `/commit <message>` | Commit changes to git |
+| `/changes` | Show session file modification log |
+| `/undo` | Roll back the last file change |
 
-### Permissions
+### Sessions & Security
 
 | Command | Description |
 |---------|-------------|
-| `/permissions` | Show all tool permissions |
-| `/permissions blocked` | Show blocked tools |
-| `/permissions allowed` | Show allowed tools |
-| `/allow <tool>` | Unblock a tool |
+| `/sessions` | List all saved sessions |
+| `/session <id>` | Switch to a specific session |
+| `/save [name]` | Save current session context |
+| `/load <id>` | Load a saved session |
+| `/export` | Export session conversation to Markdown |
+| `/yolo` | Toggle YOLO mode (auto-approve all tool calls globally) |
+| `/permissions` | Show tool permissions (`/permissions [blocked|allowed]`) |
+| `/allow <tool>` | Unblock or auto-approve a tool |
 | `/block <tool>` | Block a tool |
-| `/yolo` | Toggle YOLO mode (auto-approve all tools) |
-
-### Multi-Agent
-
-| Command | Shortcut | Description |
-|---------|----------|-------------|
-| `/delegate <agent> <task>` | — | Delegate task to specialist |
-| `/chain <a1,a2> <task>` | — | Chain agents sequentially |
-| `/parallel <a1,a2> <task>` | — | Run agents in parallel on same task |
-| `/orchestrate <task>` | — | Auto-delegate to specialists |
-| `/handoff` | — | Show handoff targets for current agent |
-
-### Dashboard & Tasks
-
-| Command | Shortcut | Description |
-|---------|----------|-------------|
-| `/dashboard` | `Ctrl+D` | Toggle agent dashboard sidebar |
-| `/tasks` | `Ctrl+T` | Show background tasks |
-| `/cancel <id\|all>` | `Ctrl+C` | Cancel running task(s) |
-
-### Git
-
-| Command | Description |
-|---------|-------------|
-| `/git` | Git status |
-| `/diff [file]` | Show diff |
-| `/commit <msg>` | Commit changes |
-| `/approve` | Approve pending action |
-| `/deny` | Deny pending action |
-
-### Undo & Changes
-
-| Command | Description |
-|---------|-------------|
-| `/undo` | Undo last file change |
-| `/changes` | Show all file changes this session |
-
-### Autocomplete
-
-| Trigger | Shows |
-|---------|-------|
-| `/` | Command suggestions |
-| `@` | Agent list |
-| `#` | Files in current directory |
-
-Press Escape to dismiss suggestions.
-
-### Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+Q` | Quit |
-| `Ctrl+L` | Clear chat |
-| `Ctrl+D` | Toggle dashboard |
-| `Ctrl+T` | Show tasks |
-| `Ctrl+C` | Cancel task |
-| `Escape` | Dismiss suggestions |
-| `Y` | Approve pending action |
-| `N` | Deny pending action |
 
 ---
 
-## Provider Setup
+## Keyboard Shortcuts in TUI
 
-```bash
-export OPENROUTER_API_KEY="sk-or-..."
-sago smart "task"
-```
-
-## Available Models
-
-- `openrouter/free` (default)
-- `openrouter/auto`
-- `anthropic/claude-3.5-sonnet`
-- `openai/gpt-4o`
-- `openai/gpt-4o-mini`
-- `google/gemini-2.0-flash`
-- `meta-llama/llama-3.1-70b-instruct`
-- `mistralai/mistral-7b-instruct:free`
-
-## Examples
-
-```bash
-sago smart "Fix the authentication bug"
-sago smart "Create a Java calculator"
-sago tui
-# In TUI:
-/a engineer     # Filter agents
-/model gpt      # Change model
-/sessions       # List sessions
-/parallel python-engineer,code-reviewer "Build a REST API with auth"
-/dashboard      # Toggle agent dashboard
-```
+| Shortcut | Action |
+| :--- | :--- |
+| `PageUp` / `Shift+Up` | Scroll messages pane up |
+| `PageDown` / `Shift+Down` | Scroll messages pane down |
+| `Ctrl+D` | Toggle agent dashboard sidebar |
+| `Ctrl+T` | Show background tasks |
+| `Ctrl+C` | Cancel current task |
+| `Up` / `Down` | Navigate command history / autocomplete suggestions |
+| `Tab` / `Enter` | Accept autocomplete suggestion |
+| `Escape` | Close autocomplete suggestions |

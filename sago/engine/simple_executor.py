@@ -738,6 +738,7 @@ def execute_agent_task(
     on_todo_update: Callable | None = None,
     on_request_input: Callable | None = None,
     pause_event: Any = None,
+    session_id: str = "default",
 ) -> dict[str, Any]:
     """Execute a task with LLM, tools, and todo tracking.
 
@@ -898,21 +899,54 @@ def execute_agent_task(
     def _compact_messages_if_needed(
         msgs: list[dict[str, Any]], max_tokens: int = 32000
     ) -> list[dict[str, Any]]:
-        """Compact messages if total content exceeds token limit."""
-        total_chars = sum(len(m.get("content", "")) for m in msgs)
+        """Compact messages if total content exceeds token limit using semantic distillation."""
+        total_chars = sum(len(str(m.get("content", "") or "")) for m in msgs)
         estimated_tokens = total_chars // 4
         if estimated_tokens <= max_tokens:
             return msgs
+
+        # Distill older tool messages first to preserve conversation history and system instructions
+        distilled: list[dict[str, Any]] = []
+        recent_threshold = max(2, len(msgs) - 6)
+
+        for idx, m in enumerate(msgs):
+            if idx == 0 or idx >= recent_threshold:
+                # Keep system prompt and recent 6 messages intact
+                distilled.append(m)
+                continue
+
+            role = m.get("role")
+            content = m.get("content")
+
+            if role == "tool" and isinstance(content, str) and len(content) > 300:
+                # Distill large tool output
+                prefix = content[:150]
+                suffix = content[-100:]
+                short_content = f"{prefix}\n... [Output pruned ({len(content)} chars)] ...\n{suffix}"
+                new_m = dict(m)
+                new_m["content"] = short_content
+                distilled.append(new_m)
+            elif role == "assistant" and isinstance(content, str) and len(content) > 800:
+                short_content = content[:400] + "\n... [Assistant reasoning summary] ..."
+                new_m = dict(m)
+                new_m["content"] = short_content
+                distilled.append(new_m)
+            else:
+                distilled.append(m)
+
+        # Re-check
+        new_total_chars = sum(len(str(m.get("content", "") or "")) for m in distilled)
+        if new_total_chars // 4 <= max_tokens:
+            return distilled
+
+        # Fallback to session compactor if available
         try:
             from sago.memory.compaction import SessionCompactor
-
             compactor = SessionCompactor(max_context_tokens=max_tokens)
-            compacted = compactor.build_context_window(msgs, max_tokens=max_tokens)
-            return compacted
+            return compactor.build_context_window(distilled, max_tokens=max_tokens)
         except Exception:
-            system_msgs = [m for m in msgs if m.get("role") == "system"]
-            other_msgs = [m for m in msgs if m.get("role") != "system"]
-            return system_msgs + other_msgs[-5:]
+            return distilled
+
 
     for i in range(max_iterations):
         # Check if execution is paused (user input needed)
@@ -1282,26 +1316,36 @@ def execute_agent_task(
 
             pm = get_permission_manager()
             risk = pm.get_risk_level(name)
-            allowed, reason = pm.check_permission(name, args)
+            allowed, reason = pm.check_permission(name, args, session_id=session_id)
 
             if not allowed:
-                if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc_id,
-                            "content": f"Permission denied: {name} requires approval (risk: {risk.value})",
-                        }
+                if on_request_input and risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+                    user_approval = on_request_input(
+                        f"Allow tool '{name}'? (risk: {risk.value}) [y/N]: "
                     )
-                else:
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc_id,
-                            "content": f"Permission denied: {reason}",
-                        }
-                    )
-                continue
+                    if user_approval and user_approval.strip().lower() in ("y", "yes", "allow", "approve"):
+                        pm.approve_tool(name, session_id=session_id)
+                        allowed = True
+                        reason = "User approved"
+
+                if not allowed:
+                    if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc_id,
+                                "content": f"Permission denied: {name} requires approval (risk: {risk.value})",
+                            }
+                        )
+                    else:
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc_id,
+                                "content": f"Permission denied: {reason}",
+                            }
+                        )
+                    continue
 
             tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
 
