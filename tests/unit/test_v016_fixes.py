@@ -144,3 +144,36 @@ def test_in_process_py_compile_verification() -> None:
         report_bad = verifier.verify_files([str(bad_file)])
         assert report_bad.typecheck_passed is False
         assert any(i.rule == "SYNTAX_ERROR" for i in report_bad.issues)
+
+
+def test_parallel_agent_progressive_streaming() -> None:
+    """Verify parallel execution streams each agent's result immediately upon completion."""
+    from sago.tui.app import SagoApp
+
+    app = SagoApp()
+    streamed_results = []
+    updated_statuses = []
+
+    app._add_parallel_result = lambda agent, res, el, ok: streamed_results.append((agent, res, ok))
+    app._update_parallel_agent_status = lambda agent, status: updated_statuses.append(
+        (agent, status)
+    )
+    app._show_parallel_bar = lambda agents: None
+    app._hide_parallel_bar = lambda: None
+    app._hide_spinner = lambda: None
+    app._update_dashboard = lambda: None
+    app._add_system_message = lambda msg: None
+    app.call_from_thread = lambda fn, *args: fn(*args)
+
+    with patch("sago.tools.file.spawn_agent.SpawnAgentTool") as mock_tool_cls:
+        mock_tool = mock_tool_cls.return_value
+        mock_tool.run.side_effect = lambda task, agent_name: f"Result for {agent_name}"
+
+        app._process_parallel_thread(["python-engineer", "tester"], "Run parallel task")
+
+        # Verify all agents streamed their results immediately
+        assert len(streamed_results) == 2
+        agents_streamed = {r[0] for r in streamed_results}
+        assert "python-engineer" in agents_streamed
+        assert "tester" in agents_streamed
+        assert all(r[2] is True for r in streamed_results)

@@ -1928,12 +1928,18 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             results: list[dict[str, Any]] = []
 
             def execute_agent(agent_name: str, subtask: str, info: Any) -> dict[str, Any]:
-                """Execute a single agent, respecting cancellation."""
+                """Execute a single agent, respecting cancellation and streaming immediately."""
                 start = _time.time()
+                self.call_from_thread(
+                    self._update_parallel_agent_status, agent_name, "⚡ Running..."
+                )
                 try:
                     # Check cancellation before starting
                     if info.cancel_event.is_set():
                         info.status = AgentStatus.CANCELLED
+                        self.call_from_thread(
+                            self._update_parallel_agent_status, agent_name, "🚫 Cancelled"
+                        )
                         return {
                             "agent": agent_name,
                             "result": "Cancelled",
@@ -1947,6 +1953,17 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     info.status = AgentStatus.COMPLETED
                     info.result = result
                     self.call_from_thread(self._update_dashboard)
+                    self.call_from_thread(
+                        self._update_parallel_agent_status, agent_name, f"✓ Done ({elapsed:.1f}s)"
+                    )
+                    # Progressively stream results as soon as this agent completes
+                    self.call_from_thread(
+                        self._add_parallel_result,
+                        agent_name,
+                        result,
+                        elapsed,
+                        True,
+                    )
                     return {
                         "agent": agent_name,
                         "result": result,
@@ -1959,6 +1976,16 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     info.status = AgentStatus.FAILED
                     info.error = str(e)
                     self.call_from_thread(self._update_dashboard)
+                    self.call_from_thread(
+                        self._update_parallel_agent_status, agent_name, f"✗ Failed ({elapsed:.1f}s)"
+                    )
+                    self.call_from_thread(
+                        self._add_parallel_result,
+                        agent_name,
+                        f"Error: {e}",
+                        elapsed,
+                        False,
+                    )
                     return {
                         "agent": agent_name,
                         "result": f"Error: {e}",
@@ -1980,21 +2007,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     result = future.result()
                     results.append(result)
 
-            # Show results
+            # Hide parallel bar and spinner
             self.call_from_thread(self._hide_parallel_bar)
             self.call_from_thread(self._hide_spinner)
-
-            # Sort results by agent name for consistent display
-            results.sort(key=lambda r: r["agent"])
-
-            for r in results:
-                self.call_from_thread(
-                    self._add_parallel_result,
-                    r["agent"],
-                    r["result"],
-                    r["elapsed"],
-                    r["success"],
-                )
 
             # Summary
             ok = sum(1 for r in results if r["success"])
@@ -2023,14 +2038,25 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         container = self.query_one("#parallel-agents")
         container.remove_children()
         for agent_name in agents:
+            safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", agent_name)
             container.mount(
                 Static(
-                    f"{agent_name} Waiting...",
+                    f"⏳ {agent_name}: Waiting...",
+                    id=f"pagent-{safe_id}",
                     classes="parallel-agent",
                     markup=False,
                 )
             )
         self.query_one("#parallel-bar").add_class("visible")
+
+    def _update_parallel_agent_status(self, agent_name: str, status_text: str) -> None:
+        """Update status label for a specific parallel agent in real-time."""
+        try:
+            safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", agent_name)
+            node = self.query_one(f"#pagent-{safe_id}", Static)
+            node.update(f"{agent_name}: {status_text}")
+        except Exception:
+            pass
 
     def _hide_parallel_bar(self) -> None:
         """Hide the parallel agent status bar."""

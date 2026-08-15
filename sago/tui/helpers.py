@@ -468,13 +468,12 @@ class UIHelpers:
     def _add_parallel_result(
         self: SagoApp, agent_name: str, result: str, elapsed: float, success: bool
     ) -> None:
-        """Add a result from a parallel agent execution."""
+        """Add a result from a parallel agent execution with copy button & code syntax."""
         color = get_agent_color(agent_name)
         status_icon = "✓" if success else "✗"
-        header = f"[{color}]{status_icon} {agent_name}[/{color}] ({elapsed:.1f}s)"
+        header = f"[{color}][bold]{status_icon} [AGENT: {agent_name}][/bold][/{color}] [dim](completed in {elapsed:.1f}s)[/dim]"
 
         container = self.query_one("#messages")
-        from rich.markup import escape
 
         if "```" in result:
             parts = result.split("```")
@@ -485,36 +484,59 @@ class UIHelpers:
                         if i == 0:
                             container.mount(
                                 Static(
-                                    f"{header}\n{escape(rendered)}",
+                                    f"{header}\n\n{rendered}",
                                     classes="msg-assistant",
+                                    markup=True,
                                 )
                             )
                         else:
-                            container.mount(Static(escape(rendered), classes="msg-assistant"))
+                            container.mount(Static(rendered, classes="msg-assistant", markup=True))
                 else:
                     lines = part.split("\n", 1)
                     lang = lines[0].strip() if len(lines) > 1 else ""
                     code = lines[1] if len(lines) > 1 else lines[0]
                     code = code.rstrip().removesuffix("```").rstrip()
                     if code.strip():
+                        copy_btn = Button(
+                            "📋 Copy Code", classes="btn-copy-code", variant="default"
+                        )
+                        setattr(copy_btn, "_code_content", code)
                         try:
                             syntax = Syntax(
-                                code, lang or "text", theme="monokai", line_numbers=True
+                                code,
+                                lang or "text",
+                                theme="monokai",
+                                line_numbers=True,
+                                word_wrap=True,
                             )
                             container.mount(
                                 Collapsible(
                                     Static(syntax),
+                                    Horizontal(
+                                        Static("", classes="spacer"),
+                                        copy_btn,
+                                        classes="code-action-bar",
+                                    ),
                                     title=f"{agent_name} - Code ({lang or 'text'})",
                                     collapsed=False,
                                 )
                             )
                         except Exception:
-                            container.mount(Static(code, classes="code-block", markup=False))
+                            container.mount(
+                                Collapsible(
+                                    Static(code, classes="code-block", markup=False),
+                                    Horizontal(
+                                        Static("", classes="spacer"),
+                                        copy_btn,
+                                        classes="code-action-bar",
+                                    ),
+                                    title=f"{agent_name} - Code ({lang or 'text'})",
+                                    collapsed=False,
+                                )
+                            )
         else:
-            from rich.markup import escape
-
             rendered = _render_markdown(result)
-            container.mount(Static(f"{header}\n{escape(rendered)}", classes="msg-assistant"))
+            container.mount(Static(f"{header}\n\n{rendered}", classes="msg-assistant", markup=True))
         container.scroll_end()
 
     def _add_summary(
