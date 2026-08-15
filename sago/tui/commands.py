@@ -71,7 +71,7 @@ class CommandHandlers:
             Collapsible(
                 Static(body),
                 title="Command Reference",
-                collapsed=False,
+                collapsed=True,
             )
         )
         container.scroll_end()
@@ -121,7 +121,7 @@ class CommandHandlers:
                 Collapsible(
                     Static(body),
                     title=title,
-                    collapsed=False,
+                    collapsed=True,
                 )
             )
             container.scroll_end()
@@ -190,7 +190,7 @@ class CommandHandlers:
         ]
         body = "\n".join(lines)
         container = self.query_one("#messages")
-        container.mount(Collapsible(Static(body), title="System Status", collapsed=False))
+        container.mount(Collapsible(Static(body), title="System Status", collapsed=True))
 
     def _show_sessions(self: SagoApp) -> None:
         self._list_sessions()
@@ -302,7 +302,7 @@ class CommandHandlers:
                 Collapsible(
                     Static(body),
                     title=f"Models (Active: {cur})",
-                    collapsed=False,
+                    collapsed=True,
                 )
             )
             container.scroll_end()
@@ -1048,7 +1048,7 @@ class CommandHandlers:
             Collapsible(
                 Static(body_text),
                 title=header,
-                collapsed=False,
+                collapsed=True,
             )
         )
         container.scroll_end()
@@ -1401,7 +1401,7 @@ class CommandHandlers:
                         c = create_collapsible(
                             Static(md_widget),
                             title=title,
-                            collapsed=False,
+                            collapsed=True,
                         )
                         container.mount(c)
                         try:
@@ -1448,7 +1448,7 @@ class CommandHandlers:
                     Collapsible(
                         Static("[bold green]✓ ALL CHECKS PASSED[/bold green]\n" + report.summary),
                         title="Verification Passed",
-                        collapsed=False,
+                        collapsed=True,
                     )
                 )
             else:
@@ -1456,7 +1456,7 @@ class CommandHandlers:
                     Collapsible(
                         Static(report.to_prompt_feedback()),
                         title="[bold red]Verification Failed[/bold red]",
-                        collapsed=False,
+                        collapsed=True,
                     )
                 )
         except Exception as e:
@@ -1505,7 +1505,7 @@ class CommandHandlers:
                 Collapsible(
                     Static("\n".join(lines)),
                     title=f"Skills ({len(builtin) + len(custom)})",
-                    collapsed=False,
+                    collapsed=True,
                 )
             )
             container.scroll_end()
@@ -1537,7 +1537,7 @@ class CommandHandlers:
                 Collapsible(
                     Static("\n".join(lines)),
                     title=f"Plugins ({len(plugins)})",
-                    collapsed=False,
+                    collapsed=True,
                 )
             )
             container.scroll_end()
@@ -1802,7 +1802,7 @@ class CommandHandlers:
                 create_collapsible(
                     Static("\n".join(lines)),
                     title=f"Search: {args.strip()[:30]} ({len(results)} matches)",
-                    collapsed=False,
+                    collapsed=True,
                 )
             )
             container.scroll_end()

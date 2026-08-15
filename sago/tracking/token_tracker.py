@@ -282,8 +282,13 @@ class TokenTracker:
         if time_range:
             usages = self._filter_by_time(usages, time_range)
 
+        summary = UsageSummary()
+
+        # Waste summary (always include, even if no LLM usages)
+        summary.waste_summary = self.get_waste_summary()
+
         if not usages:
-            return UsageSummary()
+            return summary
 
         summary = UsageSummary()
         summary.total_requests = len(usages)
