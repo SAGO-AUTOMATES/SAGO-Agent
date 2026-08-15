@@ -7,7 +7,7 @@ from sago.tracking.dev_tracer import DevTraceEvent, TraceEventType
 from sago.tui.trace_viewer import TraceViewerScreen
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_trace_viewer_modal_mount():
     """Test mounting TraceViewerScreen with sample events."""
     import time
@@ -59,7 +59,7 @@ async def test_trace_viewer_modal_mount():
         screen._on_close_btn()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_sago_app_f2_and_dev_view(monkeypatch):
     """Test F2 action and /dev view command in SagoApp."""
     from sago.tracking.dev_tracer import get_dev_tracer

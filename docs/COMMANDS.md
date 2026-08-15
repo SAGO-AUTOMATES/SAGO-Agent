@@ -17,6 +17,14 @@ Check system health, Python runtime, API keys, SQLite integrity, network ports, 
 sago doctor              # Run comprehensive subsystem health check
 ```
 
+### `sago update`
+Auto-detect package manager (`uv` or `pip`) and update SAGO to the latest release in-place.
+
+```bash
+sago update              # Auto-detect uv/pip and upgrade SAGO
+sago update --check      # Check current vs latest PyPI version without installing
+```
+
 ## CLI Commands
 
 ### `sago smart`

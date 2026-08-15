@@ -777,6 +777,90 @@ def doctor() -> None:
 
 
 @cli.command()
+@click.option("--check", is_flag=True, help="Check for updates without installing")
+@click.option("--pre", is_flag=True, help="Allow pre-release versions")
+def update(check: bool, pre: bool) -> None:
+    """Auto-detect package manager (uv/pip) and update SAGO to the latest version.
+
+    Examples:
+        sago update          # Upgrade SAGO in-place
+        sago update --check  # Check current vs latest PyPI version
+    """
+    import json
+    import shutil
+    import subprocess
+    import sys
+    import urllib.request
+
+    console.print(
+        Panel.fit(
+            f"[bold cyan]🚀 SAGO Package Updater (Current: v{__version__})[/]",
+            border_style="cyan",
+        )
+    )
+
+    # 1. Fetch latest version from PyPI
+    latest_version = None
+    try:
+        req = urllib.request.Request(
+            "https://pypi.org/pypi/sago/json",
+            headers={"User-Agent": f"sago-cli/{__version__}"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+            latest_version = data.get("info", {}).get("version")
+    except Exception:
+        # Fallback query
+        latest_version = None
+
+    if latest_version:
+        console.print(f"  • Current Installed Version: [bold]{__version__}[/]")
+        console.print(f"  • Latest PyPI Version:      [bold green]{latest_version}[/]")
+        if latest_version == __version__ and not pre:
+            console.print("\n[green]✓ SAGO is already up to date![/]\n")
+            return
+    else:
+        console.print(f"  • Current Installed Version: [bold]{__version__}[/]")
+        console.print("  • Checking PyPI for updates...")
+
+    if check:
+        return
+
+    # 2. Detect package manager and environment
+    has_uv = bool(shutil.which("uv"))
+
+    update_cmd = []
+    if has_uv:
+        console.print("\n[dim]⚡ Detected package manager: [bold cyan]uv[/bold cyan][/dim]")
+        update_cmd = ["uv", "pip", "install", "--upgrade", "sago"]
+        if pre:
+            update_cmd.append("--prerelease=allow")
+    else:
+        console.print("\n[dim]📦 Detected package manager: [bold cyan]pip[/bold cyan][/dim]")
+        update_cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "sago"]
+        if pre:
+            update_cmd.append("--pre")
+
+    console.print(f"[bold]Executing upgrade command:[/] `{' '.join(update_cmd)}`\n")
+    try:
+        result = subprocess.run(update_cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode == 0:
+            console.print("[bold green]✓ SAGO has been successfully updated![/bold green]")
+            if result.stdout.strip():
+                console.print(f"[dim]{result.stdout.strip()[-300:]}[/dim]\n")
+        else:
+            console.print(
+                f"[bold red]✗ Update failed with exit code {result.returncode}:[/bold red]"
+            )
+            if result.stderr.strip():
+                console.print(f"[red]{result.stderr.strip()}[/red]\n")
+            else:
+                console.print(f"[dim]{result.stdout.strip()}[/dim]\n")
+    except Exception as exc:
+        console.print(f"[bold red]✗ Failed to execute update:[/] {exc}\n")
+
+
+@cli.command()
 @click.argument("task")
 @click.option(
     "--effort",
