@@ -47,7 +47,6 @@ COMMANDS = {
     "/todo": "Show todo (/todo <id>)",
     "/todos": "Show all todos",
     "/done": "Mark todo done (/done <id>)",
-    "/ask": "Ask user for input (/ask <question>)",
     "/exit": "Save session and exit",
     "/resume": "List sessions to resume",
     "/parallel": "Run agents in parallel (/parallel <agent1,agent2> <task>)",

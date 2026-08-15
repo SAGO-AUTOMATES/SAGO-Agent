@@ -77,6 +77,39 @@ def _load_profiles() -> None:
                 profile = module.PROFILE
 
             if profile and hasattr(profile, "name"):
+                final_category = getattr(profile, "category", category)
+                temp = getattr(profile, "temperature", 0.7)
+
+                # Domain-aware hyperparameter tuning when default temperature (0.7) is used
+                if temp == 0.7:
+                    cat_lower = final_category.lower()
+                    name_lower = profile.name.lower()
+                    if any(
+                        k in cat_lower or k in name_lower
+                        for k in (
+                            "security",
+                            "database",
+                            "compliance",
+                            "legal",
+                            "finance",
+                            "testing",
+                            "qa",
+                            "audit",
+                            "crypto",
+                        )
+                    ):
+                        temp = 0.2
+                    elif any(
+                        k in cat_lower or k in name_lower
+                        for k in ("language", "engineering-dev", "infra", "devops", "backend")
+                    ):
+                        temp = 0.3
+                    elif any(
+                        k in cat_lower or k in name_lower
+                        for k in ("architecture", "orchestration", "planning", "design")
+                    ):
+                        temp = 0.5
+
                 agent = AgentDefinition(
                     name=profile.name,
                     codename=profile.codename,
@@ -85,11 +118,11 @@ def _load_profiles() -> None:
                     system_prompt=profile.system_prompt,
                     skills=profile.skills,
                     tools=profile.tools,
-                    category=getattr(profile, "category", category),
+                    category=final_category,
                     handoff_to=profile.handoff_to,
                     model_preference=getattr(profile, "model_preference", None),
                     max_iterations=getattr(profile, "max_iterations", 15),
-                    temperature=getattr(profile, "temperature", 0.7),
+                    temperature=temp,
                 )
                 AGENTS[agent.name] = agent
 

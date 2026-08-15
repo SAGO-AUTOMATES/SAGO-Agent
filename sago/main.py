@@ -1998,12 +1998,125 @@ def telemetry(export: str, output: str | None) -> None:
         console.print(
             f"[bold green]✓ Prometheus metrics exported to:[/bold green] [cyan]{out_file}[/cyan]"
         )
+    elif export in ("html", "report"):
+        from sago.utils.report_generator import generate_html_report
+
+        session_data = {
+            "task": "SAGO Session Export",
+            "model": "Orchestrated Swarm",
+            "elapsed": 1.0,
+            "success": True,
+            "tool_calls": events,
+            "output": f"Exported {len(events)} trace events.",
+        }
+        html = generate_html_report(session_data, events)
+        out_file = Path(output or "sago_report.html").resolve()
+        out_file.write_text(html, encoding="utf-8")
+        console.print(
+            f"[bold green]✓ Interactive HTML report exported to:[/bold green] [cyan]{out_file}[/cyan]"
+        )
     else:
         success, res = tracer.export_traces(file_path=output, format=export)
         if success:
             console.print(f"[bold green]✓ Traces exported to:[/bold green] [cyan]{res}[/cyan]")
         else:
             console.print(f"[bold red]Export failed:[/bold red] {res}")
+
+
+@cli.group("hook")
+def hook_group() -> None:
+    """Manage SAGO git hooks for pre-commit verification and AST indexing."""
+    pass
+
+
+@hook_group.command("install")
+@click.option("--repo", default=".", help="Path to git repository")
+def hook_install(repo: str) -> None:
+    """Install SAGO pre-commit hook in git repository."""
+    repo_path = Path(repo).resolve()
+    hooks_dir = repo_path / ".git" / "hooks"
+    if not hooks_dir.exists():
+        console.print(f"[bold red]✗ Not a git repository:[/bold red] {repo_path}")
+        return
+
+    hook_script = hooks_dir / "pre-commit"
+    hook_content = """#!/usr/bin/env bash
+# SAGO Auto Pre-Commit Hook
+sago hook run
+"""
+    hook_script.write_text(hook_content, encoding="utf-8")
+    hook_script.chmod(0o755)
+    console.print(
+        f"[bold green]✓ Installed SAGO pre-commit hook into:[/bold green] [cyan]{hook_script}[/cyan]"
+    )
+
+
+@hook_group.command("run")
+@click.option("--dir", "target_dir", default=".", help="Directory to verify")
+def hook_run(target_dir: str) -> None:
+    """Run SAGO pre-commit checks (syntax, types, symbol indexing)."""
+    import sys
+
+    from sago.engine.verifier import get_project_verifier
+
+    console.print("[cyan]🔍 SAGO Pre-Commit Verification starting...[/cyan]")
+    verifier = get_project_verifier(root_dir=target_dir)
+    report = verifier.verify_project()
+
+    all_passed = report.passed
+    console.print(f"  Status: {'[green]✓ PASS[/green]' if all_passed else '[red]✗ FAIL[/red]'}")
+    for issue in report.issues:
+        console.print(
+            f"    [red]✗ {issue.rule}[/red] {issue.file_path}:{issue.line} - {issue.message}"
+        )
+
+    if all_passed:
+        console.print("[bold green]✓ All pre-commit checks passed![/bold green]")
+    else:
+        console.print("[bold red]✗ Pre-commit checks failed.[/bold red]")
+        sys.exit(1)
+
+
+@cli.group("pr")
+def pr_group() -> None:
+    """Manage Git branches and automated Pull Request creation."""
+    pass
+
+
+@pr_group.command("create")
+@click.argument("title")
+@click.option("--body", "-b", default="", help="PR description body")
+@click.option("--branch", default="", help="Target branch name")
+@click.option("--target", default="main", help="Base target branch to merge into")
+@click.option("--draft", is_flag=True, help="Create as a draft PR")
+@click.option("--dir", "target_dir", default=".", help="Directory to run git PR in")
+def pr_create(
+    title: str, body: str, branch: str, target: str, draft: bool, target_dir: str
+) -> None:
+    """Create a verified feature branch and Pull Request.
+
+    Example:
+        sago pr create "Add JWT authentication system"
+    """
+    from sago.tools.vcs.pr_workflow import create_pr_workflow
+
+    console.print(f"[cyan]🚀 Creating Pull Request: [bold]{title}[/bold]...[/cyan]")
+    res = create_pr_workflow(
+        title=title,
+        body=body,
+        branch=branch,
+        target_branch=target,
+        draft=draft,
+        cwd=target_dir,
+    )
+    if res["success"]:
+        console.print(f"[bold green]✓ {res['message']}[/bold green]")
+        if res.get("pr_markdown"):
+            from rich.markdown import Markdown
+
+            console.print("\n", Markdown(res["pr_markdown"]))
+    else:
+        console.print(f"[bold red]✗ PR creation failed:[/bold red] {res.get('error')}")
 
 
 @cli.command("parse")

@@ -97,14 +97,6 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     _parallel_lock: threading.Lock | None = None
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="top-status-bar"):
-            yield Static(
-                "[bold green]SAGO[/bold green] [dim]Agent[/dim]", id="brand-label", markup=True
-            )
-            yield Static("", id="top-bar-spacer", classes="spacer")
-            yield Button("⚡ Traces [F2]", id="btn-top-traces", classes="btn-top-bar dev-only-btn")
-            yield Button("⌨  Help [F1]", id="btn-top-help", classes="btn-top-bar")
-
         with Horizontal(id="main-layout"):
             with Vertical(id="messages-parent"):
                 yield ScrollableContainer(id="messages")
@@ -539,6 +531,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/n",
         ):
             self._deny_action()
+        elif msg.startswith("!") and len(msg) > 1:
+            self._execute_shell_escape(msg[1:].strip())
         elif msg.startswith("/"):
             if msg != "/history":
                 self._add_to_history(msg)
@@ -547,6 +541,53 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             self._add_to_history(msg)
             self._add_user_message(msg)
             self._process_message(msg)
+
+    def _execute_shell_escape(self, cmd: str) -> None:
+        """Execute !<cmd> shell escape and mount standard Collapsible output like other commands."""
+        self._hide_welcome_screen()
+        self._add_to_history(f"!{cmd}")
+        container = self.query_one("#messages")
+
+        def _worker() -> None:
+            t0 = time.time()
+            try:
+                import subprocess
+
+                res = subprocess.run(
+                    cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                out = (res.stdout or "") + ("\n" + res.stderr if res.stderr else "")
+                dur = time.time() - t0
+                status_tag = (
+                    f"[green]✓ exit 0[/green] [dim]({dur:.2f}s)[/dim]"
+                    if res.returncode == 0
+                    else f"[red]✗ exit {res.returncode}[/red] [dim]({dur:.2f}s)[/dim]"
+                )
+                content = out.strip() if out.strip() else "[dim](no output)[/dim]"
+            except Exception as e:
+                dur = time.time() - t0
+                status_tag = f"[red]✗ error[/red] [dim]({dur:.2f}s)[/dim]"
+                content = f"[red]Error executing command:[/red] {e}"
+
+            def _mount() -> None:
+                from textual.widgets import Collapsible, Static
+
+                container.mount(
+                    Collapsible(
+                        Static(content),
+                        title=f"$ {cmd}  {status_tag}",
+                        collapsed=False,
+                    )
+                )
+                container.scroll_end(animate=False)
+
+            self.call_from_thread(_mount)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def on_key(self, event) -> None:
         if self.show_suggestions:
@@ -621,13 +662,16 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             self._hide_suggestions()
 
     def _update_highlight(self) -> None:
-        items = self.query(".suggestion-item")
+        items = list(self.query(".suggestion-item"))
         for i, item in enumerate(items):
             is_highlighted = i == self.suggestion_index
             item.set_class(is_highlighted, "highlighted")
             # Auto-scroll highlighted item into view
             if is_highlighted:
-                item.scroll_visible()
+                try:
+                    item.scroll_visible(animate=False)
+                except Exception:
+                    pass
 
     def _add_to_history(self, cmd: str) -> None:
         if cmd and (not self.command_history or self.command_history[-1] != cmd):
@@ -915,24 +959,24 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             except Exception:
                 pass
 
-        # 8. /checkpoint suggestions
-        if raw.startswith("/checkpoint"):
-            query = raw.split(None, 1)[1].strip() if " " in raw else ""
-            opts = {
-                "create": "Create a new atomic point-in-time snapshot",
-                "list": "List available workspace checkpoints",
-                "restore": "Restore workspace to a checkpoint (/checkpoint restore <id>)",
-            }
-            matches = [k for k in opts if query.lower() in k.lower()] or list(opts.keys())
-            items = [f"[bold blue]● {k:<10}[/bold blue] [dim]{opts[k]}[/dim]" for k in matches]
-            values = [f"/checkpoint {k}" for k in matches]
+        # Dynamic subcommand completions (/git, /pr, /session, /checkpoint)
+        from sago.tui.smart_suggest import fuzzy_score, get_subcommand_completions
+
+        sub_res = get_subcommand_completions(raw)
+        if sub_res is not None:
+            items, values = sub_res
             self._show_suggestions(items, values)
             return
 
-        # 9. General command prefix matching
-        matches = [cmd for cmd in COMMANDS if cmd.startswith(raw.lower())]
-        if not matches:
-            matches = [cmd for cmd in COMMANDS if raw.lower().lstrip("/") in cmd]
+        # 9. General command fuzzy matching
+        scored_cmds = []
+        for cmd in COMMANDS:
+            s = fuzzy_score(raw, cmd)
+            if s > 0:
+                scored_cmds.append((s, cmd))
+
+        scored_cmds.sort(key=lambda x: x[0], reverse=True)
+        matches = [cmd for _, cmd in scored_cmds]
         values = matches
         items = [f"[bold cyan]{cmd:<14}[/bold cyan] [dim]{COMMANDS[cmd]}[/dim]" for cmd in matches]
         self._show_suggestions(items, values)
@@ -951,7 +995,10 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             models = [m for m in models if m.lower().startswith(provider_filter.lower())]
 
         if query:
-            models = [m for m in models if query in m.lower()]
+            from sago.tui.smart_suggest import fuzzy_score
+
+            models = [m for m in models if fuzzy_score(query, m) > 0]
+            models.sort(key=lambda m: fuzzy_score(query, m), reverse=True)
 
         if not models:
             models = [m for m in BUILTIN_MODELS if query in m.lower()]
@@ -961,47 +1008,10 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         self._show_suggestions(items, values)
 
     def _rank_agent_matches(self, agents: list[dict], query: str) -> list[dict]:
-        """Rank agent matches so exact/prefix matches and core specialists appear first."""
-        if not query:
-            featured = [
-                "sago-orchestrator",
-                "python-engineer",
-                "frontend-engineer",
-                "backend-engineer",
-                "fullstack-developer",
-                "debugger",
-                "architect",
-                "devops-engineer",
-                "reviewer",
-                "qa-engineer",
-                "security-engineer",
-                "database-engineer",
-            ]
-            featured_set = set(featured)
-            top = [a for a in agents if a["name"] in featured_set]
-            top.sort(key=lambda a: featured.index(a["name"]) if a["name"] in featured else 999)
-            rest = [a for a in agents if a["name"] not in featured_set]
-            return top + rest
+        """Rank agent matches so exact/fuzzy/prefix matches and core specialists appear first."""
+        from sago.tui.smart_suggest import rank_agents_fuzzy
 
-        q = query.lower()
-        exact = []
-        prefix = []
-        sub_name = []
-        desc = []
-
-        for a in agents:
-            name = a["name"].lower()
-            description = a.get("description", "").lower()
-            if name == q:
-                exact.append(a)
-            elif name.startswith(q):
-                prefix.append(a)
-            elif q in name:
-                sub_name.append(a)
-            elif q in description:
-                desc.append(a)
-
-        return exact + prefix + sub_name + desc
+        return rank_agents_fuzzy(agents, query)
 
     def _show_agent_suggestions(self, prefix: str) -> None:
         try:
@@ -1034,51 +1044,21 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             pass
 
     def _show_file_suggestions(self, prefix: str, home: bool = False) -> None:
-        from pathlib import Path
+        from sago.tui.smart_suggest import rank_files_smart
 
-        if home:
-            base_path = Path.home()
-            search_prefix = prefix
-        elif "/" in prefix:
-            last_slash = prefix.rfind("/")
-            dir_part = prefix[:last_slash]
-            search_prefix = prefix[last_slash + 1 :]
-            base_path = Path.cwd() / dir_part if not os.path.isabs(dir_part) else Path(dir_part)
+        items, values = rank_files_smart(prefix, home=home)
+        if items:
+            self._show_suggestions(items, values)
         else:
-            base_path = Path.cwd()
-            search_prefix = prefix
-
-        if not base_path.exists() or not base_path.is_dir():
             self._hide_suggestions()
-            return
-
-        items = []
-        values = []
-        try:
-            entries = sorted(base_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
-        except PermissionError:
-            self._hide_suggestions()
-            return
-
-        for f in entries:
-            if not f.name.lower().startswith(search_prefix.lower()):
-                continue
-            if f.name.startswith(".") and not search_prefix.startswith("."):
-                continue  # Skip hidden files unless explicitly searching
-            name = f.name + "/" if f.is_dir() else f.name
-            items.append(name)
-            if home:
-                values.append(f"~{f.name}")
-            else:
-                values.append(f"#{f.name}")
-        self._show_suggestions(items, values)
 
     def _show_suggestions(self, items: list[str], values: list[str]) -> None:
         if not items:
             self._hide_suggestions()
             return
-        items = items[:8]
-        values = values[:8]
+        # Support full scrollable suggestion list without artificial 8-item pagination trap
+        items = items[:100]
+        values = values[:100]
         self.suggestion_items = items
         self.suggestion_values = values
         self.suggestion_index = 0
@@ -1199,7 +1179,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/reset": lambda: self._reset(),
             "/save": lambda: self._save_session(args),
             "/load": lambda: self._load_session(args),
-            "/git": lambda: self._git_status(),
+            "/git": lambda: self._handle_git_command(args),
             "/diff": lambda: self._git_diff(args),
             "/commit": lambda: self._git_commit(args),
             "/approve": lambda: self._approve_action(),
@@ -1248,6 +1228,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/bar": lambda: self._handle_buttons_command(args),
             "/show": lambda: self._handle_buttons_command("show " + args),
             "/hide": lambda: self._handle_buttons_command("hide " + args),
+            "/pr": lambda: self._handle_pr_command(args),
         }
 
         if cmd in handlers:

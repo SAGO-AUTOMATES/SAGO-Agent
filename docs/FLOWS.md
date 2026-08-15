@@ -38,7 +38,7 @@ flowchart TD
         AgentB -->|Feedback / Review| AgentC["Specialist Agent C (e.g. Code Reviewer)"]
     end
     
-    Swarm --> Tools["🛠️ Tool Matrix (56+ Safe / Risk-Gated Tools)"]
+    Swarm --> Tools["🛠️ Tool Matrix (70 Safe / Risk-Gated Tools)"]
     Tools --> Codebase[("💻 Local Codebase & Workspace")]
     Codebase --> Verifier["🔍 Self-Healing Verifier (Linter, Typecheck, Tests)"]
     
@@ -86,7 +86,7 @@ SAGO employs a 5-layer defensive safety matrix to ensure autonomous execution ne
 | **1. Atomic Checkpoints** | [`sago/engine/checkpoint.py`](file:///mnt/ramdisk/sago/sago/engine/checkpoint.py) | Takes lightweight copy-on-write workspace snapshots before high-risk changes. Enables **1-click instant rollback** (`/checkpoint restore <id>`). |
 | **2. Self-Healing Verifier** | [`sago/engine/verifier.py`](file:///mnt/ramdisk/sago/sago/engine/verifier.py) | Automatically resolves `.venv/bin/*`, `uv run`, `pytest`, `ruff`, `tsc`, `cargo`, and `go vet`. Captures compiler errors and feeds them directly back to agents for autonomous correction. |
 | **3. Recursion & Loop Guards** | [`sago/orchestrator/delegator.py`](file:///mnt/ramdisk/sago/sago/orchestrator/delegator.py) | Enforces maximum delegation depth (`max_depth = 5`) and tracks a `visited_agents` set to block circular ping-pong loops between agents. |
-| **4. Persistent Learning Store** | [`sago/memory/learning_store.py`](file:///mnt/ramdisk/sago/sago/memory/learning_store.py) | Persists proven error fixes and successful strategies across sessions. When an error recurs, `get_known_fixes()` instantly suggests the verified fix. |
+| **4. Persistent Learning Store** | [`sago/learning.py`](file:///mnt/ramdisk/sago/sago/learning.py) | Persists proven error fixes and successful strategies across sessions. When an error recurs, `get_known_fixes()` instantly suggests the verified fix. |
 | **5. Risk-Gated Permissions** | [`sago/permissions.py`](file:///mnt/ramdisk/sago/sago/permissions.py) | Enforces granular risk policies (`SAFE`, `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) with path traversal guards, secret leak detection, and shell sanitization. |
 
 ---
@@ -180,7 +180,7 @@ To allow seamless collaboration between agents without data loss or infinite loo
 
 ## 8. Tool Matrix & Risk-Gated Permission Model
 
-Agents interact with the environment via **56+ production tools** registered under `sago/tools/`. Every tool execution is evaluated by the **Permission Manager** ([`sago/permissions.py`](file:///mnt/ramdisk/sago/sago/permissions.py)):
+Agents interact with the environment via **70 production tools** registered under `sago/tools/`. Every tool execution is evaluated by the **Permission Manager** ([`sago/permissions.py`](file:///mnt/ramdisk/sago/sago/permissions.py)):
 
 | Risk Level | Operations Included | Security Policy |
 | :--- | :--- | :--- |

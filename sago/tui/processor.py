@@ -32,6 +32,25 @@ class MessageProcessorMixin:
 
     def _process_message_thread(self: SagoApp, message: str) -> None:
         """Runs in a background thread — all call_from_thread calls are safe here."""
+        # Direct shell execution escape (!command)
+        clean_msg = message.strip()
+        if clean_msg.startswith("!") and len(clean_msg) > 1:
+            cmd = clean_msg[1:].strip()
+            self.call_from_thread(self._update_spinner, f"Executing: {cmd}")
+            try:
+                import subprocess
+
+                res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
+                out = (res.stdout or "") + ("\n" + res.stderr if res.stderr else "")
+                output_str = f"```bash\n$ {cmd}\n{out.strip()}\n```"
+                self.call_from_thread(self._add_assistant_message, output_str)
+            except Exception as e:
+                self.call_from_thread(self._add_system_message, f"Shell command failed: {e}")
+            finally:
+                self.call_from_thread(self._hide_spinner)
+                self.is_thinking = False
+            return
+
         try:
             cancel_ev = getattr(self, "_active_cancel_event", None)
             effort = EFFORT_LEVELS.get(self.current_effort, EFFORT_LEVELS["medium"])
@@ -91,6 +110,25 @@ class MessageProcessorMixin:
                     },
                 )
 
+                # Assemble rich tri-partite context (AST symbols, hybrid search, learning patterns, previous sessions)
+                task_type = _detect_task_type(message)
+                try:
+                    from sago.engine.context_assembler import get_context_assembler
+
+                    assembler = get_context_assembler()
+                    agent_slug = (
+                        self.current_agent.lower().replace(" ", "-") if self.current_agent else None
+                    )
+                    assembled = assembler.assemble(
+                        task=message,
+                        task_type=task_type,
+                        agent_name=agent_slug,
+                        available_tools=list(tools.keys()),
+                        session_id=self.current_session_id or "default",
+                    )
+                except Exception:
+                    assembled = None
+
                 # Detect project context
                 project_context = _detect_project_context()
                 project_ctx = _get_context()
@@ -109,19 +147,8 @@ class MessageProcessorMixin:
                 if file_context:
                     project_ctx += f"\n\nReferenced files:\n{file_context}"
 
-                # Load learning suggestions
-                learning_suggestion = None
-                try:
-                    from sago.learning import get_learning_store
-
-                    ls = get_learning_store()
-                    learning_suggestion = ls.suggest_approach("general", list(tools.keys()))
-                except Exception as e:
-                    logger.debug("Learning suggestion failed: %s", e)
-
                 # Load profile and build prompt
                 profile = _load_agent_profile(self.current_agent.replace("-", " ").title())
-                task_type = _detect_task_type(message)
                 template = PROMPTS.get(task_type, PROMPTS["create"])
                 system_prompt = template.format(
                     agent_role=self.current_agent.replace("-", " ").title(),
@@ -131,27 +158,38 @@ class MessageProcessorMixin:
                 if profile and profile.get("system_prompt"):
                     system_prompt = profile["system_prompt"]
 
-                # Inject learning suggestion
-                if learning_suggestion:
-                    system_prompt += (
-                        f"\n\n=== PAST SUCCESSFUL APPROACH ===\n"
-                        f"Based on past similar tasks, this approach worked:\n"
-                        f"{learning_suggestion}\n"
-                        f"Consider using a similar approach, but adapt to the current context."
-                    )
+                # Inject system-level enhancements (learning approach, known fixes, instructions)
+                if assembled:
+                    enhancements = assembled.format_system_enhancements()
+                    if enhancements:
+                        system_prompt += f"\n\n{enhancements}"
+                else:
+                    try:
+                        from sago.learning import get_learning_store
 
-                # Inject project instructions
-                try:
-                    from sago.memory.project_instructions import (
-                        get_project_instructions,
-                    )
+                        ls = get_learning_store()
+                        learning_suggestion = ls.suggest_approach(task_type, list(tools.keys()))
+                        if learning_suggestion:
+                            system_prompt += (
+                                f"\n\n=== PAST SUCCESSFUL APPROACH ===\n"
+                                f"Based on past similar tasks, this approach worked:\n"
+                                f"{learning_suggestion}\n"
+                                f"Consider using a similar approach, but adapt to the current context."
+                            )
+                    except Exception as e:
+                        logger.debug("Learning suggestion failed: %s", e)
 
-                    pi = get_project_instructions()
-                    instructions_prompt = pi.get_for_prompt()
-                    if instructions_prompt:
-                        system_prompt += instructions_prompt
-                except Exception as e:
-                    logger.debug("Project instructions failed: %s", e)
+                    try:
+                        from sago.memory.project_instructions import (
+                            get_project_instructions,
+                        )
+
+                        pi = get_project_instructions()
+                        instructions_prompt = pi.get_for_prompt()
+                        if instructions_prompt:
+                            system_prompt += instructions_prompt
+                    except Exception as e:
+                        logger.debug("Project instructions failed: %s", e)
 
                 # TODO system
                 task_plan = None

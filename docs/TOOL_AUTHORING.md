@@ -63,6 +63,7 @@ valid tool:
 ```python
 # sago/tools/system/my_echo_tool.py
 """Echo tool — minimal example."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -96,8 +97,10 @@ automatically (no registration call).
 from sago.tools.base import BaseTool, ToolCategory, ToolResult
 from pydantic import BaseModel, Field
 
+
 class CountArgs(BaseModel):
     text: str = Field(..., description="Text to count words in.")
+
 
 class WordCountTool(BaseTool):
     name: str = "word_count"

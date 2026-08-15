@@ -107,9 +107,11 @@ from sago.errors.handler import get_error_handler
 
 handler = get_error_handler()
 
+
 def on_error(context):
     print(f"Error in {context.tool_name}: {context.error}")
     print(f"Attempt {context.attempt}/{context.max_attempts}")
+
 
 handler.on_error = on_error
 ```

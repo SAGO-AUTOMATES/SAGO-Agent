@@ -1,6 +1,6 @@
 # Sago - Tools Reference
 
-> Complete documentation for all 50 tools with usage examples and error handling.
+> Complete documentation for all 70 tools with usage examples and error handling.
 
 ## Permission System
 
@@ -97,11 +97,7 @@ Edit file with exact string replacement.
 from sago.tools.file.edit_file import EditFileTool
 
 tool = EditFileTool()
-result = tool.execute(
-    path="main.py",
-    old_string="def foo():",
-    new_string="def bar():"
-)
+result = tool.execute(path="main.py", old_string="def foo():", new_string="def bar():")
 ```
 
 **Parameters:**
@@ -211,14 +207,11 @@ Smart agent routing based on context.
 from sago.tools.file.agent_delegator import get_delegator
 
 delegator = get_delegator()
-result = delegator.delegate(
-    task="fix python bug",
-    language="python"
-)
+result = delegator.delegate(task="fix python bug", language="python")
 
 print(result.primary_agent)  # "debugger"
-print(result.confidence)     # 0.5
-print(result.reason)         # "language:python + task:bug"
+print(result.confidence)  # 0.5
+print(result.reason)  # "language:python + task:bug"
 ```
 
 ---
@@ -731,6 +724,7 @@ def on_error(tool_name: str, error: Exception, context: dict):
     print(f"Tool {tool_name} failed: {error}")
     # Log, notify, retry, etc.
 
+
 recovery.on_error = on_error
 ```
 
@@ -762,20 +756,16 @@ from sago.tools.file.spawn_agent import SpawnAgentTool
 tool = SpawnAgentTool()
 
 # Simple delegation
-result = tool.execute({
-    "task": "Fix the authentication bug",
-    "agent_name": "python-engineer"
-})
+result = tool.execute({"task": "Fix the authentication bug", "agent_name": "python-engineer"})
 
 # With context
-result = tool.execute({
-    "task": "Review this code",
-    "agent_name": "code-reviewer",
-    "context": {
-        "codebase": {...},
-        "previous_results": [...]
+result = tool.execute(
+    {
+        "task": "Review this code",
+        "agent_name": "code-reviewer",
+        "context": {"codebase": {...}, "previous_results": [...]},
     }
-})
+)
 
 # With feedback request
 from sago.agents.handoff import FeedbackRequest
@@ -784,14 +774,12 @@ feedback = FeedbackRequest(
     from_agent="python-engineer",
     to_agent="code-reviewer",
     question="Review this code for security issues",
-    context={"file": "auth.py"}
+    context={"file": "auth.py"},
 )
 
-result = tool.execute({
-    "task": "Review code for security",
-    "agent_name": "code-reviewer",
-    "feedback": feedback
-})
+result = tool.execute(
+    {"task": "Review code for security", "agent_name": "code-reviewer", "feedback": feedback}
+)
 ```
 
 **Response Format:**
@@ -806,7 +794,7 @@ result = tool.execute({
     "context_sent": ["codebase", "previous_results"],
     "recursion_depth": 2,
     "visited_agents": ["python-engineer", "code-reviewer"],
-    "timestamp": "2025-01-15T10:30:00"
+    "timestamp": "2025-01-15T10:30:00",
 }
 ```
 
@@ -842,10 +830,7 @@ else:
 # - Agent not found
 # - Execution timeout
 
-result = tool.execute({
-    "task": "Complex task",
-    "agent_name": "python-engineer"
-})
+result = tool.execute({"task": "Complex task", "agent_name": "python-engineer"})
 
 if result.get("status") == "error":
     print(f"Error: {result.get('error')}")
@@ -919,4 +904,3 @@ from sago.tools.coding.ast_grep import AstGrepTool
 tool = AstGrepTool()
 result = tool.run(pattern_type="class", name_pattern="UserService", directory=".")
 ```
-

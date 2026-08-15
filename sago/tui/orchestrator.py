@@ -35,12 +35,27 @@ class AgentOrchestrationMixin:
         info.status = AgentStatus.RUNNING
         self.call_from_thread(self._update_dashboard)
         self.call_from_thread(self._show_spinner, f"Delegating to {agent_name}...")
+
+        # Record dev trace for delegation start
+        t0 = _time.time()
+        try:
+            from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+            get_dev_tracer().record(
+                event_type=TraceEventType.AGENT_ROUTING,
+                source="orchestrator",
+                action=f"delegate -> @{agent_name}",
+                data={"agent": agent_name, "task": task},
+            )
+        except Exception:
+            pass
+
         try:
             api_key = self._get_provider_api_key()
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
                 self.call_from_thread(
-                    self._add_system_message,
+                    self._add_notice_inline,
                     f"No API key. Set {self._get_provider_key_name()} environment variable.",
                 )
                 return
@@ -50,24 +65,70 @@ class AgentOrchestrationMixin:
             tool = SpawnAgentTool()
             result = tool.run(task=task, agent_name=agent_name)
 
-            info.status = AgentStatus.COMPLETED
-            info.result = result
+            dur_ms = (_time.time() - t0) * 1000
+            # Detect error embedded in result string (agent returns error as text)
+            result_is_error = (
+                "could not be spawned" in result
+                or result.startswith("Error")
+                or result.startswith("Last error")
+                or "REJECTED" in result
+            )
+            try:
+                from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                get_dev_tracer().record(
+                    event_type=TraceEventType.FUNCTION_RETURN,
+                    source=f"agent.{agent_name}",
+                    action="delegation_complete",
+                    duration_ms=dur_ms,
+                    status="ERROR" if result_is_error else "OK",
+                    data={
+                        "agent": agent_name,
+                        "result_preview": str(result)[:300],
+                        "success": not result_is_error,
+                    },
+                )
+            except Exception:
+                pass
+
+            if result_is_error:
+                info.status = AgentStatus.FAILED
+                info.error = result
+            else:
+                info.status = AgentStatus.COMPLETED
+                info.result = result
             info.elapsed = _time.time() - info.start_time
             self.call_from_thread(self._update_dashboard)
             self.call_from_thread(self._hide_spinner)
-            if "could not be spawned" in result or "Error:" in result:
+            if result_is_error:
                 self.call_from_thread(
-                    self._add_system_message,
-                    f"{result}\n\nTry running the task directly.",
+                    self._add_error_inline,
+                    result,
+                    "Try running the task directly or check your API key.",
                 )
             else:
                 self.call_from_thread(self._add_assistant_message, result, agent_name=agent_name)
         except Exception as e:
+            dur_ms = (_time.time() - t0) * 1000
+            try:
+                from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                get_dev_tracer().record(
+                    event_type=TraceEventType.ERROR,
+                    source=f"agent.{agent_name}",
+                    action="delegation_error",
+                    duration_ms=dur_ms,
+                    status="ERROR",
+                    data={"agent": agent_name, "error": str(e)},
+                )
+            except Exception:
+                pass
+
             info.status = AgentStatus.FAILED
             info.error = str(e)
             self.call_from_thread(self._update_dashboard)
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_system_message, f"Delegation error: {e}")
+            self.call_from_thread(self._add_error_inline, f"Delegation error: {e}")
         finally:
             self.is_thinking = False
 
@@ -89,7 +150,7 @@ class AgentOrchestrationMixin:
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
                 self.call_from_thread(
-                    self._add_system_message,
+                    self._add_notice_inline,
                     f"No API key. Set {self._get_provider_key_name()} environment variable.",
                 )
                 return
@@ -111,7 +172,7 @@ class AgentOrchestrationMixin:
                     if can:
                         allowed_agents.append(agent)
                     else:
-                        self.call_from_thread(self._add_system_message, f"Skip {agent}: {reason}")
+                        self.call_from_thread(self._add_notice_inline, f"Skip {agent}: {reason}")
 
                 if not allowed_agents:
                     continue
@@ -127,6 +188,23 @@ class AgentOrchestrationMixin:
                     self.call_from_thread(self._update_dashboard)
                     self.call_from_thread(self._update_spinner, f"Step {step_idx + 1}: {agent}")
 
+                    t_step = _time.time()
+                    try:
+                        from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                        get_dev_tracer().record(
+                            event_type=TraceEventType.AGENT_ROUTING,
+                            source="orchestrator.chain",
+                            action=f"CHAIN_STEP_{step_idx + 1} -> @{agent}",
+                            data={
+                                "agent": agent,
+                                "step": step_idx + 1,
+                                "task": str(current_input)[:200],
+                            },
+                        )
+                    except Exception:
+                        pass
+
                     context_str = (
                         handoff_ctx.get_compact_handoff_prompt(agent)
                         if step_idx > 0 or handoff_ctx.agent_results
@@ -134,7 +212,22 @@ class AgentOrchestrationMixin:
                     )
                     result = tool.run(task=current_input, agent_name=agent, context=context_str)
 
+                    dur_ms = (_time.time() - t_step) * 1000
                     is_success = not (result.startswith("Error") or "REJECTED" in result)
+                    try:
+                        from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                        get_dev_tracer().record(
+                            event_type=TraceEventType.FUNCTION_RETURN,
+                            source=f"agent.{agent}",
+                            action=f"chain_step_{step_idx + 1}_complete",
+                            duration_ms=dur_ms,
+                            status="OK" if is_success else "ERROR",
+                            data={"agent": agent, "result_preview": str(result)[:300]},
+                        )
+                    except Exception:
+                        pass
+
                     handoff_ctx.add_result(agent, result, success=is_success)
                     if "Files created/modified:" in result:
                         files_line = result.split("Files created/modified:")[1].split("\n")[0]
@@ -210,8 +303,20 @@ class AgentOrchestrationMixin:
                 agent_name=flat_agents[-1] if flat_agents else "chain",
             )
         except Exception as e:
+            try:
+                from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                get_dev_tracer().record(
+                    event_type=TraceEventType.ERROR,
+                    source="orchestrator.chain",
+                    action="chain_failed",
+                    status="ERROR",
+                    data={"error": str(e), "error_type": type(e).__name__},
+                )
+            except Exception:
+                pass
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_system_message, f"Chain error: {e}")
+            self.call_from_thread(self._add_error_inline, f"Chain error: {e}")
         finally:
             self.is_thinking = False
 
@@ -227,7 +332,7 @@ class AgentOrchestrationMixin:
             if not api_key:
                 self.call_from_thread(self._hide_spinner)
                 self.call_from_thread(
-                    self._add_system_message,
+                    self._add_notice_inline,
                     f"No API key. Set {self._get_provider_key_name()} environment variable.",
                 )
                 return
@@ -269,7 +374,7 @@ class AgentOrchestrationMixin:
             except Exception as api_err:
                 self.call_from_thread(self._hide_spinner)
                 self.call_from_thread(
-                    self._add_system_message,
+                    self._add_error_inline,
                     f"Failed to create plan: {api_err}",
                 )
                 return
@@ -302,8 +407,20 @@ class AgentOrchestrationMixin:
             self.pending_orchestration = {"task": task, "plan": plan}
 
         except Exception as e:
+            try:
+                from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                get_dev_tracer().record(
+                    event_type=TraceEventType.ERROR,
+                    source="orchestrator.plan_parse",
+                    action="orchestration_plan_failed",
+                    status="ERROR",
+                    data={"error": str(e), "error_type": type(e).__name__, "task": task[:200]},
+                )
+            except Exception:
+                pass
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_system_message, f"Orchestration error: {e}")
+            self.call_from_thread(self._add_error_inline, f"Orchestration error: {e}")
         finally:
             self.is_thinking = False
 
@@ -352,8 +469,33 @@ class AgentOrchestrationMixin:
                 result = tool.run(task=step_task, agent_name=agent, context=context_str)
 
                 # Record in handoff context
-                is_success = not (result.startswith("Error") or "REJECTED" in result)
+                is_success = not (
+                    result.startswith("Error")
+                    or result.startswith("Last error")
+                    or "REJECTED" in result
+                )
                 handoff_ctx.add_result(agent, result, success=is_success)
+
+                # Dev trace: per-step result with correct status
+                try:
+                    from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                    get_dev_tracer().record(
+                        event_type=TraceEventType.FUNCTION_RETURN,
+                        source=f"agent.{agent}",
+                        action=f"orchestrate_step_{i + 1}_complete",
+                        duration_ms=0.0,
+                        status="ERROR" if not is_success else "OK",
+                        data={
+                            "step": i + 1,
+                            "agent": agent,
+                            "task_preview": step_task[:200],
+                            "success": is_success,
+                            "result_preview": result[:300],
+                        },
+                    )
+                except Exception:
+                    pass
 
                 # Extract files created
                 if "Files created/modified:" in result:
@@ -370,8 +512,20 @@ class AgentOrchestrationMixin:
             final = f"Orchestration complete ({len(plan)} steps):\n\n" + "\n\n".join(results)
             self.call_from_thread(self._add_assistant_message, final)
         except Exception as e:
+            try:
+                from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                get_dev_tracer().record(
+                    event_type=TraceEventType.ERROR,
+                    source="orchestrator.plan",
+                    action="orchestration_failed",
+                    status="ERROR",
+                    data={"error": str(e), "error_type": type(e).__name__},
+                )
+            except Exception:
+                pass
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_system_message, f"Execution error: {e}")
+            self.call_from_thread(self._add_error_inline, f"Execution error: {e}")
         finally:
             self.is_thinking = False
 
@@ -502,7 +656,7 @@ class AgentOrchestrationMixin:
         except Exception as e:
             self.call_from_thread(self._hide_parallel_bar)
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_system_message, f"Parallel error: {e}")
+            self.call_from_thread(self._add_error_inline, f"Parallel error: {e}")
         finally:
             self.is_thinking = False
             if self._parallel_lock:

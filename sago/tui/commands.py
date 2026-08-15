@@ -63,12 +63,12 @@ class CommandHandlers:
             "DEBUGGING": ["/dev", "/dev view", "/dev logs", "/dev export"],
         }
 
-        lines = ["[bold white on #21262d]  COMMAND REFERENCE  [/bold white on #21262d]\n"]
+        lines = ["[bold cyan]COMMAND REFERENCE[/bold cyan]\n"]
         for cat, cmds in categories.items():
-            lines.append(f"[bold cyan]{cat}[/bold cyan]")
+            lines.append(f"[bold]{cat}[/bold]")
             for cmd in cmds:
                 desc = COMMANDS.get(cmd, "")
-                lines.append(f"  [bold yellow]{cmd:<16}[/bold yellow] [white]{desc}[/white]")
+                lines.append(f"  [cyan]{cmd:<16}[/cyan] [white]{desc}[/white]")
             lines.append("")
 
         lines.append(
@@ -150,61 +150,66 @@ class CommandHandlers:
             self._add_system_message("Usage: /delegate <agent> <task>")
             return
         agent_name, task = parts
-        self._add_user_message(f"/delegate {args}")
+        self._add_command_turn(
+            "delegate",
+            task,
+            meta=f"@{agent_name}",
+            tag_label="DELEGATE",
+            tag_color="#bc8cff",
+        )
         self._process_delegation(agent_name, task)
 
     def _chain_agents(self: SagoApp, args: str) -> None:
-        args = args.strip()
-        if not args:
+        raw_args = args.strip()
+        if not raw_args:
             self._add_system_message(
-                "Usage: /chain <task> (auto-route) or /chain agent1,agent2 <task>"
+                "⚡ [bold cyan]Multi-Agent Chain Usage[/bold cyan]:\n"
+                "  • [bold white]/chain <task>[/bold white] — Autonomous multi-agent pipeline routing\n"
+                "  • [bold white]/chain architect -> python-engineer -> test-engineer <task>[/bold white]\n"
+                "  • [bold white]/chain frontend-engineer,backend-engineer <task>[/bold white]"
             )
             return
 
+        # Normalize ASCII arrows to standard chain separator
+        args = raw_args.replace("->", "→").replace(">", "→")
+
         # Detect if args are just agent names (no real task text)
-        # Heuristic: if there's no comma/arrow and words look like agent names (contain hyphens)
         has_separator = "," in args or "→" in args
         words = args.split()
 
         if not has_separator and len(words) >= 2:
-            # Check if all words look like agent names (contain hyphens, no spaces in "task-like" text)
             all_look_like_agents = all("-" in w and len(w) < 40 for w in words)
             if all_look_like_agents:
-                # Treat all words as agents, use smart routing for task
                 try:
-                    # Use the agent names as hints for what kind of task to generate
                     agent_list = words
-                    self._add_system_message(
-                        f"Agents: {', '.join(agent_list)} — describe what you want them to do, or I'll auto-route"
-                    )
-                    self._add_user_message(f"/chain {args}")
-                    # Just run them as a chain with auto-routing on empty task
+                    self._add_system_message(f"Agents: {', '.join(agent_list)} — auto-routing task")
                     chain_steps = [[a] for a in agent_list]
-                    self._process_chain(chain_steps, f"Execute: {', '.join(agent_list)}")
+                    task_str = f"Execute: {', '.join(agent_list)}"
+                    self._add_command_turn(
+                        "chain",
+                        task_str,
+                        meta=f"[{' → '.join(agent_list)}]",
+                        tag_label="CHAIN",
+                        tag_color="#79c0ff",
+                    )
+                    self._process_chain(chain_steps, task_str)
                     return
                 except Exception:
                     pass
 
         # Parse with separator: "a,b → c,d" or "a,b task"
         if has_separator:
-            # Find where agents end and task begins
-            # If there's a "→", split on it; otherwise check if last part after comma is a task
             parts = args.split(None, 1)
             if len(parts) >= 2 and "→" not in args and "," not in parts[0]:
-                # "/chain agent1 task description here"
                 agent_chain_str = parts[0]
                 task = parts[1]
             else:
-                # "/chain agent1,agent2 → agent3 task" or "/chain agent1,agent2 task"
-                # Try to split task from agent chain
                 agent_chain_str = args
                 task = ""
-                # Check if last segment after arrow or comma looks like a task
                 for sep in ["→", ","]:
                     if sep in args:
                         last_sep_idx = args.rfind(sep)
                         after = args[last_sep_idx + 1 :].strip()
-                        # If after the last separator has no hyphen-heavy words, it's a task
                         after_words = after.split()
                         if after_words and not all("-" in w for w in after_words):
                             task = after
@@ -223,7 +228,13 @@ class CommandHandlers:
             if not task:
                 task = f"Execute chain: {' → '.join(a for step in chain_steps for a in step)}"
 
-            self._add_user_message(f"/chain {args}")
+            self._add_command_turn(
+                "chain",
+                task,
+                meta=f"[{agent_chain_str}]",
+                tag_label="CHAIN",
+                tag_color="#79c0ff",
+            )
             self._process_chain(chain_steps, task)
             return
 
@@ -239,14 +250,26 @@ class CommandHandlers:
         except Exception:
             agents = ["python-engineer"]
             self._add_system_message("Using default: python-engineer")
-        self._add_user_message(f"/chain {args}")
+
+        self._add_command_turn(
+            "chain",
+            task,
+            meta=f"[{' → '.join(agents)}]",
+            tag_label="CHAIN",
+            tag_color="#79c0ff",
+        )
         self._process_chain([[a] for a in agents], task)
 
     def _orchestrate_task(self: SagoApp, task: str) -> None:
         if not task:
             self._add_system_message("Usage: /orchestrate <task>")
             return
-        self._add_user_message(f"/orchestrate {task}")
+        self._add_command_turn(
+            "orchestrate",
+            task,
+            tag_label="ORCHESTRATE",
+            tag_color="#3fb950",
+        )
         self._process_orchestration(task)
 
     def _show_status(self: SagoApp) -> None:
@@ -284,8 +307,20 @@ class CommandHandlers:
         self._list_sessions()
 
     def _switch_session(self: SagoApp, sid: str) -> None:
-        if not sid:
-            self._add_system_message("Usage: /session <id>")
+        sid = (sid or "").strip()
+        if not sid or sid.lower() in ("list", "ls"):
+            self._show_sessions()
+            return
+        if sid.lower().startswith("switch "):
+            sid = sid[7:].strip()
+        if sid.lower().startswith("clean"):
+            self._handle_clean_command("sessions")
+            return
+        if sid.lower().startswith("export "):
+            self._export_session(sid[7:].strip())
+            return
+        if sid.lower().startswith("save"):
+            self._save_session(sid[5:].strip())
             return
         try:
             from sago.database import MessageStore, Session, init_db
@@ -1012,6 +1047,38 @@ class CommandHandlers:
             )
         except Exception as e:
             self._add_system_message(f"Export failed: {e}")
+
+    def _handle_git_command(self: SagoApp, args: str = "") -> None:
+        """Handle /git [status|diff|log|branch|checkout|commit|...] commands."""
+        parts = args.strip().split(None, 1)
+        subcmd = parts[0].lower() if parts else "status"
+        subargs = parts[1] if len(parts) > 1 else ""
+
+        if subcmd == "status":
+            self._git_status()
+        elif subcmd == "diff":
+            self._git_diff(subargs)
+        elif subcmd == "commit":
+            self._git_commit(subargs)
+        else:
+            try:
+                cmd = ["git", subcmd] + (subargs.split() if subargs else [])
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                out = (r.stdout or "") + ("\n" + r.stderr if r.stderr else "")
+                from rich.markup import escape
+
+                body = f"[bold]git {args}:[/bold]\n{escape(out[:2000])}"
+                container = self.query_one("#messages")
+                container.mount(
+                    Collapsible(
+                        Static(body),
+                        title=f"Git {subcmd.capitalize()}",
+                        collapsed=False,
+                    )
+                )
+                container.scroll_end()
+            except Exception as e:
+                self._add_system_message(f"Git error: {e}")
 
     def _git_status(self: SagoApp) -> None:
         try:
@@ -2172,3 +2239,22 @@ class CommandHandlers:
                 else "[bold red]hidden[/bold red]"
             )
             self._add_system_message(f"🔘 Bottom action bar is now {state}. (Settings persisted)")
+
+    def _handle_pr_command(self: SagoApp, args: str = "") -> None:
+        """Handle /pr command for automated branch creation and Pull Requests."""
+        title = args.strip() or "Feature updates and verified code changes"
+        self._show_spinner(f"Creating PR: {title}...")
+        try:
+            from sago.tools.vcs.pr_workflow import create_pr_workflow
+
+            res = create_pr_workflow(title=title)
+            self._hide_spinner()
+            if res["success"]:
+                msg = res.get("pr_url") or res.get("message")
+                md_content = res.get("pr_markdown", "")
+                self._add_system_message(f"✓ {msg}\n\n{md_content}")
+            else:
+                self._add_system_message(f"✗ PR workflow failed: {res.get('error')}")
+        except Exception as e:
+            self._hide_spinner()
+            self._add_system_message(f"PR creation error: {e}")

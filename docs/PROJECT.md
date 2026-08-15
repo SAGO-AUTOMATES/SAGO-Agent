@@ -1,6 +1,6 @@
 # Sago - Project Architecture
 
-> Production-grade multi-agent orchestration system with 339 agents, 50 tools, parallel execution, feedback loops, and multi-LLM support.
+> Production-grade multi-agent orchestration system with 339 agents, 70 production tools, parallel execution, feedback loops, and multi-LLM support.
 
 ## Overview
 
@@ -17,6 +17,7 @@ sago/
 │   ├── main.py                   # CLI entry point (click)
 │   ├── database.py               # SQLite persistence
 │   ├── paths.py                  # Cross-platform paths
+│   ├── learning.py               # Cross-session learning store
 │   │
 │   ├── agents/                   # Agent system
 │   │   ├── __init__.py
@@ -30,7 +31,7 @@ sago/
 │   │       ├── fullstack_engineer.py
 │   │       └── ... (339 total)
 │   │
-│   ├── tools/                    # Tool system
+│   ├── tools/                    # Tool system (70 production tools)
 │   │   ├── __init__.py
 │   │   ├── base.py               # BaseTool with helpers
 │   │   ├── file/                 # File operations
@@ -40,8 +41,8 @@ sago/
 │   │   │   ├── glob_files.py
 │   │   │   ├── grep_content.py
 │   │   │   ├── file_ops.py       # move/copy/delete
-│   │   │   ├── directory_scanner.py  # NEW: Smart scanning
-│   │   │   ├── agent_delegator.py    # NEW: Smart routing
+│   │   │   ├── directory_scanner.py  # Smart scanning
+│   │   │   ├── agent_delegator.py    # Smart routing
 │   │   │   ├── data_processor.py
 │   │   │   ├── database_query.py
 │   │   │   ├── hash_checksum.py
@@ -60,9 +61,9 @@ sago/
 │   │   │   ├── session_manager.py
 │   │   │   └── clipboard.py
 │   │   ├── coding/               # Code analysis
-│   │   │   ├── hybrid_search_tool.py # NEW: Hybrid BM25 & dense vector search
-│   │   │   ├── project_graph_tool.py # NEW: Topology architecture & flow map
-│   │   │   ├── checkpoint_tool.py    # NEW: Atomic snapshots & 1-click restore
+│   │   │   ├── hybrid_search_tool.py # Hybrid BM25 & dense vector search
+│   │   │   ├── project_graph_tool.py # Topology architecture & flow map
+│   │   │   ├── checkpoint_tool.py    # Atomic snapshots & 1-click restore
 │   │   │   ├── code_analyzer.py
 │   │   │   ├── linter.py
 │   │   │   ├── formatter.py
@@ -95,6 +96,7 @@ sago/
 │   │   ├── __init__.py
 │   │   ├── base.py               # BaseLLMProvider
 │   │   ├── factory.py            # LLMFactory
+│   │   ├── mock.py               # MockLLMProvider for offline CI testing
 │   │   ├── gemini.py             # Google Gemini
 │   │   ├── openai_provider.py    # OpenAI GPT
 │   │   ├── claude.py             # Anthropic Claude
@@ -103,17 +105,28 @@ sago/
 │   │
 │   ├── engine/                   # Execution engine
 │   │   ├── __init__.py
-│   │   ├── intent_classifier.py  # NEW: Micro-LLM & LRU semantic intent detection
+│   │   ├── context_assembler.py  # Multi-tiered context builder & prompt generator
+│   │   ├── intent_classifier.py  # Micro-LLM & LRU semantic intent detection
 │   │   ├── simple_executor.py    # Streaming ReAct loop & context compaction
-│   │   ├── checkpoint.py         # NEW: Atomic workspace snapshot & rollback
+│   │   ├── checkpoint.py         # Atomic workspace snapshot & rollback
 │   │   ├── project_synthesizer.py # Multi-file topological synthesis
 │   │   ├── verifier.py           # Self-healing verification flywheel & daemon
 │   │   └── unified.py            # Unified router
 │   │
+│   ├── errors/                   # Error handling & recovery
+│   │   ├── __init__.py
+│   │   ├── exceptions.py         # Typed exception hierarchy
+│   │   └── handler.py            # Recovery manager & fallback tools
+│   │
+│   ├── mcp/                      # Model Context Protocol
+│   │   ├── __init__.py
+│   │   ├── server.py             # MCP Server exposing tools
+│   │   └── client.py             # MCP Client for remote tool consumption
+│   │
 │   ├── tracking/                 # Telemetry & tracing
 │   │   ├── __init__.py
 │   │   ├── dev_tracer.py         # Real-time function & latency tracer
-│   │   └── otel_exporter.py      # NEW: OpenTelemetry JSON & Prometheus export
+│   │   └── otel_exporter.py      # OpenTelemetry JSON & Prometheus export
 │   │
 │   ├── plugins/                  # Extensible plugin system
 │   │   ├── __init__.py
@@ -126,18 +139,20 @@ sago/
 │   │
 │   ├── memory/                   # Memory systems & code graphs
 │   │   ├── __init__.py
-│   │   ├── hybrid_indexer.py     # NEW: BM25 + dense sub-token vector indexer
-│   │   ├── project_graph.py      # NEW: Dynamic architecture, process & ER maps
-│   │   ├── compaction.py         # NEW: 3-tier Hierarchical Memory Pyramid
+│   │   ├── hybrid_indexer.py     # BM25 + dense sub-token vector indexer
+│   │   ├── project_graph.py      # Dynamic architecture, process & ER maps
+│   │   ├── compaction.py         # 3-tier Hierarchical Memory Pyramid
 │   │   ├── symbol_graph.py       # Compact AST repository outline map
+│   │   ├── symbol_index.py       # SQLite FTS5 symbol index
 │   │   ├── rag.py                # RAGMemory
-│   │   ├── profiles.py           # UserProfileManager
-│   │   └── compaction.py         # Semantic context compaction
+│   │   └── profiles.py           # UserProfileManager
 │   │
 │   ├── orchestrator/             # Orchestration
 │   │   ├── __init__.py
 │   │   ├── engine.py             # SagoOrchestrator
-│   ├── tui/                      # Modular Terminal User Interface
+│   │   └── delegator.py          # Recursion & cycle guards
+│   │
+│   └── tui/                      # Modular Terminal User Interface
 │   │   ├── app.py                # Core SagoApp & event composition
 │   │   ├── styles.py             # Layout CSS, responsive tokens & 11 themes
 │   │   ├── orchestrator.py       # AgentOrchestrationMixin (delegation, chain, parallel)
@@ -148,7 +163,7 @@ sago/
 │   │   ├── trace_viewer.py       # Modal trace & payload viewer
 │   │   └── widgets/              # Textual dashboard, spinners & cards
 │   │
-│   ├── tools/                    # Tool system (56+ tools)
+│   ├── tools/                    # Tool system (70 tools)
 │   │   ├── file/
 │   │   │   ├── resilient_editor.py # 3-tier fuzzy & normalized matching
 │   │   │   ├── multi_replace_file.py # Atomic multi-chunk replace
@@ -269,7 +284,7 @@ TUI / CLI
 Production Engine
     ├── Task Delegator (classify, route)
     ├── Agent Spawner (CrewAI execution)
-    ├── Tool Execution (50 tools)
+    ├── Tool Execution (70 tools)
     ├── LLM Provider (streaming)
     └── Cache (hit/miss)
     ↓

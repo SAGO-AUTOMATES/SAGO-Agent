@@ -99,6 +99,17 @@ class OllamaProvider(BaseLLMProvider):
         except (httpx.ConnectError, httpx.TimeoutException):
             return False
 
+    def list_local_models(self) -> list[str]:
+        """Fetch list of pulled local models in Ollama."""
+        try:
+            resp = httpx.get(f"{self.base_url}/api/tags", timeout=5.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                return [m["name"] for m in data.get("models", [])]
+        except Exception:
+            pass
+        return []
+
     def get_langchain_llm(self) -> Any:
         """Get LangChain Ollama instance."""
         from langchain_community.llms import Ollama
@@ -108,3 +119,12 @@ class OllamaProvider(BaseLLMProvider):
             base_url=self.base_url,
             temperature=self.temperature,
         )
+
+
+def is_ollama_running(base_url: str = "http://localhost:11434") -> bool:
+    """Helper to check if Ollama daemon is active."""
+    try:
+        resp = httpx.get(f"{base_url}/api/tags", timeout=3.0)
+        return resp.status_code == 200
+    except Exception:
+        return False

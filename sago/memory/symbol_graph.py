@@ -351,3 +351,44 @@ class SymbolGraph:
         if len(full_map) > max_tokens * 4:
             full_map = full_map[: max_tokens * 4] + "\n\n... [Repo map truncated for brevity]"
         return full_map
+
+    def get_symbol_outline(self, max_files: int = 100) -> dict[str, list[dict[str, object]]]:
+        """Return a structured symbol outline suitable for context selection.
+
+        This is deliberately separate from :meth:`generate_repo_map`, whose
+        compact text output is intended for direct display in a prompt.
+        """
+        ignored_dirs = {
+            ".git",
+            "node_modules",
+            "__pycache__",
+            ".venv",
+            "venv",
+            "dist",
+            "build",
+            ".pytest_cache",
+            ".ruff_cache",
+            ".next",
+            ".cache",
+            "target",
+            "vendor",
+        }
+        outline: dict[str, list[dict[str, object]]] = {}
+        scanned = 0
+
+        for root, dirs, files in os.walk(self.root_dir):
+            dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
+            for filename in sorted(files):
+                if filename.startswith("."):
+                    continue
+                symbols = self.scan_file(Path(root) / filename)
+                if not symbols:
+                    continue
+                outline[symbols.file_path] = [
+                    {"name": symbol.name, "kind": symbol.symbol_type, "line": symbol.line_number}
+                    for symbol in symbols.symbols
+                ]
+                scanned += 1
+                if scanned >= max_files:
+                    return outline
+        return outline

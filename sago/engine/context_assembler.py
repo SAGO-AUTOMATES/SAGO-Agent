@@ -1,0 +1,272 @@
+"""Tri-Partite Context Assembly & Smart Prompting Pipeline.
+
+Implements the multi-tiered context assembly pipeline specified in docs/FLOWS.md:
+1. Structural Outline (AST Symbol Graph & Project Graph)
+2. Hybrid BM25 & Semantic Vector Search / RAG Memory
+3. 3-Tier Hierarchical Memory Pyramid & Working Deltas
+4. Persistent Learning Store (Past Successes, Failures & Error Fixes)
+5. Cross-Session Database History
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from sago.learning import get_learning_store
+from sago.memory.compaction import HierarchicalMemoryPyramid
+from sago.memory.project_instructions import get_project_instructions
+from sago.utils.errors import log_error
+
+logger = logging.getLogger("sago.engine.context_assembler")
+
+
+@dataclass
+class AssembledContext:
+    """Structured assembled context ready for agent prompt construction."""
+
+    project_summary: str = ""
+    languages: list[str] = field(default_factory=list)
+    frameworks: list[str] = field(default_factory=list)
+    ast_symbols_context: str = ""
+    rag_snippets_context: str = ""
+    memory_pyramid_context: str = ""
+    learning_approach: str = ""
+    known_fixes: list[str] = field(default_factory=list)
+    past_session_context: str = ""
+    project_instructions: str = ""
+    handoff_targets: list[str] = field(default_factory=list)
+
+    def format_user_context_block(self) -> str:
+        """Format data context blocks safely for injection into the user prompt."""
+        sections = []
+
+        if self.project_summary:
+            sections.append(f"### Project Structure & Environment\n{self.project_summary}")
+
+        if self.ast_symbols_context:
+            sections.append(f"### Relevant Symbols & Code Outline\n{self.ast_symbols_context}")
+
+        if self.rag_snippets_context:
+            sections.append(
+                f"### Relevant Code Snippets & Documentation\n{self.rag_snippets_context}"
+            )
+
+        if self.past_session_context:
+            sections.append(f"### Context from Prior Sessions\n{self.past_session_context}")
+
+        return "\n\n".join(sections)
+
+    def format_system_enhancements(self) -> str:
+        """Format trusted system-level enhancements (instructions, learnings, pyramid)."""
+        sections = []
+
+        if self.memory_pyramid_context:
+            sections.append(f"=== HIERARCHICAL MEMORY PYRAMID ===\n{self.memory_pyramid_context}")
+
+        if self.learning_approach:
+            sections.append(
+                f"=== PAST SUCCESSFUL APPROACH ===\n"
+                f"Based on proven strategies from previous sessions:\n"
+                f"{self.learning_approach}\n"
+                f"Adopt a similar verified pattern where appropriate."
+            )
+
+        if self.known_fixes:
+            fixes_text = "\n".join(f"• {f}" for f in self.known_fixes[:3])
+            sections.append(f"=== VERIFIED ERROR FIXES ===\n{fixes_text}")
+
+        if self.project_instructions:
+            sections.append(self.project_instructions)
+
+        if self.handoff_targets:
+            targets_str = "\n".join(self.handoff_targets)
+            sections.append(
+                f"=== AUTHORIZED AGENT HANDOFF TARGETS ===\n"
+                f"When your solution requires specialized domain expertise (code review, security audit, qa tests, cloud deployment), "
+                f"you can hand off or delegate tasks to peer specialist agents using the `spawn_agent` tool:\n"
+                f"{targets_str}"
+            )
+
+        return "\n\n".join(sections)
+
+
+class ContextAssembler:
+    """Assembles rich, multi-tiered context prior to agent prompting."""
+
+    def __init__(self, cwd: str | None = None) -> None:
+        self.cwd = Path(cwd) if cwd else Path.cwd()
+
+    def assemble(
+        self,
+        task: str,
+        task_type: str = "create",
+        agent_name: str | None = None,
+        available_tools: list[str] | None = None,
+        pyramid: HierarchicalMemoryPyramid | None = None,
+        session_id: str = "default",
+        max_symbols: int = 8,
+        max_rag_snippets: int = 3,
+    ) -> AssembledContext:
+        """Assemble comprehensive context for a task following the 5-layer pipeline."""
+        ctx = AssembledContext()
+
+        # 1. Detect project structure, languages, frameworks
+        try:
+            from sago.engine.simple_executor import _detect_project_context, _get_context
+
+            base_ctx = _get_context(str(self.cwd))
+            p_info = _detect_project_context(str(self.cwd))
+            ctx.languages = p_info.get("languages", [])
+            ctx.frameworks = p_info.get("frameworks", [])
+
+            summary_lines = [base_ctx]
+            if ctx.languages:
+                summary_lines.append(f"Languages: {', '.join(ctx.languages)}")
+            if ctx.frameworks:
+                summary_lines.append(f"Frameworks: {', '.join(ctx.frameworks)}")
+            ctx.project_summary = "\n".join(summary_lines)
+        except Exception as e:
+            log_error("ContextAssembler: project summary failed", e)
+
+        # 2. Extract AST Symbols & Topology relevant to query
+        try:
+            from sago.memory.symbol_graph import SymbolGraph
+
+            sg = SymbolGraph(root_dir=str(self.cwd))
+            task_tokens = set(re.findall(r"[a-zA-Z0-9_]{3,}", task.lower()))
+            matching_symbols = []
+
+            # Match files or outline nodes
+            outline = sg.get_symbol_outline(max_files=50)
+            for file_path, symbols in outline.items():
+                for sym in symbols:
+                    sym_name = sym.get("name", "")
+                    if any(t in sym_name.lower() or t in file_path.lower() for t in task_tokens):
+                        matching_symbols.append(
+                            f"• `{sym.get('kind', 'symbol')}` {sym_name} in {file_path}:{sym.get('line', 1)}"
+                        )
+                        if len(matching_symbols) >= max_symbols:
+                            break
+                if len(matching_symbols) >= max_symbols:
+                    break
+
+            if matching_symbols:
+                ctx.ast_symbols_context = "\n".join(matching_symbols)
+        except Exception as e:
+            log_error("ContextAssembler: AST symbol extraction failed", e)
+
+        # 3. Hybrid Code Search / RAG Context
+        try:
+            from sago.memory.hybrid_indexer import get_hybrid_code_indexer
+
+            indexer = get_hybrid_code_indexer(str(self.cwd))
+            # Fast query for relevant code chunks
+            results = indexer.search(task, limit=max_rag_snippets)
+            snippets = []
+            for r in results:
+                fp = getattr(r, "file_path", "")
+                snippet = getattr(r, "content", "") or getattr(r, "snippet", "")
+                if fp and snippet:
+                    clean_snippet = snippet.strip()[:300]
+                    snippets.append(
+                        f"File `{fp}` (score: {getattr(r, 'score', 0):.2f}):\n```\n{clean_snippet}\n```"
+                    )
+
+            if snippets:
+                ctx.rag_snippets_context = "\n\n".join(snippets)
+        except Exception as e:
+            log_error("ContextAssembler: Hybrid code search failed", e)
+
+        # 4. Hierarchical Memory Pyramid Context
+        if pyramid:
+            try:
+                pyramid_parts = []
+                if pyramid.architectural_goals:
+                    pyramid_parts.append(f"Goals: {'; '.join(pyramid.architectural_goals[:3])}")
+                if pyramid.architectural_decisions:
+                    pyramid_parts.append(
+                        f"Decisions: {'; '.join(pyramid.architectural_decisions[:3])}"
+                    )
+                if pyramid.modified_files:
+                    pyramid_parts.append(
+                        f"Modified Files: {', '.join(pyramid.modified_files[-8:])}"
+                    )
+                if pyramid.semantic_summary:
+                    pyramid_parts.append(f"Prior Progress: {pyramid.semantic_summary[:300]}")
+                if pyramid_parts:
+                    ctx.memory_pyramid_context = "\n".join(pyramid_parts)
+            except Exception as e:
+                log_error("ContextAssembler: Memory pyramid extraction failed", e)
+
+        # 5. Learning Store (Successes, Known Fixes & Strategies)
+        try:
+            ls = get_learning_store()
+            tools_list = available_tools or []
+            suggestion = ls.suggest_approach(task_type, tools_list)
+            if suggestion:
+                ctx.learning_approach = suggestion
+
+            fixes = ls.get_known_fixes(task)
+            if fixes:
+                ctx.known_fixes = [fixes] if isinstance(fixes, str) else list(fixes)
+        except Exception as e:
+            log_error("ContextAssembler: Learning store query failed", e)
+
+        # 6. Past Sessions History from SQLite Database
+        try:
+            from sago.database import MessageStore, init_db
+
+            init_db()
+            msg_store = MessageStore(session_id)
+            past_messages = msg_store.get_history(limit=4)
+            if past_messages:
+                turns = []
+                for m in past_messages:
+                    r = m.get("role", "user")
+                    c = m.get("content", "")[:200]
+                    if c:
+                        turns.append(f"{r.title()}: {c}")
+                if turns:
+                    ctx.past_session_context = "\n".join(turns)
+        except Exception as e:
+            log_error("ContextAssembler: Past session history lookup failed", e)
+
+        # 7. Project Instructions (CLAUDE.md / .sago/instructions.md)
+        try:
+            pi = get_project_instructions(str(self.cwd))
+            prompt_instr = pi.get_for_prompt()
+            if prompt_instr:
+                ctx.project_instructions = prompt_instr
+        except Exception as e:
+            log_error("ContextAssembler: Project instructions lookup failed", e)
+
+        # 8. Authorized Handoff Targets for Agent
+        if agent_name:
+            try:
+                from sago.agents.registry import get_handoff_targets
+
+                targets = get_handoff_targets(agent_name)
+                if targets:
+                    ctx.handoff_targets = [
+                        f"• `{t.name}` ({t.role}): {t.description[:100]}" for t in targets[:8]
+                    ]
+            except Exception as e:
+                log_error("ContextAssembler: Handoff targets resolution failed", e)
+
+        return ctx
+
+
+_assembler_instance: ContextAssembler | None = None
+
+
+def get_context_assembler(cwd: str | None = None) -> ContextAssembler:
+    """Get or create the global ContextAssembler instance."""
+    global _assembler_instance
+    if _assembler_instance is None or (
+        cwd and str(_assembler_instance.cwd) != str(Path(cwd).resolve())
+    ):
+        _assembler_instance = ContextAssembler(cwd)
+    return _assembler_instance

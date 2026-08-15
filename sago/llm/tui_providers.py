@@ -119,8 +119,25 @@ def get_tui_client(provider: str, model: str) -> tuple[Any, str]:
         return _get_google_client(model)
     elif provider == "openai":
         return _get_openai_client(model)
+    elif provider == "ollama" or model.startswith("ollama/"):
+        return _get_ollama_client(model)
     else:
         return _get_openrouter_client(model, api_key), model
+
+
+def _get_ollama_client(model: str) -> tuple[Any, str]:
+    """Local Ollama client via OpenAI-compatible endpoint."""
+    try:
+        from openai import OpenAI
+    except ImportError as err:
+        raise ImportError(
+            "The 'openai' package is required to use Ollama via standard endpoint. "
+            "Install it via: pip install openai"
+        ) from err
+
+    base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    api_model = model.replace("ollama/", "", 1) if model.startswith("ollama/") else model
+    return OpenAI(api_key="ollama", base_url=base_url, timeout=180.0), api_model
 
 
 def _get_google_client(model: str) -> tuple[Any, str]:

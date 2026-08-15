@@ -744,6 +744,23 @@ def execute_agent_task(
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
     start_time = time.time()
 
+    # Assemble rich tri-partite context (AST symbols, hybrid search, learning patterns, previous sessions)
+    task_type = _detect_task_type(task)
+    try:
+        from sago.engine.context_assembler import get_context_assembler
+
+        assembler = get_context_assembler(cwd)
+        agent_name_slug = agent_role.lower().replace(" ", "-") if agent_role else None
+        assembled = assembler.assemble(
+            task=task,
+            task_type=task_type,
+            agent_name=agent_name_slug,
+            available_tools=list(tools.keys()),
+            session_id=session_id,
+        )
+    except Exception:
+        assembled = None
+
     # Detect existing project context (languages, frameworks, structure)
     project_ctx = _get_context(cwd)
     project_context = _detect_project_context(cwd)
@@ -757,17 +774,6 @@ def execute_agent_task(
         project_ctx += f"\nTest frameworks: {', '.join(project_context['test_frameworks'])}"
     if project_context["package_managers"]:
         project_ctx += f"\nPackage managers: {', '.join(project_context['package_managers'])}"
-
-    # Load learning store for smart suggestions
-    learning_suggestion = None
-    try:
-        from sago.learning import get_learning_store
-
-        ls = get_learning_store()
-        task_type = _detect_task_type(task)
-        learning_suggestion = ls.suggest_approach(task_type, list(tools.keys()))
-    except Exception:
-        pass
 
     # Auto-create todo list for complex tasks
     task_plan = None
@@ -816,42 +822,44 @@ def execute_agent_task(
                 tools = agent_tools
 
     # Auto-detect task type and use appropriate prompt
-    # NOTE: project_ctx goes in USER message, not system prompt, to prevent prompt injection
     if not system_prompt:
-        task_type = _detect_task_type(task)
         template = PROMPTS.get(task_type, PROMPTS["create"])
         system_prompt = template.format(
             agent_role=agent_role,
-            project_ctx="",  # Intentionally empty — context goes in user message
+            project_ctx="",  # Context goes in user message
         )
 
-    # Add learning suggestion if available (safe — it's our own data)
-    if learning_suggestion:
-        system_prompt += (
-            f"\n\n=== PAST SUCCESSFUL APPROACH ===\n"
-            f"Based on past similar tasks, this approach worked:\n"
-            f"{learning_suggestion}\n"
-            f"Consider using a similar approach, but adapt to the current context."
-        )
+    # Inject system-level enhancements (learning approach, known fixes, project instructions)
+    if assembled:
+        system_enhancements = assembled.format_system_enhancements()
+        if system_enhancements:
+            system_prompt += f"\n\n{system_enhancements}"
+    else:
+        # Fallback to direct instructions / learning store lookup
+        try:
+            from sago.learning import get_learning_store
 
-    # Add project context hints (safe — controlled strings)
-    if project_context["frameworks"]:
-        system_prompt += (
-            f"\n\n=== EXISTING PROJECT DETECTED ===\n"
-            f"This project uses: {', '.join(project_context['frameworks'])}\n"
-            f"Match the existing style and conventions."
-        )
+            ls = get_learning_store()
+            suggestion = ls.suggest_approach(task_type, list(tools.keys()))
+            if suggestion:
+                system_prompt += (
+                    f"\n\n=== PAST SUCCESSFUL APPROACH ===\n"
+                    f"Based on past similar tasks, this approach worked:\n"
+                    f"{suggestion}\n"
+                    f"Consider using a similar approach, but adapt to the current context."
+                )
+        except Exception:
+            pass
 
-    # Load project instructions (CLAUDE.md / .sago/instructions.md)
-    try:
-        from sago.memory.project_instructions import get_project_instructions
+        try:
+            from sago.memory.project_instructions import get_project_instructions
 
-        pi = get_project_instructions(cwd)
-        instructions_prompt = pi.get_for_prompt()
-        if instructions_prompt:
-            system_prompt += instructions_prompt
-    except Exception:
-        pass
+            pi = get_project_instructions(cwd)
+            instructions_prompt = pi.get_for_prompt()
+            if instructions_prompt:
+                system_prompt += instructions_prompt
+        except Exception:
+            pass
 
     # State tracking
     tool_history: list[dict] = []
@@ -874,11 +882,19 @@ def execute_agent_task(
     except Exception:
         tool_usage_store = None
 
-    # Build user message with project context as DATA (not instructions)
-    user_content = task
-    if project_ctx:
+    # Build user message with rich reference data context (read-only)
+    if assembled:
+        context_block = assembled.format_user_context_block()
+        user_content = (
+            f"## Reference Context (read-only workspace data)\n{context_block}\n\n## Task\n{task}"
+            if context_block
+            else task
+        )
+    else:
         user_content = (
             f"## Project Context (read-only reference data)\n{project_ctx}\n\n## Task\n{task}"
+            if project_ctx
+            else task
         )
 
     messages: list[dict[str, Any]] = [
@@ -1130,17 +1146,44 @@ def execute_agent_task(
                         ]
 
                     # Convert OpenAI tools to Google format
+                    # ``google.genai.types.Type`` has grown over SDK versions.
+                    # Resolve optional values defensively so an older SDK can
+                    # still execute tools whose schemas use those JSON types.
+                    gemini_type = google_types.Type
+                    _JSON_TO_GEMINI_TYPE = {
+                        "string": gemini_type.STRING,
+                        "integer": getattr(gemini_type, "INTEGER", gemini_type.STRING),
+                        "number": getattr(gemini_type, "NUMBER", gemini_type.STRING),
+                        "boolean": getattr(gemini_type, "BOOLEAN", gemini_type.STRING),
+                        "array": getattr(gemini_type, "ARRAY", gemini_type.STRING),
+                        "object": gemini_type.OBJECT,
+                    }
                     google_tools = []
                     for tool in openai_tools:
                         func = tool["function"]
                         params = func.get("parameters", {})
-                        properties = {
-                            k: google_types.Schema(
-                                type=google_types.Type.STRING,
-                                description=v.get("description", ""),
+                        properties = {}
+                        for k, v in params.get("properties", {}).items():
+                            prop_type_str = v.get("type", "string")
+                            prop_type = _JSON_TO_GEMINI_TYPE.get(
+                                prop_type_str, google_types.Type.STRING
                             )
-                            for k, v in params.get("properties", {}).items()
-                        }
+                            schema_kwargs: dict[str, Any] = {
+                                "type": prop_type,
+                                "description": v.get("description", ""),
+                            }
+                            # Handle enum for Literal types
+                            if "enum" in v:
+                                schema_kwargs["enum"] = v["enum"]
+                            # Handle array item type
+                            if prop_type == _JSON_TO_GEMINI_TYPE["array"] and "items" in v:
+                                item_type_str = v["items"].get("type", "string")
+                                schema_kwargs["items"] = google_types.Schema(
+                                    type=_JSON_TO_GEMINI_TYPE.get(
+                                        item_type_str, google_types.Type.STRING
+                                    )
+                                )
+                            properties[k] = google_types.Schema(**schema_kwargs)
                         google_tools.append(
                             google_types.FunctionDeclaration(
                                 name=func["name"],
@@ -1555,7 +1598,21 @@ def execute_agent_task(
                     get_continuous_verifier().enqueue_files([fp] if fp else [])
                 except Exception:
                     pass
-                if fp and fp.endswith(".py"):
+                if fp and any(
+                    fp.endswith(ext)
+                    for ext in (
+                        ".py",
+                        ".js",
+                        ".ts",
+                        ".tsx",
+                        ".jsx",
+                        ".go",
+                        ".rs",
+                        ".java",
+                        ".c",
+                        ".cpp",
+                    )
+                ):
                     try:
                         from sago.engine.verifier import ProjectVerifier
 

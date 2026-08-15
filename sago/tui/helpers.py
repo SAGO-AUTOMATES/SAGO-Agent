@@ -58,24 +58,57 @@ def create_collapsible(
 class ExchangeTurnCard(Vertical):
     """Container for a single unified conversational turn (Prompt, Reasoning, Tools, Response)."""
 
-    def __init__(self, prompt: str, **kwargs: Any) -> None:
-        super().__init__(classes="exchange-box", **kwargs)
+    def __init__(
+        self,
+        prompt: str,
+        card_type: str = "user",
+        tag_label: str = "",
+        tag_color: str = "",
+        meta_info: str = "",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(classes=f"exchange-box exchange-box--{card_type}", **kwargs)
         self.prompt = prompt
+        self.card_type = card_type
+        self.tag_label = tag_label or ("USER" if card_type == "user" else card_type.upper())
+        self.tag_color = tag_color or (
+            "#58a6ff"
+            if card_type == "user"
+            else (
+                "#bc8cff"
+                if card_type == "delegate"
+                else (
+                    "#79c0ff"
+                    if card_type == "chain"
+                    else (
+                        "#3fb950"
+                        if card_type == "orchestrate"
+                        else ("#d29922" if card_type == "plan" else "#58a6ff")
+                    )
+                )
+            )
+        )
+        self.meta_info = meta_info
         self.response_text: str = ""
         self.is_turn_collapsed = False
 
     def compose(self):
         preview = self.prompt.replace("\n", " ").strip()
         title_snippet = f"{preview[:120]}..." if len(preview) > 120 else preview
+        icon = "▶" if self.is_turn_collapsed else "▼"
+        meta_str = f"  [bold white]{escape(self.meta_info)}[/bold white]" if self.meta_info else ""
         yield Static(
-            f"[bold]▼ USER[/bold]  {escape(title_snippet)}",
+            f"[bold {self.tag_color}]{icon} {self.tag_label}[/bold {self.tag_color}]{meta_str}  {escape(title_snippet)}",
             classes="exchange-prompt-header",
             markup=True,
         )
         with Vertical(classes="exchange-body"):
             rendered_prompt = _render_markdown(self.prompt)
+            body_header = (
+                "User Prompt:" if self.card_type == "user" else f"{self.tag_label.title()} Target:"
+            )
             yield Static(
-                f"[bold cyan]User Prompt:[/bold cyan]\n{rendered_prompt}",
+                f"[bold {self.tag_color}]{body_header}[/bold {self.tag_color}]\n{rendered_prompt}",
                 classes="exchange-user-prompt",
                 markup=True,
             )
@@ -96,13 +129,19 @@ class ExchangeTurnCard(Vertical):
 
             preview = self.prompt.replace("\n", " ").strip()
             title_snippet = f"{preview[:120]}..." if len(preview) > 120 else preview
+            icon = "▶" if self.is_turn_collapsed else "▼"
+            meta_str = (
+                f"  [bold white]{escape(self.meta_info)}[/bold white]" if self.meta_info else ""
+            )
 
             if self.is_turn_collapsed:
                 hdr.update(
-                    f"[bold]▶ USER[/bold]  {escape(title_snippet)}  [dim]─ (click to expand)[/dim]"
+                    f"[bold {self.tag_color}]{icon} {self.tag_label}[/bold {self.tag_color}]{meta_str}  {escape(title_snippet)}  [dim]─ (click to expand)[/dim]"
                 )
             else:
-                hdr.update(f"[bold]▼ USER[/bold]  {escape(title_snippet)}")
+                hdr.update(
+                    f"[bold {self.tag_color}]{icon} {self.tag_label}[/bold {self.tag_color}]{meta_str}  {escape(title_snippet)}"
+                )
         except Exception:
             pass
 
@@ -159,6 +198,62 @@ class CollapsibleOutputCard(Vertical):
             pass
 
 
+class ShellEscapeCard(Vertical):
+    """Clean collapsible terminal card for !<command> shell executions."""
+
+    def __init__(self, command: str, **kwargs: Any) -> None:
+        super().__init__(classes="shell-escape-card", **kwargs)
+        self.command = command
+        self.is_collapsed = False
+        self._status_tag = "[dim](running...)[/dim]"
+
+    def compose(self):
+        icon = "▶" if self.is_collapsed else "▼"
+        yield Static(
+            f"[dim]{icon}[/dim]  [bold white]$ {escape(self.command)}[/bold white]  {self._status_tag}",
+            classes="shell-card-header",
+            markup=True,
+        )
+        with Vertical(classes="shell-card-body"):
+            yield Static("Executing command in workspace shell...", classes="shell-output-text")
+
+    @on(events.Click, ".shell-card-header")
+    def on_header_clicked(self, event: events.Click) -> None:
+        event.stop()
+        self.toggle_collapse()
+
+    def toggle_collapse(self) -> None:
+        try:
+            body = self.query_one(".shell-card-body")
+            hdr = self.query_one(".shell-card-header", Static)
+            self.is_collapsed = not self.is_collapsed
+            body.display = not self.is_collapsed
+            icon = "▶" if self.is_collapsed else "▼"
+            hdr.update(
+                f"[dim]{icon}[/dim]  [bold white]$ {escape(self.command)}[/bold white]  {self._status_tag}"
+            )
+        except Exception:
+            pass
+
+    def update_result(self, output: str, returncode: int, duration_s: float) -> None:
+        try:
+            hdr = self.query_one(".shell-card-header", Static)
+            body = self.query_one(".shell-output-text", Static)
+            self._status_tag = (
+                f"[bold #3fb950]✓ exit 0[/bold #3fb950] [dim]({duration_s:.2f}s)[/dim]"
+                if returncode == 0
+                else f"[bold #f85149]✗ exit {returncode}[/bold #f85149] [dim]({duration_s:.2f}s)[/dim]"
+            )
+            icon = "▶" if self.is_collapsed else "▼"
+            hdr.update(
+                f"[dim]{icon}[/dim]  [bold white]$ {escape(self.command)}[/bold white]  {self._status_tag}"
+            )
+            clean_out = output.strip() if output.strip() else "[dim](no output)[/dim]"
+            body.update(clean_out)
+        except Exception:
+            pass
+
+
 class UIHelpers:
     """Mixin class providing UI helper methods for SagoApp."""
 
@@ -168,7 +263,32 @@ class UIHelpers:
         self._save_message("user", content)
 
         # Create unified ExchangeTurnCard
-        turn_card = ExchangeTurnCard(prompt=content)
+        turn_card = ExchangeTurnCard(prompt=content, card_type="user")
+        self._active_exchange_card = turn_card
+        msg_container = self.query_one("#messages")
+        msg_container.mount(turn_card)
+        msg_container.scroll_end(animate=False)
+
+    def _add_command_turn(
+        self: SagoApp,
+        cmd_type: str,
+        content: str,
+        meta: str = "",
+        tag_label: str = "",
+        tag_color: str = "",
+    ) -> None:
+        """Create a dedicated command turn card with unique border color and tag."""
+        self._hide_welcome_screen()
+        self.messages.append({"role": "user", "content": f"/{cmd_type} {content}".strip()})
+        self._save_message("user", f"/{cmd_type} {content}".strip())
+
+        turn_card = ExchangeTurnCard(
+            prompt=content,
+            card_type=cmd_type,
+            tag_label=tag_label,
+            tag_color=tag_color,
+            meta_info=meta,
+        )
         self._active_exchange_card = turn_card
         msg_container = self.query_one("#messages")
         msg_container.mount(turn_card)
@@ -255,35 +375,17 @@ class UIHelpers:
                             line_numbers=True,
                             word_wrap=True,
                         )
-                        copy_btn = Button(
-                            "📋 Copy Code", classes="btn-copy-code", variant="default"
-                        )
-                        setattr(copy_btn, "_code_content", code)
                         _mount_element(
                             Collapsible(
                                 Static(syntax),
-                                Horizontal(
-                                    Static("", classes="spacer"),
-                                    copy_btn,
-                                    classes="code-action-bar",
-                                ),
                                 title=f"Code snippet ({lang or 'text'})",
                                 collapsed=False,
                             )
                         )
                     except Exception:
-                        copy_btn = Button(
-                            "📋 Copy Code", classes="btn-copy-code", variant="default"
-                        )
-                        setattr(copy_btn, "_code_content", code)
                         _mount_element(
                             Collapsible(
                                 Static(code, classes="code-block", markup=False),
-                                Horizontal(
-                                    Static("", classes="spacer"),
-                                    copy_btn,
-                                    classes="code-action-bar",
-                                ),
                                 title=f"Code snippet ({lang or 'text'})",
                                 collapsed=False,
                             )
@@ -300,8 +402,7 @@ class UIHelpers:
             from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
             tracer = get_dev_tracer()
-            if tracer.is_enabled:
-                traces = tracer.get_recent_traces(limit=500)
+            traces = tracer.get_recent_traces(limit=500) if tracer.is_enabled else []
             if traces:
                 llm_count = sum(
                     1
@@ -413,6 +514,43 @@ class UIHelpers:
         )
         self.query_one("#messages").scroll_end(animate=False)
 
+    def _add_error_inline(self: SagoApp, content: str, hint: str = "") -> None:
+        """Mount an error inline inside the active exchange card, or fall back to msg-system."""
+        self._hide_welcome_screen()
+        from rich.markup import escape as _escape
+
+        clean = content.strip()
+        hint_part = f"\n[dim]{_escape(hint)}[/dim]" if hint else ""
+        widget = Static(
+            f"[bold #f85149]✗ Error:[/bold #f85149] {_escape(clean)}{hint_part}",
+            classes="msg-error-inline",
+            markup=True,
+        )
+        target_card = getattr(self, "_active_exchange_card", None)
+        if target_card is not None and hasattr(target_card, "mount_child"):
+            target_card.mount_child(widget)
+        else:
+            # No active card — render as a standalone system notice
+            self.query_one("#messages").mount(widget)
+        self.query_one("#messages").scroll_end(animate=False)
+
+    def _add_notice_inline(self: SagoApp, content: str) -> None:
+        """Mount an informational notice inline inside the active exchange card."""
+        self._hide_welcome_screen()
+        from rich.markup import escape as _escape
+
+        widget = Static(
+            f"[dim]ℹ {_escape(content.strip())}[/dim]",
+            classes="msg-notice-inline",
+            markup=True,
+        )
+        target_card = getattr(self, "_active_exchange_card", None)
+        if target_card is not None and hasattr(target_card, "mount_child"):
+            target_card.mount_child(widget)
+        else:
+            self.query_one("#messages").mount(widget)
+        self.query_one("#messages").scroll_end(animate=False)
+
     def _add_tool_call(
         self: SagoApp, tool_name: str, args: dict, result: str, success: bool = True
     ) -> None:
@@ -484,10 +622,6 @@ class UIHelpers:
                     code = lines[1] if len(lines) > 1 else lines[0]
                     code = code.rstrip().removesuffix("```").rstrip()
                     if code.strip():
-                        copy_btn = Button(
-                            "📋 Copy Code", classes="btn-copy-code", variant="default"
-                        )
-                        setattr(copy_btn, "_code_content", code)
                         try:
                             syntax = Syntax(
                                 code,
@@ -499,11 +633,6 @@ class UIHelpers:
                             container.mount(
                                 Collapsible(
                                     Static(syntax),
-                                    Horizontal(
-                                        Static("", classes="spacer"),
-                                        copy_btn,
-                                        classes="code-action-bar",
-                                    ),
                                     title=f"{agent_name} - Code ({lang or 'text'})",
                                     collapsed=False,
                                 )
@@ -512,11 +641,6 @@ class UIHelpers:
                             container.mount(
                                 Collapsible(
                                     Static(code, classes="code-block", markup=False),
-                                    Horizontal(
-                                        Static("", classes="spacer"),
-                                        copy_btn,
-                                        classes="code-action-bar",
-                                    ),
                                     title=f"{agent_name} - Code ({lang or 'text'})",
                                     collapsed=False,
                                 )
