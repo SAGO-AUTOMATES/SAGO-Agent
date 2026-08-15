@@ -68,6 +68,9 @@ COMMANDS = {
     "/project_graph": "Generate deep architecture & data graph (/project_graph [ascii|mermaid|json|llm] [focus])",
     "/graph": "Alias for /project_graph",
     "/detach": "Detach from session without killing background tasks (safe to close terminal)",
+    "/buttons": "Toggle or configure bottom action buttons bar (/buttons [on|off|toggle])",
+    "/show": "Show bottom button bar (/show [buttons|bar])",
+    "/hide": "Hide bottom button bar for clean power-user experience (/hide [buttons|bar])",
 }
 
 THEMES = {

@@ -2055,3 +2055,26 @@ class CommandHandlers:
                     )
                     return
             self._add_system_message("No assistant messages found to copy.")
+
+    def _handle_buttons_command(self: SagoApp, args: str = "") -> None:
+        """Toggle or set visibility of the bottom quick actions button bar (/show, /hide, /buttons [on|off|toggle])."""
+        arg = (args or "").strip().lower()
+        if arg in ("hide", "off", "0", "false", "disable"):
+            self.show_action_bar = False
+            self._add_system_message(
+                "🔘 Bottom action bar [bold red]hidden[/bold red]. (Type /show or /buttons on to restore)"
+            )
+        elif arg in ("show", "on", "1", "true", "enable"):
+            self.show_action_bar = True
+            self._add_system_message(
+                "🔘 Bottom action bar [bold green]visible[/bold green]. (Type /hide to hide)"
+            )
+        else:
+            # Toggle
+            self.show_action_bar = not self.show_action_bar
+            state = (
+                "[bold green]visible[/bold green]"
+                if self.show_action_bar
+                else "[bold red]hidden[/bold red]"
+            )
+            self._add_system_message(f"🔘 Bottom action bar is now {state}. (Settings persisted)")

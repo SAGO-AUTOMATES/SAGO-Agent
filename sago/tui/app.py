@@ -490,6 +490,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         margin: 1 0 0 0;
         overflow-x: auto;
     }
+    .hide-action-bar #input-action-bar {
+        display: none;
+    }
     .btn-input-action {
         height: 1;
         min-width: 10;
@@ -724,6 +727,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     yolo_mode: reactive[bool] = reactive(False)
     developer_mode: reactive[bool] = reactive(False)
     show_summary: reactive[bool] = reactive(False)
+    show_action_bar: reactive[bool] = reactive(True)
     # Pause/resume mechanism for todo confirmations
     _executor_pause_event: threading.Event | None = None
     _executor_thread: object = None  # running thread reference
@@ -840,6 +844,14 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         else:
             self.remove_class("dev-mode-enabled")
 
+    def watch_show_action_bar(self, value: bool) -> None:
+        """Dynamically add or remove .hide-action-bar class when action bar toggle changes."""
+        if not value:
+            self.add_class("hide-action-bar")
+        else:
+            self.remove_class("hide-action-bar")
+        self._save_settings()
+
     def _populate_welcome_screen(self) -> None:
         """Populate the welcome screen with SAGO logo and info."""
         welcome = self.query_one("#welcome-screen")
@@ -916,6 +928,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self.current_agent = load_setting("agent", self.current_agent)
             self.yolo_mode = load_setting("yolo", self.yolo_mode)
             self.show_summary = load_setting("show_summary", self.show_summary)
+            self.show_action_bar = load_setting("show_action_bar", self.show_action_bar)
+            if not self.show_action_bar:
+                self.add_class("hide-action-bar")
         except Exception as e:
             logger.warning("Failed to load settings: %s", e)
         finally:
@@ -934,6 +949,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             save_setting("agent", self.current_agent)
             save_setting("yolo", self.yolo_mode)
             save_setting("show_summary", self.show_summary)
+            save_setting("show_action_bar", self.show_action_bar)
         except Exception as e:
             logger.warning("Failed to save settings: %s", e)
 
@@ -1876,6 +1892,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             "/detach": lambda: self._detach_session(),
             "/copy": lambda: self._handle_copy_command(args),
             "/clip": lambda: self._handle_copy_command(args),
+            "/buttons": lambda: self._handle_buttons_command(args),
+            "/bar": lambda: self._handle_buttons_command(args),
+            "/show": lambda: self._handle_buttons_command("show " + args),
+            "/hide": lambda: self._handle_buttons_command("hide " + args),
         }
 
         if cmd in handlers:
