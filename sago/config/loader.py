@@ -19,7 +19,8 @@ class ProjectConfig(BaseModel):
     """Project-level configuration."""
 
     name: str = "sago"
-    version: str = "0.1.6"
+    version: str = "0.1.7"
+    environment: str = "development"
     description: str = "Sophisticated Multi-Agent Orchestration System"
 
 

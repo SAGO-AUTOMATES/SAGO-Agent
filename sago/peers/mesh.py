@@ -34,7 +34,7 @@ class MeshNode:
     hostname: str
     ip_address: str
     port: int = MESH_PORT
-    sago_version: str = "0.1.6"
+    sago_version: str = "0.1.7"
     capabilities: list[str] = field(default_factory=list)
     load: float = 0.0  # 0-100%
     last_heartbeat: float = 0.0
