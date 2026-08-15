@@ -2709,9 +2709,6 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                         sys_msg = ""
                         contents = []
-                        current_role = None
-                        current_parts = []
-
                         for msg in messages:
                             role = msg.get("role")
                             c_text = msg.get("content")
@@ -2721,21 +2718,20 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                             if role == "user":
                                 if c_text:
-                                    if current_role == "user":
-                                        current_parts.append(google_types.Part(text=c_text))
-                                    else:
-                                        if current_role and current_parts:
-                                            contents.append(
-                                                google_types.Content(
-                                                    role=current_role, parts=current_parts
-                                                )
-                                            )
-                                        current_role = "user"
-                                        current_parts = [google_types.Part(text=c_text)]
-
+                                    contents.append(
+                                        google_types.Content(
+                                            role="user",
+                                            parts=[google_types.Part(text=c_text)],
+                                        )
+                                    )
                             elif role == "assistant":
                                 if msg.get("_google_parts"):
-                                    parts = list(msg["_google_parts"])
+                                    contents.append(
+                                        google_types.Content(
+                                            role="model",
+                                            parts=list(msg["_google_parts"]),
+                                        )
+                                    )
                                 else:
                                     parts = []
                                     if c_text:
@@ -2757,43 +2753,25 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                                 )
                                             )
                                         )
-                                if parts:
-                                    if current_role == "model":
-                                        current_parts.extend(parts)
-                                    else:
-                                        if current_role and current_parts:
-                                            contents.append(
-                                                google_types.Content(
-                                                    role=current_role, parts=current_parts
-                                                )
-                                            )
-                                        current_role = "model"
-                                        current_parts = parts
-
+                                    if parts:
+                                        contents.append(
+                                            google_types.Content(role="model", parts=parts)
+                                        )
                             elif role == "tool":
                                 tname = msg.get("name") or "tool"
-                                fpart = google_types.Part(
-                                    function_response=google_types.FunctionResponse(
-                                        name=tname,
-                                        response={"result": str(c_text or "")},
+                                contents.append(
+                                    google_types.Content(
+                                        role="user",
+                                        parts=[
+                                            google_types.Part(
+                                                function_response=google_types.FunctionResponse(
+                                                    name=tname,
+                                                    response={"result": str(c_text or "")},
+                                                )
+                                            )
+                                        ],
                                     )
                                 )
-                                if current_role == "user":
-                                    current_parts.append(fpart)
-                                else:
-                                    if current_role and current_parts:
-                                        contents.append(
-                                            google_types.Content(
-                                                role=current_role, parts=current_parts
-                                            )
-                                        )
-                                    current_role = "user"
-                                    current_parts = [fpart]
-
-                        if current_role and current_parts:
-                            contents.append(
-                                google_types.Content(role=current_role, parts=current_parts)
-                            )
 
                         if not contents:
                             contents = [
@@ -2870,10 +2848,15 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                         # Extract tool calls and reasoning from Gemini response
                         _gemini_raw_parts = []
+                        _gemini_thinking = ""
                         if response.candidates and response.candidates[0].content:
                             _gemini_raw_parts = list(response.candidates[0].content.parts or [])
                             for part in _gemini_raw_parts:
-                                if part.function_call:
+                                if getattr(part, "thought", None):
+                                    t_val = getattr(part, "text", "") or ""
+                                    if t_val:
+                                        _gemini_thinking += t_val + "\n"
+                                elif part.function_call:
                                     native_tool_calls.append(
                                         {
                                             "id": f"gemini_{len(native_tool_calls)}",
@@ -2883,6 +2866,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                             else {},
                                         }
                                     )
+                                elif part.text and not content:
+                                    content = part.text
                     else:
                         # OpenAI-compatible with native function calling (streaming)
                         api_kwargs = {
@@ -2966,15 +2951,20 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                     _llm_latency_ms = (time.time() - _llm_start_time) * 1000
 
-                    # Extract thinking content if present (<thinking> tags or <thought> tags)
-                    _thinking_content = ""
-                    _thinking_match = re.search(
-                        r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>",
-                        content,
-                        re.DOTALL,
+                    # Extract thinking content if present (<thinking> tags or native Gemini thinking)
+                    _thinking_content = (
+                        _gemini_thinking.strip() if use_native_gemini and _gemini_thinking else ""
                     )
-                    if _thinking_match:
-                        _thinking_content = _thinking_match.group(1).strip()
+                    if not _thinking_content:
+                        _thinking_match = re.search(
+                            r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>",
+                            content,
+                            re.DOTALL,
+                        )
+                        if _thinking_match:
+                            _thinking_content = _thinking_match.group(1).strip()
+
+                    if _thinking_content:
                         get_dev_tracer().record_thinking(
                             source=f"tui.llm.{self.current_provider}",
                             model=api_model,

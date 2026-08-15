@@ -36,8 +36,9 @@ class EnvInfo(BaseTool):
     ) -> str:
         """Execute environment info operation."""
         try:
-            if operation == "system":
-                return self._get_system_info(detail)
+            if operation in ("system", "full"):
+                detail_level = "full" if operation == "full" else detail
+                return self._get_system_info(detail_level)
             elif operation == "disk":
                 return self._get_disk_info()
             elif operation == "memory":
