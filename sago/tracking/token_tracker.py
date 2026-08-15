@@ -7,6 +7,7 @@ rate limiting, and usage analytics.
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -347,14 +348,17 @@ class TokenTracker:
 
 # Global tracker instance
 _global_tracker: TokenTracker | None = None
+_tracker_lock = threading.Lock()
 
 
 def get_token_tracker(persist: bool = True) -> TokenTracker:
     """Get or create the global token tracker."""
     global _global_tracker
     if _global_tracker is None:
-        from sago.paths import get_sago_home
+        with _tracker_lock:
+            if _global_tracker is None:
+                from sago.paths import get_sago_home
 
-        persist_path = get_sago_home() / "token_usage.json" if persist else None
-        _global_tracker = TokenTracker(persist_path=persist_path)
+                persist_path = get_sago_home() / "token_usage.json" if persist else None
+                _global_tracker = TokenTracker(persist_path=persist_path)
     return _global_tracker

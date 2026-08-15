@@ -160,6 +160,62 @@ Problems:
 - [ ] **E2** Add a fake/mock LLM provider so integration tests run in CI without keys.
 - [ ] **E3** Consolidate duplicate tools; raise coverage above 55% comfortably; triage mypy errors.
 
+### Milestone F — Security Hardening (P0, NEW from §8.1)
+- [ ] **F1** Fix SQL injection in `sql_schema.py:74,87,94` — parameterize all PRAGMA queries.
+- [ ] **F2** Fix SQL injection in `workflow/templates.py:369` — parameterize `report_type`.
+- [ ] **F3** Fix unsafe `os.fork()` in `daemon.py:115-123` — close FDs before fork, properly share server socket.
+- [ ] **F4** Change daemon default bind from `0.0.0.0` to `127.0.0.1` (`daemon.py:28`).
+- [ ] **F5** Sanitize sudo passwords from tool history/output (`sudo_executor.py:77-83`, `simple_executor.py:1513-1520`).
+- [ ] **F6** Add input validation/sanitization for shell commands (`shell/execute.py`).
+
+### Milestone G — Thread Safety (P0, NEW from §8.2)
+- [ ] **G1** Fix broken double-checked locking in `permissions.py:278-281`.
+- [ ] **G2** Add thread lock to `_error_handler` and `_recovery_manager` singletons (`errors/handler.py:353-358`).
+- [ ] **G3** Add thread lock to `_global_tracker` (`tracking/token_tracker.py:352-360`).
+- [ ] **G4** Add thread lock to `_global_cache` (`cache/intelligent.py:328-338`).
+- [ ] **G5** Add thread lock to `_config_cache` / `_config_cache_key` (`config/loader.py:217-247`).
+- [ ] **G6** Synchronize SQLite connection access in `database.py:32-53` — use `check_same_thread=True` or serialize access.
+
+### Milestone H — Error Visibility (P1, NEW from §8.3)
+- [ ] **H1** Replace all 100+ `except Exception: pass` blocks with at minimum `logger.debug()` or `logger.warning()`.
+- [ ] **H2** Prioritize: `unified.py`, `verifier.py`, `codebase_indexer.py`, `change_tracker.py`, `project_graph.py`, `lsp_client.py`, `simple_executor.py`.
+
+### Milestone I — Performance (P1, NEW from §8.4)
+- [ ] **I1** Add async I/O for LLM calls (biggest throughput win — current blocking calls freeze TUI).
+- [ ] **I2** Batch DB writes instead of per-tool-call flush (`simple_executor.py:1524-1538`).
+- [ ] **I3** Cache tool discovery results per-project (`simple_executor.py:484-530`).
+- [ ] **I4** Optimize fallback tool search from O(n²) (`errors/handler.py:244-283`).
+- [ ] **I5** Add memory cap / streaming for in-RAM chunk index (`hybrid_indexer.py`).
+- [ ] **I6** Make `_save_cache` incremental instead of full-JSON rewrite (`hybrid_indexer.py`).
+
+### Milestone J — Code Quality (P2, NEW from §8.5-8.6)
+- [ ] **J1** Fix mutable default `metadata={}` on `ToolResult` → `field(default_factory=dict)` (`tools/base.py:44`).
+- [ ] **J2** Enforce rate limits in executors (`tracking/token_tracker.py:191-212`).
+- [ ] **J3** Fix connection leak in `symbol_index.py:242-257` — add context manager/try-finally.
+- [ ] **J4** Add timeouts to `while True` loops (`daemon.py:215`, `workflow/engine.py:353`, `main.py:1037`, `mesh.py:258`).
+- [ ] **J5** Fix bounded memory growth in `cache/intelligent.py`, `token_tracker.py`, `errors/handler.py`.
+- [ ] **J6** Extract hardcoded magic numbers to config/constants (`simple_executor.py:268,906,1457-1471,1610-1618`).
+- [ ] **J7** Add graceful degradation for optional LLM deps (`llm/factory.py`, `main.py:595`).
+- [ ] **J8** Fix inconsistent error checking in TUI `_process_message_thread`.
+- [ ] **J9** Fix resource cleanup — context managers for file handles (`daemon.py:130`, `simple_executor.py:338,362`).
+- [ ] **J10** Fix `ToolUsageStore` lifecycle — don't create/flush/discard per tool call (`simple_executor.py:1529-1537`).
+- [ ] **J11** Consolidate duplicate tools: `git_ops`/`git_operations`, `code_search_tool`/`hybrid_search_tool`, `spawn_agent`/`delegate_to_agent`/`agent_delegator`.
+- [ ] **J12** Add input validation for `effort` parameter (`main.py:580`).
+
+### Milestone K — Tests (P2, NEW from §8.8)
+- [ ] **K1** Add tests for LLM providers (mock-based, no live keys).
+- [ ] **K2** Add tests for streaming handler.
+- [ ] **K3** Add tests for daemon server lifecycle.
+- [ ] **K4** Add tests for MCP server end-to-end.
+- [ ] **K5** Add tests for workflow templates.
+- [ ] **K6** Add tests for orchestrator/delegator core logic.
+- [ ] **K7** Add tests for LSP client.
+- [ ] **K8** Add tests for change tracker persistence.
+- [ ] **K9** Add tests for concurrent tool execution.
+- [ ] **K10** Add tests for session persistence round-trip.
+- [ ] **K11** Add tests for checkpoint restore.
+- [ ] **K12** Fix weak security tests — assert traversal is blocked, not just `result is not None`.
+
 ---
 
 ## 5. New-Contributor Onboarding (follow top-to-bottom)
@@ -215,6 +271,12 @@ ruff check sago/ && ruff format --check sago/
 - All 339 profiles pass a "tools resolve" CI test. ✅ C1, C4
 - MCP path enforces permissions. ✅ D1
 - README numbers & claims match reality. ✅ D4
+- **No SQL injection vectors** (§8.1 N1-N2). ✅ F1-F2
+- **All singletons thread-safe** (§8.2 N7-N12). ✅ G1-G6
+- **No silent `except Exception: pass`** (§8.3 N13). ✅ H1-H2
+- **Async I/O for LLM calls** (§8.4 N14). ✅ I1
+- **Rate limits enforced** (§8.5 N21). ✅ J2
+- **Daemon binds localhost only** (§8.1 N4). ✅ F4
 
 ---
 
@@ -233,7 +295,7 @@ These remain valid future initiatives from the prior plan:
 
 ---
 
-*Last audited: commit `660d262` (v0.1.5). Generated from 6 parallel subsystem reviews. Update this file after each Milestone lands.*
+*Last audited: commit `660d262` (v0.1.5) + deep code audit (v0.1.6+). §2–§7 from 6 parallel subsystem reviews. §8 from comprehensive line-by-line audit. Update this file after each Milestone lands.*
 
 ---
 
@@ -579,7 +641,123 @@ Nothing from the analysis was omitted. The structured §2–§3 ledger, the §4 
 
 ---
 
-## 8. v0.1.6 Reconciliation (re-audit of branch `feature/v0.1.6`)
+## 8. NEW FINDINGS — Deep Code Audit (v0.1.6+) {#new-findings}
+
+> The following issues were discovered in a comprehensive line-by-line audit of the full codebase. They are **in addition to** all items in §2–§3 and §7. Most are not yet fixed.
+
+### 8.1 CRITICAL — Security (fix before any release)
+
+| # | Issue | Location | Detail |
+|---|-------|----------|--------|
+| N1 | **SQL Injection** | `sago/tools/database/sql_schema.py:74,87,94` | f-string SQL: `f"PRAGMA table_info({name})"`, `f"PRAGMA index_list({name})"`, `f"PRAGMA index_info({idx_name})"`. Table/index names from user-provided DB enumeration — unescaped input in SQL. |
+| N2 | **SQL Injection** | `sago/workflow/templates.py:369` | `f"SELECT * FROM metrics WHERE type='{report_type}'"` — direct string interpolation of user-supplied `report_type`. |
+| N3 | **Unsafe `os.fork()`** | `sago/server/daemon.py:115-123` | Parent doesn't close file descriptors before forking. Child inherits all parent state (open DB connections, file handles). The `SOCK_STREAM` server socket is never properly shared between parent/child. |
+| N4 | **Daemon binds `0.0.0.0`** | `sago/server/daemon.py:28` | `DEFAULT_HOST = "0.0.0.0"` exposes daemon to all network interfaces. TCP (not TLS) transport with plaintext API key auth. |
+| N5 | **Sudo passwords in plaintext** | `sago/tools/admin/sudo_executor.py:77-83` | Passwords passed as shell arguments, potentially logged via `tool_history` in `simple_executor.py:1513-1520`. |
+| N6 | **Shell command injection** | `sago/tools/shell/execute.py` (via `simple_executor.py:1476`) | Shell commands from LLM output executed without sanitization. |
+
+### 8.2 HIGH — Thread Safety & Concurrency
+
+| # | Issue | Location | Detail |
+|---|-------|----------|--------|
+| N7 | **Broken double-checked locking** | `sago/permissions.py:278-281` | Outer `if _permission_manager is None` check at line 278 is **outside** the lock — two threads can both enter the inner block and create duplicate instances. |
+| N8 | **No lock on `_error_handler` singleton** | `sago/errors/handler.py:353-358` | `_error_handler` and `_recovery_manager` created without any thread lock protection. |
+| N9 | **No lock on `_global_tracker`** | `sago/tracking/token_tracker.py:352-360` | `_global_tracker` singleton has no thread lock — concurrent access can corrupt state. |
+| N10 | **No lock on `_global_cache`** | `sago/cache/intelligent.py:328-338` | `_global_cache` singleton has no thread lock. |
+| N11 | **Config cache race condition** | `sago/config/loader.py:217-247` | `_config_cache` and `_config_cache_key` are module-level globals with no lock. Two threads calling `get_config()` can corrupt cache state. |
+| N12 | **SQLite connection not thread-safe** | `sago/database.py:32-53` | `_pool_lock` protects the pool dict but actual `conn.execute()` calls on pooled connections are NOT synchronized. Multiple threads can call `conn.execute()` on the same `sqlite3.Connection` — SQLite explicitly warns against this. |
+
+### 8.3 HIGH — Silent Error Swallowing (100+ instances)
+
+| # | Issue | Key Locations |
+|---|-------|---------------|
+| N13 | **100+ bare `except Exception: pass`** | `sago/engine/unified.py:359-360, 423-424, 451-452` — tool execution errors silently swallowed |
+| | | `sago/engine/verifier.py:261, 378, 396, 416-417` — verification failures hidden |
+| | | `sago/memory/codebase_indexer.py:125, 406, 444-445, 467-468` — indexing failures invisible |
+| | | `sago/memory/change_tracker.py:74, 98, 140, 187-188, 197-198` — change tracking silently fails |
+| | | `sago/memory/project_graph.py:199, 1364-1365, 1373-1374` — graph building errors hidden |
+| | | `sago/tools/coding/lsp_client.py` — **16 instances** of bare `except Exception: pass` |
+| | | `sago/engine/simple_executor.py:1495-1496, 1510-1511, 1537-1538, 1651-1652` — executor errors silently lost |
+
+### 8.4 HIGH — Performance Bottlenecks
+
+| # | Issue | Location | Detail |
+|---|-------|----------|--------|
+| N14 | **No async I/O — entire codebase is synchronous** | Systemic | LLM calls (network I/O) use blocking `requests`/`openai` calls. TUI uses `threading.Thread` for all concurrent work. This limits throughput and causes UI freezes. `generate_stream` in `llm/base.py:47-64` is defined as a generator but implementations use blocking calls. |
+| N15 | **N+1 database pattern** | `sago/engine/simple_executor.py:1524-1538` | Every single tool call creates a new `ToolUsageStore`, logs, and flushes — separate DB commit per tool call instead of batching. |
+| N16 | **Repeated tool discovery** | `sago/engine/simple_executor.py:484-530` | `_discover_tools()` traverses entire `tools/` directory, imports all Python files, scans attributes on every call. Cache key is empty — no project-specific invalidation. |
+| N17 | **Fallback tool search is O(n²)** | `sago/errors/handler.py:244-283` | `execute_with_recovery` iterates over ALL `.py` files in `tools/` for each fallback tool name, then scans all attributes — for every fallback attempt. |
+| N18 | **Message compaction is O(n)** | `sago/engine/simple_executor.py:905-957` | `_compact_messages_if_needed` called every iteration when messages exceed 40 — iterates all messages and computes character counts. |
+| N19 | **Cache size computation on every set** | `sago/cache/intelligent.py:138-139` | `json.dumps(value, default=str).encode()` runs on every cache set to compute size — expensive for large values. |
+
+### 8.5 MEDIUM — Code Quality & Bugs
+
+| # | Issue | Location | Detail |
+|---|-------|----------|--------|
+| N20 | **Mutable default `metadata={}`** | `sago/tools/base.py:44` | `metadata: dict[str, Any] = {}` — mutable default shared across all instances. Should be `field(default_factory=dict)`. |
+| N21 | **Rate limiting never enforced** | `sago/tracking/token_tracker.py:191-212` | `check_rate_limit()` result is **never checked** in any executor. The simple_executor and unified executor make LLM calls without consulting the rate limiter. |
+| N22 | **Connection leak** | `sago/memory/symbol_index.py:242-257` | Manual `conn.close()` calls but no context manager or try/finally. If exception occurs between open and close, connection leaks. |
+| N23 | **`while True` loops without timeouts** | `sago/server/daemon.py:215`, `sago/workflow/engine.py:353`, `sago/main.py:1037`, `sago/peers/mesh.py:258` | Server accept loop, workflow execution loop, log tail loop, and peer mesh loop have no max lifetime. |
+| N24 | **Memory growth without bounds** | `sago/cache/intelligent.py:244-246`, `sago/tracking/token_tracker.py:138`, `sago/errors/handler.py:143` | `_access_times`, `_usages`, and `self.errors` lists grow unbounded (trimmed only on `save()` or never). |
+| N25 | **Hardcoded magic numbers** | `sago/engine/simple_executor.py:268,906,1457-1471,1610-1618` | TTL=300, max_tokens=32000, circular-detection=3, auto-complete thresholds (5 tools, 3 success, 4 iterations, 2 min) — all hardcoded, not configurable. |
+| N26 | **No graceful degradation for optional deps** | `sago/llm/factory.py:36-41`, `sago/main.py:595` | Gemini silently drops from `get_available_providers()` if SDK absent (debug-only log). `sago smart` does `from openai import OpenAI` without try/except — crashes if `openai` isn't installed. |
+| N27 | **Inconsistent error handling in executor** | `sago/engine/simple_executor.py:709-727` | `execute_agent_task` returns `{"success": False}` on errors, but TUI's `_process_message_thread` doesn't consistently check `success` before accessing `output`. |
+| N28 | **Resource cleanup** | `sago/server/daemon.py:130`, `sago/engine/simple_executor.py:338,362` | `log_fd = open(...)` never explicitly closed. File handles opened without context managers. |
+| N29 | **`ToolUsageStore` never properly closed** | `sago/engine/simple_executor.py:1529-1537` | New `ToolUsageStore("simple_executor")` created on every tool call, flushed, discarded — never properly closed. Same at line 1536. |
+| N30 | **No input validation on sudo commands** | `sago/tools/admin/sudo_executor.py` | No validation of `command` argument. Commands passed directly to shell. |
+| N31 | **No validation on `effort` parameter** | `sago/main.py:580` | Accepts any string without validation against allowed values (`minimal/low/medium/high/max`). |
+
+### 8.6 MEDIUM — Duplicate/Overlapping Tools
+
+| # | Issue | Detail |
+|---|-------|--------|
+| N32 | `git_ops` vs `git_operations` | `sago/tools/vcs/git_ops.py` and `sago/tools/system/git_ops.py` overlap |
+| N33 | `code_search_tool` vs `hybrid_search_tool` | `sago/tools/coding/code_search_tool.py` and `hybrid_search_tool.py` overlap |
+| N34 | `spawn_agent` / `delegate_to_agent` / `agent_delegator` | Three tools doing similar delegation |
+
+### 8.7 Documentation Gaps
+
+| # | Issue | Detail |
+|---|-------|--------|
+| N35 | README says "56+ production tools" | Actual count is ~68 (understated) |
+| N36 | README says "561 tests" | Actual count is 549 test functions (548 pass + 1 skip) |
+| N37 | README says "339 specialist agents" | 340 profiles exist, many are stubs with generic prompts |
+| N38 | `docs/` directory referenced | May have outdated content — not fully verified |
+
+### 8.8 Test Coverage Gaps
+
+| # | Missing Tests For |
+|---|-------------------|
+| N39 | LLM providers (gemini, claude, ollama, openrouter) |
+| N40 | Streaming handler |
+| N41 | Daemon server lifecycle |
+| N42 | MCP server end-to-end |
+| N43 | Workflow templates |
+| N44 | Orchestrator/delegator core logic |
+| N45 | Hybrid search tool embeddings |
+| N46 | LSP client |
+| N47 | Change tracker persistence |
+| N48 | Concurrent tool execution |
+| N49 | Session persistence round-trip |
+| N50 | Checkpoint restore |
+| N51 | Security tests are weak — path traversal tests assert `result is not None` not that traversal was blocked; shell injection test doesn't verify injection was prevented |
+
+### 8.9 Summary Counts
+
+| Category | Critical | High | Medium | Low |
+|----------|----------|------|--------|-----|
+| Security | 6 (N1-N6) | 0 | 0 | 0 |
+| Thread Safety | 0 | 6 (N7-N12) | 0 | 0 |
+| Error Handling | 0 | 1 (N13, 100+ instances) | 0 | 0 |
+| Performance | 0 | 6 (N14-N19) | 0 | 0 |
+| Bugs/Code Quality | 0 | 0 | 12 (N20-N31) | 0 |
+| Duplicates | 0 | 0 | 3 (N32-N34) | 0 |
+| Docs | 0 | 0 | 0 | 4 (N35-N38) |
+| Test Gaps | 0 | 0 | 0 | 13 (N39-N51) |
+
+---
+
+## 9. v0.1.6 Reconciliation (re-audit of branch `feature/v0.1.6`)
 
 > After the v0.1.5→v0.1.6 work, a second pass re-audited every fix against the §2–§3 ledger. This section records what is now **FIXED**, what is **STILL OPEN**, and **NEW regressions** introduced. Status verified against commits `aae3c76`, `3a5c81d`, `843298a`.
 
@@ -604,9 +782,9 @@ Nothing from the analysis was omitted. The structured §2–§3 ledger, the §4 
 
 | # | Issue | Detail |
 |---|-------|--------|
-| A | "Dense 128-d embedding" still a hash pseudo-vector | `_compute_dense_vector` (`hybrid_indexer.py:128-145`) remains MD5 char-ngram ±1 bucketing. Real `sentence-transformers` only *rerank* and are flag-gated (`SAGO_HYBRID_EMBEDDINGS=1`). |
-| B | FTS5 `symbol_index.py` still unwired | A parallel home-grown dict+JSON index was built instead; the existing scalable FTS5 asset remains unused → two divergent indexes. |
-| C | No search-scale tests | `test_v016_fixes.py` has zero hybrid/search assertions (no >2000 indexing, persistence, inverted-index, or timing). `test_mesh_port_no_daemon_collision` asserts `== 7655` (tautological). |
+| A | "Dense 128-d embedding" still a hash pseudo-vector | `_compute_dense_vector` (`hybrid_indexer.py:128-145`) remains MD5 char-ngram ±1 bucketing. Real `sentence-transformers` only *rerank* and are flag-gated (`SAGO_HYBRID_EMBEDDINGS=1`). Docs gap → **N37** in §8.7. |
+| B | FTS5 `symbol_index.py` still unwired | A parallel home-grown dict+JSON index was built instead; the existing scalable FTS5 asset remains unused → two divergent indexes. Duplication → **N32-N34** in §8.6. |
+| C | No search-scale tests | `test_v016_fixes.py` has zero hybrid/search assertions (no >2000 indexing, persistence, inverted-index, or timing). `test_mesh_port_no_daemon_collision` asserts `== 7655` (tautological). Test gaps → **N39-N51** in §8.8. |
 
 ### 8.3 NEW regressions found in v0.1.6 (must fix before release)
 
@@ -616,20 +794,77 @@ Nothing from the analysis was omitted. The structured §2–§3 ledger, the §4 
 | R2 | **[SEC/ROB] HIGH** | **Mesh no execution timeout**: `execute_agent_task` ran synchronously inside the UDP recv loop with no timeout → a hung task freezes the receiver's entire mesh. Also `task_id` was dropped, so concurrent delegations to one node could miscorrelate results. | `peers/mesh.py` `process_messages`, `send_task_request`, `delegate_distributed` | ✅ Fixed → `ThreadPoolExecutor` with `MESH_TASK_TIMEOUT` (default 120s, env `SAGO_MESH_TASK_TIMEOUT`); `task_id` now propagated end-to-end and matched in `delegate_distributed`. Tests `test_mesh_task_id_propagation` added. |
 | R3 | **[BUG] MED** | **Mesh fallback import dead**: `from sago.engine.production import execute_agent_task` — `production.py` never exported it (would `ImportError` at runtime and return task failure). Wrong param name `agent_name` (real param is `agent_role`). | `peers/mesh.py` `_run_task` | ✅ Fixed → import from `sago.engine.simple_executor`; call with `agent_role=`. |
 | R4 | **[BUG] MED** | **Search semantic-recall regression**: when lexical matches are sparse, dense/semantic search only scanned first 200 chunks. | `hybrid_indexer.py` | ⚠️ PARTIAL — commit `7498427` added a full-chunk scan fallback (so first-index semantic recall works), BUT its incremental re-index path left re-indexed chunks with `vector=[]`, re-introducing 0 semantic score for every *edited* file. Sub-bug fixed post-review → incremental path now computes vectors (`hybrid_indexer.py:255-258`). Test `test_hybrid_search_incremental_preserves_vectors` added. |
-| R5 | **[BUG] MED** | **Search memory/OOM + cache thrash**: all-or-nothing invalidation rewrote the whole cache on any single file edit. | `hybrid_indexer.py` cache | ⚠️ PARTIAL — commit `7498427` added incremental per-file mtime reuse (skips re-parsing unchanged files), but (a) `_save_cache` still rewrites the **entire** JSON on every update, and (b) the full `content`+`tokens`+`vector`+`term_freqs` of every chunk is still held in RAM with **no memory cap**. Open at 50k-file scale. |
+| R5 | **[BUG] MED** | **Search memory/OOM + cache thrash**: all-or-nothing invalidation rewrote the whole cache on any single file edit. | `hybrid_indexer.py` cache | ⚠️ PARTIAL — commit `7498427` added incremental per-file mtime reuse (skips re-parsing unchanged files), but (a) `_save_cache` still rewrites the **entire** JSON on every update, and (b) the full `content`+`tokens`+`vector`+`term_freqs` of every chunk is still held in RAM with **no memory cap**. Open at 50k-file scale. Also related: **N24** (unbounded memory growth) and **N19** (cache size computation overhead) in §8.5. |
 | R6 | **[BUG] MED** | **NEW (found in re-review)**: incremental re-index dropped dense vectors on edited files → semantic score permanently 0. | `hybrid_indexer.py:255-256` | ✅ Fixed → incremental branch now sets `chunk.vector = _compute_dense_vector(chunk.tokens)`. Regression test added. |
 
 ### 8.4 Current v0.1.6 test status
 - `tests/unit/test_v016_fixes.py`: 13 tests. Relevant subset passes in a bare env: agent resolution, `test_mcp_permission_fail_closed`, `test_mesh_task_id_propagation` (timeout + id correlation), verifier, 2,200+ file search scale & incremental caching, full-semantic-recall, and `test_hybrid_search_incremental_preserves_vectors`. Two tests fail only due to missing optional deps (`google.genai`, `textual`) — env gaps, not defects.
 
-### 8.5 Remaining pre-release checklist (P0/P1)
+### 9.5 Remaining pre-release checklist (P0/P1)
 - [x] **R1** MCP fail-closed (security).
 - [x] **R2/R3** Mesh timeout + `task_id` + dead-import fix.
 - [x] **R4** full semantic scan on sparse lexical hits (first-index).
 - [x] **R6** incremental re-index preserves dense vectors (post-review fix).
-- [~] **R5** incremental cache parse done; **still open**: full-JSON rewrite thrash + unbounded RAM at 50k files.
+- [~] **R5** incremental cache parse done; **still open**: full-JSON rewrite thrash + unbounded RAM at 50k files → now tracked as **I5, I6, J5** in Milestones I-J.
 - [x] **C** add search-scale tests (>2000 files, persistence, inverted-index, timing, incremental vectors).
 - [ ] **B** (optional) consolidate onto the FTS5 `symbol_index.py` to remove the duplicate index.
 - [ ] **A** (docs) stop advertising default "128-d dense semantic" — it is a hash pseudo-vector unless `SAGO_HYBRID_EMBEDDINGS=1`.
-- [ ] **R5(a)** make `_save_cache` incremental (append/update per file) instead of rewriting the whole JSON.
-- [ ] **R5(b)** add a memory cap / streaming for the in-RAM chunk index.
+- [ ] **R5(a)** make `_save_cache` incremental (append/update per file) instead of rewriting the whole JSON → **I6**.
+- [ ] **R5(b)** add a memory cap / streaming for the in-RAM chunk index → **I5**.
+
+---
+
+## 10. Combined Priority Matrix (all items §2–§9)
+
+### P0 — Must fix before any release
+
+| ID | Issue | Source | Status |
+|----|-------|--------|--------|
+| N1 | SQL injection in `sql_schema.py` | §8.1 | FIXED in v0.1.6 (PRAGMA identifier sanitization) |
+| N2 | SQL injection in `workflow/templates.py` | §8.1 | FIXED in v0.1.6 (report_type sanitization) |
+| N3 | Unsafe `os.fork()` in daemon | §8.1 | STILL OPEN |
+| N4 | Daemon binds `0.0.0.0` | §8.1 | FIXED in v0.1.6 (default 127.0.0.1 with env override) |
+| N5 | Sudo passwords in plaintext | §8.1 | FIXED in v0.1.6 (credentials passed securely via stdin) |
+| N7 | Double-checked locking (`permissions.py`) | §8.2 | FIXED in v0.1.6 (thread-safe lock block) |
+| N8-N12 | Unprotected singletons (4 singletons + config cache) | §8.2 | FIXED in v0.1.6 (thread-safe locks on error/cache/token/config singletons) |
+| P0-1 | Agents cannot spawn (§2.1) | §2.1 | FIXED in v0.1.6 |
+| P0-2 | TUI crashes w/o `openai` (§2.3) | §2.3 | FIXED in v0.1.6 |
+| P0-3 | Search hard cap (§2.6) | §2.6 | FIXED in v0.1.6 |
+| P0-4 | MCP permission bypass (§2.2) | §2.2 | FIXED in v0.1.6 |
+| P0-5 | Gemini dead (§2.3) | §2.3 | FIXED in v0.1.6 |
+
+### P1 — Major feature broken / misleading
+
+| ID | Issue | Source |
+|----|-------|--------|
+| N13 | 100+ `except Exception: pass` | §8.3 |
+| N14 | No async I/O | §8.4 |
+| N15 | N+1 DB pattern | §8.4 |
+| N16 | Repeated tool discovery | §8.4 |
+| N17 | Fallback search O(n²) | §8.4 |
+| P1-6 | 285/339 agents lose tools (§2.1) | FIXED in v0.1.6 |
+| P1-7 | Auto-router targets ghosts (§2.1) | FIXED in v0.1.6 |
+| P1-8 | 175 dangling handoff edges (§2.1) | FIXED in v0.1.6 |
+| P1-9 | Search ~900 ms (§2.6) | FIXED in v0.1.6 |
+| P1-10 | No disk cache (§2.6) | FIXED in v0.1.6 |
+| P1-11 | Fake dense embeddings (§2.6) | STILL OPEN (§8.2 A) |
+| P1-12 | Orchestrator single-agent only (§2.4) | STILL OPEN |
+| P1-13 | Mesh execution stub (§2.4) | FIXED in v0.1.6 |
+| P1-14 | MESH_PORT collision (§2.4) | FIXED in v0.1.6 |
+
+### P2 — Quality / correctness / docs
+
+| ID | Issue | Source |
+|----|-------|--------|
+| N20-N31 | Code quality bugs (12 items) | §8.5 |
+| N32-N34 | Duplicate tools | §8.6 |
+| N35-N38 | Documentation gaps | §8.7 |
+| N39-N51 | Test coverage gaps | §8.8 |
+| P2-16 | README test count wrong (§2.5) | STILL OPEN |
+| P2-17 | Docs overstate (§2.5) | STILL OPEN |
+| P2-20 | mypy ~271 errors (§2.5) | STILL OPEN |
+| P2-21 | Coverage 58.8% (§2.5) | STILL OPEN |
+
+---
+
+*Last updated: deep code audit v0.1.6+. All issues from §8 are NEW findings not present in the original v0.1.5 audit (§2–§7).*

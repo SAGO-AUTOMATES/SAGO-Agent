@@ -7,6 +7,7 @@ Supports environment variable overrides and user-level customization.
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -216,6 +217,7 @@ def load_config(
 
 _config_cache: SagoConfig | None = None
 _config_cache_key: str | None = None
+_config_lock = threading.Lock()
 
 
 def get_config() -> SagoConfig:
@@ -239,16 +241,18 @@ def get_config() -> SagoConfig:
     user_path = project_config if project_config.exists() else user_config
 
     cache_key = f"{config_dir}:{user_path}"
-    if _config_cache is not None and _config_cache_key == cache_key:
-        return _config_cache
+    with _config_lock:
+        if _config_cache is not None and _config_cache_key == cache_key:
+            return _config_cache
 
-    _config_cache = load_config(config_dir=config_dir, user_config_path=user_path)
-    _config_cache_key = cache_key
-    return _config_cache
+        _config_cache = load_config(config_dir=config_dir, user_config_path=user_path)
+        _config_cache_key = cache_key
+        return _config_cache
 
 
 def invalidate_config_cache() -> None:
-    """Force config to be reloaded on next get_config() call."""
+    """Invalidate the cached configuration, forcing reload on next get_config()."""
     global _config_cache, _config_cache_key
-    _config_cache = None
-    _config_cache_key = None
+    with _config_lock:
+        _config_cache = None
+        _config_cache_key = None

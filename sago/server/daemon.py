@@ -25,8 +25,8 @@ SOCKET_FILE = _sago_home / "sago.sock"
 AUTH_FILE = _sago_home / "daemon.key"
 
 # Default server config
-DEFAULT_HOST = "0.0.0.0"
-DEFAULT_PORT = 7654
+DEFAULT_HOST = os.environ.get("SAGO_DAEMON_HOST", "127.0.0.1")
+DEFAULT_PORT = int(os.environ.get("SAGO_DAEMON_PORT", "7654"))
 MAX_CONNECTIONS = 10
 MAX_REQUEST_SIZE = 1_000_000  # 1MB
 CLIENT_TIMEOUT = 300  # 5 minutes

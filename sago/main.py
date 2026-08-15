@@ -577,7 +577,13 @@ def setup() -> None:
 
 @cli.command()
 @click.argument("task")
-@click.option("--effort", "-e", default="medium", help="Effort level: minimal/low/medium/high/max")
+@click.option(
+    "--effort",
+    "-e",
+    type=click.Choice(["minimal", "low", "medium", "high", "max"], case_sensitive=False),
+    default="medium",
+    help="Effort level: minimal/low/medium/high/max",
+)
 @click.option("--thinking/--no-thinking", default=False, help="Show thinking traces")
 def smart(task: str, effort: str, thinking: bool) -> None:
     """Smart task execution with auto-delegation and streaming.
@@ -591,8 +597,6 @@ def smart(task: str, effort: str, thinking: bool) -> None:
         sago smart "Review this code" --thinking
     """
     import os
-
-    from openai import OpenAI
 
     from sago.agents.registry import get_agent, list_agents
     from sago.engine.simple_executor import execute_agent_task
@@ -611,36 +615,40 @@ def smart(task: str, effort: str, thinking: bool) -> None:
         ]
     )
 
-    client = OpenAI(
-        api_key=api_key,
-        base_url="https://openrouter.ai/api/v1",
-    )
+    agent_name = None
+    try:
+        from openai import OpenAI
 
-    router_response = client.chat.completions.create(
-        model=_get_configured_model(),
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a task router. Given a task, select the EXACT BEST agent name from the list.\n"
-                    "Reply with ONLY the exact agent name, nothing else. No quotes, no explanation.\n"
-                    "If the task mentions Java, use java-engineer. If Python, use python-engineer.\n\n"
-                    f"Available agents:\n{agent_list_str}"
-                ),
-            },
-            {"role": "user", "content": f"Task: {task}"},
-        ],
-        max_tokens=50,
-    )
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+        )
 
-    agent_name = router_response.choices[0].message.content
-    # Some models put response in reasoning field
-    if not agent_name and router_response.choices[0].message.reasoning:
-        # Extract agent name from reasoning
-        for a in agents:
-            if a["name"] in router_response.choices[0].message.reasoning:
-                agent_name = a["name"]
-                break
+        router_response = client.chat.completions.create(
+            model=_get_configured_model(),
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a task router. Given a task, select the EXACT BEST agent name from the list.\n"
+                        "Reply with ONLY the exact agent name, nothing else. No quotes, no explanation.\n"
+                        "If the task mentions Java, use java-engineer. If Python, use python-engineer.\n\n"
+                        f"Available agents:\n{agent_list_str}"
+                    ),
+                },
+                {"role": "user", "content": f"Task: {task}"},
+            ],
+            max_tokens=50,
+        )
+
+        agent_name = router_response.choices[0].message.content
+        if not agent_name and getattr(router_response.choices[0].message, "reasoning", None):
+            for a in agents:
+                if a["name"] in router_response.choices[0].message.reasoning:
+                    agent_name = a["name"]
+                    break
+    except Exception:
+        agent_name = None
     if agent_name:
         agent_name = agent_name.strip().strip('"').strip("'")
     else:

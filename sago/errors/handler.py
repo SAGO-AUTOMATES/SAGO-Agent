@@ -7,6 +7,7 @@ for tool execution and agent operations.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import traceback
 from collections.abc import Callable
@@ -348,13 +349,17 @@ class RecoveryManager:
 # Global instances
 _error_handler: ErrorHandler | None = None
 _recovery_manager: RecoveryManager | None = None
+_error_handler_lock = threading.Lock()
+_recovery_manager_lock = threading.Lock()
 
 
 def get_error_handler() -> ErrorHandler:
     """Get global error handler."""
     global _error_handler
     if _error_handler is None:
-        _error_handler = ErrorHandler()
+        with _error_handler_lock:
+            if _error_handler is None:
+                _error_handler = ErrorHandler()
     return _error_handler
 
 
@@ -362,5 +367,7 @@ def get_recovery_manager() -> RecoveryManager:
     """Get global recovery manager."""
     global _recovery_manager
     if _recovery_manager is None:
-        _recovery_manager = RecoveryManager()
+        with _recovery_manager_lock:
+            if _recovery_manager is None:
+                _recovery_manager = RecoveryManager()
     return _recovery_manager

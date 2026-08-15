@@ -71,7 +71,9 @@ class SqlSchemaTool(BaseTool):
             output = [f"## Database Schema: {db_file.name}\n"]
 
             for name, ddl in tables:
-                cursor.execute(f"PRAGMA table_info({name})")
+                # Sanitize and quote identifiers for PRAGMA statements
+                clean_name = name.replace('"', '""')
+                cursor.execute(f'PRAGMA table_info("{clean_name}")')
                 cols = cursor.fetchall()
 
                 output.append(f"### Table: `{name}`")
@@ -84,20 +86,22 @@ class SqlSchemaTool(BaseTool):
                     )
 
                 if include_indexes:
-                    cursor.execute(f"PRAGMA index_list({name})")
+                    cursor.execute(f'PRAGMA index_list("{clean_name}")')
                     indexes = cursor.fetchall()
                     if indexes:
                         output.append("\n**Indexes:**")
                         for idx in indexes:
                             idx_name = idx[1]
+                            clean_idx = idx_name.replace('"', '""')
                             unique = "UNIQUE " if idx[2] else ""
-                            cursor.execute(f"PRAGMA index_info({idx_name})")
+                            cursor.execute(f'PRAGMA index_info("{clean_idx}")')
                             idx_cols = [c[2] for c in cursor.fetchall()]
                             output.append(f"- `{idx_name}` ({unique}{', '.join(idx_cols)})")
 
                 output.append("")
 
-            conn.close()
             return "\n".join(output)
         except Exception as exc:
             return f"Database introspection error for '{database_path}': {exc}"
+        finally:
+            conn.close()

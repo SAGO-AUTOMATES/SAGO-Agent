@@ -317,6 +317,7 @@ class ContentHashCache(Cache):
 
 # Global cache instance
 _global_cache: Cache | None = None
+_cache_lock = threading.Lock()
 
 
 def get_cache(
@@ -327,12 +328,14 @@ def get_cache(
     """Get or create the global cache instance."""
     global _global_cache
     if _global_cache is None:
-        from sago.paths import get_sago_home
+        with _cache_lock:
+            if _global_cache is None:
+                from sago.paths import get_sago_home
 
-        persist_path = get_sago_home() / "cache.json" if persist else None
-        _global_cache = Cache(
-            max_size=max_size,
-            default_ttl=default_ttl,
-            persist_path=persist_path,
-        )
+                persist_path = get_sago_home() / "cache.json" if persist else None
+                _global_cache = Cache(
+                    max_size=max_size,
+                    default_ttl=default_ttl,
+                    persist_path=persist_path,
+                )
     return _global_cache

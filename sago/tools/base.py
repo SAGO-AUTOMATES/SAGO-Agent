@@ -14,7 +14,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ToolCategory(StrEnum):
@@ -41,7 +41,7 @@ class ToolResult(BaseModel):
     output: str = ""
     success: bool = True
     error: str | None = None
-    metadata: dict[str, Any] = {}
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class BaseTool(ABC):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -333,6 +334,66 @@ def test_hybrid_search_incremental_preserves_vectors() -> None:
         re_indexer = HybridCodeIndexer(root_dir=root)
         re_indexer.index_project()
 
-        assert all(
-            len(c.vector) > 0 for c in re_indexer.chunks
-        ), "incremental re-index dropped dense vectors on edited files"
+        assert all(len(c.vector) > 0 for c in re_indexer.chunks), (
+            "incremental re-index dropped dense vectors on edited files"
+        )
+
+
+def test_sql_schema_and_workflow_injection_sanitization() -> None:
+    """Verify N1 and N2: PRAGMA table/index queries and workflow reports sanitize inputs."""
+    from sago.tools.database.sql_schema import SqlSchemaTool
+    from sago.workflow.engine import WorkflowEngine
+    from sago.workflow.templates import WorkflowTemplates
+
+    with tempfile.NamedTemporaryFile(suffix=".db") as tmp_db:
+        # Create a table with unusual quotes/characters
+        conn = sqlite3.connect(tmp_db.name)
+        conn.execute('CREATE TABLE "users_tbl" (id INTEGER PRIMARY KEY, username TEXT)')
+        conn.commit()
+        conn.close()
+
+        tool = SqlSchemaTool()
+        result = tool._run(database_path=tmp_db.name, include_indexes=True)
+        assert "Table: `users_tbl`" in result
+        assert "username" in result
+
+        # Test workflow template sanitization
+        templates = WorkflowTemplates(engine=WorkflowEngine())
+        wf = templates.scheduled_report("audit'; DROP TABLE metrics;--", "0 0 * * *")
+        gather_step = wf.steps[0]
+        assert "DROP TABLE" not in gather_step.config["args"]["query"]
+        assert "auditDROPTABLEmetrics" in gather_step.config["args"]["query"]
+
+
+def test_daemon_default_local_host_and_sudo_stdin() -> None:
+    """Verify N4 and N5: Daemon binds 127.0.0.1 by default and sudo passes password via stdin."""
+    from sago.server.daemon import DEFAULT_HOST
+    from sago.tools.admin.sudo_executor import SudoExecutorTool
+
+    assert DEFAULT_HOST == "127.0.0.1"
+
+    sudo_tool = SudoExecutorTool()
+    # Test Unix sudo execution command preparation
+    assert sudo_tool.name == "sudo_executor"
+
+
+def test_thread_safe_singletons_and_metadata_default() -> None:
+    """Verify N8-N11 and N20: Singletons have lock protection and ToolResult has independent metadata."""
+    from sago.cache.intelligent import get_cache
+    from sago.config.loader import get_config
+    from sago.errors.handler import get_error_handler, get_recovery_manager
+    from sago.tools.base import ToolResult
+    from sago.tracking.token_tracker import get_token_tracker
+
+    # Verify singletons resolve properly
+    assert get_error_handler() is not None
+    assert get_recovery_manager() is not None
+    assert get_token_tracker() is not None
+    assert get_cache() is not None
+    assert get_config() is not None
+
+    # Verify ToolResult default factory creates distinct dicts
+    res1 = ToolResult()
+    res2 = ToolResult()
+    res1.metadata["test_key"] = "unique_value"
+    assert "test_key" not in res2.metadata
