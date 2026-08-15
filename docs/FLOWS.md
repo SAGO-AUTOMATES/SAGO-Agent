@@ -270,7 +270,7 @@ flowchart LR
         Sign --> Packet["Signed MeshMessage Packet"]
     end
     
-    Packet -->|WebSocket / TCP Port 7654| NodeB
+    Packet -->|UDP Port 7655 / Mesh Broadcast| NodeB
     
     subgraph NodeB["🖥️ SAGO Node B (Receiver)"]
         Packet --> VerifyTime{"Timestamp within 300s window?"}

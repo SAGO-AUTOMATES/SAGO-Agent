@@ -25,8 +25,8 @@ SOCKET_FILE = _sago_home / "sago.sock"
 AUTH_FILE = _sago_home / "daemon.key"
 
 # Default server config
-DEFAULT_HOST = "0.0.0.0"
-DEFAULT_PORT = 7654
+DEFAULT_HOST = os.environ.get("SAGO_DAEMON_HOST", "127.0.0.1")
+DEFAULT_PORT = int(os.environ.get("SAGO_DAEMON_PORT", "7654"))
 MAX_CONNECTIONS = 10
 MAX_REQUEST_SIZE = 1_000_000  # 1MB
 CLIENT_TIMEOUT = 300  # 5 minutes
@@ -112,6 +112,8 @@ class SagoDaemon:
 
     def _start_background(self) -> bool:
         """Start daemon in background."""
+        sys.stdout.flush()
+        sys.stderr.flush()
         pid = os.fork()
         if pid > 0:
             print(f"Daemon started (PID: {pid})")
@@ -123,22 +125,27 @@ class SagoDaemon:
         return True
 
     def _daemonize(self) -> None:
-        """Daemonize the process."""
+        """Daemonize the process with safe stream redirection."""
         self.pid_file.parent.mkdir(parents=True, exist_ok=True)
         self.pid_file.write_text(str(os.getpid()))
 
-        log_fd = open(self.log_file, "w")
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        sys.stdout = log_fd
-        sys.stderr = log_fd
-        old_stdout.close()
-        old_stderr.close()
+        # Redirect standard inputs and outputs cleanly
+        devnull_fd = open(os.devnull)
+        sys.stdin = devnull_fd
+
+        self._log_fd = open(self.log_file, "a", encoding="utf-8")
+        sys.stdout = self._log_fd
+        sys.stderr = self._log_fd
 
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
 
-        self._run_server()
+        try:
+            self._run_server()
+        finally:
+            if hasattr(self, "_log_fd") and self._log_fd and not self._log_fd.closed:
+                self._log_fd.close()
+            devnull_fd.close()
 
     def _run_foreground(self) -> bool:
         """Run in foreground."""

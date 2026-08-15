@@ -177,87 +177,103 @@ class PersistentSymbolIndex:
     def search_symbols(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
         """Search symbol names, signatures, and docstrings using FTS5 BM25 ranking."""
         conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
-
-        # Sanitize query for FTS5
-        clean_q = "".join(c for c in query if c.isalnum() or c in (" ", "_", "-")).strip()
-        if not clean_q:
-            conn.close()
-            return []
-
-        fts_query = f'"{clean_q}"*'
-
         try:
-            cur.execute(
-                """
-                SELECT file_path, symbol_name, symbol_type, signature, docstring, rank
-                FROM symbols_fts
-                WHERE symbols_fts MATCH ?
-                ORDER BY rank
-                LIMIT ?
-                """,
-                (fts_query, limit),
-            )
-            rows = cur.fetchall()
-        except sqlite3.OperationalError:
-            # Fallback to standard LIKE
-            cur.execute(
-                """
-                SELECT file_path, symbol_name, symbol_type, signature, docstring, 0
-                FROM symbols_fts
-                WHERE symbol_name LIKE ?
-                LIMIT ?
-                """,
-                (f"%{clean_q}%", limit),
-            )
-            rows = cur.fetchall()
+            cur = conn.cursor()
 
-        conn.close()
+            # Sanitize query for FTS5
+            clean_q = "".join(c for c in query if c.isalnum() or c in (" ", "_", "-")).strip()
+            if not clean_q:
+                return []
 
-        results = []
-        for r in rows:
-            results.append(
-                {
-                    "file_path": r[0],
-                    "name": r[1],
-                    "type": r[2],
-                    "signature": r[3],
-                    "docstring": r[4],
-                    "rank": r[5],
-                }
-            )
-        return results
+            fts_query = f'"{clean_q}"*'
+
+            try:
+                cur.execute(
+                    """
+                    SELECT file_path, symbol_name, symbol_type, signature, docstring, rank
+                    FROM symbols_fts
+                    WHERE symbols_fts MATCH ?
+                    ORDER BY rank
+                    LIMIT ?
+                    """,
+                    (fts_query, limit),
+                )
+                rows = cur.fetchall()
+            except sqlite3.OperationalError:
+                # Fallback to standard LIKE
+                cur.execute(
+                    """
+                    SELECT file_path, symbol_name, symbol_type, signature, docstring, 0
+                    FROM symbols_fts
+                    WHERE symbol_name LIKE ?
+                    LIMIT ?
+                    """,
+                    (f"%{clean_q}%", limit),
+                )
+                rows = cur.fetchall()
+
+            results = []
+            for r in rows:
+                results.append(
+                    {
+                        "file_path": r[0],
+                        "name": r[1],
+                        "type": r[2],
+                        "signature": r[3],
+                        "docstring": r[4],
+                        "rank": r[5],
+                    }
+                )
+            return results
+        finally:
+            conn.close()
 
     def get_ranked_repo_map(self, query: str | None = None, max_symbols: int = 150) -> str:
         """Generate a token-efficient outline map of the most relevant files & symbols."""
         self.update_index()
 
         conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        try:
+            cur = conn.cursor()
 
-        if query:
-            matches = self.search_symbols(query, limit=max_symbols)
-            matched_files = {m["file_path"] for m in matches}
-            if not matched_files:
-                conn.close()
-                return f"No symbols found matching '{query}'."
+            if query:
+                matches = self.search_symbols(query, limit=max_symbols)
+                matched_files = {m["file_path"] for m in matches}
+                if not matched_files:
+                    return f"No symbols found matching '{query}'."
 
-            placeholders = ",".join("?" for _ in matched_files)
-            cur.execute(
-                f"SELECT file_path, language, line_count, symbols_json FROM files WHERE file_path IN ({placeholders})",
-                list(matched_files),
-            )
-            rows = cur.fetchall()
-        else:
-            cur.execute(
-                "SELECT file_path, language, line_count, symbols_json FROM files ORDER BY line_count DESC LIMIT 100"
-            )
-            rows = cur.fetchall()
+                placeholders = ",".join("?" for _ in matched_files)
+                cur.execute(
+                    f"SELECT file_path, language, line_count, symbols_json FROM files WHERE file_path IN ({placeholders})",
+                    list(matched_files),
+                )
+                rows = cur.fetchall()
+            else:
+                cur.execute(
+                    "SELECT file_path, language, line_count, symbols_json FROM files ORDER BY line_count DESC LIMIT 100"
+                )
+                rows = cur.fetchall()
 
-        conn.close()
+            lines = [f"## Repository Symbol Outline ({len(rows)} files)\n"]
+            for r in rows:
+                fpath, lang, lines_cnt, syms_raw = r
+                syms_list = json.loads(syms_raw) if syms_raw else []
 
-        lines = [f"## Repository Symbol Outline ({len(rows)} files)\n"]
-        for r in rows:
+                lines.append(f"### `{fpath}` ({lang}, {lines_cnt} lines):")
+                for s in syms_list[:10]:
+                    sig = f"({s.get('signature', '')})" if s.get("signature") else ""
+                    lines.append(f"  • {s.get('symbol_type', 'symbol')} `{s.get('name')}`{sig}")
+                    for ch in s.get("children", [])[:5]:
+                        ch_sig = f"({ch.get('signature', '')})" if ch.get("signature") else ""
+                        lines.append(
+                            f"    - {ch.get('symbol_type', 'method')} `{ch.get('name')}`{ch_sig}"
+                        )
+                if len(syms_list) > 10:
+                    lines.append(f"  [dim]... +{len(syms_list) - 10} more symbols[/dim]")
+                lines.append("")
+            return "\n".join(lines)
+        finally:
+            conn.close()
             fpath, lang, lines_cnt, syms_raw = r
             syms_list = json.loads(syms_raw) if syms_raw else []
 

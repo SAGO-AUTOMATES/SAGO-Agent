@@ -52,6 +52,7 @@ class CommandHandlers:
                 "/allow",
                 "/block",
             ],
+            "DEBUGGING": ["/dev", "/dev view", "/dev logs", "/dev export"],
         }
 
         lines = ["[bold white on #21262d]  COMMAND REFERENCE  [/bold white on #21262d]\n"]
@@ -63,7 +64,7 @@ class CommandHandlers:
             lines.append("")
 
         lines.append(
-            "[dim]Shortcuts: Ctrl+D Dashboard | Ctrl+T Tasks | Ctrl+C Cancel | @agent | #file[/dim]"
+            "[dim]Shortcuts: F1 Help | F2 Traces | Ctrl+D Dashboard | Ctrl+T Tasks | Ctrl+C Cancel | @agent | #file[/dim]"
         )
 
         body = "\n".join(lines)
@@ -71,7 +72,7 @@ class CommandHandlers:
             Collapsible(
                 Static(body),
                 title="Command Reference",
-                collapsed=False,
+                collapsed=True,
             )
         )
         container.scroll_end()
@@ -121,7 +122,7 @@ class CommandHandlers:
                 Collapsible(
                     Static(body),
                     title=title,
-                    collapsed=False,
+                    collapsed=True,
                 )
             )
             container.scroll_end()
@@ -145,14 +146,93 @@ class CommandHandlers:
         self._process_delegation(agent_name, task)
 
     def _chain_agents(self: SagoApp, args: str) -> None:
-        parts = args.split(None, 1)
-        if len(parts) < 2:
-            self._add_system_message("Usage: /chain <agent1,agent2> <task>")
+        args = args.strip()
+        if not args:
+            self._add_system_message(
+                "Usage: /chain <task> (auto-route) or /chain agent1,agent2 <task>"
+            )
             return
-        agent_chain, task = parts
-        agents = [a.strip() for a in agent_chain.split(",")]
+
+        # Detect if args are just agent names (no real task text)
+        # Heuristic: if there's no comma/arrow and words look like agent names (contain hyphens)
+        has_separator = "," in args or "→" in args
+        words = args.split()
+
+        if not has_separator and len(words) >= 2:
+            # Check if all words look like agent names (contain hyphens, no spaces in "task-like" text)
+            all_look_like_agents = all("-" in w and len(w) < 40 for w in words)
+            if all_look_like_agents:
+                # Treat all words as agents, use smart routing for task
+                try:
+                    # Use the agent names as hints for what kind of task to generate
+                    agent_list = words
+                    self._add_system_message(
+                        f"Agents: {', '.join(agent_list)} — describe what you want them to do, or I'll auto-route"
+                    )
+                    self._add_user_message(f"/chain {args}")
+                    # Just run them as a chain with auto-routing on empty task
+                    chain_steps = [[a] for a in agent_list]
+                    self._process_chain(chain_steps, f"Execute: {', '.join(agent_list)}")
+                    return
+                except Exception:
+                    pass
+
+        # Parse with separator: "a,b → c,d" or "a,b task"
+        if has_separator:
+            # Find where agents end and task begins
+            # If there's a "→", split on it; otherwise check if last part after comma is a task
+            parts = args.split(None, 1)
+            if len(parts) >= 2 and "→" not in args and "," not in parts[0]:
+                # "/chain agent1 task description here"
+                agent_chain_str = parts[0]
+                task = parts[1]
+            else:
+                # "/chain agent1,agent2 → agent3 task" or "/chain agent1,agent2 task"
+                # Try to split task from agent chain
+                agent_chain_str = args
+                task = ""
+                # Check if last segment after arrow or comma looks like a task
+                for sep in ["→", ","]:
+                    if sep in args:
+                        last_sep_idx = args.rfind(sep)
+                        after = args[last_sep_idx + 1 :].strip()
+                        # If after the last separator has no hyphen-heavy words, it's a task
+                        after_words = after.split()
+                        if after_words and not all("-" in w for w in after_words):
+                            task = after
+                            agent_chain_str = args[:last_sep_idx]
+                            break
+
+            chain_steps = []
+            for step_str in agent_chain_str.split("→"):
+                step_agents = [a.strip() for a in step_str.split(",") if a.strip()]
+                if step_agents:
+                    chain_steps.append(step_agents)
+
+            if not chain_steps:
+                chain_steps = [["python-engineer"]]
+
+            if not task:
+                task = f"Execute chain: {' → '.join(a for step in chain_steps for a in step)}"
+
+            self._add_user_message(f"/chain {args}")
+            self._process_chain(chain_steps, task)
+            return
+
+        # Single word or phrase — treat as task, auto-route
+        task = args
+        try:
+            from sago.agents.router import route_for_chain
+
+            agents = route_for_chain(task, max_agents=4)
+            if not agents:
+                agents = ["python-engineer"]
+            self._add_system_message(f"Auto-routed: {' → '.join(agents)}")
+        except Exception:
+            agents = ["python-engineer"]
+            self._add_system_message("Using default: python-engineer")
         self._add_user_message(f"/chain {args}")
-        self._process_chain(agents, task)
+        self._process_chain([[a] for a in agents], task)
 
     def _orchestrate_task(self: SagoApp, task: str) -> None:
         if not task:
@@ -190,7 +270,7 @@ class CommandHandlers:
         ]
         body = "\n".join(lines)
         container = self.query_one("#messages")
-        container.mount(Collapsible(Static(body), title="System Status", collapsed=False))
+        container.mount(Collapsible(Static(body), title="System Status", collapsed=True))
 
     def _show_sessions(self: SagoApp) -> None:
         self._list_sessions()
@@ -302,7 +382,7 @@ class CommandHandlers:
                 Collapsible(
                     Static(body),
                     title=f"Models (Active: {cur})",
-                    collapsed=False,
+                    collapsed=True,
                 )
             )
             container.scroll_end()
@@ -331,26 +411,76 @@ class CommandHandlers:
             self._add_system_message(msg)
             return
 
-        # /model <provider> <model> — set provider + model
-        if len(parts) >= 2:
-            provider = parts[0]
-            model_name = parts[1]
+        # Known providers for smart parsing
+        known_providers = {
+            "google",
+            "gemini",
+            "openai",
+            "openrouter",
+            "anthropic",
+            "claude",
+            "ollama",
+            "deepseek",
+        }
+
+        # /model <provider> <model> — explicit syntax (e.g. /model google gemini-2.0-pro or /model openrouter deepseek/deepseek-r1)
+        if len(parts) >= 2 and parts[0].lower() in known_providers:
+            provider = (
+                "google"
+                if parts[0].lower() in ("google", "gemini")
+                else (
+                    "anthropic" if parts[0].lower() in ("claude", "anthropic") else parts[0].lower()
+                )
+            )
+            model_name = " ".join(parts[1:])
             self.current_provider = provider
             self.current_model = model_name
-            self._add_system_message(f"Provider: {provider} | Model: {model_name}")
+            self._add_system_message(
+                f"Provider: [bold cyan]{provider}[/] | Model: [bold green]{model_name}[/]"
+            )
             return
 
-        # /model <name> — fuzzy match (legacy compat)
+        # /model provider/model or general string
         search = parts[0]
+        if "/" in search:
+            prefix, rest = search.split("/", 1)
+            if prefix.lower() in known_providers:
+                provider = (
+                    "google"
+                    if prefix.lower() in ("google", "gemini")
+                    else (
+                        "anthropic" if prefix.lower() in ("claude", "anthropic") else prefix.lower()
+                    )
+                )
+                self.current_provider = provider
+                self.current_model = rest if provider == "google" else search
+                self._add_system_message(
+                    f"Provider: [bold cyan]{self.current_provider}[/] | Model: [bold green]{self.current_model}[/]"
+                )
+                return
+
         models = get_all_models()
         for model in models:
             if search.lower() in model.lower():
                 self.current_model = model
-                self._add_system_message(f"Model: {model}")
+                if "google" in model.lower() or "gemini" in model.lower():
+                    self.current_provider = "google"
+                elif "openai" in model.lower() or "gpt" in model.lower():
+                    self.current_provider = "openai"
+                self._add_system_message(
+                    f"Model: [bold green]{model}[/] (Provider: [bold cyan]{self.current_provider}[/])"
+                )
                 return
-        # Not in list — allow it
+
+        # Not in list — allow custom model
         self.current_model = search
-        self._add_system_message(f"Model: {search} (custom)")
+        if "gemini" in search.lower():
+            self.current_provider = "google"
+        elif "gpt" in search.lower() or "o1" in search.lower() or "o3" in search.lower():
+            self.current_provider = "openai"
+        self._add_system_message(
+            f"Model: [bold green]{search}[/] (custom, Provider: [bold cyan]{self.current_provider}[/])"
+        )
 
     def _change_provider(self: SagoApp, p: str) -> None:
         self.current_model = f"{p}/free" if "/" not in p else p
@@ -439,6 +569,42 @@ class CommandHandlers:
         else:
             self._add_system_message("No messages to retry")
 
+    def _continue_last(self: SagoApp) -> None:
+        """Resume interrupted task from last executed tool state without wasting past tokens."""
+        if not self.messages:
+            self._add_system_message("No previous message to continue.")
+            return
+
+        # Fetch recently executed tools from ToolUsageStore if available
+        recent_tools_summary = ""
+        try:
+            from sago.database import ToolUsageStore
+
+            if self.current_session_id and self.current_session_id != "local":
+                tus = ToolUsageStore(self.current_session_id)
+                recent = tus.get_all()
+                if recent:
+                    last_entries = recent[-5:]
+                    formatted_tools = []
+                    for t in last_entries:
+                        t_name = t.get("tool_name", "")
+                        t_args = t.get("arguments", "")
+                        t_res = (t.get("result") or "")[:200]
+                        formatted_tools.append(f"- {t_name}({t_args}) -> {t_res}")
+                    recent_tools_summary = (
+                        "\n\nRecently executed tools in this turn:\n" + "\n".join(formatted_tools)
+                    )
+        except Exception:
+            recent_tools_summary = ""
+
+        interrupted_prompt = (
+            "Please continue and finish the previous task from where it was interrupted. "
+            "Do not repeat already executed steps or duplicate tool calls. Proceed with the next steps."
+            + recent_tools_summary
+        )
+        self._add_user_message("/continue")
+        self._process_message(interrupted_prompt)
+
     def _reset(self: SagoApp) -> None:
         self.messages.clear()
         self.query_one("#messages").remove_children()
@@ -461,53 +627,33 @@ class CommandHandlers:
             self._add_system_message(f"Save error: {e}")
 
     def _load_session(self: SagoApp, sid: str) -> None:
-        self._hide_welcome_screen()
-        if not sid:
-            self._add_system_message("Usage: /load <session-id>")
-            return
+        """Load a previous session's messages."""
         try:
             from sago.database import MessageStore, Session, init_db
 
             init_db()
             s = Session()
-            sessions = s.list_all(limit=100)
+            matched = s.find_by_prefix(sid)
             s.close()
-            for ses in sessions:
-                if ses["id"].startswith(sid):
-                    self.current_session_id = ses["id"]
-                    ms = MessageStore(ses["id"])
-                    msgs = ms.get_history(limit=200)
-                    ms.close()
-                    self.messages = [
-                        {
-                            "role": m["role"],
-                            "content": m["content"],
-                            "agent_name": m.get("agent_name"),
-                            "metadata": m.get("metadata", "{}"),
-                            "created_at": m.get("created_at"),
-                        }
-                        for m in msgs
-                    ]
-                    # Refresh the UI
-                    container = self.query_one("#messages")
-                    container.remove_children()
-                    for m in self.messages:
-                        if m["role"] == "user":
-                            container.mount(
-                                Static(f"> {m['content']}", classes="msg-user", markup=False)
-                            )
-                        elif m["role"] == "assistant":
-                            agent = m.get("agent_name") or ""
-                            prefix = f"[{agent}] " if agent else ""
-                            container.mount(
-                                Static(
-                                    f"{prefix}{m['content']}", classes="msg-assistant", markup=False
-                                )
-                            )
-                    container.scroll_end()
+            if matched:
+                actual_sid = matched["id"]
+                ms = MessageStore(actual_sid)
+                history = ms.get_history(limit=50)
+                ms.close()
+                if history:
+                    self.messages.clear()
+                    self.query_one("#messages").remove_children()
+                    self.current_session_id = actual_sid
                     self._add_system_message(
-                        f"Loaded: {ses.get('title', 'Untitled')} ({len(msgs)} messages)"
+                        f"Loaded session {actual_sid[:8]} ({len(history)} messages)"
                     )
+                    for msg in history:
+                        role = msg["role"]
+                        content = msg["content"]
+                        if role == "user":
+                            self._add_user_message(content)
+                        elif role == "assistant":
+                            self._add_assistant_message(content)
                     return
             self._add_system_message(
                 f"Session not found: {sid}\nUse /sessions to list available sessions"
@@ -516,7 +662,7 @@ class CommandHandlers:
             self._add_system_message(f"Load error: {e}")
 
     def _exit_session(self: SagoApp) -> None:
-        """Save session and exit, showing resume info."""
+        """Save session and exit, or auto-delete if no human messages exist."""
         # Flush any pending messages
         if hasattr(self, "_message_store") and self._message_store:
             try:
@@ -527,8 +673,15 @@ class CommandHandlers:
             from sago.database import Session, init_db
 
             init_db()
-            # Save current session
             s = Session(self.current_session_id)
+            # If session has no real human user messages, auto-delete it
+            if not s.has_human_messages(self.current_session_id):
+                s.delete()
+                s.close()
+                self.exit()
+                return
+
+            # Save current session
             s.update(title=f"Session {self.current_session_id[:8]}", status="closed")
             s.close()
         except Exception:
@@ -688,10 +841,8 @@ class CommandHandlers:
             lines.append(" | ".join(header_parts))
             lines.append("")
             lines.append(content)
-            lines.append("")
-
-        # Add tool usage section
-        lines.extend(["---", "", "## Tool Usage", ""])
+            # Add tool usage and subagent execution section
+        lines.extend(["---", "", "## ⚙️ Tool Executions & Sub-Agent Delegations", ""])
         try:
             tus = ToolUsageStore(sid)
             tool_logs = tus.get_all()
@@ -699,13 +850,36 @@ class CommandHandlers:
         except Exception:
             tool_logs = []
 
+        # Fallback to dev tracer in case DB was local or not yet flushed
+        if not tool_logs:
+            try:
+                from sago.tracking.dev_tracer import get_dev_tracer
+
+                traces = get_dev_tracer().get_recent_traces(limit=500)
+                for t in traces:
+                    if t.event_type.value == "TOOL_DISPATCH":
+                        tool_logs.append(
+                            {
+                                "tool_name": t.data.get("tool_name", t.action),
+                                "arguments": t.data.get("arguments", {}),
+                                "result": t.data.get("result_preview", ""),
+                                "duration_ms": int(t.duration_ms),
+                                "success": 1 if t.status == "OK" else 0,
+                            }
+                        )
+            except Exception:
+                pass
+
+        subagent_calls = []
+        error_logs = []
         if tool_logs:
-            lines.append("| # | Tool | Duration | Status | Arguments |")
-            lines.append("|---|------|----------|--------|-----------|")
+            lines.append("| # | Tool / Action | Duration | Status | Key Arguments / Target |")
+            lines.append("|---|---------------|----------|--------|------------------------|")
             for i, log in enumerate(tool_logs, 1):
                 tool = log.get("tool_name", "?")
                 dur = f"{log.get('duration_ms', 0)}ms"
-                ok = "OK" if log.get("success", 1) else "FAIL"
+                success = bool(log.get("success", 1))
+                ok = "✓ OK" if success else "✗ FAIL"
                 args_raw = log.get("arguments", "{}")
                 try:
                     args = (
@@ -715,13 +889,83 @@ class CommandHandlers:
                     )
                 except Exception:
                     args = {}
-                # Truncate long args
-                args_str = str(args)[:80]
-                lines.append(f"| {i} | {tool} | {dur} | {ok} | `{args_str}` |")
+
+                res_str = str(log.get("result", ""))
+                is_actual_err = (
+                    not success
+                    or res_str.lower().startswith("error")
+                    or res_str.lower().startswith("traceback")
+                    or "exception:" in res_str.lower()
+                    or "failed:" in res_str.lower()
+                )
+                if is_actual_err:
+                    error_logs.append((i, tool, args, res_str))
+
+                if tool == "spawn_agent":
+                    subagent_calls.append((i, args, res_str))
+
+                args_str = str(args)
+                if len(args_str) > 120:
+                    args_str = args_str[:120] + "..."
+                lines.append(f"| {i} | `{tool}` | {dur} | {ok} | `{args_str}` |")
             lines.append("")
         else:
             lines.append("_No tool usage recorded._")
             lines.append("")
+
+        # Sub-Agent Delegations Section
+        if subagent_calls:
+            lines.extend(["---", "", "## 🤖 Sub-Agent Delegations", ""])
+            for idx, args, result in subagent_calls:
+                target_agent = args.get("agent_name") or args.get("agent") or "Specialist Agent"
+                task_desc = args.get("task", "(No task description)")
+                lines.append(f"### Sub-Agent Delegation #{idx}: `{target_agent}`")
+                lines.append(f"- **Target Agent:** `{target_agent}`")
+                lines.append(f"- **Delegated Task:** {task_desc}")
+                lines.append(
+                    f"- **Arguments & Parameters:** `{__import__('json').dumps(args, indent=2)}`"
+                )
+                if result:
+                    lines.append("- **Execution Output:**")
+                    lines.append("```markdown")
+                    lines.append(result)
+                    lines.append("```")
+                lines.append("")
+
+        # Execution Errors & Diagnostics
+        if error_logs:
+            lines.extend(["---", "", "## ❌ Execution Errors & Issues", ""])
+            for idx, tool, args, result in error_logs:
+                lines.append(f"### Error in Tool #{idx} (`{tool}`)")
+                lines.append(f"- **Parameters:** `{args}`")
+                lines.append("- **Failure Diagnostics:**")
+                lines.append("```")
+                lines.append(str(result))
+                lines.append("```")
+                lines.append("")
+
+        # Interaction Flowchart & Execution Tree
+        from sago.tracking.dev_tracer import get_tracer
+
+        tracer = get_tracer()
+        events = tracer.get_events()
+        if events:
+            lines.extend(["---", "", "## 🗺️ Interaction Graph & Hierarchy", ""])
+            lines.append(tracer._generate_mermaid_graph(events))
+            lines.append("")
+            lines.append(tracer._generate_ascii_tree(events))
+            lines.append("")
+        else:
+            lines.extend(["---", "", "## 🗺️ Interaction Flowchart", "", "```mermaid", "graph TD"])
+            lines.append(f"  User([User Request]) --> Orch[{self.current_agent}]")
+            for i, log in enumerate(tool_logs[:20], 1):
+                t_name = log.get("tool_name", "tool")
+                stat = "✓" if log.get("success", 1) else "✗"
+                if t_name == "spawn_agent":
+                    lines.append(f"  Orch -->|Delegate| Sub_{i}[🤖 Subagent ({stat})]")
+                else:
+                    lines.append(f"  Orch -->|Call| Tool_{i}[⚙️ {t_name} ({stat})]")
+            lines.extend(["```", ""])
 
         # Add token usage summary if available
         lines.extend(["---", "", "## Token Usage", ""])
@@ -754,9 +998,9 @@ class CommandHandlers:
         else:
             path = Path(f"{sid[:12]}_export.md")
         try:
-            path.write_text("\n".join(lines))
+            path.write_text("\n".join(lines), encoding="utf-8")
             self._add_system_message(
-                f"Exported to {path} ({len(self.messages)} messages, {len(tool_logs)} tool calls)"
+                f"Exported to {path} ({len(self.messages)} messages, {len(tool_logs)} tool calls, {len(subagent_calls)} subagents)"
             )
         except Exception as e:
             self._add_system_message(f"Export failed: {e}")
@@ -1014,7 +1258,7 @@ class CommandHandlers:
             Collapsible(
                 Static(body_text),
                 title=header,
-                collapsed=False,
+                collapsed=True,
             )
         )
         container.scroll_end()
@@ -1367,7 +1611,7 @@ class CommandHandlers:
                         c = create_collapsible(
                             Static(md_widget),
                             title=title,
-                            collapsed=False,
+                            collapsed=True,
                         )
                         container.mount(c)
                         try:
@@ -1414,7 +1658,7 @@ class CommandHandlers:
                     Collapsible(
                         Static("[bold green]✓ ALL CHECKS PASSED[/bold green]\n" + report.summary),
                         title="Verification Passed",
-                        collapsed=False,
+                        collapsed=True,
                     )
                 )
             else:
@@ -1422,7 +1666,7 @@ class CommandHandlers:
                     Collapsible(
                         Static(report.to_prompt_feedback()),
                         title="[bold red]Verification Failed[/bold red]",
-                        collapsed=False,
+                        collapsed=True,
                     )
                 )
         except Exception as e:
@@ -1471,7 +1715,7 @@ class CommandHandlers:
                 Collapsible(
                     Static("\n".join(lines)),
                     title=f"Skills ({len(builtin) + len(custom)})",
-                    collapsed=False,
+                    collapsed=True,
                 )
             )
             container.scroll_end()
@@ -1503,7 +1747,7 @@ class CommandHandlers:
                 Collapsible(
                     Static("\n".join(lines)),
                     title=f"Plugins ({len(plugins)})",
-                    collapsed=False,
+                    collapsed=True,
                 )
             )
             container.scroll_end()
@@ -1634,6 +1878,20 @@ class CommandHandlers:
         elif action in ("clear", "reset"):
             tracer.clear()
             self._add_system_message("⚡ Developer trace telemetry buffer cleared.")
+        elif action in ("view", "popup", "deep", "debug"):
+            # Open the deep trace viewer popup
+            events = tracer.get_recent_traces(limit=500)
+            if not events:
+                self._add_system_message(
+                    "⚡ No traces to view. Run some tasks first with `/dev on`."
+                )
+                return
+            try:
+                from sago.tui.trace_viewer import TraceViewerScreen
+
+                self.push_screen(TraceViewerScreen(events))
+            except Exception as e:
+                self._add_system_message(f"⚡ Trace viewer error: {e}")
         elif action in ("logs", "log", "traces", "trace"):
             traces = tracer.get_recent_traces(limit=25)
             if not traces:
@@ -1768,7 +2026,7 @@ class CommandHandlers:
                 create_collapsible(
                     Static("\n".join(lines)),
                     title=f"Search: {args.strip()[:30]} ({len(results)} matches)",
-                    collapsed=False,
+                    collapsed=True,
                 )
             )
             container.scroll_end()
@@ -1828,3 +2086,26 @@ class CommandHandlers:
                     )
                     return
             self._add_system_message("No assistant messages found to copy.")
+
+    def _handle_buttons_command(self: SagoApp, args: str = "") -> None:
+        """Toggle or set visibility of the bottom quick actions button bar (/show, /hide, /buttons [on|off|toggle])."""
+        arg = (args or "").strip().lower()
+        if arg in ("hide", "off", "0", "false", "disable"):
+            self.show_action_bar = False
+            self._add_system_message(
+                "🔘 Bottom action bar [bold red]hidden[/bold red]. (Type /show or /buttons on to restore)"
+            )
+        elif arg in ("show", "on", "1", "true", "enable"):
+            self.show_action_bar = True
+            self._add_system_message(
+                "🔘 Bottom action bar [bold green]visible[/bold green]. (Type /hide to hide)"
+            )
+        else:
+            # Toggle
+            self.show_action_bar = not self.show_action_bar
+            state = (
+                "[bold green]visible[/bold green]"
+                if self.show_action_bar
+                else "[bold red]hidden[/bold red]"
+            )
+            self._add_system_message(f"🔘 Bottom action bar is now {state}. (Settings persisted)")

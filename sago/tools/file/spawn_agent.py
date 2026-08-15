@@ -12,9 +12,10 @@ from sago.tools.base import BaseTool
 class SpawnAgentArgs(BaseModel):
     """Arguments for SpawnAgentTool."""
 
-    task: str = Field(description="Task to delegate to the agent")
+    task: str = Field(default="", description="Task to delegate to the agent")
     agent_name: str = Field(
-        description="Name of the agent (e.g. python-engineer, debugger, devops)"
+        default="",
+        description="Name of the agent (e.g. python-engineer, java-engineer, go-engineer, devops-engineer)",
     )
     context: str = Field(default="", description="Optional context from previous work")
     feedback: str = Field(
@@ -52,23 +53,149 @@ class SpawnAgentTool(BaseTool):
     args_model = SpawnAgentArgs
     risk_level = "high"
 
+    def _resolve_target_agent(self, agent_name: str, task: str) -> str:
+        """Resolve agent name using smart routing."""
+        candidate = (agent_name or "").strip().lower().replace("_", "-")
+        if not candidate:
+            t_lower = task.lower()
+            if "python" in t_lower or ".py" in t_lower:
+                candidate = "python-engineer"
+            elif "java" in t_lower and "script" not in t_lower:
+                candidate = "java-engineer"
+            elif (
+                "golang" in t_lower
+                or "go " in t_lower
+                or "go/" in t_lower
+                or ".go" in t_lower
+                or " go " in f" {t_lower} "
+            ):
+                candidate = "go-engineer"
+            elif "rust" in t_lower or ".rs" in t_lower:
+                candidate = "rust-engineer"
+            elif "c++" in t_lower or "cpp" in t_lower:
+                candidate = "cpp-engineer"
+            elif "frontend" in t_lower or "react" in t_lower or "vue" in t_lower:
+                candidate = "frontend-engineer"
+            elif (
+                "devops" in t_lower or "docker" in t_lower or "k8s" in t_lower or "ci/cd" in t_lower
+            ):
+                candidate = "devops-engineer"
+            elif "test" in t_lower or "qa" in t_lower or "pytest" in t_lower:
+                candidate = "qa-engineer"
+            elif "security" in t_lower or "audit" in t_lower:
+                candidate = "security-engineer"
+            else:
+                try:
+                    from sago.agents.router import route_single
+
+                    resolved = route_single(task)
+                    if resolved and resolved != "software-engineer":
+                        candidate = resolved
+                    else:
+                        candidate = "software-engineer"
+                except Exception:
+                    candidate = "software-engineer"
+
+        try:
+            from sago.agents.registry import AGENT_ALIASES, AGENTS
+
+            if candidate in AGENTS:
+                return candidate
+            if candidate in AGENT_ALIASES:
+                return AGENT_ALIASES[candidate]
+            if f"{candidate}-engineer" in AGENTS:
+                return f"{candidate}-engineer"
+        except Exception:
+            pass
+
+        return candidate or "software-engineer"
+
     def _run(
         self,
-        task: str,
-        agent_name: str,
+        task: str = "",
+        agent_name: str = "",
         context: str = "",
         feedback: str = "",
         **kwargs: Any,
     ) -> str:
         """Spawn an agent to handle a task with recursion protection."""
+        actual_task = (
+            task
+            or kwargs.get("prompt")
+            or kwargs.get("instruction")
+            or kwargs.get("query")
+            or kwargs.get("description")
+            or ""
+        )
+        raw_agent = (
+            agent_name
+            or kwargs.get("agent")
+            or kwargs.get("role")
+            or kwargs.get("agent_role")
+            or kwargs.get("name")
+            or kwargs.get("target")
+            or ""
+        )
+
+        # --- Argument validation: reject empty/trivial tasks ---
+        if not actual_task.strip() or len(actual_task.strip()) < 10:
+            return (
+                "REJECTED: spawn_agent requires a meaningful task description (min 10 characters).\n"
+                f"Got: '{actual_task.strip()}'\n\n"
+                "Fix: Provide a specific task. Examples:\n"
+                '  - "Create a Python calculator with add, subtract, multiply, divide functions"\n'
+                '  - "Write unit tests for the authentication module"\n'
+                '  - "Review the API endpoints for security vulnerabilities"'
+            )
+
+        resolved_agent = self._resolve_target_agent(raw_agent, actual_task)
+
+        # Warn if agent resolution was purely heuristic (no explicit agent_name given)
+        if not raw_agent.strip():
+            task_lower = actual_task.lower()
+            domain_keywords = [
+                "python",
+                "java",
+                "go ",
+                "golang",
+                "rust",
+                "c++",
+                "cpp",
+                "frontend",
+                "backend",
+                "fullstack",
+                "devops",
+                "docker",
+                "k8s",
+                "security",
+                "test",
+                "qa",
+                "database",
+                "api",
+                "mobile",
+                "android",
+                "ios",
+                "react",
+                "vue",
+                "angular",
+            ]
+            if not any(kw in task_lower for kw in domain_keywords):
+                return (
+                    f"REJECTED: Could not determine a specialist agent for this task.\n"
+                    f"Task: '{actual_task[:200]}'\n"
+                    f"Resolved to: '{resolved_agent}' (generic fallback)\n\n"
+                    "Fix: Explicitly set agent_name to a specialist.\n"
+                    "Examples: python-engineer, java-engineer, go-engineer, devops-engineer"
+                )
+
         from sago.agents.handoff import get_recursion_guard
 
         # Check recursion guard before spawning
         guard = get_recursion_guard()
-        allowed, reason = guard.can_spawn(agent_name)
+        allowed, reason = guard.can_spawn(resolved_agent)
         if not allowed:
             return (
-                f"Cannot spawn agent '{agent_name}': {reason}\n\n"
+                f"Cannot spawn agent '{resolved_agent}': {reason}\n\n"
                 f"Please complete this task directly without delegating further."
             )
 
@@ -81,13 +208,30 @@ class SpawnAgentTool(BaseTool):
                 "Error: No API key set. Set GEMINI_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
             )
 
+        # Record dev trace event for agent delegation
+        try:
+            from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+            get_dev_tracer().record(
+                event_type=TraceEventType.AGENT_ROUTING,
+                source="spawn_agent",
+                action=f"DELEGATE -> {resolved_agent}",
+                data={
+                    "target_agent": resolved_agent,
+                    "task": actual_task[:200],
+                    "depth": guard.depth + 1,
+                },
+            )
+        except Exception:
+            pass
+
         # Register this agent in the guard
-        guard.enter(agent_name)
+        guard.enter(resolved_agent)
 
         try:
             return self._execute_agent(
-                agent_name=agent_name,
-                task=task,
+                agent_name=resolved_agent,
+                task=actual_task,
                 context=context,
                 feedback=feedback,
                 api_key=api_key,
@@ -95,7 +239,24 @@ class SpawnAgentTool(BaseTool):
                 llm_cfg=llm_cfg,
             )
         finally:
-            guard.exit(agent_name)
+            guard.exit(resolved_agent)
+
+    # Fallback agent chains: if primary fails, try these alternatives
+    _FALLBACK_AGENTS: dict[str, list[str]] = {
+        "python-engineer": ["software-engineer", "fullstack-developer"],
+        "java-engineer": ["software-engineer", "fullstack-developer"],
+        "go-engineer": ["software-engineer", "rust-engineer"],
+        "rust-engineer": ["software-engineer", "cpp-engineer"],
+        "cpp-engineer": ["software-engineer"],
+        "frontend-engineer": ["fullstack-developer", "ui-engineer"],
+        "backend-engineer": ["fullstack-developer", "api-engineer"],
+        "fullstack-developer": ["software-engineer"],
+        "devops-engineer": ["cloud-engineer", "sre-engineer"],
+        "mobile-engineer": ["android-engineer", "ios-engineer"],
+        "qa-engineer": ["test-engineer", "automation-engineer"],
+        "security-engineer": ["appsec-engineer"],
+        "data-engineer": ["database-engineer", "ml-engineer"],
+    }
 
     def _execute_agent(
         self,
@@ -107,10 +268,7 @@ class SpawnAgentTool(BaseTool):
         guard: Any,
         llm_cfg: dict[str, Any] | None = None,
     ) -> str:
-        """Execute the agent with proper prompts and context."""
-        # Build the system prompt with full context
-        system_prompt = self._build_system_prompt(agent_name, task, context, feedback, guard)
-
+        """Execute the agent with proper prompts and context. Retries with fallback agents on failure."""
         # Use active model from settings/env/config
         if llm_cfg is None:
             from sago.llm.tui_providers import resolve_active_llm_config
@@ -120,47 +278,78 @@ class SpawnAgentTool(BaseTool):
         model = llm_cfg["model"]
         base_url = llm_cfg["base_url"]
 
-        # Try with user-selected model first, fallback to free model if distinct
-        models_to_try = [model]
-        if model != "openrouter/free":
-            models_to_try.append("openrouter/free")
+        # Build fallback chain: primary agent + fallbacks
+        fallbacks = self._FALLBACK_AGENTS.get(agent_name, ["software-engineer"])
+        agents_to_try = [agent_name] + [a for a in fallbacks if a != agent_name]
 
         last_error = None
-        for try_model in models_to_try:
-            try:
-                from sago.engine.simple_executor import execute_agent_task
+        for try_agent in agents_to_try:
+            system_prompt = self._build_system_prompt(try_agent, task, context, feedback, guard)
 
-                result = execute_agent_task(
-                    task=task,
-                    agent_role=agent_name.replace("-", " ").title(),
-                    system_prompt=system_prompt,
-                    api_key=api_key,
-                    model=try_model,
-                    base_url=base_url if try_model == model else "https://openrouter.ai/api/v1",
-                    max_tokens=8192,
-                    max_iterations=20,
-                )
+            # Try with user-selected model first, fallback to free model if distinct
+            models_to_try = [model]
+            if model != "openrouter/free":
+                models_to_try.append("openrouter/free")
 
-                output = result.get("output", "No response")
-                tools_used = result.get("tool_calls", [])
-                files_created = result.get("files_created", [])
+            for try_model in models_to_try:
+                try:
+                    from sago.engine.simple_executor import execute_agent_task
 
-                # Check if we got a real response
-                if output and not output.startswith("Error:") and len(output.strip()) > 10:
-                    return self._format_response(
-                        agent_name, output, tools_used, files_created, guard
+                    result = execute_agent_task(
+                        task=task,
+                        agent_role=try_agent.replace("-", " ").title(),
+                        system_prompt=system_prompt,
+                        api_key=api_key,
+                        model=try_model,
+                        base_url=base_url if try_model == model else "https://openrouter.ai/api/v1",
+                        max_tokens=8192,
+                        max_iterations=20,
                     )
 
-                last_error = output or "Empty response"
+                    output = result.get("output", "")
+                    tools_used = result.get("tool_calls", [])
+                    files_created = result.get("files_created", [])
 
-            except Exception as e:
-                last_error = str(e)
-                continue
+                    # Quality gate: reject empty/trivial responses
+                    if not output or len(output.strip()) < 20:
+                        last_error = f"Agent '{try_agent}' produced empty/trivial output ({len(output or '')} chars)"
+                        continue
 
-        # All models failed
+                    # Quality gate: reject responses that are mostly failure indicators
+                    failure_signals = [
+                        "i cannot",
+                        "i'm unable",
+                        "i don't have",
+                        "error:",
+                        "failed to",
+                    ]
+                    failure_count = sum(1 for s in failure_signals if s in output.lower())
+                    if failure_count >= 2 and len(output.strip()) < 200:
+                        last_error = (
+                            f"Agent '{try_agent}' produced failure-heavy output: {output[:100]}"
+                        )
+                        continue
+
+                    # Success — format and return
+                    used_different_agent = try_agent != agent_name
+                    response = self._format_response(
+                        try_agent, output, tools_used, files_created, guard
+                    )
+                    if used_different_agent:
+                        response = (
+                            f"[Note: '{agent_name}' was unavailable, "
+                            f"used '{try_agent}' instead]\n\n" + response
+                        )
+                    return response
+
+                except Exception as e:
+                    last_error = f"{try_agent}/{try_model}: {e}"
+                    continue
+
+        # All agents and models failed
         return (
-            f"Agent '{agent_name}' could not be spawned.\n"
-            f"Reason: {last_error}\n\n"
+            f"Agent '{agent_name}' could not be spawned after trying {len(agents_to_try)} agent(s).\n"
+            f"Last error: {last_error}\n\n"
             f"Alternatives:\n"
             f"  1. Try running the task directly (without agent delegation)\n"
             f"  2. Check your API key and credits at https://openrouter.ai/settings/credits\n"
@@ -182,10 +371,18 @@ class SpawnAgentTool(BaseTool):
         # Add structured output instructions
         output_instructions = self._get_output_instructions(agent_name)
 
-        # Add context from previous agents
+        # Add context from previous agents — handle both raw strings and HandoffContext
         context_section = ""
         if context:
-            context_section = f"\n\n## Context From Parent Agent\n{context}"
+            # Check if context is a HandoffContext object (from structured handoff)
+            from sago.agents.handoff import HandoffContext
+
+            if isinstance(context, HandoffContext):
+                context_section = (
+                    f"\n\n## Handoff Context\n{context.get_compact_handoff_prompt(agent_name)}"
+                )
+            else:
+                context_section = f"\n\n## Context From Parent Agent\n{context}"
 
         # Add feedback if provided
         feedback_section = ""
@@ -315,4 +512,24 @@ Do NOT just say "I completed the task" — show evidence of your work.
         response_parts.append(f"Depth: {guard.depth}/{guard.max_depth}")
 
         response_parts.append(output)
+
+        # Parse and include handoff notes if present
+        handoff_notes = self._extract_handoff_notes(output)
+        if handoff_notes:
+            response_parts.append(f"\n[Handoff Notes]: {handoff_notes}")
+
         return "\n".join(response_parts)
+
+    @staticmethod
+    def _extract_handoff_notes(output: str) -> str:
+        """Extract Handoff Notes section from agent output."""
+        import re
+
+        match = re.search(
+            r"##?\s*Handoff\s*Notes?\s*\n(.*?)(?=\n##?\s|\Z)",
+            output,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if match:
+            return match.group(1).strip()
+        return ""

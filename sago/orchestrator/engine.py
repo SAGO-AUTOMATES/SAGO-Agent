@@ -101,7 +101,44 @@ class SagoOrchestrator:
         )
 
         result = crew.kickoff()
-        return str(result)
+        result_str = str(result)
+
+        # Quality gate: validate result addresses the task
+        quality_issues = self._validate_result(result_str, task)
+        if quality_issues:
+            logger.warning(f"Quality issues in orchestrator result: {quality_issues}")
+            result_str += "\n\n[Quality Review]\n" + "\n".join(
+                f"- {issue}" for issue in quality_issues
+            )
+
+        return result_str
+
+    def _validate_result(self, result: str, task: str) -> list[str]:
+        """Validate that the result addresses the task. Returns list of issues."""
+        issues = []
+        if not result or len(result.strip()) < 50:
+            issues.append(f"Result too short ({len(result or '')} chars) — likely incomplete")
+        result_lower = (result or "").lower()
+        failure_indicators = [
+            "i cannot",
+            "i'm unable",
+            "i don't have",
+            "not possible",
+            "error:",
+            "failed to",
+        ]
+        for fi in failure_indicators:
+            if fi in result_lower:
+                issues.append(f"Result contains failure indicator: '{fi}'")
+        task_keywords = [w.lower() for w in task.split() if len(w) > 4]
+        if task_keywords:
+            matched = sum(1 for kw in task_keywords if kw in result_lower)
+            coverage = matched / len(task_keywords) if task_keywords else 0
+            if coverage < 0.2:
+                issues.append(
+                    f"Result covers only {coverage:.0%} of task keywords — may not address the request"
+                )
+        return issues
 
     def _route_task(self, task: str) -> str:
         """Route a task to the most appropriate agent.

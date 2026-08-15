@@ -43,6 +43,10 @@ class FileChange:
 class ChangeTracker:
     """Tracks file modifications for a session."""
 
+    # Paths to exclude from tracking (virtual filesystems and internal caches)
+    _EXCLUDED_PREFIXES = ("/dev/", "/proc/", "/sys/", "/run/")
+    _EXCLUDED_SUBSTRINGS = ("/.git/objects/", "/__pycache__/")
+
     def __init__(self, session_id: str | None = None) -> None:
         self.session_id = session_id or "default"
         self.changes: list[FileChange] = []
@@ -50,8 +54,21 @@ class ChangeTracker:
         self._backup_dir.mkdir(parents=True, exist_ok=True)
         self._load_index()
 
-    def track_create(self, file_path: str, content: str) -> FileChange:
+    def _should_track(self, file_path: str) -> bool:
+        """Check if a file path should be tracked."""
+        real_path = os.path.realpath(file_path)
+        for prefix in self._EXCLUDED_PREFIXES:
+            if real_path.startswith(prefix):
+                return False
+        for sub in self._EXCLUDED_SUBSTRINGS:
+            if sub in real_path:
+                return False
+        return True
+
+    def track_create(self, file_path: str, content: str) -> FileChange | None:
         """Track file creation."""
+        if not self._should_track(file_path):
+            return None
         change = FileChange(
             path=file_path,
             action="create",
@@ -61,8 +78,10 @@ class ChangeTracker:
         self._save_index()
         return change
 
-    def track_modify(self, file_path: str, old_content: str, new_content: str) -> FileChange:
+    def track_modify(self, file_path: str, old_content: str, new_content: str) -> FileChange | None:
         """Track file modification with backup for undo."""
+        if not self._should_track(file_path):
+            return None
         backup_path = None
         real_path = os.path.realpath(file_path)
         if os.path.exists(real_path):
@@ -85,8 +104,10 @@ class ChangeTracker:
         self._save_index()
         return change
 
-    def track_delete(self, file_path: str, content: str) -> FileChange:
+    def track_delete(self, file_path: str, content: str) -> FileChange | None:
         """Track file deletion with backup for undo."""
+        if not self._should_track(file_path):
+            return None
         backup_path = None
         real_path = os.path.realpath(file_path)
         if os.path.exists(real_path):

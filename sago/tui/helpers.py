@@ -66,14 +66,19 @@ class ExchangeTurnCard(Vertical):
 
     def compose(self):
         preview = self.prompt.replace("\n", " ").strip()
-        title_snippet = f"{preview[:80]}…" if len(preview) > 80 else preview
+        title_snippet = f"{preview[:120]}..." if len(preview) > 120 else preview
         yield Static(
-            f"[dim]▼[/dim]  {escape(title_snippet)}",
+            f"[bold]▼ USER[/bold]  {escape(title_snippet)}",
             classes="exchange-prompt-header",
             markup=True,
         )
         with Vertical(classes="exchange-body"):
-            yield Static(escape(self.prompt), classes="exchange-user-prompt", markup=True)
+            rendered_prompt = _render_markdown(self.prompt)
+            yield Static(
+                f"[bold cyan]User Prompt:[/bold cyan]\n{rendered_prompt}",
+                classes="exchange-user-prompt",
+                markup=True,
+            )
             yield Static("─" * 40, classes="exchange-divider", markup=False)
 
     @on(events.Click, ".exchange-prompt-header")
@@ -90,12 +95,14 @@ class ExchangeTurnCard(Vertical):
             body.display = not self.is_turn_collapsed
 
             preview = self.prompt.replace("\n", " ").strip()
-            title_snippet = f"{preview[:80]}…" if len(preview) > 80 else preview
+            title_snippet = f"{preview[:120]}..." if len(preview) > 120 else preview
 
             if self.is_turn_collapsed:
-                hdr.update(f"[dim]▶[/dim]  {escape(title_snippet)}")
+                hdr.update(
+                    f"[bold]▶ USER[/bold]  {escape(title_snippet)}  [dim]─ (click to expand)[/dim]"
+                )
             else:
-                hdr.update(f"[dim]▼[/dim]  {escape(title_snippet)}")
+                hdr.update(f"[bold]▼ USER[/bold]  {escape(title_snippet)}")
         except Exception:
             pass
 
@@ -163,8 +170,9 @@ class UIHelpers:
         # Create unified ExchangeTurnCard
         turn_card = ExchangeTurnCard(prompt=content)
         self._active_exchange_card = turn_card
-        self.query_one("#messages").mount(turn_card)
-        self.query_one("#messages").scroll_end()
+        msg_container = self.query_one("#messages")
+        msg_container.mount(turn_card)
+        msg_container.scroll_end(animate=False)
 
     def _add_assistant_message(
         self: SagoApp, content: str, meta: str = "", agent_name: str = ""
@@ -287,99 +295,74 @@ class UIHelpers:
             else:
                 target_card.response_text = content
 
-        # If developer mode is active, mount execution telemetry trace block
+        # If developer mode is active, mount a per-turn trace bar with a "View Trace" button
         if getattr(self, "developer_mode", False):
             from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
             tracer = get_dev_tracer()
-            traces = tracer.get_recent_traces(limit=30)
+            if tracer.is_enabled:
+                traces = tracer.get_recent_traces(limit=500)
             if traces:
-                llm_traces = [t for t in traces if t.event_type == TraceEventType.LLM_PAYLOAD]
-                tool_traces = [t for t in traces if t.event_type == TraceEventType.TOOL_DISPATCH]
-                routing_traces = [t for t in traces if t.event_type == TraceEventType.AGENT_ROUTING]
-                fn_traces = [
-                    t
+                llm_count = sum(
+                    1
                     for t in traces
-                    if t.event_type
-                    in (
-                        TraceEventType.FUNCTION_CALL,
-                        TraceEventType.FUNCTION_RETURN,
-                    )
-                ]
-
-                dev_sections = [
-                    f"[bold red]⚡ DEV TRACE OVERVIEW[/bold red] - Total Events: [bold white]{len(traces)}[/bold white] | LLM Calls: [bold magenta]{len(llm_traces)}[/bold magenta] | Tools: [bold cyan]{len(tool_traces)}[/bold cyan] | Handoffs: [bold green]{len(routing_traces)}[/bold green]"
-                ]
-
-                if llm_traces:
-                    dev_sections.append(
-                        "\n[bold magenta]─── LLM Invocations & Payloads ───[/bold magenta]"
-                    )
-                    for lt in llm_traces:
-                        m = lt.data.get("model", "unknown")
-                        dur = f"{lt.duration_ms:.1f}ms" if lt.duration_ms > 0 else "streaming"
-                        tin = lt.data.get("tokens_in", 0)
-                        tout = lt.data.get("tokens_out", 0)
-                        dev_sections.append(
-                            f"  • [bold magenta]{m}[/bold magenta] | Latency: [yellow]{dur}[/yellow] | Tokens: In: [green]{tin}[/green], Out: [cyan]{tout}[/cyan]"
-                        )
-                        if "messages_preview" in lt.data:
-                            dev_sections.append(
-                                f"    [dim]Messages Payload: {lt.data['messages_preview']}[/dim]"
-                            )
-
-                if tool_traces:
-                    dev_sections.append(
-                        "\n[bold cyan]─── Tool Dispatches & Signatures ───[/bold cyan]"
-                    )
-                    for tt in tool_traces:
-                        name = tt.data.get("tool_name", tt.action)
-                        dur = f"{tt.duration_ms:.1f}ms"
-                        status = (
-                            "[bold green]OK[/bold green]"
-                            if tt.status == "OK"
-                            else f"[bold red]{tt.status}[/bold red]"
-                        )
-                        dev_sections.append(f"  • [bold cyan]{name}[/bold cyan] ({status}, {dur})")
-                        if "arguments" in tt.data:
-                            args_prev = str(tt.data["arguments"])[:120]
-                            dev_sections.append(f"    [dim]Args: {args_prev}[/dim]")
-
-                if routing_traces:
-                    dev_sections.append(
-                        "\n[bold green]─── Agent Orchestration & Handoffs ───[/bold green]"
-                    )
-                    for rt in routing_traces:
-                        src = rt.source
-                        act = rt.action
-                        task_prev = rt.data.get("task", "")[:60]
-                        dev_sections.append(
-                            f"  • [bold green]{src}[/bold green] ➔ [bold cyan]{act}[/bold cyan] [dim]({task_prev})[/dim]"
-                        )
-
-                if fn_traces:
-                    dev_sections.append(
-                        "\n[bold yellow]─── Function Execution Traces ───[/bold yellow]"
-                    )
-                    for ft in fn_traces[-10:]:
-                        dev_sections.append(f"  {ft.format_line()}")
-
-                dev_sections.append(
-                    "\n[dim]Tip: Type `/dev export [file.json|file.md]` to export complete raw trace payloads.[/dim]"
+                    if t.event_type in (TraceEventType.LLM_PAYLOAD, TraceEventType.LLM_RAW_RESPONSE)
                 )
-
-                trace_body = "\n".join(dev_sections)
-                _mount_element(
-                    Collapsible(
-                        Static(trace_body, classes="dev-trace-text", markup=True),
-                        title=f"● ⚡ DEVELOPER TRACE ({len(traces)} events | {len(llm_traces)} LLM | {len(tool_traces)} Tools)",
-                        collapsed=False,
-                    )
+                tool_count = sum(1 for t in traces if t.event_type == TraceEventType.TOOL_DISPATCH)
+                route_count = sum(1 for t in traces if t.event_type == TraceEventType.AGENT_ROUTING)
+                thinking_count = sum(
+                    1 for t in traces if t.event_type == TraceEventType.LLM_THINKING
                 )
+                err_count = sum(1 for t in traces if t.event_type.value == "ERROR")
+
+                # Build the stats label
+                parts = [f"⚡ {len(traces)} events"]
+                if llm_count:
+                    parts.append(f"{llm_count} LLM")
+                if tool_count:
+                    parts.append(f"{tool_count} tools")
+                if route_count:
+                    parts.append(f"{route_count} routes")
+                if thinking_count:
+                    parts.append(f"{thinking_count} thinking")
+                if err_count:
+                    parts.append(f"{err_count} errors")
+
+                badge_text = "  ·  ".join(parts)
+
+                # Snapshot the events for the button closure
+                captured_events = list(traces)
+
+                bar = Horizontal(classes="trace-action-bar")
+
+                badge_static = Static(
+                    f"[dim]{badge_text}[/dim]",
+                    classes="trace-badge",
+                    markup=True,
+                )
+                view_btn = Button(
+                    "View Trace ⚡",
+                    id=f"btn-view-trace-{id(traces)}",
+                    classes="btn-view-trace",
+                )
+                # Store the snapshot on the widget so the app-level handler can pick it up
+                setattr(view_btn, "_trace_events", captured_events)
+                setattr(view_btn, "_trace_label", badge_text)
+
+                def _mount_trace_bar() -> None:
+                    if target_card is not None and hasattr(target_card, "mount_child"):
+                        target_card.mount_child(bar)
+                    else:
+                        container = self.query_one("#messages")
+                        container.mount(bar)
+                    bar.mount(badge_static)
+                    bar.mount(view_btn)
+
+                self.call_after_refresh(_mount_trace_bar)
 
         # Turn finished -> clear active exchange card
         self._active_exchange_card = None
-        self.query_one("#messages").scroll_end()
+        self.query_one("#messages").scroll_end(animate=False)
 
     def _add_thinking_card(self: SagoApp, reasoning_text: str) -> None:
         """Add a dedicated collapsible technical reasoning card inside active turn box."""
@@ -395,7 +378,7 @@ class UIHelpers:
             target_card.mount(card)
         else:
             self.query_one("#messages").mount(card)
-        self.query_one("#messages").scroll_end()
+        self.query_one("#messages").scroll_end(animate=False)
 
     def _add_plan_card(self: SagoApp, plan_text: str, step_count: int = 0) -> None:
         """Add a dedicated collapsible plan card inside active turn box."""
@@ -404,7 +387,7 @@ class UIHelpers:
         card = Collapsible(
             Static(plan_text, classes="plan-text", markup=True),
             title=title,
-            collapsed=False,
+            collapsed=True,
         )
         if target_card is not None and hasattr(target_card, "mount_child"):
             target_card.mount_child(card)
@@ -412,7 +395,7 @@ class UIHelpers:
             target_card.mount(card)
         else:
             self.query_one("#messages").mount(card)
-        self.query_one("#messages").scroll_end()
+        self.query_one("#messages").scroll_end(animate=False)
 
     def _add_agent_message(self: SagoApp, agent_name: str, content: str) -> None:
         """Add a message with explicit agent tagging."""
@@ -420,12 +403,15 @@ class UIHelpers:
 
     def _add_system_message(self: SagoApp, content: str) -> None:
         self._hide_welcome_screen()
+        clean_text = content.strip()
         self.query_one("#messages").mount(
             Static(
-                f"[bold yellow][SYSTEM][/bold yellow] {content}", classes="msg-system", markup=True
+                f"[dim yellow]●[/dim yellow] [dim]{clean_text}[/dim]",
+                classes="msg-system",
+                markup=True,
             )
         )
-        self.query_one("#messages").scroll_end()
+        self.query_one("#messages").scroll_end(animate=False)
 
     def _add_tool_call(
         self: SagoApp, tool_name: str, args: dict, result: str, success: bool = True
@@ -463,18 +449,18 @@ class UIHelpers:
             target_card.mount(card)
         else:
             self.query_one("#messages").mount(card)
-        self.query_one("#messages").scroll_end()
+
+        self.query_one("#messages").scroll_end(animate=False)
 
     def _add_parallel_result(
         self: SagoApp, agent_name: str, result: str, elapsed: float, success: bool
     ) -> None:
-        """Add a result from a parallel agent execution."""
+        """Add a result from a parallel agent execution with copy button & code syntax."""
         color = get_agent_color(agent_name)
         status_icon = "✓" if success else "✗"
-        header = f"[{color}]{status_icon} {agent_name}[/{color}] ({elapsed:.1f}s)"
+        header = f"[{color}][bold]{status_icon} [AGENT: {agent_name}][/bold][/{color}] [dim](completed in {elapsed:.1f}s)[/dim]"
 
         container = self.query_one("#messages")
-        from rich.markup import escape
 
         if "```" in result:
             parts = result.split("```")
@@ -485,36 +471,59 @@ class UIHelpers:
                         if i == 0:
                             container.mount(
                                 Static(
-                                    f"{header}\n{escape(rendered)}",
+                                    f"{header}\n\n{rendered}",
                                     classes="msg-assistant",
+                                    markup=True,
                                 )
                             )
                         else:
-                            container.mount(Static(escape(rendered), classes="msg-assistant"))
+                            container.mount(Static(rendered, classes="msg-assistant", markup=True))
                 else:
                     lines = part.split("\n", 1)
                     lang = lines[0].strip() if len(lines) > 1 else ""
                     code = lines[1] if len(lines) > 1 else lines[0]
                     code = code.rstrip().removesuffix("```").rstrip()
                     if code.strip():
+                        copy_btn = Button(
+                            "📋 Copy Code", classes="btn-copy-code", variant="default"
+                        )
+                        setattr(copy_btn, "_code_content", code)
                         try:
                             syntax = Syntax(
-                                code, lang or "text", theme="monokai", line_numbers=True
+                                code,
+                                lang or "text",
+                                theme="monokai",
+                                line_numbers=True,
+                                word_wrap=True,
                             )
                             container.mount(
                                 Collapsible(
                                     Static(syntax),
+                                    Horizontal(
+                                        Static("", classes="spacer"),
+                                        copy_btn,
+                                        classes="code-action-bar",
+                                    ),
                                     title=f"{agent_name} - Code ({lang or 'text'})",
                                     collapsed=False,
                                 )
                             )
                         except Exception:
-                            container.mount(Static(code, classes="code-block", markup=False))
+                            container.mount(
+                                Collapsible(
+                                    Static(code, classes="code-block", markup=False),
+                                    Horizontal(
+                                        Static("", classes="spacer"),
+                                        copy_btn,
+                                        classes="code-action-bar",
+                                    ),
+                                    title=f"{agent_name} - Code ({lang or 'text'})",
+                                    collapsed=False,
+                                )
+                            )
         else:
-            from rich.markup import escape
-
             rendered = _render_markdown(result)
-            container.mount(Static(f"{header}\n{escape(rendered)}", classes="msg-assistant"))
+            container.mount(Static(f"{header}\n\n{rendered}", classes="msg-assistant", markup=True))
         container.scroll_end()
 
     def _add_summary(
@@ -571,9 +580,20 @@ class UIHelpers:
         if files:
             lines.append(f"Files: {', '.join(files)}")
 
-        box = Static("\n".join(lines), classes="summary-box", markup=False)
-        self.query_one("#messages").mount(box)
-        self.query_one("#messages").scroll_end()
+        title = f"📊 Turn Summary ({elapsed:.1f}s)" if elapsed > 0 else "📊 Turn Summary"
+        card = Collapsible(
+            Static("\n".join(lines), classes="summary-box", markup=False),
+            title=title,
+            collapsed=True,
+        )
+        target_card = getattr(self, "_active_exchange_card", None)
+        if target_card is not None and hasattr(target_card, "mount_child"):
+            target_card.mount_child(card)
+        elif target_card is not None:
+            target_card.mount(card)
+        else:
+            self.query_one("#messages").mount(card)
+        self.query_one("#messages").scroll_end(animate=False)
 
     def _update_dashboard(self: SagoApp) -> None:
         """Update the agent dashboard safely with Rich formatted markup."""
@@ -661,9 +681,8 @@ class UIHelpers:
     def _save_message(self: SagoApp, role: str, content: str, metadata: dict | None = None) -> None:
         if self.current_session_id and self.current_session_id != "local":
             try:
-                from sago.database import MessageStore
+                from sago.database import MessageStore, Session
 
-                # Reuse MessageStore instance for batched writes
                 if not hasattr(self, "_message_store") or self._message_store is None:
                     self._message_store = MessageStore(self.current_session_id)
                 self._message_store.add(
@@ -672,5 +691,20 @@ class UIHelpers:
                     agent_name=self.current_agent,
                     metadata=metadata,
                 )
+                self._message_store.flush()
+
+                # Automatically update session title with first real user prompt (ignoring slash commands)
+                if role == "user" and content and not content.strip().startswith("/"):
+                    try:
+                        s = Session(self.current_session_id)
+                        curr_session = s.get()
+                        if curr_session and (
+                            not curr_session.get("title")
+                            or curr_session.get("title") == "TUI Session"
+                        ):
+                            prompt_title = content.strip().split("\n")[0][:45]
+                            s.update(title=prompt_title)
+                    except Exception:
+                        pass
             except Exception:
                 pass

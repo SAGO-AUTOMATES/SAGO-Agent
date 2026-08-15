@@ -71,25 +71,18 @@ class SudoExecutorTool(BaseTool):
         return "\n".join(output_parts)
 
     def _run_unix(self, command: str, password: str | None, timeout: int) -> str:
-        """Execute command with sudo on Unix systems."""
+        """Execute command with sudo on Unix systems passing credentials securely via stdin."""
         import subprocess
 
-        if password:
-            # Use printf to avoid shell interpretation of password
-            import shlex
-
-            safe_password = shlex.quote(password)
-            safe_command = shlex.quote(command)
-            full_cmd = f"printf %s {safe_password} | sudo -S {safe_command}"
-        else:
-            import shlex
-
-            full_cmd = f"sudo {shlex.quote(command)}"
+        cmd_args = (
+            ["sudo", "-S", "sh", "-c", command] if password else ["sudo", "sh", "-c", command]
+        )
+        input_data = (password + "\n") if password else None
 
         try:
             result = subprocess.run(
-                full_cmd,
-                shell=True,
+                cmd_args,
+                input=input_data,
                 capture_output=True,
                 text=True,
                 timeout=timeout,

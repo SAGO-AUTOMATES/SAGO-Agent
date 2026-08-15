@@ -24,10 +24,16 @@ class TraceEventType(StrEnum):
     FUNCTION_CALL = "FUNCTION_CALL"
     FUNCTION_RETURN = "FUNCTION_RETURN"
     LLM_PAYLOAD = "LLM_PAYLOAD"
+    LLM_RAW_REQUEST = "LLM_RAW_REQUEST"
+    LLM_RAW_RESPONSE = "LLM_RAW_RESPONSE"
+    LLM_THINKING = "LLM_THINKING"
     TOOL_DISPATCH = "TOOL_DISPATCH"
     AGENT_ROUTING = "AGENT_ROUTING"
     LOG_EVENT = "LOG_EVENT"
     STATE_CHANGE = "STATE_CHANGE"
+    ERROR = "ERROR"
+    RETRY = "RETRY"
+    PERMISSION_CHECK = "PERMISSION_CHECK"
 
 
 @dataclass
@@ -162,14 +168,173 @@ class DevTracer:
             events = [e for e in events if e.event_type == filter_type]
         return events[-limit:]
 
+    def get_events(
+        self, limit: int = 0, filter_type: TraceEventType | None = None
+    ) -> list[DevTraceEvent]:
+        """Alias for get_recent_traces. limit=0 means all events."""
+        return self.get_recent_traces(limit=limit or 99999, filter_type=filter_type)
+
+    def get_event_count(self) -> int:
+        """Return total number of events in buffer."""
+        with self._lock:
+            return len(self._events)
+
+    def record_llm_request(
+        self,
+        source: str,
+        model: str,
+        messages: list[dict[str, Any]],
+        system_prompt: str = "",
+        tools: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> DevTraceEvent:
+        """Record the raw LLM request payload."""
+        data = {
+            "model": model,
+            "messages": messages,
+            "messages_count": len(messages),
+            "system_prompt": system_prompt[:5000] if system_prompt else "",
+            "system_prompt_truncated": len(system_prompt) > 5000 if system_prompt else False,
+            "tools_count": len(tools) if tools else 0,
+            "tools": tools[:10] if tools else [],
+            **kwargs,
+        }
+        return self.record(
+            TraceEventType.LLM_RAW_REQUEST, source, f"LLM REQUEST -> {model}", data=data
+        )
+
+    def record_llm_response(
+        self,
+        source: str,
+        model: str,
+        response_content: str,
+        thinking: str = "",
+        tool_calls: list[dict[str, Any]] | None = None,
+        usage: dict[str, Any] | None = None,
+        finish_reason: str = "",
+        latency_ms: float = 0.0,
+        **kwargs: Any,
+    ) -> DevTraceEvent:
+        """Record the raw LLM response content including thinking."""
+        data = {
+            "model": model,
+            "response_content": response_content[:10000] if response_content else "",
+            "response_truncated": len(response_content) > 10000 if response_content else False,
+            "thinking": thinking[:10000] if thinking else "",
+            "thinking_truncated": len(thinking) > 10000 if thinking else False,
+            "thinking_length": len(thinking) if thinking else 0,
+            "tool_calls": tool_calls or [],
+            "tool_calls_count": len(tool_calls) if tool_calls else 0,
+            "usage": usage or {},
+            "finish_reason": finish_reason,
+            **kwargs,
+        }
+        status = "OK" if finish_reason != "error" else "ERROR"
+        return self.record(
+            TraceEventType.LLM_RAW_RESPONSE,
+            source,
+            f"LLM RESPONSE <- {model}",
+            data=data,
+            duration_ms=latency_ms,
+            status=status,
+        )
+
+    def record_thinking(
+        self, source: str, model: str, thinking_content: str, thinking_type: str = "reasoning"
+    ) -> DevTraceEvent:
+        """Record LLM thinking/reasoning content separately for deep analysis."""
+        data = {
+            "model": model,
+            "thinking": thinking_content[:20000] if thinking_content else "",
+            "thinking_truncated": len(thinking_content) > 20000 if thinking_content else False,
+            "thinking_type": thinking_type,
+            "thinking_length": len(thinking_content) if thinking_content else 0,
+        }
+        return self.record(
+            TraceEventType.LLM_THINKING, source, f"THINKING ({thinking_type})", data=data
+        )
+
     def clear(self) -> None:
         with self._lock:
             self._events.clear()
 
+    def _generate_mermaid_graph(self, events: list[DevTraceEvent]) -> str:
+        """Generate a Mermaid flowchart representing the interaction graph."""
+        lines = ["```mermaid", "graph TD", "  User([User / TUI Input])"]
+        seen_edges: set[str] = set()
+        node_ids: dict[str, str] = {"User": "User"}
+
+        def _clean_id(name: str) -> str:
+            return "".join(c if c.isalnum() else "_" for c in name).strip("_")
+
+        last_node = "User"
+        for i, e in enumerate(events):
+            src_id = _clean_id(e.source)
+            if src_id not in node_ids:
+                node_ids[src_id] = src_id
+                lines.append(f'  {src_id}["{e.source}"]')
+
+            if e.event_type == TraceEventType.AGENT_ROUTING:
+                target_agent = e.data.get("target_agent", "subagent")
+                target_id = _clean_id(f"agent_{target_agent}")
+                lines.append(f'  {target_id}[["🤖 Agent: {target_agent}"]]')
+                edge = f"  {src_id} -->|Delegate| {target_id}"
+                if edge not in seen_edges:
+                    seen_edges.add(edge)
+                    lines.append(edge)
+                last_node = target_id
+
+            elif e.event_type == TraceEventType.TOOL_DISPATCH:
+                tool_name = e.data.get("tool_name", e.action.replace("run(", "").replace(")", ""))
+                tool_id = _clean_id(f"tool_{tool_name}_{i}")
+                status_icon = "✓" if e.status == "OK" else "✗"
+                lines.append(f'  {tool_id}["⚙️ Tool: {tool_name} ({status_icon})"]')
+                edge = f"  {last_node} -->|Executes| {tool_id}"
+                if edge not in seen_edges:
+                    seen_edges.add(edge)
+                    lines.append(edge)
+
+            elif e.event_type == TraceEventType.LLM_PAYLOAD:
+                model_name = e.data.get("model", "LLM")
+                llm_id = _clean_id(f"llm_{model_name}_{i}")
+                tok_out = e.data.get("tokens_out", 0)
+                lines.append(f'  {llm_id}{{"🧠 {model_name} (+{tok_out} tokens)"}}')
+                edge = f"  {last_node} -->|Prompt| {llm_id}"
+                if edge not in seen_edges:
+                    seen_edges.add(edge)
+                    lines.append(edge)
+
+        lines.append("```")
+        return "\n".join(lines)
+
+    def _generate_ascii_tree(self, events: list[DevTraceEvent]) -> str:
+        """Generate a clean ASCII interaction trace tree."""
+        lines = ["```text", "SAGO Execution Interaction Map:", "└── User Request"]
+        current_indent = "    "
+
+        for e in events:
+            if e.event_type == TraceEventType.AGENT_ROUTING:
+                target = e.data.get("target_agent", "agent")
+                lines.append(f"{current_indent}├── 🤖 [SPAWN AGENT] {target}")
+                current_indent += "│   "
+            elif e.event_type == TraceEventType.TOOL_DISPATCH:
+                tool = e.data.get("tool_name", e.action)
+                dur = f"({e.duration_ms:.1f}ms)" if e.duration_ms > 0 else ""
+                stat = "✓" if e.status == "OK" else "✗"
+                lines.append(f"{current_indent}├── ⚙️ [TOOL] {tool} {stat} {dur}")
+            elif e.event_type == TraceEventType.LLM_PAYLOAD:
+                m = e.data.get("model", "LLM")
+                t_in = e.data.get("tokens_in", 0)
+                t_out = e.data.get("tokens_out", 0)
+                lines.append(f"{current_indent}├── 🧠 [LLM] {m} (in: {t_in}, out: {t_out})")
+
+        lines.append("```")
+        return "\n".join(lines)
+
     def export_traces(
         self, file_path: str | Path | None = None, format: str = "json"
     ) -> tuple[bool, str]:
-        """Export all recorded trace events to JSON or Markdown."""
+        """Export all recorded trace events to JSON or Markdown with complete interaction maps."""
         import json
         from pathlib import Path
 
@@ -195,12 +360,21 @@ class DevTracer:
 
         try:
             if fmt in ("md", "markdown"):
+                mermaid_graph = self._generate_mermaid_graph(events)
+                ascii_tree = self._generate_ascii_tree(events)
+
                 lines = [
                     f"# SAGO Execution Trace Report ({ts_str})",
                     f"- **Total Events**: {len(events)}",
                     f"- **Export Time**: {time.strftime('%Y-%m-%d %H:%M:%S')}",
                     "",
-                    "## Summary",
+                    "## 🗺️ Interaction Graph (Mermaid Flowchart)",
+                    mermaid_graph,
+                    "",
+                    "## 🌲 Call Hierarchy Map",
+                    ascii_tree,
+                    "",
+                    "## 📊 Event Summary",
                     "| Timestamp | Type | Source | Action | Status | Latency |",
                     "| :--- | :--- | :--- | :--- | :--- | :--- |",
                 ]
@@ -211,7 +385,7 @@ class DevTracer:
                         f"| {t_str} | `{e.event_type.value}` | `{e.source}` | `{e.action}` | {e.status} | {dur} |"
                     )
 
-                lines.append("\n## Detailed Event Payloads\n")
+                lines.append("\n## 🔍 Detailed Event Payloads\n")
                 for idx, e in enumerate(events, 1):
                     lines.append(
                         f"### Event {idx}: {e.event_type.value} - {e.source} -> {e.action}"
@@ -226,10 +400,37 @@ class DevTracer:
 
                 target_path.write_text("\n".join(lines), encoding="utf-8")
             else:
+                # Build graph nodes & edges
+                graph_nodes = []
+                graph_edges = []
+                for idx, e in enumerate(events):
+                    graph_nodes.append(
+                        {
+                            "id": f"event_{idx}",
+                            "type": e.event_type.value,
+                            "source": e.source,
+                            "action": e.action,
+                            "status": e.status,
+                            "duration_ms": e.duration_ms,
+                        }
+                    )
+                    if idx > 0:
+                        graph_edges.append(
+                            {
+                                "from": f"event_{idx - 1}",
+                                "to": f"event_{idx}",
+                                "type": "sequence",
+                            }
+                        )
+
                 data = {
                     "export_timestamp": time.time(),
                     "export_time": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "total_events": len(events),
+                    "interaction_graph": {
+                        "nodes": graph_nodes,
+                        "edges": graph_edges,
+                    },
                     "events": [e.to_dict() for e in events],
                 }
                 target_path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
@@ -251,3 +452,8 @@ def get_dev_tracer() -> DevTracer:
             if _GLOBAL_TRACER is None:
                 _GLOBAL_TRACER = DevTracer()
     return _GLOBAL_TRACER
+
+
+def get_tracer() -> DevTracer:
+    """Alias for get_dev_tracer() — backward compatibility."""
+    return get_dev_tracer()

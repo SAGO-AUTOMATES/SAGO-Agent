@@ -53,6 +53,14 @@ tools:
     class_name: "FileOperationsTool"
     permissions: ["read", "write"]
 
+  convert_to_markdown:
+    name: "Convert to Markdown"
+    category: "file"
+    description: "Convert office docs, PDFs, spreadsheets, and web files to Markdown via MarkItDown"
+    module: "sago.tools.file.convert_to_markdown"
+    class_name: "ConvertToMarkdownTool"
+    permissions: ["read", "write"]
+
   # Shell Operations
   execute_shell:
     name: "Execute Shell Command"

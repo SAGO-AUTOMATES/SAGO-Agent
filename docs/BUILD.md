@@ -234,8 +234,8 @@ twine check dist/*
 twine upload dist/*
 
 # Tag
-git tag v0.1.5
-git push origin v0.1.5
+git tag v0.1.6
+git push origin v0.1.6
 ```
 
 ## Git Pre-Commit & Pre-Push Hooks

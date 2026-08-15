@@ -17,9 +17,12 @@ All references below point to real modules in the `sago/` package and the
                                  ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
 │  TUI  (sago/tui)                                                          │
-│  app.py · commands.py · helpers.py · models.py · smart_input.py · widgets/ │
+│  app.py · commands.py · processor.py · orchestrator.py · styles.py ·       │
+│  helpers.py · models.py · trace_viewer.py · smart_input.py · widgets/     │
 │  - Textual App: renders chat, agent dashboard, background task manager     │
 │  - CommandHandlers parse /command input and route to subsystems           │
+│  - MessageProcessorMixin handles LLM streaming & tool execution loop       │
+│  - AgentOrchestrationMixin manages delegation, chains & parallel execution │
 └───────────────────────────────┬──────────────────────────────────────────┘
                                  │ user message + effort level + profile
                                  ▼

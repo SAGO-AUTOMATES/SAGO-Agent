@@ -137,9 +137,18 @@ sago/
 │   ├── orchestrator/             # Orchestration
 │   │   ├── __init__.py
 │   │   ├── engine.py             # SagoOrchestrator
-│   │   └── delegator.py          # TaskDelegator
+│   ├── tui/                      # Modular Terminal User Interface
+│   │   ├── app.py                # Core SagoApp & event composition
+│   │   ├── styles.py             # Layout CSS, responsive tokens & 11 themes
+│   │   ├── orchestrator.py       # AgentOrchestrationMixin (delegation, chain, parallel)
+│   │   ├── processor.py          # MessageProcessorMixin (LLM streaming, tools & retry)
+│   │   ├── commands.py           # CommandHandlers mixin
+│   │   ├── helpers.py            # UIHelpers & card renderers
+│   │   ├── models.py             # Constants, themes, & command registry
+│   │   ├── trace_viewer.py       # Modal trace & payload viewer
+│   │   └── widgets/              # Textual dashboard, spinners & cards
 │   │
-│   ├── tools/                    # Tool system (54 tools)
+│   ├── tools/                    # Tool system (56+ tools)
 │   │   ├── file/
 │   │   │   ├── resilient_editor.py # 3-tier fuzzy & normalized matching
 │   │   │   ├── multi_replace_file.py # Atomic multi-chunk replace

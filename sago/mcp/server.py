@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sago.permissions import get_permission_manager
 from sago.utils.errors import log_error
 
 
@@ -96,14 +97,28 @@ class MCPServer:
         """List all registered tools."""
         return [tool.to_dict() for tool in self.tools.values()]
 
-    def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
-        """Call a registered tool with validation."""
+    def call_tool(self, name: str, arguments: dict[str, Any], session_id: str = "mcp") -> Any:
+        """Call a registered tool with validation and permission gating."""
         tool = self.tools.get(name)
         if not tool:
             available = ", ".join(sorted(self.tools.keys()))
             raise ValueError(f"Tool not found: {name}. Available: {available}")
         if tool.handler is None:
             raise ValueError(f"Tool has no handler: {name}")
+
+        # Enforce permission checks
+        try:
+            pm = get_permission_manager()
+            allowed, reason = pm.check_permission(name, arguments, session_id=session_id)
+            if not allowed:
+                raise PermissionError(f"Permission denied for MCP tool '{name}': {reason}")
+        except PermissionError:
+            raise
+        except Exception as exc:  # fail-closed: never silently skip gating
+            raise PermissionError(
+                f"Permission check failed for MCP tool '{name}' "
+                f"(fail-closed, blocked by default): {exc}"
+            ) from exc
 
         # Validate arguments against input_schema
         schema = tool.input_schema

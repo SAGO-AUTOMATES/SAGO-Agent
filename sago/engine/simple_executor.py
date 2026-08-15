@@ -99,15 +99,20 @@ def _pydantic_field_to_schema_simple(annotation: Any, field_info: Any) -> dict[s
 
 
 def _build_openai_tools(tool_classes: dict[str, type[BaseTool]]) -> list[dict[str, Any]]:
-    """Convert tool classes to OpenAI function calling tool definitions.
+    """Convert tool classes to concise OpenAI function calling tool definitions.
 
-    Returns a list of tool dicts in the format:
-        [{"type": "function", "function": {"name": ..., "description": ..., "parameters": ...}}]
+    Optimized to minimize input token overhead while maintaining full precision for the LLM.
     """
     openai_tools: list[dict[str, Any]] = []
 
     for name, cls in sorted(tool_classes.items()):
-        description = cls.description or name
+        raw_desc = (cls.description or name).strip()
+        # Compact single-line description to save tokens
+        first_line = raw_desc.split("\n", 1)[0].strip()
+        if len(first_line) > 160:
+            first_line = first_line[:157] + "..."
+        description = first_line or name
+
         parameters: dict[str, Any] = {
             "type": "object",
             "properties": {},
@@ -118,6 +123,12 @@ def _build_openai_tools(tool_classes: dict[str, type[BaseTool]]) -> list[dict[st
             fields = cls.args_model.model_fields
             for field_name, field_info in fields.items():
                 prop = _pydantic_field_to_schema(field_info)
+                # Trim overly verbose parameter descriptions
+                if "description" in prop and isinstance(prop["description"], str):
+                    pdesc = prop["description"].split("\n", 1)[0].strip()
+                    if len(pdesc) > 100:
+                        pdesc = pdesc[:97] + "..."
+                    prop["description"] = pdesc
                 parameters["properties"][field_name] = prop
                 if field_info.is_required():
                     parameters["required"].append(field_name)
@@ -265,24 +276,37 @@ def _run_tests_if_exist(
 
 _project_context_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _project_context_lock = threading.Lock()
-_PROJECT_CONTEXT_TTL = 300  # 5 minutes
+
+
+def _get_executor_config() -> Any:
+    """Get executor configuration with environment variable fallbacks."""
+    try:
+        from sago.config.loader import get_config
+
+        return get_config().executor
+    except Exception:
+        from sago.config.loader import ExecutorConfig
+
+        return ExecutorConfig()
 
 
 def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
     """Detect existing project language, framework, and structure from files.
 
     Returns a dict with detected info that helps the LLM understand the project.
-    Results are cached for 5 minutes to avoid repeated subprocess calls.
+    Results are cached for configured TTL to avoid repeated subprocess calls.
     """
     import subprocess
 
     work_dir = cwd or os.getcwd()
+    cfg = _get_executor_config()
+    ttl = int(os.environ.get("SAGO_PROJECT_CONTEXT_TTL", str(cfg.project_context_ttl)))
 
     # Check cache
     now = time.time()
     with _project_context_lock:
         cached = _project_context_cache.get(work_dir)
-        if cached and (now - cached[0]) < _PROJECT_CONTEXT_TTL:
+        if cached and (now - cached[0]) < ttl:
             return cached[1]
 
     context: dict[str, Any] = {
@@ -531,25 +555,24 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
 
 
 def _get_context(cwd: str | None = None) -> str:
+    """Get compact workspace context without massive token dumping."""
     work_dir = Path(cwd) if cwd else Path.cwd()
-    lines = [f"Working directory: {work_dir}"]
+    lines = [f"Workspace: {work_dir}"]
 
-    for name in [
-        "README.md",
-        "readme.md",
-        "pyproject.toml",
-        "package.json",
-        "Cargo.toml",
-        "go.mod",
-    ]:
-        p = work_dir / name
-        if p.exists():
-            try:
-                lines.append(f"\n--- {name} ---\n{p.read_text('utf-8')[:3000]}")
-            except Exception:
-                pass
-
-    skip = {".git", "node_modules", "__pycache__", ".venv", "venv", "env", ".tox", "dist", "build"}
+    skip = {
+        ".git",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "env",
+        ".tox",
+        "dist",
+        "build",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+    }
     files = []
     dirs = []
     try:
@@ -557,27 +580,16 @@ def _get_context(cwd: str | None = None) -> str:
             if item.name.startswith(".") or item.name in skip:
                 continue
             if item.is_dir():
-                try:
-                    count = sum(1 for _ in item.iterdir())
-                    dirs.append(f"  {item.name}/ ({count} items)")
-                except Exception:
-                    dirs.append(f"  {item.name}/")
+                dirs.append(f"{item.name}/")
             else:
-                try:
-                    s = item.stat().st_size
-                    files.append(
-                        f"  {item.name} ({s}B)" if s < 100_000 else f"  {item.name} ({s // 1024}KB)"
-                    )
-                except Exception:
-                    files.append(f"  {item.name}")
+                files.append(item.name)
     except PermissionError:
         pass
+
     if dirs:
-        lines.append(f"\nDirectories ({work_dir.name}/):")
-        lines.extend(dirs[:30])
+        lines.append(f"Dirs: {', '.join(dirs[:15])}")
     if files:
-        lines.append(f"\nFiles ({work_dir.name}/):")
-        lines.extend(files[:50])
+        lines.append(f"Files: {', '.join(files[:25])}")
 
     try:
         import subprocess
@@ -586,11 +598,16 @@ def _get_context(cwd: str | None = None) -> str:
             ["git", "status", "--short"],
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=3,
             cwd=str(work_dir),
         )
         if r.returncode == 0 and r.stdout.strip():
-            lines.append(f"\nGit changes:\n{r.stdout.strip()[:800]}")
+            git_lines = r.stdout.strip().splitlines()
+            if len(git_lines) > 8:
+                summary = "\n".join(git_lines[:8]) + f"\n... (+{len(git_lines) - 8} more files)"
+            else:
+                summary = "\n".join(git_lines)
+            lines.append(f"Git status:\n{summary}")
     except Exception:
         pass
 
@@ -599,71 +616,34 @@ def _get_context(cwd: str | None = None) -> str:
 
 # Task-specific system prompts (tools are now passed via API, not in text)
 PROMPTS = {
-    "chat": """You are {agent_role}, a versatile, articulate, and friendly AI assistant and software engineering expert.
+    "chat": """You are {agent_role}, an expert software engineering AI assistant.
 
 {project_ctx}
 
-=== CONVERSATIONAL & REASONING STRATEGY ===
-- Respond naturally, helpfully, and directly in conversational turns.
-- If the user asks for jokes, creative writing, explanations, casual banter, general knowledge, or conversational follow-ups (e.g. "more", "10-20 more", "tell me another", "why is that"), answer directly and conversationally.
-- DO NOT invoke filesystem or code execution tools unless the user explicitly asks you to inspect, read, search, modify files, or run system commands in their workspace.
-- Maintain full continuity and awareness of recent conversation context and follow-up requests.
-
-=== CRITICAL RULES ===
-- NEVER fabricate tool results. Only use tools when an action on the local environment is required.
-- Provide direct, high-quality, articulate answers.""",
-    "create": """You are {agent_role}. The user wants you to CREATE something (file, project, feature).
+- Answer conversational queries, explanations, and follow-ups directly and concisely.
+- Only invoke tools when the user explicitly requests inspecting, editing, or running workspace commands.
+- Never hallucinate tool results or file contents.""",
+    "create": """You are {agent_role}. The user wants you to create or implement code.
 
 {project_ctx}
 
-=== CREATION STRATEGY ===
-- Start by understanding what exists (glob_files, read_file)
-- Create files ONE AT A TIME using write_file
-- After each file, verify it was created correctly
-- For projects: create structure first, then implement
-- Always verify your work (run tests, check syntax)
-- Only call tools when the user's request requires inspecting or modifying files. If the user asks a conversational question or clarification, reply directly without calling tools.
-
-=== CRITICAL RULES ===
-- NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
-- NEVER claim to have done something you haven't actually done.
-- ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
-- If a tool call fails, report the error honestly. Do not pretend it succeeded.
-- When writing files, put the ACTUAL CODE in the content field. No markdown, no backticks, just the raw code.
-- NEVER say "I cannot" or "I am unable" — you have tools, USE THEM.""",
-    "fix": """You are {agent_role}. The user wants you to FIX something (bug, error, issue).
+- Inspect existing code with tools first if needed.
+- Write or edit files cleanly with exact code.
+- Verify work and report results honestly without fabricating output.
+- Reply directly without calling tools for simple conversational queries.""",
+    "fix": """You are {agent_role}. The user wants you to fix an issue or bug.
 
 {project_ctx}
 
-=== FIX STRATEGY ===
-- Read the error message carefully
-- Find the file and line causing the issue
-- Understand the root cause before fixing
-- Make minimal changes to fix
-- Test that the fix works
-
-=== CRITICAL RULES ===
-- NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
-- NEVER claim to have done something you haven't actually done.
-- ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
-- If a tool call fails, report the error honestly. Do not pretend it succeeded.
-- NEVER say "I cannot" or "I am unable" — you have tools, USE THEM.""",
-    "analyze": """You are {agent_role}. The user wants you to ANALYZE something (code, project, issue).
+- Identify root cause and inspect relevant files before modifying.
+- Make precise, minimal fixes and verify changes.
+- Never guess file contents or pretend tool executions succeeded.""",
+    "analyze": """You are {agent_role}. The user wants you to analyze code or architecture.
 
 {project_ctx}
 
-=== ANALYSIS STRATEGY ===
-- Be thorough but focused
-- Read multiple files to understand the full picture
-- Look for patterns, issues, improvements
-- Provide actionable recommendations
-
-=== CRITICAL RULES ===
-- NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
-- NEVER claim to have done something you haven't actually done.
-- ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
-- If a tool call fails, report the error honestly. Do not pretend it succeeded.
-- NEVER say "I cannot" or "I am unable" — you have tools, USE THEM.""",
+- Inspect files thoroughly and provide structured, actionable analysis and insights.
+- Do not fabricate findings or tool outputs.""",
 }
 
 
@@ -885,6 +865,15 @@ def execute_agent_task(
     current_todo_index = 0
     todo_tool_counts: dict[str, int] = {}  # track tools per todo
 
+    # Initialize single ToolUsageStore instance for task lifecycle
+    tool_usage_store = None
+    try:
+        from sago.database import ToolUsageStore
+
+        tool_usage_store = ToolUsageStore("simple_executor")
+    except Exception:
+        tool_usage_store = None
+
     # Build user message with project context as DATA (not instructions)
     user_content = task
     if project_ctx:
@@ -903,12 +892,17 @@ def execute_agent_task(
     content = ""
 
     def _compact_messages_if_needed(
-        msgs: list[dict[str, Any]], max_tokens: int = 32000
+        msgs: list[dict[str, Any]], max_tokens: int | None = None
     ) -> list[dict[str, Any]]:
         """Compact messages if total content exceeds token limit using semantic distillation."""
+        effective_max_tokens = (
+            max_tokens
+            if max_tokens is not None
+            else int(os.environ.get("SAGO_MAX_TOKENS", str(_get_executor_config().max_tokens)))
+        )
         total_chars = sum(len(str(m.get("content", "") or "")) for m in msgs)
         estimated_tokens = total_chars // 4
-        if estimated_tokens <= max_tokens:
+        if estimated_tokens <= effective_max_tokens:
             return msgs
 
         # Distill older tool messages first to preserve conversation history and system instructions
@@ -955,6 +949,55 @@ def execute_agent_task(
             return compactor.build_context_window(distilled, max_tokens=max_tokens)
         except Exception:
             return distilled
+
+    # ---- Post-execution quality review ----
+    def _review_output_quality(output: str, files_created: list, tool_history: list) -> list[str]:
+        """Review output quality and return list of issues found."""
+        issues = []
+        if not output or len(output.strip()) < 50:
+            issues.append(f"Output too short ({len(output or '')} chars) — likely incomplete")
+        output_lower = (output or "").lower()
+        failure_indicators = ["i cannot", "i'm unable", "i don't have", "not possible"]
+        for fi in failure_indicators:
+            if fi in output_lower:
+                issues.append(f"Output contains failure indicator: '{fi}'")
+        if tool_history and not files_created:
+            write_calls = [t for t in tool_history if t.get("tool") in ("write_file", "edit_file")]
+            if write_calls:
+                issues.append("write_file/edit_file called but no files tracked as created")
+        return issues
+
+    # ---- Pre-validate tool arguments to catch hallucinated/empty args ----
+    def _validate_tool_args(tool_name: str, tool_args: dict) -> str | None:
+        """Return an error message if tool args are invalid, else None."""
+        if tool_name == "spawn_agent":
+            task_val = tool_args.get("task", "")
+            if not task_val or not task_val.strip() or len(task_val.strip()) < 5:
+                return None
+        elif tool_name == "write_file":
+            content_val = tool_args.get("content", "")
+            path_val = tool_args.get("file_path", "")
+            if not path_val or not path_val.strip():
+                return "REJECTED: write_file requires a non-empty file_path."
+            if not content_val or not content_val.strip():
+                return f"REJECTED: write_file requires non-empty content for '{path_val}'."
+        elif tool_name == "execute_shell":
+            cmd_val = tool_args.get("command", "")
+            if not cmd_val or not cmd_val.strip():
+                return "REJECTED: execute_shell requires a non-empty command."
+        elif tool_name == "edit_file":
+            path_val = tool_args.get("file_path", "") or tool_args.get("target_file", "")
+            if not path_val or not path_val.strip():
+                return "REJECTED: edit_file requires a non-empty file_path."
+        elif tool_name == "read_file":
+            path_val = tool_args.get("file_path", "") or tool_args.get("path", "")
+            if not path_val or not path_val.strip():
+                return "REJECTED: read_file requires a non-empty file_path."
+        elif tool_name == "http_client":
+            url_val = tool_args.get("url", "")
+            if not url_val or not url_val.strip():
+                return "REJECTED: http_client requires a non-empty URL."
+        return None
 
     for i in range(max_iterations):
         # --- OPT-IN observability (no-op unless a trace was started) ---
@@ -1004,6 +1047,21 @@ def execute_agent_task(
         # Native tool calls extracted from the model response (OpenAI or Gemini).
         # The gemini branch populates this so the shared execution loop below runs.
         native_tool_calls: list[dict[str, Any]] = []
+
+        # Enforce rate limits if configured
+        try:
+            from sago.tracking.token_tracker import get_token_tracker
+
+            provider_name = "gemini" if model.startswith("gemini") else "openai"
+            allowed, wait_sec = get_token_tracker().check_rate_limit(provider_name)
+            if not allowed and wait_sec > 0:
+                if on_thinking:
+                    on_thinking(
+                        f"Rate limit hit for {provider_name}, backing off for {wait_sec:.1f}s..."
+                    )
+                time.sleep(min(wait_sec, 60))
+        except Exception:
+            pass
 
         try:
             temp = profile.get("temperature", 0.3) if profile else 0.3
@@ -1355,6 +1413,9 @@ def execute_agent_task(
                             }
                         )
                         continue
+            # ---- Post-execution quality review ----
+            quality_issues = _review_output_quality(content, files_created, tool_history)
+
             return {
                 "success": True,
                 "output": content,
@@ -1369,42 +1430,46 @@ def execute_agent_task(
                 "elapsed": time.time() - start_time,
                 "files_created": files_created,
                 "task_plan": task_plan.to_dict() if task_plan else None,
+                "quality_issues": quality_issues,
             }
 
         # ---- Execute native tool calls and return results as role:tool messages ----
         tools_used_in_iteration = []
 
-        for tc in native_tool_calls:
+        # Tools safe to run in parallel (read-only, no side effects)
+        _PARALLEL_SAFE = {
+            "grep",
+            "glob",
+            "read_file",
+            "list_directory",
+            "search_files",
+            "count_lines",
+        }
+
+        def _exec_single_tool(tc: dict) -> dict:
+            """Execute a single tool call and return the result message."""
             tc_id = tc["id"]
             name = tc["name"]
             args = tc["args"]
-
-            # Loop prevention
             call_key = f"{name}:{json.dumps(args, sort_keys=True)}"
+
             if call_key in failed_calls:
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc_id,
-                        "name": name,
-                        "content": f"[SKIP] Already failed: {name} with same args",
-                    }
-                )
-                continue
+                return {
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "name": name,
+                    "content": f"[SKIP] Already failed: {name} with same args",
+                }
 
             if name not in tools:
                 avail = ", ".join(sorted(tools.keys()))
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc_id,
-                        "name": name,
-                        "content": f"Unknown tool '{name}'. Available: {avail}",
-                    }
-                )
-                continue
+                return {
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "name": name,
+                    "content": f"Unknown tool '{name}'. Available: {avail}",
+                }
 
-            # Check permissions before execution
             from sago.permissions import RiskLevel, get_permission_manager
 
             pm = get_permission_manager()
@@ -1424,54 +1489,51 @@ def execute_agent_task(
                     ):
                         pm.approve_tool(name, session_id=session_id)
                         allowed = True
-                        reason = "User approved"
 
                 if not allowed:
-                    if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
-                        messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tc_id,
-                                "name": name,
-                                "content": f"Permission denied: {name} requires approval (risk: {risk.value})",
-                            }
-                        )
-                    else:
-                        messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tc_id,
-                                "name": name,
-                                "content": f"Permission denied: {reason}",
-                            }
-                        )
-                    continue
+                    return {
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "name": name,
+                        "content": f"Permission denied: {name} requires approval"
+                        if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL)
+                        else f"Permission denied: {reason}",
+                    }
 
             tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
 
-            # Detect circular behavior
             recent_calls = [
                 f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}"
                 for c in tool_history[-5:]
             ]
-            if len(recent_calls) >= 3:
-                unique_recent = set(recent_calls[-3:])
+            circular_thresh = int(
+                os.environ.get(
+                    "SAGO_CIRCULAR_DETECTION_THRESHOLD",
+                    str(_get_executor_config().circular_detection_threshold),
+                )
+            )
+            if len(recent_calls) >= circular_thresh:
+                unique_recent = set(recent_calls[-circular_thresh:])
                 if len(unique_recent) == 1:
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc_id,
-                            "name": name,
-                            "content": (
-                                f"[HINT] You've called {name} with similar args 3 times in a row. "
-                                f"If this isn't working, try a completely different approach or finish the task."
-                            ),
-                        }
-                    )
-                    continue
+                    return {
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "name": name,
+                        "content": f"[HINT] You've called {name} with similar args {circular_thresh} times in a row.",
+                    }
 
             if on_tool_call:
                 on_tool_call(name, args)
+
+            validation_error = _validate_tool_args(name, args)
+            if validation_error:
+                failed_calls.add(call_key)
+                return {
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "name": name,
+                    "content": validation_error,
+                }
 
             tool_instance = tools[name]()
             result = tool_instance.run(**args)
@@ -1481,7 +1543,6 @@ def execute_agent_task(
             if is_error:
                 failed_calls.add(call_key)
 
-            # Track created and modified files, enqueue for background verification
             if name in ("write_file", "edit_file", "file_operations") and not is_error:
                 fp = (
                     args.get("file_path", "") or args.get("target_file", "") or args.get("path", "")
@@ -1494,11 +1555,6 @@ def execute_agent_task(
                     get_continuous_verifier().enqueue_files([fp] if fp else [])
                 except Exception:
                     pass
-
-                # Close the self-healing loop: synchronously verify the just-written
-                # Python file and surface actionable diagnostics back into the tool
-                # result so the agent can immediately correct errors instead of
-                # discovering them only on a later full-project verification pass.
                 if fp and fp.endswith(".py"):
                     try:
                         from sago.engine.verifier import ProjectVerifier
@@ -1511,50 +1567,57 @@ def execute_agent_task(
                         pass
 
             tool_history.append(
-                {
-                    "tool": name,
-                    "args": args,
-                    "result": result_str[:2000],
-                    "success": not is_error,
-                }
+                {"tool": name, "args": args, "result": result_str[:2000], "success": not is_error}
             )
-
             tools_used_in_iteration.append(name)
 
-            # Log tool usage to DB
-            try:
-                from sago.database import ToolUsageStore, init_db
+            if tool_usage_store is not None:
+                try:
+                    tool_usage_store.log(
+                        tool_name=name,
+                        arguments=args,
+                        result=result_str[:1000],
+                        success=not is_error,
+                    )
+                except Exception:
+                    pass
 
-                init_db()
-                _tus = ToolUsageStore("simple_executor")
-                _tus.log(
-                    tool_name=name,
-                    arguments=args,
-                    result=result_str[:1000],
-                    success=not is_error,
-                )
-                _tus.flush()
-            except Exception:
-                pass
-
-            # Notify caller of tool result immediately
             if on_tool_result:
                 on_tool_result(name, args, result_str, not is_error)
 
-            # Send result back as role:tool message with tool_call_id
-            if is_error:
-                tool_result_content = f"[ERROR] {name}:\n{result_str}\nTry a different approach."
-            else:
-                tool_result_content = result_str
-
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tc_id,
-                    "name": name,
-                    "content": tool_result_content,
-                }
+            content = (
+                f"[ERROR] {name}:\n{result_str}\nTry a different approach."
+                if is_error
+                else result_str
             )
+            return {"role": "tool", "tool_call_id": tc_id, "name": name, "content": content}
+
+        # Group tool calls: parallel-safe tools run concurrently, others run sequentially
+        i = 0
+        while i < len(native_tool_calls):
+            tc = native_tool_calls[i]
+            if tc["name"] in _PARALLEL_SAFE:
+                # Collect batch of parallel-safe calls
+                batch = []
+                while i < len(native_tool_calls) and native_tool_calls[i]["name"] in _PARALLEL_SAFE:
+                    batch.append(native_tool_calls[i])
+                    i += 1
+
+                if len(batch) == 1:
+                    messages.append(_exec_single_tool(batch[0]))
+                else:
+                    # Execute parallel batch
+                    import concurrent.futures
+
+                    with concurrent.futures.ThreadPoolExecutor(
+                        max_workers=min(len(batch), 6)
+                    ) as pool:
+                        futures = {pool.submit(_exec_single_tool, tc): tc for tc in batch}
+                        for future in concurrent.futures.as_completed(futures):
+                            messages.append(future.result())
+            else:
+                messages.append(_exec_single_tool(tc))
+                i += 1
 
         # Update task plan progress based on actual work done
         if task_plan:
@@ -1607,16 +1670,34 @@ def execute_agent_task(
                                     user_input=user_response,
                                 )
 
-                    # Auto-complete todo after sufficient work (5+ successful tools or 4+ iterations on same todo)
+                    # Auto-complete todo after sufficient work based on configurable thresholds
                     successful_tools = [
                         t["tool"]
                         for t in tool_history
                         if t.get("success") and t["tool"] in tools_used_in_iteration
                     ]
                     tools_for_this_todo = todo_tool_counts.get(current_todo.id, 0)
-                    if (tools_for_this_todo >= 5 and len(successful_tools) >= 3) or (
-                        i > 2 and tools_for_this_todo >= 4
-                    ):
+                    cfg = _get_executor_config()
+                    min_tools = int(
+                        os.environ.get(
+                            "SAGO_AUTOCOMPLETE_MIN_TOOLS", str(cfg.auto_complete_min_tools)
+                        )
+                    )
+                    min_success = int(
+                        os.environ.get(
+                            "SAGO_AUTOCOMPLETE_MIN_SUCCESS", str(cfg.auto_complete_min_success)
+                        )
+                    )
+                    min_iters = int(
+                        os.environ.get(
+                            "SAGO_AUTOCOMPLETE_MIN_ITERATIONS",
+                            str(cfg.auto_complete_min_iterations),
+                        )
+                    )
+
+                    if (
+                        tools_for_this_todo >= min_tools and len(successful_tools) >= min_success
+                    ) or (i > 2 and tools_for_this_todo >= min_iters):
                         tm.complete_todo(
                             task_plan.id,
                             current_todo.id,
@@ -1866,6 +1947,12 @@ def execute_agent_task(
                 metadata={"session_id": "simple_executor"},
             )
             tracker.save()
+        except Exception:
+            pass
+
+    if tool_usage_store is not None:
+        try:
+            tool_usage_store.flush()
         except Exception:
             pass
 

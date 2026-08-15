@@ -27,6 +27,7 @@ COMMANDS = {
     "/cost": "Token usage and costs",
     "/compact": "Summarize and compress context",
     "/retry": "Retry last message",
+    "/continue": "Resume interrupted task from last state without starting over",
     "/reset": "Reset session",
     "/save": "Save session (/save [name])",
     "/load": "Load session (/load <id>)",
@@ -68,6 +69,9 @@ COMMANDS = {
     "/project_graph": "Generate deep architecture & data graph (/project_graph [ascii|mermaid|json|llm] [focus])",
     "/graph": "Alias for /project_graph",
     "/detach": "Detach from session without killing background tasks (safe to close terminal)",
+    "/buttons": "Toggle or configure bottom action buttons bar (/buttons [on|off|toggle])",
+    "/show": "Show bottom button bar (/show [buttons|bar])",
+    "/hide": "Hide bottom button bar for clean power-user experience (/hide [buttons|bar])",
 }
 
 THEMES = {

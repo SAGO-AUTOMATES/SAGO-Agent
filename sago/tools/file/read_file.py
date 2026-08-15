@@ -54,9 +54,46 @@ class ReadFileTool(BaseTool):
         if not path.is_file():
             return f"Error: Not a file: {path}"
 
+        from sago.utils.markitdown_converter import convert_file_to_markdown, is_document_file
+
+        # Check if the file is a document format best parsed via MarkItDown
+        if is_document_file(path):
+            success, md_content = convert_file_to_markdown(path)
+            if success:
+                lines = md_content.splitlines(keepends=True)
+                if offset > 0:
+                    lines = lines[offset:]
+                if limit > 0:
+                    lines = lines[:limit]
+                result = "".join(lines)
+                line_count = len(lines)
+                total_lines = len(md_content.splitlines())
+                if line_count == 0:
+                    header = f"--- {path} (converted to Markdown, empty or beyond offset, total lines: {total_lines}) ---\n"
+                else:
+                    header = f"--- {path} (converted to Markdown, lines {offset + 1}-{offset + line_count} of {total_lines}) ---\n"
+                return header + result
+
         try:
             content = path.read_text(encoding=encoding)
         except UnicodeDecodeError:
+            # Try MarkItDown first on decode failure before latin-1
+            success, md_content = convert_file_to_markdown(path)
+            if success:
+                lines = md_content.splitlines(keepends=True)
+                if offset > 0:
+                    lines = lines[offset:]
+                if limit > 0:
+                    lines = lines[:limit]
+                result = "".join(lines)
+                line_count = len(lines)
+                total_lines = len(md_content.splitlines())
+                if line_count == 0:
+                    header = f"--- {path} (converted to Markdown, empty or beyond offset, total lines: {total_lines}) ---\n"
+                else:
+                    header = f"--- {path} (converted to Markdown, lines {offset + 1}-{offset + line_count} of {total_lines}) ---\n"
+                return header + result
+
             # Try with latin-1 as fallback
             try:
                 content = path.read_text(encoding="latin-1")
@@ -74,5 +111,8 @@ class ReadFileTool(BaseTool):
         line_count = len(lines)
         total_lines = len(content.splitlines())
 
-        header = f"--- {path} (lines {offset + 1}-{offset + line_count} of {total_lines}) ---\n"
+        if line_count == 0:
+            header = f"--- {path} (empty or beyond offset, total lines: {total_lines}) ---\n"
+        else:
+            header = f"--- {path} (lines {offset + 1}-{offset + line_count} of {total_lines}) ---\n"
         return header + result

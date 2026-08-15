@@ -10,6 +10,7 @@ Pre-built workflow templates for common automation tasks:
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sago.workflow.engine import (
@@ -352,12 +353,12 @@ class WorkflowTemplates:
         """
         builder = WorkflowBuilder(self.engine)
 
+        clean_report_type = re.sub(r"[^a-zA-Z0-9_-]", "", report_type)
         workflow = (
             builder.create(
                 name=f"Scheduled {report_type} Report",
                 description=f"Generate {schedule} {report_type} report",
                 trigger=TriggerType.SCHEDULE,
-                trigger_config={"schedule": schedule},
             )
             .step(
                 name="Gather Data",
@@ -366,7 +367,7 @@ class WorkflowTemplates:
                     "tool": "database_query",
                     "args": {
                         "operation": "query",
-                        "query": f"SELECT * FROM metrics WHERE type='{report_type}'",
+                        "query": f"SELECT * FROM metrics WHERE type='{clean_report_type}'",
                     },
                 },
             )

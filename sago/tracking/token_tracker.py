@@ -7,6 +7,7 @@ rate limiting, and usage analytics.
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -62,6 +63,7 @@ class UsageSummary:
     cache_hits: int = 0
     cache_misses: int = 0
     avg_latency_ms: float = 0.0
+    waste_summary: dict[str, Any] = field(default_factory=dict)
 
     @property
     def total_tokens(self) -> int:
@@ -85,6 +87,27 @@ class UsageSummary:
             "avg_latency_ms": round(self.avg_latency_ms, 2),
             "by_provider": self.by_provider,
             "by_model": self.by_model,
+            "waste_summary": self.waste_summary,
+        }
+
+
+@dataclass
+class TokenWaste:
+    """A single token waste event."""
+
+    reason: str  # "empty_args", "tool_error", "circular_call", "rejected", "quality_fail"
+    tokens_wasted: int
+    tool_name: str
+    timestamp: float = field(default_factory=time.time)
+    details: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "reason": self.reason,
+            "tokens_wasted": self.tokens_wasted,
+            "tool_name": self.tool_name,
+            "timestamp": self.timestamp,
+            "details": self.details,
         }
 
 
@@ -136,6 +159,7 @@ class TokenTracker:
     def __init__(self, persist_path: Path | None = None) -> None:
         self.persist_path = persist_path
         self._usages: list[TokenUsage] = []
+        self._waste_log: list[TokenWaste] = []
         self._daily_usage: dict[str, dict[str, float]] = defaultdict(
             lambda: {"requests": 0, "tokens": 0, "cost": 0.0}
         )
@@ -179,6 +203,8 @@ class TokenTracker:
         )
 
         self._usages.append(usage)
+        if len(self._usages) > 10000:
+            self._usages = self._usages[-10000:]
 
         # Update daily stats
         day = time.strftime("%Y-%m-%d")
@@ -187,6 +213,41 @@ class TokenTracker:
         self._daily_usage[day]["cost"] += cost
 
         return usage
+
+    def record_waste(
+        self,
+        reason: str,
+        tokens: int,
+        tool: str,
+        details: str = "",
+    ) -> TokenWaste:
+        """Record a token waste event (failed tool call, rejected args, etc.)."""
+        waste = TokenWaste(
+            reason=reason,
+            tokens_wasted=tokens,
+            tool_name=tool,
+            details=details,
+        )
+        self._waste_log.append(waste)
+        if len(self._waste_log) > 5000:
+            self._waste_log = self._waste_log[-5000:]
+        return waste
+
+    def get_waste_summary(self) -> dict[str, Any]:
+        """Get summary of token waste across all reasons."""
+        if not self._waste_log:
+            return {"total_wasted": 0, "by_reason": {}, "by_tool": {}, "count": 0}
+        by_reason: dict[str, int] = defaultdict(int)
+        by_tool: dict[str, int] = defaultdict(int)
+        for w in self._waste_log:
+            by_reason[w.reason] += w.tokens_wasted
+            by_tool[w.tool_name] += w.tokens_wasted
+        return {
+            "total_wasted": sum(w.tokens_wasted for w in self._waste_log),
+            "count": len(self._waste_log),
+            "by_reason": dict(by_reason),
+            "by_tool": dict(by_tool),
+        }
 
     def check_rate_limit(self, provider: str) -> tuple[bool, float]:
         """Check if rate limit allows another request.
@@ -221,8 +282,13 @@ class TokenTracker:
         if time_range:
             usages = self._filter_by_time(usages, time_range)
 
+        summary = UsageSummary()
+
+        # Waste summary (always include, even if no LLM usages)
+        summary.waste_summary = self.get_waste_summary()
+
         if not usages:
-            return UsageSummary()
+            return summary
 
         summary = UsageSummary()
         summary.total_requests = len(usages)
@@ -261,6 +327,9 @@ class TokenTracker:
             m["requests"] += 1
             m["tokens"] += usage.total_tokens
             m["cost"] += usage.cost_usd
+
+        # Waste summary
+        summary.waste_summary = self.get_waste_summary()
 
         return summary
 
@@ -347,14 +416,17 @@ class TokenTracker:
 
 # Global tracker instance
 _global_tracker: TokenTracker | None = None
+_tracker_lock = threading.Lock()
 
 
 def get_token_tracker(persist: bool = True) -> TokenTracker:
     """Get or create the global token tracker."""
     global _global_tracker
     if _global_tracker is None:
-        from sago.paths import get_sago_home
+        with _tracker_lock:
+            if _global_tracker is None:
+                from sago.paths import get_sago_home
 
-        persist_path = get_sago_home() / "token_usage.json" if persist else None
-        _global_tracker = TokenTracker(persist_path=persist_path)
+                persist_path = get_sago_home() / "token_usage.json" if persist else None
+                _global_tracker = TokenTracker(persist_path=persist_path)
     return _global_tracker

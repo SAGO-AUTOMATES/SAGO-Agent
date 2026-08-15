@@ -1,5 +1,30 @@
 # Sago - Commands Reference
 
+## Setup & Diagnostics
+
+### `sago onboard` / `sago setup`
+Interactive setup wizard to configure LLM providers, API keys, persistent storage, and workspace directories.
+
+```bash
+sago onboard             # Launch interactive onboarding setup wizard
+sago setup               # Reconfigure providers and settings
+```
+
+### `sago doctor`
+Check system health, Python runtime, API keys, SQLite integrity, network ports, and tool dependencies.
+
+```bash
+sago doctor              # Run comprehensive subsystem health check
+```
+
+### `sago update`
+Auto-detect package manager (`uv` or `pip`) and update SAGO to the latest release in-place.
+
+```bash
+sago update              # Auto-detect uv/pip and upgrade SAGO
+sago update --check      # Check current vs latest PyPI version without installing
+```
+
 ## CLI Commands
 
 ### `sago smart`
@@ -66,6 +91,15 @@ Export microsecond execution telemetry into standard OpenTelemetry (`OTEL`) Trac
 ```bash
 sago telemetry --export otel --output traces.json
 sago telemetry --export prometheus --output metrics.prom
+```
+
+### `sago parse`
+Parse complex document formats (PDF, DOCX, XLSX, PPTX, HTML, CSV, JSON, XML) to clean, token-efficient Markdown powered by MarkItDown.
+
+```bash
+sago parse design_spec.pdf                     # Output parsed Markdown directly to terminal
+sago parse data_sheet.xlsx -o sheet.md         # Save parsed table to Markdown file
+sago parse architecture.pptx -o slides.md      # Convert slide deck to Markdown
 ```
 
 ### `sago verify`
@@ -139,9 +173,14 @@ Show system and connection status.
 | `/todos` | Show all tasks in plan |
 | `/todo <id>` | Show details of a specific todo item |
 | `/done <id>` | Mark a todo item as completed |
+| `/retry` | Retry last user prompt |
+| `/continue` | Resume an interrupted task from previous execution state without wasting tokens |
 | `/compact` | Semantic context compression (prunes verbose tool outputs) |
 | `/reset` | Reset active session |
 | `/detach` | Cleanly detach from session while keeping background tasks running (safe to close terminal) |
+| `/buttons [on\|off\|toggle]` | Toggle or configure bottom quick action buttons bar |
+| `/show` | Make bottom action buttons bar visible |
+| `/hide` | Hide bottom button bar for a clean, power-user experience |
 | `/version` | Show Sago version info |
 | `/exit` | Save session and quit |
 

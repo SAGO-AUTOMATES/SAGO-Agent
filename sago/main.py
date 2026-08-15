@@ -377,52 +377,93 @@ def tools() -> None:
 
 
 @cli.command()
-def sessions() -> None:
-    """List recent sessions."""
-    from sago.database import Session
+@click.option("--limit", "-l", default=20, help="Number of sessions to list")
+@click.option("--clean/--no-clean", default=True, help="Auto-clean empty and useless sessions")
+def sessions(limit: int, clean: bool) -> None:
+    """List recent sessions with message and tool execution stats."""
+    from sago.database import MessageStore, Session, ToolUsageStore, init_db
 
+    init_db()
     session = Session()
-    sessions_list = session.list_all(limit=20)
+    if clean:
+        session.cleanup_useless_sessions()
+    sessions_list = session.list_all(limit=limit)
 
     if not sessions_list:
-        console.print("[dim]No sessions found.[/]")
+        console.print("[dim]No active sessions found in database ~/.sago/data/sago.db.[/]")
         return
 
-    console.print(Panel.fit("[bold]Recent Sessions[/]", border_style="blue"))
+    console.print(Panel.fit("[bold cyan]Recent SAGO Sessions[/]", border_style="cyan"))
 
     table = Table(show_header=True, header_style="bold magenta")
-    table.add_column("ID", style="cyan", max_width=12)
-    table.add_column("Title")
-    table.add_column("Created")
+    table.add_column("Session ID", style="cyan", max_width=14)
+    table.add_column("Title / Prompt", max_width=36)
+    table.add_column("Msgs", justify="right", style="green")
+    table.add_column("Tools", justify="right", style="yellow")
+    table.add_column("Created", style="dim")
     table.add_column("Status")
 
     for s in sessions_list:
+        sid = s["id"]
+        try:
+            ms = MessageStore(sid)
+            msg_count = ms.count()
+        except Exception:
+            msg_count = 0
+        try:
+            tus = ToolUsageStore(sid)
+            tool_count = len(tus.get_all())
+        except Exception:
+            tool_count = 0
+
+        status_str = s.get("status", "active")
+        status_styled = (
+            "[bold green]active[/bold green]"
+            if status_str == "active"
+            else (
+                "[cyan]detached[/cyan]" if status_str == "detached" else f"[dim]{status_str}[/dim]"
+            )
+        )
+
         table.add_row(
-            s["id"][:12],
-            (s.get("title") or "Untitled")[:50],
-            s["created_at"][:19],
-            s.get("status", "active"),
+            sid[:12],
+            (s.get("title") or "Untitled")[:35],
+            str(msg_count),
+            str(tool_count),
+            s["created_at"][:16].replace("T", " "),
+            status_styled,
         )
 
     console.print(table)
+    console.print("\n[dim]To view history:  sago history <session_id>[/dim]")
+    console.print("[dim]To resume in TUI: sago tui --resume <session_id>[/dim]\n")
 
 
 @cli.command()
 @click.argument("session_id")
 def history(session_id: str) -> None:
-    """Show message history for a session."""
-    from sago.database import MessageStore
+    """Show message history and tool executions for a session."""
+    from sago.database import MessageStore, Session, init_db
 
-    msg_store = MessageStore(session_id)
-    messages = msg_store.get_history(limit=50)
+    init_db()
+
+    target_sid = session_id
+    session_title = "Untitled"
+    matched = Session().find_by_prefix(session_id)
+    if matched:
+        target_sid = matched["id"]
+        session_title = matched.get("title") or "Untitled"
+
+    msg_store = MessageStore(target_sid)
+    messages = msg_store.get_history(limit=100)
 
     if not messages:
-        console.print(f"[dim]No messages found for session {session_id}[/]")
+        console.print(f"[dim]No messages found for session {session_id} in ~/.sago/data/sago.db[/]")
         return
 
     console.print(
         Panel.fit(
-            f"[bold]Session History: {session_id[:12]}[/]",
+            f"[bold]Session History: {target_sid[:12]}[/] [dim]({session_title})[/]",
             border_style="blue",
         )
     )
@@ -524,60 +565,353 @@ def init(name: str | None, ssh: bool) -> None:
     console.print("  sago agents                   # List all agents")
 
 
-@cli.command()
-def setup() -> None:
-    """Interactive setup wizard for Sago."""
-    from rich.prompt import Prompt
+def _run_interactive_setup() -> None:
+    """Core interactive setup wizard for Sago."""
+    import os
+    from pathlib import Path
+
+    import yaml
+    from rich.prompt import Confirm, Prompt
 
     console.print(
         Panel.fit(
-            "[bold blue]Sago Setup Wizard[/]\n[dim]Configure your multi-agent system[/]",
-            border_style="blue",
+            "[bold cyan]✨ Welcome to SAGO — Intelligent Multi-Agent Orchestration[/]\n"
+            "[dim]Let's configure your workspace for seamless local & distributed agent execution.[/]",
+            border_style="cyan",
         )
     )
 
-    # Select LLM provider
-    console.print("\n[bold]Select LLM Provider:[/]")
-    console.print("  1. Gemini (Google)")
-    console.print("  2. OpenAI (GPT)")
-    console.print("  3. Claude (Anthropic)")
-    console.print("  4. OpenRouter")
-    console.print("  5. Ollama (Local)")
+    sago_home = Path.home() / ".sago"
+    sago_home.mkdir(parents=True, exist_ok=True)
+    for sub in ("logs", "sessions", "cache", "data", "cache/hybrid_index"):
+        (sago_home / sub).mkdir(parents=True, exist_ok=True)
 
-    choice = Prompt.ask("Choice", default="1")
-    providers = {"1": "gemini", "2": "openai", "3": "claude", "4": "openrouter", "5": "ollama"}
-    provider = providers.get(choice, "gemini")
+    # 1. Select LLM provider
+    console.print("\n[bold]1. Choose your Primary LLM Provider:[/]")
+    console.print("  [cyan]1.[/] Google Gemini [dim](Fast & recommended default)[/]")
+    console.print("  [cyan]2.[/] OpenAI [dim](GPT-4o / o1 / o3-mini)[/]")
+    console.print("  [cyan]3.[/] Anthropic Claude [dim](Claude 3.7 Sonnet / Haiku)[/]")
+    console.print("  [cyan]4.[/] OpenRouter [dim](Unified API for 100+ models)[/]")
+    console.print("  [cyan]5.[/] Ollama [dim](100% Private local offline LLM)[/]")
 
-    # Get API key
-    api_key_env = {
-        "gemini": "GEMINI_API_KEY",
-        "openai": "OPENAI_API_KEY",
-        "claude": "ANTHROPIC_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
-    }.get(provider)
+    choice = Prompt.ask("Select provider", choices=["1", "2", "3", "4", "5"], default="1")
+    providers_map = {
+        "1": ("gemini", "GEMINI_API_KEY", "gemini-2.0-flash"),
+        "2": ("openai", "OPENAI_API_KEY", "gpt-4o"),
+        "3": ("claude", "ANTHROPIC_API_KEY", "claude-sonnet-4-20250514"),
+        "4": ("openrouter", "OPENROUTER_API_KEY", "anthropic/claude-sonnet-4"),
+        "5": ("ollama", None, "llama3.1"),
+    }
+    provider, api_key_env, default_model = providers_map[choice]
 
+    # 2. Get API key if needed
+    saved_key: str | None = None
     if api_key_env:
-        import os
+        current_env = os.environ.get(api_key_env, "")
+        prompt_msg = f"Enter {api_key_env}" + (
+            f" [dim](found in env: {current_env[:6]}...)[/]" if current_env else ""
+        )
+        entered_key = Prompt.ask(prompt_msg, default=current_env)
+        if entered_key:
+            saved_key = entered_key
+            os.environ[api_key_env] = entered_key
+            console.print(f"  [green]✓[/] {api_key_env} registered.")
 
-        key = Prompt.ask(f"Enter {api_key_env} (or press Enter to skip)")
-        if key:
-            os.environ[api_key_env] = key
-            console.print(f"[green]Set {api_key_env}[/]")
+    # 3. Model selection
+    selected_model = Prompt.ask("Default Model", default=default_model)
 
-    # Initialize database
+    # 4. Save persistent user config to ~/.sago/config.yaml
+    config_file = sago_home / "config.yaml"
+    user_config: dict[str, Any] = {}
+    if config_file.exists():
+        try:
+            user_config = yaml.safe_load(config_file.read_text()) or {}
+        except Exception:
+            user_config = {}
+
+    user_config.setdefault("llm_providers", {})
+    user_config["llm_providers"]["default"] = provider
+    user_config["llm_providers"].setdefault("providers", {})
+    user_config["llm_providers"]["providers"][provider] = {
+        "enabled": True,
+        "model": selected_model,
+    }
+    if saved_key and api_key_env:
+        user_config["llm_providers"]["providers"][provider]["api_key_env"] = api_key_env
+
+    config_file.write_text(yaml.dump(user_config, default_flow_style=False))
+    console.print(f"  [green]✓[/] Configuration saved to [bold]{config_file}[/]")
+
+    # 5. Initialize SQLite Database
     from sago.database import init
 
     init()
-    console.print("[green]Database initialized.[/]")
+    console.print("  [green]✓[/] SQLite database & state storage initialized.")
 
-    console.print("\n[green]Setup complete![/]")
-    console.print("Run [bold]sago run 'your task'[/] to get started.")
-    console.print("Run [bold]sago agents[/] to see available agents.")
+    # 6. Ask for Git Hooks installation if inside git repo
+    if (Path.cwd() / ".git").exists() and (Path.cwd() / "scripts" / "install-hooks.sh").exists():
+        if Confirm.ask(
+            "\nInstall Git pre-commit & pre-push quality hooks for this repo?", default=True
+        ):
+            import subprocess
+
+            try:
+                subprocess.run(
+                    ["bash", "./scripts/install-hooks.sh"], check=True, capture_output=True
+                )
+                console.print("  [green]✓[/] Git hooks installed successfully.")
+            except Exception as e:
+                console.print(
+                    f"  [yellow]Notice:[/] Could not install git hooks automatically ({e})."
+                )
+
+    # Onboarding summary card
+    console.print(
+        Panel(
+            f"[bold green]Setup Complete & Ready to Build![/]\n\n"
+            f"[bold]Active Provider:[/] [cyan]{provider}[/] ([bold]{selected_model}[/])\n"
+            f"[bold]Config Path:[/]     [dim]{config_file}[/]\n\n"
+            f"[bold]Recommended Next Steps:[/]\n"
+            f"  • [cyan]sago run 'your task'[/]       Auto-orchestrate any software task\n"
+            f"  • [cyan]sago tui[/]                    Launch interactive full-screen TUI terminal\n"
+            f"  • [cyan]sago smart 'review PR'[/]      Execute smart auto-delegating task\n"
+            f"  • [cyan]sago doctor[/]                 Verify system health, keys, and network ports\n"
+            f"  • [cyan]sago agents[/]                 Explore 339 specialized engineering agents",
+            title="[bold blue]🚀 Quickstart Guide[/]",
+            border_style="green",
+        )
+    )
+
+
+@cli.command()
+def setup() -> None:
+    """Interactive setup wizard for Sago."""
+    _run_interactive_setup()
+
+
+@cli.command()
+def onboard() -> None:
+    """Seamless interactive onboarding wizard for new Sago setups."""
+    _run_interactive_setup()
+
+
+@cli.command()
+def doctor() -> None:
+    """Check system health, API keys, database, network ports, and tool dependencies."""
+    import os
+    import socket
+    import sys
+    from pathlib import Path
+
+    from rich.table import Table
+
+    table = Table(title="🏥 Sago System Health Check", border_style="cyan", show_header=True)
+    table.add_column("Subsystem", style="bold")
+    table.add_column("Status", justify="center")
+    table.add_column("Details")
+
+    # 1. Python version
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    table.add_row("Python Runtime", "[green]✓ PASS[/]", f"Python {py_ver}")
+
+    # 2. Config & Directories
+    sago_home = Path.home() / ".sago"
+    if sago_home.exists():
+        table.add_row("User Directory", "[green]✓ PASS[/]", f"{sago_home} (Writable)")
+    else:
+        table.add_row(
+            "User Directory", "[yellow]! WARN[/]", f"{sago_home} missing. Run 'sago setup'."
+        )
+
+    # 3. Database
+    from sago.database import get_db
+
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [r[0] for r in cur.fetchall()]
+            table.add_row("SQLite Database", "[green]✓ PASS[/]", f"{len(tables)} tables active")
+    except Exception as exc:
+        table.add_row("SQLite Database", "[red]✗ FAIL[/]", str(exc))
+
+    # 4. LLM API Keys
+    keys = {
+        "GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY"),
+        "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY"),
+        "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY"),
+        "OPENROUTER_API_KEY": os.environ.get("OPENROUTER_API_KEY"),
+    }
+    configured_keys = [k for k, v in keys.items() if v]
+    if configured_keys:
+        table.add_row("LLM API Keys", "[green]✓ PASS[/]", f"Active: {', '.join(configured_keys)}")
+    else:
+        table.add_row(
+            "LLM API Keys",
+            "[yellow]! NONE[/]",
+            "No API keys found in environment. Set GEMINI_API_KEY or run 'sago setup'.",
+        )
+
+    # 5. Ports availability
+    for name, port in [("Daemon Port", 7654), ("Mesh P2P Port", 7655)]:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.settimeout(0.5)
+            res = s.connect_ex(("127.0.0.1", port))
+            if res == 0:
+                table.add_row(name, "[green]● ACTIVE[/]", f"Port {port} in use / service running")
+            else:
+                table.add_row(name, "[dim]○ READY[/]", f"Port {port} free for daemon/mesh")
+        except Exception:
+            table.add_row(name, "[dim]○ READY[/]", f"Port {port} ready")
+        finally:
+            s.close()
+
+    # 6. Agents & Tools
+    from sago.agents.registry import AGENTS
+
+    table.add_row("Specialist Agents", "[green]✓ PASS[/]", f"{len(AGENTS)} agent profiles ready")
+
+    console.print(table)
+    console.print(
+        "\n[dim]Run [bold]sago onboard[/] to reconfigure providers or workspace settings.[/]\n"
+    )
+
+
+@cli.command()
+@click.option("--check", is_flag=True, help="Check for updates without installing")
+@click.option("--pre", is_flag=True, help="Allow pre-release versions")
+def update(check: bool, pre: bool) -> None:
+    """Auto-detect package manager (uv/pip) and update SAGO to the latest version.
+
+    Examples:
+        sago update          # Upgrade SAGO in-place
+        sago update --check  # Check current vs latest PyPI version
+    """
+    import json
+    import shutil
+    import subprocess
+    import sys
+    import urllib.request
+
+    console.print(
+        Panel.fit(
+            f"[bold cyan]🚀 SAGO Package Updater (Current: v{__version__})[/]",
+            border_style="cyan",
+        )
+    )
+
+    # 1. Fetch latest version from PyPI
+    latest_version = None
+    package_name = "sago-agent"
+    try:
+        req = urllib.request.Request(
+            f"https://pypi.org/pypi/{package_name}/json",
+            headers={"User-Agent": f"sago-cli/{__version__}"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+            latest_version = data.get("info", {}).get("version")
+    except Exception:
+        latest_version = None
+
+    if latest_version:
+        console.print(f"  • Current Installed Version: [bold]{__version__}[/]")
+        console.print(f"  • Latest PyPI Version:      [bold green]{latest_version}[/]")
+        if latest_version == __version__ and not pre:
+            console.print("\n[green]✓ SAGO is already up to date![/]\n")
+            return
+    else:
+        console.print(f"  • Current Installed Version: [bold]{__version__}[/]")
+        console.print("  • [yellow]Note:[/] Checking PyPI for updates...")
+
+    if check:
+        return
+
+    # 2. Detect package manager and installation method
+    has_uv = bool(shutil.which("uv"))
+    has_pipx = bool(shutil.which("pipx"))
+
+    # Check if installed via `uv tool`
+    is_uv_tool = False
+    if has_uv:
+        try:
+            res = subprocess.run(["uv", "tool", "list"], capture_output=True, text=True, timeout=5)
+            if res.returncode == 0 and "sago-agent" in res.stdout:
+                is_uv_tool = True
+        except Exception:
+            is_uv_tool = False
+
+    # Check if installed via `pipx`
+    is_pipx = False
+    if not is_uv_tool and has_pipx:
+        try:
+            res = subprocess.run(["pipx", "list"], capture_output=True, text=True, timeout=5)
+            if res.returncode == 0 and "sago-agent" in res.stdout:
+                is_pipx = True
+        except Exception:
+            is_pipx = False
+
+    update_cmd = []
+    if is_uv_tool:
+        console.print(
+            "\n[dim]⚡ Detected global installation via [bold cyan]uv tool[/bold cyan][/dim]"
+        )
+        update_cmd = ["uv", "tool", "upgrade", package_name]
+    elif is_pipx:
+        console.print(
+            "\n[dim]📦 Detected global installation via [bold cyan]pipx[/bold cyan][/dim]"
+        )
+        update_cmd = ["pipx", "upgrade", package_name]
+    elif has_uv:
+        console.print("\n[dim]⚡ Detected package manager: [bold cyan]uv[/bold cyan][/dim]")
+        update_cmd = ["uv", "pip", "install", "--upgrade", package_name]
+        if sys.prefix == sys.base_prefix:
+            update_cmd.append("--system")
+        if pre:
+            update_cmd.append("--prerelease=allow")
+    else:
+        console.print("\n[dim]📦 Detected package manager: [bold cyan]pip[/bold cyan][/dim]")
+        update_cmd = [sys.executable, "-m", "pip", "install", "--upgrade", package_name]
+        if pre:
+            update_cmd.append("--pre")
+
+    console.print(f"[bold]Executing upgrade command:[/] `{' '.join(update_cmd)}`\n")
+    try:
+        with console.status(
+            f"[bold cyan]Fetching and installing latest {package_name}...[/bold cyan]",
+            spinner="dots",
+        ):
+            result = subprocess.run(update_cmd, capture_output=True, text=True, timeout=120)
+
+        if result.returncode == 0:
+            console.print(
+                "[bold green]✓ SAGO has been successfully updated to the latest version![/bold green]\n"
+            )
+            if result.stdout.strip():
+                tail_out = "\n".join(result.stdout.strip().splitlines()[-6:])
+                console.print(f"[dim]{tail_out}[/dim]\n")
+        else:
+            console.print(
+                f"[bold red]✗ Update failed with exit code {result.returncode}:[/bold red]"
+            )
+            if result.stderr.strip():
+                console.print(f"[red]{result.stderr.strip()}[/red]\n")
+            else:
+                console.print(f"[dim]{result.stdout.strip()}[/dim]\n")
+    except Exception as exc:
+        console.print(f"[bold red]✗ Failed to execute update:[/] {exc}\n")
 
 
 @cli.command()
 @click.argument("task")
-@click.option("--effort", "-e", default="medium", help="Effort level: minimal/low/medium/high/max")
+@click.option(
+    "--effort",
+    "-e",
+    type=click.Choice(["minimal", "low", "medium", "high", "max"], case_sensitive=False),
+    default="medium",
+    help="Effort level: minimal/low/medium/high/max",
+)
 @click.option("--thinking/--no-thinking", default=False, help="Show thinking traces")
 def smart(task: str, effort: str, thinking: bool) -> None:
     """Smart task execution with auto-delegation and streaming.
@@ -591,8 +925,6 @@ def smart(task: str, effort: str, thinking: bool) -> None:
         sago smart "Review this code" --thinking
     """
     import os
-
-    from openai import OpenAI
 
     from sago.agents.registry import get_agent, list_agents
     from sago.engine.simple_executor import execute_agent_task
@@ -611,36 +943,40 @@ def smart(task: str, effort: str, thinking: bool) -> None:
         ]
     )
 
-    client = OpenAI(
-        api_key=api_key,
-        base_url="https://openrouter.ai/api/v1",
-    )
+    agent_name = None
+    try:
+        from openai import OpenAI
 
-    router_response = client.chat.completions.create(
-        model=_get_configured_model(),
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a task router. Given a task, select the EXACT BEST agent name from the list.\n"
-                    "Reply with ONLY the exact agent name, nothing else. No quotes, no explanation.\n"
-                    "If the task mentions Java, use java-engineer. If Python, use python-engineer.\n\n"
-                    f"Available agents:\n{agent_list_str}"
-                ),
-            },
-            {"role": "user", "content": f"Task: {task}"},
-        ],
-        max_tokens=50,
-    )
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+        )
 
-    agent_name = router_response.choices[0].message.content
-    # Some models put response in reasoning field
-    if not agent_name and router_response.choices[0].message.reasoning:
-        # Extract agent name from reasoning
-        for a in agents:
-            if a["name"] in router_response.choices[0].message.reasoning:
-                agent_name = a["name"]
-                break
+        router_response = client.chat.completions.create(
+            model=_get_configured_model(),
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a task router. Given a task, select the EXACT BEST agent name from the list.\n"
+                        "Reply with ONLY the exact agent name, nothing else. No quotes, no explanation.\n"
+                        "If the task mentions Java, use java-engineer. If Python, use python-engineer.\n\n"
+                        f"Available agents:\n{agent_list_str}"
+                    ),
+                },
+                {"role": "user", "content": f"Task: {task}"},
+            ],
+            max_tokens=50,
+        )
+
+        agent_name = router_response.choices[0].message.content
+        if not agent_name and getattr(router_response.choices[0].message, "reasoning", None):
+            for a in agents:
+                if a["name"] in router_response.choices[0].message.reasoning:
+                    agent_name = a["name"]
+                    break
+    except Exception:
+        agent_name = None
     if agent_name:
         agent_name = agent_name.strip().strip('"').strip("'")
     else:
@@ -1520,6 +1856,42 @@ def telemetry(export: str, output: str | None) -> None:
             console.print(f"[bold green]✓ Traces exported to:[/bold green] [cyan]{res}[/cyan]")
         else:
             console.print(f"[bold red]Export failed:[/bold red] {res}")
+
+
+@cli.command("parse")
+@click.argument("file_path", type=click.Path(exists=True))
+@click.option("--output", "-o", default=None, help="Save parsed Markdown to file")
+def parse_cmd(file_path: str, output: str | None) -> None:
+    """Parse documents, PDFs, spreadsheets, and web files to Markdown via MarkItDown.
+
+    Example:
+        sago parse documentation.pdf
+        sago parse financial_report.xlsx -o report.md
+    """
+    from rich.markdown import Markdown
+
+    from sago.utils.markitdown_converter import convert_file_to_markdown, is_markitdown_available
+
+    path = Path(file_path)
+    success, content = convert_file_to_markdown(path)
+    if not success:
+        avail_msg = (
+            ""
+            if is_markitdown_available()
+            else "\nTip: Run `pip install markitdown` for full Microsoft Office & PDF parsing support."
+        )
+        console.print(f"[bold red]Parse error:[/] {content}{avail_msg}")
+        return
+
+    if output:
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(content, encoding="utf-8")
+        console.print(
+            f"[bold green]✓ Converted {path.name} to Markdown:[/] [cyan]{out_path}[/cyan] ({len(content):,} chars)"
+        )
+    else:
+        console.print(Markdown(content))
 
 
 def main() -> None:

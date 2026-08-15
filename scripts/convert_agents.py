@@ -47,7 +47,9 @@ def parse_agent_md(file_path: Path) -> dict[str, Any] | None:
         result["description"] = mandate_match.group(1).strip()
 
     # Extract skills from sections
-    skills_section = re.search(r"## \d+\.\s*Core (?:Competencies|Responsibilities)(.*?)(?=##|\Z)", content, re.DOTALL)
+    skills_section = re.search(
+        r"## \d+\.\s*Core (?:Competencies|Responsibilities)(.*?)(?=##|\Z)", content, re.DOTALL
+    )
     if skills_section:
         # Extract bullet points
         bullets = re.findall(r"[-*]\s*\*\*(.+?)\*\*", skills_section.group(1))

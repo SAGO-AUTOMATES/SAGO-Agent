@@ -7,6 +7,7 @@ Supports environment variable overrides and user-level customization.
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,7 @@ class ProjectConfig(BaseModel):
     """Project-level configuration."""
 
     name: str = "sago"
-    version: str = "0.1.5"
+    version: str = "0.1.6"
     description: str = "Sophisticated Multi-Agent Orchestration System"
 
 
@@ -123,6 +124,40 @@ class RoutingConfig(BaseModel):
     triggers: dict[str, list[str]] = Field(default_factory=dict)
 
 
+class SearchConfig(BaseModel):
+    """Hybrid search configuration."""
+
+    max_files: int = 50000
+    use_embeddings: bool = False
+    cache_dir: str = "~/.sago/cache/hybrid_index"
+
+
+class DaemonConfig(BaseModel):
+    """Daemon server configuration."""
+
+    host: str = "127.0.0.1"
+    port: int = 7654
+    max_connections: int = 10
+
+
+class MeshConfig(BaseModel):
+    """P2P Mesh network configuration."""
+
+    port: int = 7655
+    task_timeout_seconds: int = 120
+
+
+class ExecutorConfig(BaseModel):
+    """Execution engine thresholds and behavior."""
+
+    project_context_ttl: int = 300
+    max_tokens: int = 32000
+    circular_detection_threshold: int = 3
+    auto_complete_min_tools: int = 5
+    auto_complete_min_success: int = 3
+    auto_complete_min_iterations: int = 4
+
+
 class SagoConfig(BaseModel):
     """Root configuration model for Sago."""
 
@@ -133,6 +168,10 @@ class SagoConfig(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     llm_providers: LLMProvidersConfig = Field(default_factory=LLMProvidersConfig)
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
+    search: SearchConfig = Field(default_factory=SearchConfig)
+    daemon: DaemonConfig = Field(default_factory=DaemonConfig)
+    mesh: MeshConfig = Field(default_factory=MeshConfig)
+    executor: ExecutorConfig = Field(default_factory=ExecutorConfig)
 
 
 def _expand_path(path_str: str) -> Path:
@@ -216,6 +255,7 @@ def load_config(
 
 _config_cache: SagoConfig | None = None
 _config_cache_key: str | None = None
+_config_lock = threading.Lock()
 
 
 def get_config() -> SagoConfig:
@@ -239,16 +279,18 @@ def get_config() -> SagoConfig:
     user_path = project_config if project_config.exists() else user_config
 
     cache_key = f"{config_dir}:{user_path}"
-    if _config_cache is not None and _config_cache_key == cache_key:
-        return _config_cache
+    with _config_lock:
+        if _config_cache is not None and _config_cache_key == cache_key:
+            return _config_cache
 
-    _config_cache = load_config(config_dir=config_dir, user_config_path=user_path)
-    _config_cache_key = cache_key
-    return _config_cache
+        _config_cache = load_config(config_dir=config_dir, user_config_path=user_path)
+        _config_cache_key = cache_key
+        return _config_cache
 
 
 def invalidate_config_cache() -> None:
-    """Force config to be reloaded on next get_config() call."""
+    """Invalidate the cached configuration, forcing reload on next get_config()."""
     global _config_cache, _config_cache_key
-    _config_cache = None
-    _config_cache_key = None
+    with _config_lock:
+        _config_cache = None
+        _config_cache_key = None

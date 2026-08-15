@@ -15,8 +15,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sago.utils.errors import log_error
-
 
 @dataclass
 class CacheEntry:
@@ -134,12 +132,15 @@ class Cache:
             while len(self._entries) >= self.max_size:
                 self._evict()
 
-            # Calculate size
-            try:
-                size_bytes = len(json.dumps(value, default=str).encode())
-            except Exception as e:
-                log_error("Failed to compute cache entry size", e)
-                size_bytes = 0
+            # Calculate size fast without expensive JSON serialization
+            if isinstance(value, str):
+                size_bytes = len(value.encode("utf-8", errors="replace"))
+            elif isinstance(value, bytes):
+                size_bytes = len(value)
+            else:
+                import sys
+
+                size_bytes = sys.getsizeof(value)
 
             entry = CacheEntry(
                 key=key,
@@ -317,6 +318,7 @@ class ContentHashCache(Cache):
 
 # Global cache instance
 _global_cache: Cache | None = None
+_cache_lock = threading.Lock()
 
 
 def get_cache(
@@ -327,12 +329,14 @@ def get_cache(
     """Get or create the global cache instance."""
     global _global_cache
     if _global_cache is None:
-        from sago.paths import get_sago_home
+        with _cache_lock:
+            if _global_cache is None:
+                from sago.paths import get_sago_home
 
-        persist_path = get_sago_home() / "cache.json" if persist else None
-        _global_cache = Cache(
-            max_size=max_size,
-            default_ttl=default_ttl,
-            persist_path=persist_path,
-        )
+                persist_path = get_sago_home() / "cache.json" if persist else None
+                _global_cache = Cache(
+                    max_size=max_size,
+                    default_ttl=default_ttl,
+                    persist_path=persist_path,
+                )
     return _global_cache
