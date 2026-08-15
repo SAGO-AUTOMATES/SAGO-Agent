@@ -294,95 +294,36 @@ class UIHelpers:
             else:
                 target_card.response_text = content
 
-        # If developer mode is active, mount execution telemetry trace block
+        # If developer mode is active, mount a compact trace badge (click F2 for full viewer)
         if getattr(self, "developer_mode", False):
             from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
             tracer = get_dev_tracer()
-            traces = tracer.get_recent_traces(limit=30)
+            traces = tracer.get_recent_traces(limit=500)
             if traces:
-                llm_traces = [t for t in traces if t.event_type == TraceEventType.LLM_PAYLOAD]
-                tool_traces = [t for t in traces if t.event_type == TraceEventType.TOOL_DISPATCH]
-                routing_traces = [t for t in traces if t.event_type == TraceEventType.AGENT_ROUTING]
-                fn_traces = [
-                    t
+                llm_count = sum(
+                    1
                     for t in traces
-                    if t.event_type
-                    in (
-                        TraceEventType.FUNCTION_CALL,
-                        TraceEventType.FUNCTION_RETURN,
-                    )
-                ]
-
-                dev_sections = [
-                    f"[bold red]⚡ DEV TRACE OVERVIEW[/bold red] - Total Events: [bold white]{len(traces)}[/bold white] | LLM Calls: [bold magenta]{len(llm_traces)}[/bold magenta] | Tools: [bold cyan]{len(tool_traces)}[/bold cyan] | Handoffs: [bold green]{len(routing_traces)}[/bold green]"
-                ]
-
-                if llm_traces:
-                    dev_sections.append(
-                        "\n[bold magenta]─── LLM Invocations & Payloads ───[/bold magenta]"
-                    )
-                    for lt in llm_traces:
-                        m = lt.data.get("model", "unknown")
-                        dur = f"{lt.duration_ms:.1f}ms" if lt.duration_ms > 0 else "streaming"
-                        tin = lt.data.get("tokens_in", 0)
-                        tout = lt.data.get("tokens_out", 0)
-                        dev_sections.append(
-                            f"  • [bold magenta]{m}[/bold magenta] | Latency: [yellow]{dur}[/yellow] | Tokens: In: [green]{tin}[/green], Out: [cyan]{tout}[/cyan]"
-                        )
-                        if "messages_preview" in lt.data:
-                            dev_sections.append(
-                                f"    [dim]Messages Payload: {lt.data['messages_preview']}[/dim]"
-                            )
-
-                if tool_traces:
-                    dev_sections.append(
-                        "\n[bold cyan]─── Tool Dispatches & Signatures ───[/bold cyan]"
-                    )
-                    for tt in tool_traces:
-                        name = tt.data.get("tool_name", tt.action)
-                        dur = f"{tt.duration_ms:.1f}ms"
-                        status = (
-                            "[bold green]OK[/bold green]"
-                            if tt.status == "OK"
-                            else f"[bold red]{tt.status}[/bold red]"
-                        )
-                        dev_sections.append(f"  • [bold cyan]{name}[/bold cyan] ({status}, {dur})")
-                        if "arguments" in tt.data:
-                            args_prev = str(tt.data["arguments"])[:120]
-                            dev_sections.append(f"    [dim]Args: {args_prev}[/dim]")
-
-                if routing_traces:
-                    dev_sections.append(
-                        "\n[bold green]─── Agent Orchestration & Handoffs ───[/bold green]"
-                    )
-                    for rt in routing_traces:
-                        src = rt.source
-                        act = rt.action
-                        task_prev = rt.data.get("task", "")[:60]
-                        dev_sections.append(
-                            f"  • [bold green]{src}[/bold green] ➔ [bold cyan]{act}[/bold cyan] [dim]({task_prev})[/dim]"
-                        )
-
-                if fn_traces:
-                    dev_sections.append(
-                        "\n[bold yellow]─── Function Execution Traces ───[/bold yellow]"
-                    )
-                    for ft in fn_traces[-10:]:
-                        dev_sections.append(f"  {ft.format_line()}")
-
-                dev_sections.append(
-                    "\n[dim]Tip: Type `/dev export [file.json|file.md]` to export complete raw trace payloads.[/dim]"
+                    if t.event_type in (TraceEventType.LLM_PAYLOAD, TraceEventType.LLM_RAW_RESPONSE)
+                )
+                tool_count = sum(1 for t in traces if t.event_type == TraceEventType.TOOL_DISPATCH)
+                route_count = sum(1 for t in traces if t.event_type == TraceEventType.AGENT_ROUTING)
+                thinking_count = sum(
+                    1 for t in traces if t.event_type == TraceEventType.LLM_THINKING
                 )
 
-                trace_body = "\n".join(dev_sections)
-                _mount_element(
-                    Collapsible(
-                        Static(trace_body, classes="dev-trace-text", markup=True),
-                        title=f"● ⚡ DEVELOPER TRACE ({len(traces)} events | {len(llm_traces)} LLM | {len(tool_traces)} Tools)",
-                        collapsed=False,
-                    )
+                # Compact one-line badge
+                badge = (
+                    f"[dim]⚡ trace: [bold]{len(traces)}[/bold] events[/dim] "
+                    f"[dim]│[/dim] [bold magenta]{llm_count} LLM[/bold magenta] "
+                    f"[dim]│[/dim] [bold cyan]{tool_count} tools[/bold cyan] "
+                    f"[dim]│[/dim] [bold green]{route_count} routes[/bold green]"
                 )
+                if thinking_count:
+                    badge += f" [dim]│[/dim] [bold yellow]{thinking_count} thinking[/bold yellow]"
+                badge += " [dim]│ F2 to view[/dim]"
+
+                _mount_element(Static(badge, classes="trace-badge", markup=True))
 
         # Turn finished -> clear active exchange card
         self._active_exchange_card = None

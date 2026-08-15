@@ -168,6 +168,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         border-left: solid #d2a8ff;
         margin: 1 0;
     }
+    .trace-badge {
+        color: #8b949e;
+        padding: 0 1;
+        margin: 0;
+    }
     .plan-text {
         color: #7ee787;
         padding: 1 2;
@@ -576,6 +581,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear"),
         Binding("f1", "show_shortcuts", "Help / ?"),
+        Binding("f2", "open_trace_viewer", "Traces"),
         Binding("escape", "dismiss_suggestions", "Dismiss"),
         Binding("y", "approve_action", "Approve", show=True, priority=True),
         Binding("n", "deny_action", "Deny", show=True, priority=True),
@@ -1170,6 +1176,24 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     def action_show_shortcuts(self) -> None:
         """Show shortcuts reference modal."""
         self._handle_shortcuts_command()
+
+    def action_open_trace_viewer(self) -> None:
+        """Open the deep trace viewer popup."""
+        from sago.tracking.dev_tracer import get_dev_tracer
+
+        tracer = get_dev_tracer()
+        events = tracer.get_recent_traces(limit=500)
+        if not events:
+            self._add_system_message(
+                "⚡ No traces yet. Enable with `/dev on`, then run some tasks."
+            )
+            return
+        try:
+            from sago.tui.trace_viewer import TraceViewerScreen
+
+            self.push_screen(TraceViewerScreen(events))
+        except Exception as e:
+            self._add_system_message(f"⚡ Trace viewer error: {e}")
 
     def _show_shortcuts_suggestions(self, query: str = "") -> None:
         """Show shortcuts and quick help suggestions."""

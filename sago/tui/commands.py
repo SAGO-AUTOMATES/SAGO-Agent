@@ -52,6 +52,7 @@ class CommandHandlers:
                 "/allow",
                 "/block",
             ],
+            "DEBUGGING": ["/dev", "/dev view", "/dev logs", "/dev export"],
         }
 
         lines = ["[bold white on #21262d]  COMMAND REFERENCE  [/bold white on #21262d]\n"]
@@ -63,7 +64,7 @@ class CommandHandlers:
             lines.append("")
 
         lines.append(
-            "[dim]Shortcuts: Ctrl+D Dashboard | Ctrl+T Tasks | Ctrl+C Cancel | @agent | #file[/dim]"
+            "[dim]Shortcuts: F1 Help | F2 Traces | Ctrl+D Dashboard | Ctrl+T Tasks | Ctrl+C Cancel | @agent | #file[/dim]"
         )
 
         body = "\n".join(lines)
@@ -1776,6 +1777,20 @@ class CommandHandlers:
         elif action in ("clear", "reset"):
             tracer.clear()
             self._add_system_message("⚡ Developer trace telemetry buffer cleared.")
+        elif action in ("view", "popup", "deep", "debug"):
+            # Open the deep trace viewer popup
+            events = tracer.get_recent_traces(limit=500)
+            if not events:
+                self._add_system_message(
+                    "⚡ No traces to view. Run some tasks first with `/dev on`."
+                )
+                return
+            try:
+                from sago.tui.trace_viewer import TraceViewerScreen
+
+                self.push_screen(TraceViewerScreen(events))
+            except Exception as e:
+                self._add_system_message(f"⚡ Trace viewer error: {e}")
         elif action in ("logs", "log", "traces", "trace"):
             traces = tracer.get_recent_traces(limit=25)
             if not traces:
