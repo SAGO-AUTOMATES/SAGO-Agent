@@ -217,23 +217,65 @@ class HybridCodeIndexer:
             cached_mtimes: dict[str, float] = data.get("mtimes", {})
             current_mtimes = {str(p): p.stat().st_mtime for p in files_to_index if p.exists()}
 
-            # Validate that file count and modification times match
-            if cached_mtimes != current_mtimes:
+            # If all mtimes match exactly, load directly
+            if cached_mtimes == current_mtimes:
+                raw_chunks = data.get("chunks", [])
+                self.chunks = [HybridCodeChunk.from_cache_dict(c) for c in raw_chunks]
+                self.doc_freqs = data.get("doc_freqs", {})
+                self.avg_doc_len = data.get("avg_doc_len", 0.0)
+                self.total_docs = len(self.chunks)
+
+                # Rebuild in-memory inverted index
+                self.inverted_index.clear()
+                for idx, chunk in enumerate(self.chunks):
+                    for term in chunk.term_freqs:
+                        self.inverted_index.setdefault(term, []).append(idx)
+
+                self.is_indexed = True
+                return True
+
+            # Incremental load: retain chunks for unchanged files, re-parse only changed/new files
+            raw_chunks = data.get("chunks", [])
+            unchanged_chunks: list[HybridCodeChunk] = []
+            retained_files = set()
+
+            for c in raw_chunks:
+                fp = c.get("file_path", "")
+                if fp in current_mtimes and cached_mtimes.get(fp) == current_mtimes[fp]:
+                    unchanged_chunks.append(HybridCodeChunk.from_cache_dict(c))
+                    retained_files.add(fp)
+
+            # Parse only modified or newly added files
+            new_chunks: list[HybridCodeChunk] = []
+            for p in files_to_index:
+                if str(p) not in retained_files and p.exists():
+                    try:
+                        content = p.read_text(encoding="utf-8", errors="ignore")
+                        if content.strip():
+                            parsed = self._chunk_file(p, content)
+                            new_chunks.extend(parsed)
+                    except Exception:
+                        pass
+
+            self.chunks = unchanged_chunks + new_chunks
+            self.total_docs = len(self.chunks)
+            if self.total_docs == 0:
                 return False
 
-            raw_chunks = data.get("chunks", [])
-            self.chunks = [HybridCodeChunk.from_cache_dict(c) for c in raw_chunks]
-            self.doc_freqs = data.get("doc_freqs", {})
-            self.avg_doc_len = data.get("avg_doc_len", 0.0)
-            self.total_docs = len(self.chunks)
+            total_tokens = sum(len(c.tokens) for c in self.chunks)
+            self.avg_doc_len = total_tokens / max(self.total_docs, 1)
 
-            # Rebuild in-memory inverted index
+            # Rebuild doc_freqs and inverted index
+            self.doc_freqs.clear()
             self.inverted_index.clear()
             for idx, chunk in enumerate(self.chunks):
                 for term in chunk.term_freqs:
+                    self.doc_freqs[term] = self.doc_freqs.get(term, 0) + 1
                     self.inverted_index.setdefault(term, []).append(idx)
 
             self.is_indexed = True
+            # Save updated incremental state to cache
+            self._save_cache(files_to_index)
             return True
         except Exception as e:
             logger.debug("Failed to load hybrid index cache: %s", e)
@@ -406,9 +448,9 @@ class HybridCodeIndexer:
             if term in self.inverted_index:
                 candidate_indices.update(self.inverted_index[term])
 
-        # If lexical matches are sparse, include first 100 chunks to allow dense vector matching
-        if len(candidate_indices) < limit * 5:
-            candidate_indices.update(range(min(len(self.chunks), 200)))
+        # If zero lexical matches found, scan the entire chunk set for dense semantic vector matches
+        if not candidate_indices:
+            candidate_indices = set(range(len(self.chunks)))
 
         results: list[HybridSearchResult] = []
         raw_bm25: list[float] = []

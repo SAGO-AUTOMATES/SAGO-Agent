@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -127,6 +128,59 @@ def test_mesh_task_execution() -> None:
         assert sent_messages[0]["success"] is True
 
 
+def test_mcp_permission_fail_closed() -> None:
+    """Verify MCP gating fails CLOSED: if the permission manager itself errors,
+    the tool must NOT execute (regression guard for the previous fail-open bug)."""
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("permission subsystem misconfigured")
+
+    server = MCPServer(name="test_mcp_failclosed")
+    server.register_function(
+        name="dangerous_tool",
+        description="Dangerous operation",
+        input_schema={"type": "object", "properties": {}},
+        handler=lambda: "SHOULD_NOT_RUN",
+    )
+
+    with patch("sago.mcp.server.get_permission_manager", side_effect=boom):
+        with pytest.raises(PermissionError):
+            server.call_tool("dangerous_tool", {}, session_id="x")
+
+
+def test_mesh_task_id_propagation() -> None:
+    """Verify send_task_request carries task_id through to process_messages result
+    so concurrent delegations to one node are not miscorrelated."""
+    node = MeshNetwork(
+        node_id="node-1", port=18901, task_executor=lambda task, agent: f"executed: {task}"
+    )
+    captured = {}
+    node._unicast = lambda target, data: captured.update(json.loads(data))
+
+    node.send_task_request("node-2", "do_thing", agent="python-engineer", task_id="abc-123")
+    assert captured["payload"].get("task_id") == "abc-123"
+
+    fake_msg = MeshMessage(
+        type="task_request",
+        sender="node-2",
+        receiver="node-1",
+        payload={"task": "do_thing", "agent": "python-engineer", "task_id": "abc-123"},
+    )
+    sent_messages = []
+    node.send_task_result = lambda target, task_id, result, success: sent_messages.append(
+        {"target": target, "task_id": task_id, "result": result, "success": success}
+    )
+    with patch.object(node, "_socket") as mock_sock:
+        mock_sock.recvfrom.side_effect = [
+            (fake_msg.to_json().encode(), ("127.0.0.1", 18901)),
+            TimeoutError(),
+        ]
+        node.process_messages()
+        assert len(sent_messages) == 1
+        assert sent_messages[0]["task_id"] == "abc-123"
+        assert sent_messages[0]["result"] == "executed: do_thing"
+
+
 def test_in_process_py_compile_verification() -> None:
     """Verify ProjectVerifier uses fast in-process compilation for python syntax checks."""
     verifier = ProjectVerifier()
@@ -177,3 +231,81 @@ def test_parallel_agent_progressive_streaming() -> None:
         assert "python-engineer" in agents_streamed
         assert "tester" in agents_streamed
         assert all(r[2] is True for r in streamed_results)
+
+
+def test_hybrid_search_scale_and_incremental_persistence() -> None:
+    """Verify HybridCodeIndexer scales beyond 2000 files, persists to disk, and updates incrementally."""
+    import time
+
+    from sago.memory.hybrid_indexer import HybridCodeIndexer
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        # Generate 2,200 synthetic code files across multiple subdirectories
+        for i in range(2200):
+            sub = root / f"pkg_{i % 20}"
+            sub.mkdir(parents=True, exist_ok=True)
+            code_file = sub / f"module_{i}.py"
+            if i == 1450:
+                code_file.write_text(
+                    "def unique_target_function_zeta():\n    return 'secret_omega'\n"
+                )
+            else:
+                code_file.write_text(f"def helper_func_{i}(val: int):\n    return val * {i}\n")
+
+        indexer = HybridCodeIndexer(root_dir=root)
+        count = indexer.index_project(max_files=50000)
+        assert count >= 2200
+        assert indexer.total_docs == count
+
+        # Sub-millisecond candidate retrieval via inverted index
+        t0 = time.perf_counter()
+        results = indexer.search("unique_target_function_zeta", limit=5)
+        query_duration = time.perf_counter() - t0
+
+        assert len(results) > 0
+        assert results[0].chunk.name == "unique_target_function_zeta"
+        assert query_duration < 0.1  # Fast retrieval
+
+        # Verify disk cache existence and instant reload
+        cache_file = indexer._get_cache_file()
+        assert cache_file.exists()
+
+        reloaded_indexer = HybridCodeIndexer(root_dir=root)
+        loaded_count = reloaded_indexer.index_project()
+        assert loaded_count == count
+        assert reloaded_indexer.total_docs == count
+
+        # Test incremental update by modifying a single file
+        mod_file = root / "pkg_0" / "module_0.py"
+        mod_file.write_text("def newly_added_incremental_symbol():\n    return 42\n")
+
+        incremental_indexer = HybridCodeIndexer(root_dir=root)
+        incremental_count = incremental_indexer.index_project()
+        assert incremental_count >= count
+        inc_results = incremental_indexer.search("newly_added_incremental_symbol", limit=5)
+        assert len(inc_results) > 0
+        assert inc_results[0].chunk.name == "newly_added_incremental_symbol"
+
+
+def test_hybrid_search_full_semantic_recall() -> None:
+    """Verify dense vector matching scans the entire codebase when lexical matches are sparse."""
+    from sago.memory.hybrid_indexer import HybridCodeIndexer
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        # Create 250 files where the target file is at the very end
+        for i in range(250):
+            f = root / f"file_{i:03d}.py"
+            if i == 249:
+                f.write_text("def authenticate_jwt_bearer_token():\n    return 'valid'\n")
+            else:
+                f.write_text(f"def process_item_{i}():\n    return {i}\n")
+
+        indexer = HybridCodeIndexer(root_dir=root)
+        indexer.index_project()
+
+        # Search for semantically related query with minimal exact token overlap
+        results = indexer.search("auth jwt bearer", limit=5)
+        assert len(results) > 0
+        assert results[0].chunk.name == "authenticate_jwt_bearer_token"

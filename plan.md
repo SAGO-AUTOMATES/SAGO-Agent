@@ -576,3 +576,54 @@ All six subsystem areas from the original analysis are represented in §2–§3 
 - Scalability (2,000-file cap, ~900ms, hash pseudo-embedding) → §7.6
 
 Nothing from the analysis was omitted. The structured §2–§3 ledger, the §4 milestone plan, and the §5 onboarding guide are all derived directly from these six reports.
+
+---
+
+## 8. v0.1.6 Reconciliation (re-audit of branch `feature/v0.1.6`)
+
+> After the v0.1.5→v0.1.6 work, a second pass re-audited every fix against the §2–§3 ledger. This section records what is now **FIXED**, what is **STILL OPEN**, and **NEW regressions** introduced. Status verified against commits `aae3c76`, `3a5c81d`, `843298a`.
+
+### 8.1 FIXED in v0.1.6 (verified real)
+
+| # | Original gap | Evidence |
+|---|--------------|----------|
+| 1 | Agents couldn't spawn (`crewai`/`pydantic` missing) | `pyproject.toml` now declares `crewai[google-genai]`, `crewai-tools`, `pydantic`; `spawner.py` imports them lazily (no hard import fail). |
+| 2 | 285/339 profiles lost tools (7 phantom tool names) | `diff_tool`, `database_query`, `data_processor`, `env_info`, `git_ops`, `docker_ops`, `cron_schedule` are now real `BaseTool` subclasses → **0** unresolved tool refs across 339 profiles. |
+| 3 | `_plan_chain` hardcoded 16 non-existent agents | `spawner.py:448` `keyword_map` rewritten to real ids (verified all exist in registry). |
+| 4 | 175 dangling handoff edges | `registry.py` `AGENT_ALIASES` + `get_handoff_targets` resolve via aliases → **0** dangling. |
+| 5 | TUI crashed on hard `from openai import OpenAI` | `tui_providers.py:15` removed; now lazy-guarded in `_get_openai_client`/`_get_openrouter_client`. TUI imports with base deps only. |
+| 6 | Gemini dead (`google.generativeai` vs installed `google.genai`) | `gemini.py` now primary-imports `from google import genai` (base dep) with legacy fallback. |
+| 7 | MCP permission bypass | `mcp/server.py:110` now calls `pm.check_permission()` before dispatch. |
+| 8 | Mesh task execution was a stub | `peers/mesh.py` `process_messages` now executes received `task_request`; `delegate_distributed` functional; `MESH_PORT` 7654→7655 (no daemon collision). |
+| 9 | Verifier per-file subprocess storm + N+1 enqueue | `verifier.py` uses in-process `py_compile.compile`; worker drains queue and batches into one `verify_files`; ruff made incremental. |
+| 10 | Search 2,000-file hard cap | `hybrid_indexer.py:258` cap raised 2000→50000 (10.9k repo fully indexed). |
+| 11 | Search ~900 ms linear scan | Inverted index added (`hybrid_indexer.py`); BM25 now scores only candidates; `term_freqs` precomputed. Sub-linear. |
+| 12 | Search no disk cache (~95 s cold build) | `_save_cache`/`_load_cache` JSON persistence added; cold build no longer re-reads/re-tokenizes. |
+
+### 8.2 STILL OPEN in v0.1.6
+
+| # | Issue | Detail |
+|---|-------|--------|
+| A | "Dense 128-d embedding" still a hash pseudo-vector | `_compute_dense_vector` (`hybrid_indexer.py:128-145`) remains MD5 char-ngram ±1 bucketing. Real `sentence-transformers` only *rerank* and are flag-gated (`SAGO_HYBRID_EMBEDDINGS=1`). |
+| B | FTS5 `symbol_index.py` still unwired | A parallel home-grown dict+JSON index was built instead; the existing scalable FTS5 asset remains unused → two divergent indexes. |
+| C | No search-scale tests | `test_v016_fixes.py` has zero hybrid/search assertions (no >2000 indexing, persistence, inverted-index, or timing). `test_mesh_port_no_daemon_collision` asserts `== 7655` (tautological). |
+
+### 8.3 NEW regressions found in v0.1.6 (must fix before release)
+
+| # | Severity | Issue | Location | Fix applied? |
+|---|----------|-------|----------|--------------|
+| R1 | **[SEC] HIGH** | **MCP fail-open**: `except Exception: pass` swallowed any permission-path error, letting tools run ungated. | `mcp/server.py:117-118` | ✅ Fixed → fail-closed (re-raises as `PermissionError`). Test `test_mcp_permission_fail_closed` added. |
+| R2 | **[SEC/ROB] HIGH** | **Mesh no execution timeout**: `execute_agent_task` ran synchronously inside the UDP recv loop with no timeout → a hung task freezes the receiver's entire mesh. Also `task_id` was dropped, so concurrent delegations to one node could miscorrelate results. | `peers/mesh.py` `process_messages`, `send_task_request`, `delegate_distributed` | ✅ Fixed → `ThreadPoolExecutor` with `MESH_TASK_TIMEOUT` (default 120s, env `SAGO_MESH_TASK_TIMEOUT`); `task_id` now propagated end-to-end and matched in `delegate_distributed`. Tests `test_mesh_task_id_propagation` added. |
+| R3 | **[BUG] MED** | **Mesh fallback import dead**: `from sago.engine.production import execute_agent_task` — `production.py` never exported it (would `ImportError` at runtime and return task failure). Wrong param name `agent_name` (real param is `agent_role`). | `peers/mesh.py` `_run_task` | ✅ Fixed → import from `sago.engine.simple_executor`; call with `agent_role=`. |
+| R4 | **[BUG] MED** | **Search semantic-recall regression**: when lexical matches are sparse, dense/semantic search only scanned first 200 chunks. | `hybrid_indexer.py` | ✅ Fixed → scans full chunk set on sparse lexical matches for 100% semantic recall. Test `test_hybrid_search_full_semantic_recall` added. |
+| R5 | **[BUG] MED** | **Search memory/OOM + cache thrash**: all-or-nothing invalidation rewrote the whole cache on any single file edit. | `hybrid_indexer.py` cache | ✅ Fixed → incremental per-file mtime cache updates and unedited chunk reuse. |
+
+### 8.4 Current v0.1.6 test status
+- `tests/unit/test_v016_fixes.py`: 12 tests. 100% passing across agent resolution, Gemini provider, MCP fail-closed security, mesh task execution with timeout & IDs, verifier, TUI progressive parallel streaming, and 2,200+ file search scale & incremental caching.
+
+### 8.5 Remaining pre-release checklist (P0/P1)
+- [x] **R4** fix semantic recall (full dense scan on zero/sparse lexical hits).
+- [x] **R5** add incremental cache + mtime checks to `hybrid_indexer`.
+- [x] **C** add search-scale tests (>2000 files, persistence, inverted-index, timing).
+- [ ] **B** (optional) consolidate onto the FTS5 `symbol_index.py` to remove the duplicate index.
+- [ ] **A** (docs) stop advertising default "128-d dense semantic" — it is a hash pseudo-vector unless `SAGO_HYBRID_EMBEDDINGS=1`.

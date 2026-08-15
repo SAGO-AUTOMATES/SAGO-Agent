@@ -12,12 +12,18 @@ import json
 import os
 import socket
 import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from typing import Any
 
 MESH_PORT = int(os.environ.get("SAGO_MESH_PORT", "7655"))
 MESH_BROADCAST = "255.255.255.255"
 DISCOVERY_TIMEOUT = 5
+# Max time a delegated task may run on a receiver before it is abandoned, so a
+# hung task cannot freeze the receiver's entire mesh message pump.
+MESH_TASK_TIMEOUT = int(os.environ.get("SAGO_MESH_TASK_TIMEOUT", "120"))
 
 
 @dataclass
@@ -161,13 +167,14 @@ class MeshNetwork:
         target: str,
         task: str,
         agent: str | None = None,
+        task_id: str | None = None,
     ) -> None:
         """Send task request to a specific node."""
         msg = MeshMessage(
             type="task_request",
             sender=self.node_id,
             receiver=target,
-            payload={"task": task, "agent": agent},
+            payload={"task": task, "agent": agent, "task_id": task_id},
         )
         if self.auth_secret:
             msg.sign(self.auth_secret)
@@ -284,25 +291,36 @@ class MeshNetwork:
                 ):
                     task_str = msg.payload.get("task", "")
                     agent_name = msg.payload.get("agent")
-                    task_id = msg.payload.get("task_id", f"task_{int(time.time() * 1000)}")
-                    try:
-                        if self.task_executor:
-                            res = self.task_executor(task_str, agent_name)
-                        else:
-                            from sago.engine.production import execute_agent_task
+                    task_id = msg.payload.get("task_id") or f"task_{int(time.time() * 1000)}"
 
-                            res_obj = execute_agent_task(
-                                task=task_str, agent_name=agent_name or "python-engineer"
-                            )
-                            res = (
-                                res_obj.get("output", "")
-                                if isinstance(res_obj, dict)
-                                else str(res_obj)
-                            )
+                    def _run_task() -> str:
+                        if self.task_executor:
+                            out = self.task_executor(task_str, agent_name)
+                            return out if isinstance(out, str) else str(out)
+                        from sago.engine.simple_executor import execute_agent_task
+
+                        res_obj = execute_agent_task(
+                            task=task_str, agent_role=agent_name or "python-engineer"
+                        )
+                        return (
+                            res_obj.get("output", "") if isinstance(res_obj, dict) else str(res_obj)
+                        )
+
+                    try:
+                        with ThreadPoolExecutor(max_workers=1) as _ex:
+                            fut = _ex.submit(_run_task)
+                            res = fut.result(timeout=MESH_TASK_TIMEOUT)
                         self.send_task_result(
                             target=msg.sender, task_id=task_id, result=str(res), success=True
                         )
-                    except Exception as e:
+                    except FuturesTimeoutError:
+                        self.send_task_result(
+                            target=msg.sender,
+                            task_id=task_id,
+                            result=f"Task execution timed out after {MESH_TASK_TIMEOUT}s",
+                            success=False,
+                        )
+                    except Exception as e:  # noqa: BLE001
                         self.send_task_result(
                             target=msg.sender,
                             task_id=task_id,
@@ -355,14 +373,20 @@ class MeshCoordinator:
         if not node:
             return None
 
-        self.mesh.send_task_request(node.id, task, agent)
+        task_id = f"task_{uuid.uuid4().hex}"
+        self.mesh.send_task_request(node.id, task, agent, task_id=task_id)
 
-        # Wait for result (simplified)
+        # Wait for result, correlating by task_id to avoid mismatches when
+        # multiple delegations target the same node concurrently.
         start = time.time()
         while time.time() - start < 30:
             messages = self.mesh.process_messages()
             for msg in messages:
-                if msg.type == "task_result" and msg.sender == node.id:
+                if (
+                    msg.type == "task_result"
+                    and msg.sender == node.id
+                    and msg.payload.get("task_id") == task_id
+                ):
                     return node.id, msg.payload.get("result", "")
             time.sleep(0.1)
 

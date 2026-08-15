@@ -114,8 +114,11 @@ class MCPServer:
                 raise PermissionError(f"Permission denied for MCP tool '{name}': {reason}")
         except PermissionError:
             raise
-        except Exception:
-            pass
+        except Exception as exc:  # fail-closed: never silently skip gating
+            raise PermissionError(
+                f"Permission check failed for MCP tool '{name}' "
+                f"(fail-closed, blocked by default): {exc}"
+            ) from exc
 
         # Validate arguments against input_schema
         schema = tool.input_schema
