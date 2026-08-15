@@ -742,16 +742,43 @@ After `sago init`, edit `config.sago.json`:
 }
 ```
 
-### Global Config
+### Global Storage & Maintenance
 
 Stored in `~/.sago/`:
 
 ```
 ~/.sago/
-├── data/sago.db          # SQLite database
+├── data/sago.db          # SQLite database (sessions, messages, tool metrics)
+├── cache/                # Fast regenerable caches (hybrid index BM25, AST graphs)
+├── backups/              # Auto-pruned incremental file edit backups
 ├── permissions.json      # Tool permissions
-├── sessions/             # Saved sessions (JSON)
+├── sessions/             # Saved sessions (JSON/Markdown exports)
 └── config.yaml           # Global configuration
+```
+
+### Garbage Collection & Cleanup
+
+Sago includes an integrated garbage collection engine to safely purge regenerable search caches, older file edit backups, stale workspace snapshots, and empty/noise database sessions while defragmenting SQLite via `VACUUM`:
+
+```bash
+# Clean all stale items (default: caches, backups, checkpoints, empty DB sessions, logs)
+sago clean
+
+# Preview what would be cleaned without deleting files
+sago clean --dry-run
+
+# Targeted cleanup operations
+sago clean --cache              # Purge hybrid index & AST graph caches
+sago clean --backups            # Clean stale file edit backups
+sago clean --checkpoints        # Prune old workspace snapshots (keep newest 3)
+sago clean --db                 # Purge empty sessions & VACUUM database
+sago clean --days 7             # Purge items older than 7 days
+sago clean --keep-backups 5     # Retain only the 5 most recent session backups
+
+# In the interactive TUI:
+/clean                          # Run full cleanup directly within the session
+/clean cache                    # Purge search & graph caches
+/checkpoint prune 3             # Prune old workspace checkpoints
 ```
 
 ---

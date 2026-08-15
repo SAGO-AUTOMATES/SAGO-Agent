@@ -201,7 +201,12 @@ class ShortcutsScreen(ModalScreen[None]):
                     markup=True,
                 )
                 yield Static(
-                    "  [bold magenta]/checkpoint[/bold magenta]       : Save or restore complete session & workspace snapshots",
+                    "  [bold magenta]/checkpoint[/bold magenta]       : Save, restore, or prune complete session & workspace snapshots",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold magenta]/clean [all|cache|db][/bold magenta] : Safely purge regenerable caches, backups, and empty DB sessions",
                     classes="shortcut-row",
                     markup=True,
                 )

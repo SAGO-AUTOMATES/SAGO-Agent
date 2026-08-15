@@ -42,12 +42,20 @@ class CommandHandlers:
                 "/handoff",
             ],
             "MODEL & RUNTIME": ["/model", "/provider", "/effort", "/cost", "/yolo", "/dashboard"],
-            "VERSION CONTROL": ["/git", "/diff", "/commit", "/changes", "/undo"],
-            "SESSION & SECURITY": [
+            "VERSION CONTROL & SNAPSHOTS": [
+                "/git",
+                "/diff",
+                "/commit",
+                "/changes",
+                "/undo",
+                "/checkpoint",
+            ],
+            "SESSION & MAINTENANCE": [
                 "/sessions",
                 "/save",
                 "/load",
                 "/export",
+                "/clean",
                 "/permissions",
                 "/allow",
                 "/block",

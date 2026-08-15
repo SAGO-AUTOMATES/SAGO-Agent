@@ -2,6 +2,22 @@
 
 All notable changes to the SAGO project are documented in this file.
 
+## [0.1.7] - 2026-08-16
+
+- **Comprehensive Garbage Collection & Cleanup System (`sago clean`)**:
+  - Implemented `sago.cleanup` module to safely purge stale, unneeded, and regenerable files across `~/.sago` and project `.sago` directories.
+  - Added `sago clean` CLI command (defaulting to `--all`) with rich summary reporting of scanned items, deleted files, and bytes of disk space reclaimed.
+  - Supports fine-grained CLI flags: `--cache`, `--backups`, `--checkpoints`, `--db`, `--logs`, `--days <N>`, `--keep-checkpoints <N>`, `--keep-backups <N>`, and `--dry-run`.
+- **Database Session Garbage Collection & Physical Defragmentation**:
+  - Automatically identifies and purges empty sessions (0 messages or blank whitespace) and noise-only sessions from `~/.sago/data/sago.db`.
+  - Removes orphaned foreign key records and executes SQLite `VACUUM` and `PRAGMA optimize` to reclaim physical disk blocks.
+- **Subsystem Auto-Retention Policies**:
+  - **`ChangeTracker`**: Automatically caps session backup files to 50 files per session and auto-prunes older session backup folders beyond the 10 most recent sessions.
+  - **`CheckpointManager`**: Added `prune_checkpoints()` method and automatic retention capping (retains newest 20 snapshots upon creation).
+- **TUI Maintenance Commands**:
+  - Added `/clean` and `/gc` slash commands in the interactive terminal interface (`/clean [all|cache|db|backups]`).
+  - Added `/checkpoint prune [keep]` and `sago checkpoint prune` to easily trim older workspace snapshots.
+
 ## [0.1.6] - 2026-08-15
 
 - **Modular TUI Architecture Decomposition**:
