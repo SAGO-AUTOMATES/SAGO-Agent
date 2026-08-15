@@ -11,6 +11,13 @@
 
 Sago is a **production-grade multi-agent orchestration system** built for real-world software engineering tasks. It goes beyond simple code generation — it autonomously delegates work to **339 specialist agents**, uses **56+ production tools**, streams responses token-by-token, runs agents in parallel, manages sessions, enforces permissions, and runs workflows.
 
+<table>
+  <tr>
+    <td><img src="screenshots/tui-prompts.png" width="400"></td>
+    <td><img src="screenshots/tui-response.png" width="400"></td>
+  </tr>
+</table>
+
 ### Key Capabilities
 
 | Feature | Description |
@@ -109,6 +116,13 @@ Optional:
 See [docs/COMMANDS.md](docs/COMMANDS.md) for full CLI and TUI command reference.
 
 ### Core Execution
+
+<table>
+  <tr>
+    <td><img src="screenshots/tui-project-overview.png" width="400"></td>
+    <td><img src="screenshots/tui-project-details.png" width="400"></td>
+  </tr>
+</table>
 
 | Command | Description |
 |---------|-------------|
@@ -212,6 +226,13 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for full CLI and TUI command reference.
 ## 50 Production Tools
 
 See [docs/TOOLS.md](docs/TOOLS.md) for complete tool documentation with usage examples.
+
+<table>
+  <tr>
+    <td><img src="screenshots/telemetry-tools.png" width="400"></td>
+    <td><img src="screenshots/telemetry-tools-error.png" width="400"></td>
+  </tr>
+</table>
 
 ### File Operations
 - `read_file` — Read file contents
@@ -320,6 +341,17 @@ Permissions are stored in `~/.sago/permissions.json`:
 ---
 
 ## Session Persistence & State Management
+
+<table>
+  <tr>
+    <td><img src="screenshots/telemetry-events.png" width="400"></td>
+    <td><img src="screenshots/telemetry-events-detail.png" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/telemetry-events-flow.png" width="400"></td>
+    <td><img src="screenshots/tui-tool-output.png" width="400"></td>
+  </tr>
+</table>
 
 Sessions are automatically saved to SQLite (`~/.sago/data/sago.db`) with write-ahead logging (WAL mode) and can be exported to JSON or Markdown.
 
@@ -476,6 +508,21 @@ sago attach task_1700000000
 ### 7. Developer Diagnostics & OpenTelemetry Export
 
 Inspect internal function latencies, prompt payloads, and microsecond traces:
+
+<table>
+  <tr>
+    <td><img src="screenshots/telemetry-overview.png" width="400"></td>
+    <td><img src="screenshots/telemetry-overview-errors.png" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/telemetry-llm.png" width="400"></td>
+    <td><img src="screenshots/telemetry-tools.png" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/telemetry-flow.png" width="400"></td>
+    <td><img src="screenshots/telemetry-event-graph.png" width="400"></td>
+  </tr>
+</table>
 
 ```bash
 # Toggle Developer Mode in TUI
