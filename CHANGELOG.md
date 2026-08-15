@@ -15,6 +15,9 @@ All notable changes to the SAGO project are documented in this file.
 - **In-Process Python Syntax Verification & Queue Batching**:
   - `ProjectVerifier` now performs fast in-process `py_compile` checks, avoiding subprocess spawn overhead on file verification.
   - `ContinuousVerifier` now batches consecutive queued file verification tasks to prevent N+1 linter storms during bulk file modifications.
+- **TUI Progressive Live Streaming for Parallel Agents**:
+  - Parallel agent execution (`/parallel`) now progressively mounts each agent's individual response card, prompt context, and Rich syntax-highlighted code output in real-time as each worker finishes, without waiting for the full batch.
+  - Dynamically updates individual agent badges on the `#parallel-bar` (`⏳ Waiting` $\rightarrow$ `⚡ Running` $\rightarrow$ `✓ Done (Xs)`).
 - **Agent Profile Aliases & 100% Valid Handoff Resolution**:
   - Added `AGENT_ALIASES` in `sago/agents/registry.py` mapping legacy names (`system-architect`, `test-runner`, `ui-designer`, etc.) to canonical profiles.
   - 100% of all 1,570 profile handoff targets now cleanly resolve.
