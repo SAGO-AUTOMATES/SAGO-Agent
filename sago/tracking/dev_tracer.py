@@ -166,10 +166,83 @@ class DevTracer:
         with self._lock:
             self._events.clear()
 
+    def _generate_mermaid_graph(self, events: list[DevTraceEvent]) -> str:
+        """Generate a Mermaid flowchart representing the interaction graph."""
+        lines = ["```mermaid", "graph TD", "  User([User / TUI Input])"]
+        seen_edges: set[str] = set()
+        node_ids: dict[str, str] = {"User": "User"}
+
+        def _clean_id(name: str) -> str:
+            return "".join(c if c.isalnum() else "_" for c in name).strip("_")
+
+        last_node = "User"
+        for i, e in enumerate(events):
+            src_id = _clean_id(e.source)
+            if src_id not in node_ids:
+                node_ids[src_id] = src_id
+                lines.append(f'  {src_id}["{e.source}"]')
+
+            if e.event_type == TraceEventType.AGENT_ROUTING:
+                target_agent = e.data.get("target_agent", "subagent")
+                target_id = _clean_id(f"agent_{target_agent}")
+                lines.append(f'  {target_id}[["🤖 Agent: {target_agent}"]]')
+                edge = f"  {src_id} -->|Delegate| {target_id}"
+                if edge not in seen_edges:
+                    seen_edges.add(edge)
+                    lines.append(edge)
+                last_node = target_id
+
+            elif e.event_type == TraceEventType.TOOL_DISPATCH:
+                tool_name = e.data.get("tool_name", e.action.replace("run(", "").replace(")", ""))
+                tool_id = _clean_id(f"tool_{tool_name}_{i}")
+                status_icon = "✓" if e.status == "OK" else "✗"
+                lines.append(f'  {tool_id}["⚙️ Tool: {tool_name} ({status_icon})"]')
+                edge = f"  {last_node} -->|Executes| {tool_id}"
+                if edge not in seen_edges:
+                    seen_edges.add(edge)
+                    lines.append(edge)
+
+            elif e.event_type == TraceEventType.LLM_PAYLOAD:
+                model_name = e.data.get("model", "LLM")
+                llm_id = _clean_id(f"llm_{model_name}_{i}")
+                tok_out = e.data.get("tokens_out", 0)
+                lines.append(f'  {llm_id}{{"🧠 {model_name} (+{tok_out} tokens)"}}')
+                edge = f"  {last_node} -->|Prompt| {llm_id}"
+                if edge not in seen_edges:
+                    seen_edges.add(edge)
+                    lines.append(edge)
+
+        lines.append("```")
+        return "\n".join(lines)
+
+    def _generate_ascii_tree(self, events: list[DevTraceEvent]) -> str:
+        """Generate a clean ASCII interaction trace tree."""
+        lines = ["```text", "SAGO Execution Interaction Map:", "└── User Request"]
+        current_indent = "    "
+
+        for e in events:
+            if e.event_type == TraceEventType.AGENT_ROUTING:
+                target = e.data.get("target_agent", "agent")
+                lines.append(f"{current_indent}├── 🤖 [SPAWN AGENT] {target}")
+                current_indent += "│   "
+            elif e.event_type == TraceEventType.TOOL_DISPATCH:
+                tool = e.data.get("tool_name", e.action)
+                dur = f"({e.duration_ms:.1f}ms)" if e.duration_ms > 0 else ""
+                stat = "✓" if e.status == "OK" else "✗"
+                lines.append(f"{current_indent}├── ⚙️ [TOOL] {tool} {stat} {dur}")
+            elif e.event_type == TraceEventType.LLM_PAYLOAD:
+                m = e.data.get("model", "LLM")
+                t_in = e.data.get("tokens_in", 0)
+                t_out = e.data.get("tokens_out", 0)
+                lines.append(f"{current_indent}├── 🧠 [LLM] {m} (in: {t_in}, out: {t_out})")
+
+        lines.append("```")
+        return "\n".join(lines)
+
     def export_traces(
         self, file_path: str | Path | None = None, format: str = "json"
     ) -> tuple[bool, str]:
-        """Export all recorded trace events to JSON or Markdown."""
+        """Export all recorded trace events to JSON or Markdown with complete interaction maps."""
         import json
         from pathlib import Path
 
@@ -195,12 +268,21 @@ class DevTracer:
 
         try:
             if fmt in ("md", "markdown"):
+                mermaid_graph = self._generate_mermaid_graph(events)
+                ascii_tree = self._generate_ascii_tree(events)
+
                 lines = [
                     f"# SAGO Execution Trace Report ({ts_str})",
                     f"- **Total Events**: {len(events)}",
                     f"- **Export Time**: {time.strftime('%Y-%m-%d %H:%M:%S')}",
                     "",
-                    "## Summary",
+                    "## 🗺️ Interaction Graph (Mermaid Flowchart)",
+                    mermaid_graph,
+                    "",
+                    "## 🌲 Call Hierarchy Map",
+                    ascii_tree,
+                    "",
+                    "## 📊 Event Summary",
                     "| Timestamp | Type | Source | Action | Status | Latency |",
                     "| :--- | :--- | :--- | :--- | :--- | :--- |",
                 ]
@@ -211,7 +293,7 @@ class DevTracer:
                         f"| {t_str} | `{e.event_type.value}` | `{e.source}` | `{e.action}` | {e.status} | {dur} |"
                     )
 
-                lines.append("\n## Detailed Event Payloads\n")
+                lines.append("\n## 🔍 Detailed Event Payloads\n")
                 for idx, e in enumerate(events, 1):
                     lines.append(
                         f"### Event {idx}: {e.event_type.value} - {e.source} -> {e.action}"
@@ -226,10 +308,37 @@ class DevTracer:
 
                 target_path.write_text("\n".join(lines), encoding="utf-8")
             else:
+                # Build graph nodes & edges
+                graph_nodes = []
+                graph_edges = []
+                for idx, e in enumerate(events):
+                    graph_nodes.append(
+                        {
+                            "id": f"event_{idx}",
+                            "type": e.event_type.value,
+                            "source": e.source,
+                            "action": e.action,
+                            "status": e.status,
+                            "duration_ms": e.duration_ms,
+                        }
+                    )
+                    if idx > 0:
+                        graph_edges.append(
+                            {
+                                "from": f"event_{idx - 1}",
+                                "to": f"event_{idx}",
+                                "type": "sequence",
+                            }
+                        )
+
                 data = {
                     "export_timestamp": time.time(),
                     "export_time": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "total_events": len(events),
+                    "interaction_graph": {
+                        "nodes": graph_nodes,
+                        "edges": graph_edges,
+                    },
                     "events": [e.to_dict() for e in events],
                 }
                 target_path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")

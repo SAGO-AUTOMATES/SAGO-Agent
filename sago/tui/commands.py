@@ -690,8 +690,8 @@ class CommandHandlers:
             lines.append(content)
             lines.append("")
 
-        # Add tool usage section
-        lines.extend(["---", "", "## Tool Usage", ""])
+        # Add tool usage and subagent execution section
+        lines.extend(["---", "", "## Tool Usage & Sub-Agent Delegations", ""])
         try:
             tus = ToolUsageStore(sid)
             tool_logs = tus.get_all()
@@ -699,13 +699,14 @@ class CommandHandlers:
         except Exception:
             tool_logs = []
 
+        subagent_calls = []
         if tool_logs:
-            lines.append("| # | Tool | Duration | Status | Arguments |")
-            lines.append("|---|------|----------|--------|-----------|")
+            lines.append("| # | Tool / Action | Duration | Status | Key Arguments / Target |")
+            lines.append("|---|---------------|----------|--------|------------------------|")
             for i, log in enumerate(tool_logs, 1):
                 tool = log.get("tool_name", "?")
                 dur = f"{log.get('duration_ms', 0)}ms"
-                ok = "OK" if log.get("success", 1) else "FAIL"
+                ok = "✓ OK" if log.get("success", 1) else "✗ FAIL"
                 args_raw = log.get("arguments", "{}")
                 try:
                     args = (
@@ -715,13 +716,46 @@ class CommandHandlers:
                     )
                 except Exception:
                     args = {}
-                # Truncate long args
-                args_str = str(args)[:80]
-                lines.append(f"| {i} | {tool} | {dur} | {ok} | `{args_str}` |")
+
+                if tool == "spawn_agent":
+                    subagent_calls.append((i, args, log.get("result", "")))
+
+                args_str = str(args)
+                if len(args_str) > 120:
+                    args_str = args_str[:120] + "..."
+                lines.append(f"| {i} | `{tool}` | {dur} | {ok} | `{args_str}` |")
             lines.append("")
         else:
             lines.append("_No tool usage recorded._")
             lines.append("")
+
+        # Sub-Agent Delegations Section
+        if subagent_calls:
+            lines.extend(["---", "", "## 🤖 Sub-Agent Delegations", ""])
+            for idx, args, result in subagent_calls:
+                target_agent = args.get("agent_name") or args.get("agent") or "Specialist Agent"
+                task_desc = args.get("task", "(No task description)")
+                lines.append(f"### Sub-Agent Call #{idx}: {target_agent}")
+                lines.append(f"- **Target Agent:** `{target_agent}`")
+                lines.append(f"- **Delegated Task:** {task_desc}")
+                if result:
+                    lines.append("- **Execution Result Summary:**")
+                    lines.append("```")
+                    lines.append(result[:1500] + ("..." if len(result) > 1500 else ""))
+                    lines.append("```")
+                lines.append("")
+
+        # Interaction Flowchart
+        lines.extend(["---", "", "## 🗺️ Interaction Flowchart", "", "```mermaid", "graph TD"])
+        lines.append(f"  User([User Request]) --> Orch[{self.current_agent}]")
+        for i, log in enumerate(tool_logs[:20], 1):
+            t_name = log.get("tool_name", "tool")
+            stat = "✓" if log.get("success", 1) else "✗"
+            if t_name == "spawn_agent":
+                lines.append(f"  Orch -->|Delegate| Sub_{i}[🤖 Subagent ({stat})]")
+            else:
+                lines.append(f"  Orch -->|Call| Tool_{i}[⚙️ {t_name} ({stat})]")
+        lines.extend(["```", ""])
 
         # Add token usage summary if available
         lines.extend(["---", "", "## Token Usage", ""])
@@ -754,9 +788,9 @@ class CommandHandlers:
         else:
             path = Path(f"{sid[:12]}_export.md")
         try:
-            path.write_text("\n".join(lines))
+            path.write_text("\n".join(lines), encoding="utf-8")
             self._add_system_message(
-                f"Exported to {path} ({len(self.messages)} messages, {len(tool_logs)} tool calls)"
+                f"Exported to {path} ({len(self.messages)} messages, {len(tool_logs)} tool calls, {len(subagent_calls)} subagents)"
             )
         except Exception as e:
             self._add_system_message(f"Export failed: {e}")

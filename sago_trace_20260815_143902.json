@@ -1,0 +1,525 @@
+{
+  "export_timestamp": 1786784942.4217565,
+  "export_time": "2026-08-15 14:39:02",
+  "total_events": 32,
+  "events": [
+    {
+      "timestamp": 1786784066.8903217,
+      "event_type": "FUNCTION_CALL",
+      "source": "sago.tui.app",
+      "action": "process_message(sago-orchestrator)",
+      "data": {
+        "task": "can you spawn 3-4 agents and ask them to create calculator program in this folder /tmp/sago_test 4-5 specialist agent on",
+        "model": "openrouter/free",
+        "provider": "openrouter"
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784082.9185824,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 2,
+        "tokens_in": 15303,
+        "tokens_out": 168,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784082.9297192,
+      "event_type": "TOOL_DISPATCH",
+      "source": "tui.tool_dispatcher",
+      "action": "run(file_operations)",
+      "data": {
+        "tool_name": "file_operations",
+        "arguments": {
+          "operation": "list",
+          "source": "/tmp"
+        },
+        "result_preview": "Contents of /tmp:\n\n  [FILE] .3cdfbfddfdf5fb5b-00000000.so (4919152 bytes)\n  [FILE] .pistats (60 bytes)\n  [FILE] T.java (49 bytes)\n  [FILE] bench.py (792 bytes)\n  [FILE] bench2.py (429 bytes)\n  [FILE] bench3.py (785 bytes)\n  [FILE] evil.txt (9 bytes)\n",
+        "risk_level": "low"
+      },
+      "duration_ms": 6.332787001156248,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784085.754074,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 4,
+        "tokens_in": 22386,
+        "tokens_out": 78,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784085.7559788,
+      "event_type": "TOOL_DISPATCH",
+      "source": "tui.tool_dispatcher",
+      "action": "run(file_operations)",
+      "data": {
+        "tool_name": "file_operations",
+        "arguments": {
+          "source": "/tmp/sago_test",
+          "operation": "mkdir"
+        },
+        "result_preview": "Error: Directory exists: /tmp/sago_test. Use force=true or dirs_exist_ok=true to ignore.",
+        "risk_level": "low"
+      },
+      "duration_ms": 0.5950899940216914,
+      "status": "FAILED"
+    },
+    {
+      "timestamp": 1786784088.2162933,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 6,
+        "tokens_in": 18996,
+        "tokens_out": 56,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784088.2183475,
+      "event_type": "TOOL_DISPATCH",
+      "source": "tui.tool_dispatcher",
+      "action": "run(file_operations)",
+      "data": {
+        "tool_name": "file_operations",
+        "arguments": {
+          "operation": "list",
+          "source": "/tmp/sago_test"
+        },
+        "result_preview": "Contents of /tmp/sago_test:\n",
+        "risk_level": "low"
+      },
+      "duration_ms": 0.174814005731605,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784093.5822928,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 8,
+        "tokens_in": 22530,
+        "tokens_out": 360,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784209.910982,
+      "event_type": "TOOL_DISPATCH",
+      "source": "tui.tool_dispatcher",
+      "action": "run(spawn_agent)",
+      "data": {
+        "tool_name": "spawn_agent",
+        "arguments": {
+          "task": "Create a calculator program in a dedicated folder under /tmp/sago_test, implement basic arithmetic operations (+, -, *, /), include unit tests, run the program to verify functionality.",
+          "agent_name": "python-engineer"
+        },
+        "result_preview": "[Agent: python-engineer]\nTools used: write_file, write_file, write_file, write_file, write_file, execute_shell, execute_shell, execute_shell\nFiles created/modified: /tmp/sago_test/calculator/__init__.py, /tmp/sago_test/calculator/calculator.py, /tmp/",
+        "risk_level": "critical"
+      },
+      "duration_ms": 116326.4115889906,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784214.9974751,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 11,
+        "tokens_in": 22798,
+        "tokens_out": 365,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784220.2219384,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 13,
+        "tokens_in": 19448,
+        "tokens_out": 73,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784220.2349992,
+      "event_type": "TOOL_DISPATCH",
+      "source": "tui.tool_dispatcher",
+      "action": "run(spawn_agent)",
+      "data": {
+        "tool_name": "spawn_agent",
+        "arguments": {},
+        "result_preview": "Error in spawn_agent: TypeError: SpawnAgentTool._run() missing 2 required positional arguments: 'task' and 'agent_name'",
+        "risk_level": "critical"
+      },
+      "duration_ms": 0.69505198916886,
+      "status": "FAILED"
+    },
+    {
+      "timestamp": 1786784232.736956,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 15,
+        "tokens_in": 19871,
+        "tokens_out": 567,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784476.8447826,
+      "event_type": "TOOL_DISPATCH",
+      "source": "tui.tool_dispatcher",
+      "action": "run(spawn_agent)",
+      "data": {
+        "tool_name": "spawn_agent",
+        "arguments": {
+          "task": "Create a calculator program in /tmp/sago_test/python with basic arithmetic operations (+, -, *, /), unit tests, and execute it to verify functionality.",
+          "agent_name": "python-engineer"
+        },
+        "result_preview": "[Agent: python-engineer]\nTools used: execute_shell, execute_shell, execute_shell, execute_shell, execute_shell, write_file, write_file, execute_shell, execute_shell, read_file, read_file, test_runner, execute_shell, write_file, execute_shell, execute",
+        "risk_level": "critical"
+      },
+      "duration_ms": 244106.3953539997,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784486.385126,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 17,
+        "tokens_in": 23182,
+        "tokens_out": 694,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784507.8113484,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 19,
+        "tokens_in": 20218,
+        "tokens_out": 429,
+        "tool_calls_generated": 0
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784522.0989504,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 21,
+        "tokens_in": 23420,
+        "tokens_out": 1084,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784522.1088116,
+      "event_type": "TOOL_DISPATCH",
+      "source": "tui.tool_dispatcher",
+      "action": "run(write_file)",
+      "data": {
+        "tool_name": "write_file",
+        "arguments": {
+          "encoding": "utf-8",
+          "file_path": "/tmp/sago_test/python/calculator.py",
+          "content": "#!/usr/bin/env python3\n\"\"\"\nSimple Calculator Program\nSupports addition, subtraction, multiplication, division.\nRun as script: python calculator.py\n\"\"\"\n\nclass Calculator:\n    def add(self, a, b):\n        return a + b\n\n    def subtract(self, a, b):\n        return a - b\n\n    def multiply(self, a, b):\n        return a * b\n\n    def divide(self, a, b):\n        if b == 0:\n            raise ValueError(\"Division by zero is not allowed.\")\n        return a / b\n\ndef main():\n    import sys\n    calc = Calculator()\n    if len(sys.argv) < 3:\n        print(\"Usage: python calculator.py <operation> <operand1> <operand2>\")\n        print(\"Operations: add, sub, mul, div\")\n        return\n    operation = sys.argv[1]\n    try:\n        a = float(sys.argv[2])\n        b = float(sys.argv[3])\n    except ValueError:\n        print(\"Error: Operands must be numbers.\")\n        return\n\n    if operation == \"add\":\n        result = calc.add(a, b)\n        op_symbol = \"+\"\n    elif operation == \"sub\":\n        result = calc.subtract(a, b)\n        op_symbol = \"-\"\n    elif operation == \"mul\":\n        result = calc.multiply(a, b)\n        op_symbol = \"*\"\n    elif operation == \"div\":\n        try:\n            result = calc.divide(a, b)\n            op_symbol = \"/\"\n        except ValueError as e:\n            print(f\"Error: {e}\")\n            return\n    else:\n        print(\"Error: Unsupported operation.\")\n        return\n\n    print(f\"{a} {op_symbol} {b} = {result}\")\n\nif __name__ == \"__main__\":\n    main()",
+          "create_dirs": true
+        },
+        "result_preview": "Successfully wrote 1474 bytes to /tmp/sago_test/python/calculator.py",
+        "risk_level": "low"
+      },
+      "duration_ms": 6.455324008129537,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784539.9860082,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 24,
+        "tokens_in": 23925,
+        "tokens_out": 58,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784540.0172439,
+      "event_type": "TOOL_DISPATCH",
+      "source": "tui.tool_dispatcher",
+      "action": "run(execute_shell)",
+      "data": {
+        "tool_name": "execute_shell",
+        "arguments": {
+          "command": "python /tmp/sago_test/python/calculator.py add 10 5"
+        },
+        "result_preview": "10.0 + 5.0 = 15.0",
+        "risk_level": "medium"
+      },
+      "duration_ms": 29.4797969982028,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784543.3791292,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 26,
+        "tokens_in": 16067,
+        "tokens_out": 84,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784543.4301116,
+      "event_type": "TOOL_DISPATCH",
+      "source": "tui.tool_dispatcher",
+      "action": "run(execute_shell)",
+      "data": {
+        "tool_name": "execute_shell",
+        "arguments": {
+          "command": "python /tmp/sago_test/python/calculator.py sub 10 5"
+        },
+        "result_preview": "10.0 - 5.0 = 5.0",
+        "risk_level": "medium"
+      },
+      "duration_ms": 46.799517003819346,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784551.3412976,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 28,
+        "tokens_in": 24072,
+        "tokens_out": 508,
+        "tool_calls_generated": 0
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784557.367834,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 30,
+        "tokens_in": 24465,
+        "tokens_out": 88,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784568.8860295,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 32,
+        "tokens_in": 16470,
+        "tokens_out": 551,
+        "tool_calls_generated": 0
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784573.6663392,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 34,
+        "tokens_in": 21583,
+        "tokens_out": 49,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784579.483671,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 36,
+        "tokens_in": 21358,
+        "tokens_out": 678,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784579.573556,
+      "event_type": "TOOL_DISPATCH",
+      "source": "tui.tool_dispatcher",
+      "action": "run(write_file)",
+      "data": {
+        "tool_name": "write_file",
+        "arguments": {
+          "encoding": "utf-8",
+          "file_path": "/tmp/sago_test/go/calculator.go",
+          "content": "package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n\t\"strconv\"\n)\n\n// Calculator struct holds arithmetic operations\ntype Calculator struct{}\n\n// Add performs addition\nfunc (c *Calculator) Add(a, b float64) float64 {\n\treturn a + b\n}\n\n// Subtract performs subtraction\nfunc (c *Calculator) Subtract(a, b float64) float64 {\n\treturn a - b\n}\n\n// Multiply performs multiplication\nfunc (c *Calculator) Multiply(a, b float64) float64 {\n\treturn a * b\n}\n\n// Divide performs division with zero check\nfunc (c *Calculator) Divide(a, b float64) (float64, error) {\n\tif b == 0 {\n\t\treturn 0, fmt.Errorf(\"division by zero is not allowed\")\n\t}\n\treturn a / b, nil\n}\n\nfunc main() {\n\tif len(os.Args) < 4 {\n\t\tfmt.Println(\"Usage: go run calculator.go <operation> <operand1> <operand2>\")\n\t\tfmt.Println(\"Operations: add, sub, mul, div\")\n\t\tos.Exit(1)\n\t}\n\n\toperation := os.Args[1]\n\ta, err := strconv.ParseFloat(os.Args[2], 64)\n\tif err != nil {\n\t\tfmt.Printf(\"Error: %s is not a valid number\\n\", os.Args[2])\n\t\tos.Exit(1)\n\t}\n\n\tb, err := strconv.ParseFloat(os.Args[3], 64)\n\tif err != nil {\n\t\tfmt.Printf(\"Error: %s is not a valid number\\n\", os.Args[3])\n\t\tos.Exit(1)\n\t}\n\n\tcalc := &Calculator{}\n\tvar result float64\n\tvar opSymbol string\n\n\tswitch operation {\n\tcase \"add\":\n\t\tresult = calc.Add(a, b)\n\t\topSymbol = \"+\"\n\tcase \"sub\":\n\t\tresult = calc.Subtract(a, b)\n\t\topSymbol = \"-\"\n\tcase \"mul\":\n\t\tresult = calc.Multiply(a, b)\n\t\topSymbol = \"*\"\n\tcase \"div\":\n\t\tvar err error\n\t\tresult, err = calc.Divide(a, b)\n\t\topSymbol = \"/\"\n\t\tif err != nil {\n\t\t\tfmt.Printf(\"Error: %v\\n\", err)\n\t\t\tos.Exit(1)\n\t\t}\n\tdefault:\n\t\tfmt.Printf(\"Error: unsupported operation '%s'\\n\", operation)\n\t\tos.Exit(1)\n\t}\n\n\tfmt.Printf(\"%.1f %s %.1f = %.1f\\n\", a, opSymbol, b, result)\n}",
+          "create_dirs": true
+        },
+        "result_preview": "Successfully wrote 1683 bytes to /tmp/sago_test/go/calculator.go",
+        "risk_level": "low"
+      },
+      "duration_ms": 13.097739007207565,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784581.7035112,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 39,
+        "tokens_in": 22001,
+        "tokens_out": 72,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784616.7481966,
+      "event_type": "TOOL_DISPATCH",
+      "source": "tui.tool_dispatcher",
+      "action": "run(execute_shell)",
+      "data": {
+        "tool_name": "execute_shell",
+        "arguments": {
+          "command": "cd /tmp/sago_test/go && go run calculator.go add 10 5"
+        },
+        "result_preview": "10.0 + 5.0 = 15.0",
+        "risk_level": "medium"
+      },
+      "duration_ms": 35042.76629599917,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784618.565804,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 41,
+        "tokens_in": 22067,
+        "tokens_out": 88,
+        "tool_calls_generated": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    },
+    {
+      "timestamp": 1786784624.0902615,
+      "event_type": "LLM_PAYLOAD",
+      "source": "tui.llm.openrouter",
+      "action": "chat.completions.create(openrouter/free)",
+      "data": {
+        "model": "openrouter/free",
+        "provider": "openrouter",
+        "messages_count": 43,
+        "tokens_in": 25885,
+        "tokens_out": 386,
+        "tool_calls_generated": 0
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    }
+  ]
+}

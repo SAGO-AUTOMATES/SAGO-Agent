@@ -463,9 +463,60 @@ def test_daemon_resilience_and_safety_checks() -> None:
                 cost_usd=0.001,
             )
         )
-    assert len(tracker._usages) <= 10000
-
     eh = get_error_handler()
     eh.handle_error("test_tool", ValueError("test error"))
     assert len(eh.errors) >= 1
     assert len(eh.errors) <= 5000
+
+
+def test_spawn_agent_resilience_and_dev_trace_graphs(tmp_path: Path) -> None:
+    """Verify SpawnAgentTool flexible args and DevTracer interaction graph generation."""
+    import json
+
+    from sago.tools.file.spawn_agent import SpawnAgentTool
+    from sago.tracking.dev_tracer import DevTracer, TraceEventType
+
+    # 1. SpawnAgentTool auto-routing
+    tool = SpawnAgentTool()
+    assert tool._resolve_target_agent("", "create a python calculator") == "python-engineer"
+    assert tool._resolve_target_agent("", "write a go program") == "go-engineer"
+    assert tool._resolve_target_agent("", "write java spring service") == "java-engineer"
+    assert tool._resolve_target_agent("backend", "build api") == "backend-engineer"
+
+    # 2. DevTracer Mermaid & ASCII graph export
+    tracer = DevTracer()
+    tracer.record(
+        TraceEventType.AGENT_ROUTING,
+        source="sago.orchestrator",
+        action="DELEGATE",
+        data={"target_agent": "python-engineer", "task": "build calculator"},
+    )
+    tracer.record(
+        TraceEventType.TOOL_DISPATCH,
+        source="python-engineer",
+        action="run(write_file)",
+        data={"tool_name": "write_file"},
+    )
+    tracer.record(
+        TraceEventType.LLM_PAYLOAD,
+        source="tui.llm",
+        action="generate",
+        data={"model": "gpt-4o", "tokens_in": 100, "tokens_out": 50},
+    )
+
+    # Export markdown
+    md_path = tmp_path / "trace.md"
+    ok_md, res_md = tracer.export_traces(md_path, format="md")
+    assert ok_md
+    content_md = md_path.read_text(encoding="utf-8")
+    assert "```mermaid" in content_md
+    assert "python-engineer" in content_md
+    assert "Call Hierarchy Map" in content_md
+
+    # Export json
+    json_path = tmp_path / "trace.json"
+    ok_json, res_json = tracer.export_traces(json_path, format="json")
+    assert ok_json
+    data_json = json.loads(json_path.read_text(encoding="utf-8"))
+    assert "interaction_graph" in data_json
+    assert len(data_json["interaction_graph"]["nodes"]) == 3

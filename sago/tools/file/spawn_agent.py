@@ -12,9 +12,10 @@ from sago.tools.base import BaseTool
 class SpawnAgentArgs(BaseModel):
     """Arguments for SpawnAgentTool."""
 
-    task: str = Field(description="Task to delegate to the agent")
+    task: str = Field(default="", description="Task to delegate to the agent")
     agent_name: str = Field(
-        description="Name of the agent (e.g. python-engineer, debugger, devops)"
+        default="",
+        description="Name of the agent (e.g. python-engineer, java-engineer, go-engineer, devops-engineer)",
     )
     context: str = Field(default="", description="Optional context from previous work")
     feedback: str = Field(
@@ -52,23 +53,87 @@ class SpawnAgentTool(BaseTool):
     args_model = SpawnAgentArgs
     risk_level = "high"
 
+    def _resolve_target_agent(self, agent_name: str, task: str) -> str:
+        """Resolve agent name with alias translation and task heuristic detection."""
+        candidate = (agent_name or "").strip().lower().replace("_", "-")
+        if not candidate:
+            t_lower = task.lower()
+            if "python" in t_lower or ".py" in t_lower:
+                candidate = "python-engineer"
+            elif "java" in t_lower and "script" not in t_lower:
+                candidate = "java-engineer"
+            elif "golang" in t_lower or "go " in t_lower or "go/" in t_lower or ".go" in t_lower:
+                candidate = "go-engineer"
+            elif "rust" in t_lower or ".rs" in t_lower:
+                candidate = "rust-engineer"
+            elif "c++" in t_lower or "cpp" in t_lower:
+                candidate = "cpp-engineer"
+            elif "frontend" in t_lower or "react" in t_lower or "vue" in t_lower or "ui" in t_lower:
+                candidate = "frontend-engineer"
+            elif (
+                "devops" in t_lower or "docker" in t_lower or "k8s" in t_lower or "ci/cd" in t_lower
+            ):
+                candidate = "devops-engineer"
+            elif "test" in t_lower or "qa" in t_lower or "pytest" in t_lower:
+                candidate = "qa-engineer"
+            elif "security" in t_lower or "audit" in t_lower:
+                candidate = "security-engineer"
+            else:
+                candidate = "software-engineer"
+
+        try:
+            from sago.agents.registry import AGENT_ALIASES, AGENTS
+
+            if candidate in AGENTS:
+                return candidate
+            if candidate in AGENT_ALIASES:
+                return AGENT_ALIASES[candidate]
+            if f"{candidate}-engineer" in AGENTS:
+                return f"{candidate}-engineer"
+        except Exception:
+            pass
+
+        return candidate or "software-engineer"
+
     def _run(
         self,
-        task: str,
-        agent_name: str,
+        task: str = "",
+        agent_name: str = "",
         context: str = "",
         feedback: str = "",
         **kwargs: Any,
     ) -> str:
         """Spawn an agent to handle a task with recursion protection."""
+        actual_task = (
+            task
+            or kwargs.get("prompt")
+            or kwargs.get("instruction")
+            or kwargs.get("query")
+            or kwargs.get("description")
+            or ""
+        )
+        raw_agent = (
+            agent_name
+            or kwargs.get("agent")
+            or kwargs.get("role")
+            or kwargs.get("agent_role")
+            or kwargs.get("name")
+            or kwargs.get("target")
+            or ""
+        )
+
+        resolved_agent = self._resolve_target_agent(raw_agent, actual_task)
+        if not actual_task.strip():
+            actual_task = f"Execute specialist work for {resolved_agent}"
+
         from sago.agents.handoff import get_recursion_guard
 
         # Check recursion guard before spawning
         guard = get_recursion_guard()
-        allowed, reason = guard.can_spawn(agent_name)
+        allowed, reason = guard.can_spawn(resolved_agent)
         if not allowed:
             return (
-                f"Cannot spawn agent '{agent_name}': {reason}\n\n"
+                f"Cannot spawn agent '{resolved_agent}': {reason}\n\n"
                 f"Please complete this task directly without delegating further."
             )
 
@@ -81,13 +146,30 @@ class SpawnAgentTool(BaseTool):
                 "Error: No API key set. Set GEMINI_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
             )
 
+        # Record dev trace event for agent delegation
+        try:
+            from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+            get_dev_tracer().record(
+                event_type=TraceEventType.AGENT_ROUTING,
+                source="spawn_agent",
+                action=f"DELEGATE -> {resolved_agent}",
+                data={
+                    "target_agent": resolved_agent,
+                    "task": actual_task[:200],
+                    "depth": guard.depth + 1,
+                },
+            )
+        except Exception:
+            pass
+
         # Register this agent in the guard
-        guard.enter(agent_name)
+        guard.enter(resolved_agent)
 
         try:
             return self._execute_agent(
-                agent_name=agent_name,
-                task=task,
+                agent_name=resolved_agent,
+                task=actual_task,
                 context=context,
                 feedback=feedback,
                 api_key=api_key,
@@ -95,7 +177,7 @@ class SpawnAgentTool(BaseTool):
                 llm_cfg=llm_cfg,
             )
         finally:
-            guard.exit(agent_name)
+            guard.exit(resolved_agent)
 
     def _execute_agent(
         self,
@@ -141,17 +223,17 @@ class SpawnAgentTool(BaseTool):
                     max_iterations=20,
                 )
 
-                output = result.get("output", "No response")
+                output = result.get("output", "")
                 tools_used = result.get("tool_calls", [])
                 files_created = result.get("files_created", [])
 
-                # Check if we got a real response
-                if output and not output.startswith("Error:") and len(output.strip()) > 10:
+                # If tools succeeded or files created or output present, format full success response
+                if tools_used or files_created or (output and len(output.strip()) > 5):
                     return self._format_response(
                         agent_name, output, tools_used, files_created, guard
                     )
 
-                last_error = output or "Empty response"
+                last_error = output or "Empty response from agent"
 
             except Exception as e:
                 last_error = str(e)
