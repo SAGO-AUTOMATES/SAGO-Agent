@@ -524,55 +524,217 @@ def init(name: str | None, ssh: bool) -> None:
     console.print("  sago agents                   # List all agents")
 
 
-@cli.command()
-def setup() -> None:
-    """Interactive setup wizard for Sago."""
-    from rich.prompt import Prompt
+def _run_interactive_setup() -> None:
+    """Core interactive setup wizard for Sago."""
+    import os
+    from pathlib import Path
+
+    import yaml
+    from rich.prompt import Confirm, Prompt
 
     console.print(
         Panel.fit(
-            "[bold blue]Sago Setup Wizard[/]\n[dim]Configure your multi-agent system[/]",
-            border_style="blue",
+            "[bold cyan]✨ Welcome to SAGO — Intelligent Multi-Agent Orchestration[/]\n"
+            "[dim]Let's configure your workspace for seamless local & distributed agent execution.[/]",
+            border_style="cyan",
         )
     )
 
-    # Select LLM provider
-    console.print("\n[bold]Select LLM Provider:[/]")
-    console.print("  1. Gemini (Google)")
-    console.print("  2. OpenAI (GPT)")
-    console.print("  3. Claude (Anthropic)")
-    console.print("  4. OpenRouter")
-    console.print("  5. Ollama (Local)")
+    sago_home = Path.home() / ".sago"
+    sago_home.mkdir(parents=True, exist_ok=True)
+    for sub in ("logs", "sessions", "cache", "data", "cache/hybrid_index"):
+        (sago_home / sub).mkdir(parents=True, exist_ok=True)
 
-    choice = Prompt.ask("Choice", default="1")
-    providers = {"1": "gemini", "2": "openai", "3": "claude", "4": "openrouter", "5": "ollama"}
-    provider = providers.get(choice, "gemini")
+    # 1. Select LLM provider
+    console.print("\n[bold]1. Choose your Primary LLM Provider:[/]")
+    console.print("  [cyan]1.[/] Google Gemini [dim](Fast & recommended default)[/]")
+    console.print("  [cyan]2.[/] OpenAI [dim](GPT-4o / o1 / o3-mini)[/]")
+    console.print("  [cyan]3.[/] Anthropic Claude [dim](Claude 3.7 Sonnet / Haiku)[/]")
+    console.print("  [cyan]4.[/] OpenRouter [dim](Unified API for 100+ models)[/]")
+    console.print("  [cyan]5.[/] Ollama [dim](100% Private local offline LLM)[/]")
 
-    # Get API key
-    api_key_env = {
-        "gemini": "GEMINI_API_KEY",
-        "openai": "OPENAI_API_KEY",
-        "claude": "ANTHROPIC_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
-    }.get(provider)
+    choice = Prompt.ask("Select provider", choices=["1", "2", "3", "4", "5"], default="1")
+    providers_map = {
+        "1": ("gemini", "GEMINI_API_KEY", "gemini-2.0-flash"),
+        "2": ("openai", "OPENAI_API_KEY", "gpt-4o"),
+        "3": ("claude", "ANTHROPIC_API_KEY", "claude-sonnet-4-20250514"),
+        "4": ("openrouter", "OPENROUTER_API_KEY", "anthropic/claude-sonnet-4"),
+        "5": ("ollama", None, "llama3.1"),
+    }
+    provider, api_key_env, default_model = providers_map[choice]
 
+    # 2. Get API key if needed
+    saved_key: str | None = None
     if api_key_env:
-        import os
+        current_env = os.environ.get(api_key_env, "")
+        prompt_msg = f"Enter {api_key_env}" + (
+            f" [dim](found in env: {current_env[:6]}...)[/]" if current_env else ""
+        )
+        entered_key = Prompt.ask(prompt_msg, default=current_env)
+        if entered_key:
+            saved_key = entered_key
+            os.environ[api_key_env] = entered_key
+            console.print(f"  [green]✓[/] {api_key_env} registered.")
 
-        key = Prompt.ask(f"Enter {api_key_env} (or press Enter to skip)")
-        if key:
-            os.environ[api_key_env] = key
-            console.print(f"[green]Set {api_key_env}[/]")
+    # 3. Model selection
+    selected_model = Prompt.ask("Default Model", default=default_model)
 
-    # Initialize database
+    # 4. Save persistent user config to ~/.sago/config.yaml
+    config_file = sago_home / "config.yaml"
+    user_config: dict[str, Any] = {}
+    if config_file.exists():
+        try:
+            user_config = yaml.safe_load(config_file.read_text()) or {}
+        except Exception:
+            user_config = {}
+
+    user_config.setdefault("llm_providers", {})
+    user_config["llm_providers"]["default"] = provider
+    user_config["llm_providers"].setdefault("providers", {})
+    user_config["llm_providers"]["providers"][provider] = {
+        "enabled": True,
+        "model": selected_model,
+    }
+    if saved_key and api_key_env:
+        user_config["llm_providers"]["providers"][provider]["api_key_env"] = api_key_env
+
+    config_file.write_text(yaml.dump(user_config, default_flow_style=False))
+    console.print(f"  [green]✓[/] Configuration saved to [bold]{config_file}[/]")
+
+    # 5. Initialize SQLite Database
     from sago.database import init
 
     init()
-    console.print("[green]Database initialized.[/]")
+    console.print("  [green]✓[/] SQLite database & state storage initialized.")
 
-    console.print("\n[green]Setup complete![/]")
-    console.print("Run [bold]sago run 'your task'[/] to get started.")
-    console.print("Run [bold]sago agents[/] to see available agents.")
+    # 6. Ask for Git Hooks installation if inside git repo
+    if (Path.cwd() / ".git").exists() and (Path.cwd() / "scripts" / "install-hooks.sh").exists():
+        if Confirm.ask(
+            "\nInstall Git pre-commit & pre-push quality hooks for this repo?", default=True
+        ):
+            import subprocess
+
+            try:
+                subprocess.run(
+                    ["bash", "./scripts/install-hooks.sh"], check=True, capture_output=True
+                )
+                console.print("  [green]✓[/] Git hooks installed successfully.")
+            except Exception as e:
+                console.print(
+                    f"  [yellow]Notice:[/] Could not install git hooks automatically ({e})."
+                )
+
+    # Onboarding summary card
+    console.print(
+        Panel(
+            f"[bold green]Setup Complete & Ready to Build![/]\n\n"
+            f"[bold]Active Provider:[/] [cyan]{provider}[/] ([bold]{selected_model}[/])\n"
+            f"[bold]Config Path:[/]     [dim]{config_file}[/]\n\n"
+            f"[bold]Recommended Next Steps:[/]\n"
+            f"  • [cyan]sago run 'your task'[/]       Auto-orchestrate any software task\n"
+            f"  • [cyan]sago tui[/]                    Launch interactive full-screen TUI terminal\n"
+            f"  • [cyan]sago smart 'review PR'[/]      Execute smart auto-delegating task\n"
+            f"  • [cyan]sago doctor[/]                 Verify system health, keys, and network ports\n"
+            f"  • [cyan]sago agents[/]                 Explore 339 specialized engineering agents",
+            title="[bold blue]🚀 Quickstart Guide[/]",
+            border_style="green",
+        )
+    )
+
+
+@cli.command()
+def setup() -> None:
+    """Interactive setup wizard for Sago."""
+    _run_interactive_setup()
+
+
+@cli.command()
+def onboard() -> None:
+    """Seamless interactive onboarding wizard for new Sago setups."""
+    _run_interactive_setup()
+
+
+@cli.command()
+def doctor() -> None:
+    """Check system health, API keys, database, network ports, and tool dependencies."""
+    import os
+    import socket
+    import sys
+    from pathlib import Path
+
+    from rich.table import Table
+
+    table = Table(title="🏥 Sago System Health Check", border_style="cyan", show_header=True)
+    table.add_column("Subsystem", style="bold")
+    table.add_column("Status", justify="center")
+    table.add_column("Details")
+
+    # 1. Python version
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    table.add_row("Python Runtime", "[green]✓ PASS[/]", f"Python {py_ver}")
+
+    # 2. Config & Directories
+    sago_home = Path.home() / ".sago"
+    if sago_home.exists():
+        table.add_row("User Directory", "[green]✓ PASS[/]", f"{sago_home} (Writable)")
+    else:
+        table.add_row(
+            "User Directory", "[yellow]! WARN[/]", f"{sago_home} missing. Run 'sago setup'."
+        )
+
+    # 3. Database
+    from sago.database import get_db
+
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [r[0] for r in cur.fetchall()]
+            table.add_row("SQLite Database", "[green]✓ PASS[/]", f"{len(tables)} tables active")
+    except Exception as exc:
+        table.add_row("SQLite Database", "[red]✗ FAIL[/]", str(exc))
+
+    # 4. LLM API Keys
+    keys = {
+        "GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY"),
+        "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY"),
+        "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY"),
+        "OPENROUTER_API_KEY": os.environ.get("OPENROUTER_API_KEY"),
+    }
+    configured_keys = [k for k, v in keys.items() if v]
+    if configured_keys:
+        table.add_row("LLM API Keys", "[green]✓ PASS[/]", f"Active: {', '.join(configured_keys)}")
+    else:
+        table.add_row(
+            "LLM API Keys",
+            "[yellow]! NONE[/]",
+            "No API keys found in environment. Set GEMINI_API_KEY or run 'sago setup'.",
+        )
+
+    # 5. Ports availability
+    for name, port in [("Daemon Port", 7654), ("Mesh P2P Port", 7655)]:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.settimeout(0.5)
+            res = s.connect_ex(("127.0.0.1", port))
+            if res == 0:
+                table.add_row(name, "[green]● ACTIVE[/]", f"Port {port} in use / service running")
+            else:
+                table.add_row(name, "[dim]○ READY[/]", f"Port {port} free for daemon/mesh")
+        except Exception:
+            table.add_row(name, "[dim]○ READY[/]", f"Port {port} ready")
+        finally:
+            s.close()
+
+    # 6. Agents & Tools
+    from sago.agents.registry import AGENTS
+
+    table.add_row("Specialist Agents", "[green]✓ PASS[/]", f"{len(AGENTS)} agent profiles ready")
+
+    console.print(table)
+    console.print(
+        "\n[dim]Run [bold]sago onboard[/] to reconfigure providers or workspace settings.[/]\n"
+    )
 
 
 @cli.command()

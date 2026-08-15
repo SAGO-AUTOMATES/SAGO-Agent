@@ -600,7 +600,7 @@ sago/
 
 Sago includes comprehensive coverage across unit, integration, and security categories.
 
-**565 tests** — 564 passed, 1 skipped. See [docs/ERRORS.md](docs/ERRORS.md) for error handling and [docs/FLOWS.md](docs/FLOWS.md) for system flowcharts.
+**566 tests** — 565 passed, 1 skipped. See [docs/ERRORS.md](docs/ERRORS.md) for error handling and [docs/FLOWS.md](docs/FLOWS.md) for system flowcharts.
 
 ### Quality Areas
 

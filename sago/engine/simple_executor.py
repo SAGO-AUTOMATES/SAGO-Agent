@@ -265,24 +265,37 @@ def _run_tests_if_exist(
 
 _project_context_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _project_context_lock = threading.Lock()
-_PROJECT_CONTEXT_TTL = 300  # 5 minutes
+
+
+def _get_executor_config() -> Any:
+    """Get executor configuration with environment variable fallbacks."""
+    try:
+        from sago.config.loader import get_config
+
+        return get_config().executor
+    except Exception:
+        from sago.config.loader import ExecutorConfig
+
+        return ExecutorConfig()
 
 
 def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
     """Detect existing project language, framework, and structure from files.
 
     Returns a dict with detected info that helps the LLM understand the project.
-    Results are cached for 5 minutes to avoid repeated subprocess calls.
+    Results are cached for configured TTL to avoid repeated subprocess calls.
     """
     import subprocess
 
     work_dir = cwd or os.getcwd()
+    cfg = _get_executor_config()
+    ttl = int(os.environ.get("SAGO_PROJECT_CONTEXT_TTL", str(cfg.project_context_ttl)))
 
     # Check cache
     now = time.time()
     with _project_context_lock:
         cached = _project_context_cache.get(work_dir)
-        if cached and (now - cached[0]) < _PROJECT_CONTEXT_TTL:
+        if cached and (now - cached[0]) < ttl:
             return cached[1]
 
     context: dict[str, Any] = {
@@ -903,12 +916,17 @@ def execute_agent_task(
     content = ""
 
     def _compact_messages_if_needed(
-        msgs: list[dict[str, Any]], max_tokens: int = 32000
+        msgs: list[dict[str, Any]], max_tokens: int | None = None
     ) -> list[dict[str, Any]]:
         """Compact messages if total content exceeds token limit using semantic distillation."""
+        effective_max_tokens = (
+            max_tokens
+            if max_tokens is not None
+            else int(os.environ.get("SAGO_MAX_TOKENS", str(_get_executor_config().max_tokens)))
+        )
         total_chars = sum(len(str(m.get("content", "") or "")) for m in msgs)
         estimated_tokens = total_chars // 4
-        if estimated_tokens <= max_tokens:
+        if estimated_tokens <= effective_max_tokens:
             return msgs
 
         # Distill older tool messages first to preserve conversation history and system instructions
@@ -1454,8 +1472,14 @@ def execute_agent_task(
                 f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}"
                 for c in tool_history[-5:]
             ]
-            if len(recent_calls) >= 3:
-                unique_recent = set(recent_calls[-3:])
+            circular_thresh = int(
+                os.environ.get(
+                    "SAGO_CIRCULAR_DETECTION_THRESHOLD",
+                    str(_get_executor_config().circular_detection_threshold),
+                )
+            )
+            if len(recent_calls) >= circular_thresh:
+                unique_recent = set(recent_calls[-circular_thresh:])
                 if len(unique_recent) == 1:
                     messages.append(
                         {
@@ -1463,7 +1487,7 @@ def execute_agent_task(
                             "tool_call_id": tc_id,
                             "name": name,
                             "content": (
-                                f"[HINT] You've called {name} with similar args 3 times in a row. "
+                                f"[HINT] You've called {name} with similar args {circular_thresh} times in a row. "
                                 f"If this isn't working, try a completely different approach or finish the task."
                             ),
                         }
@@ -1607,16 +1631,34 @@ def execute_agent_task(
                                     user_input=user_response,
                                 )
 
-                    # Auto-complete todo after sufficient work (5+ successful tools or 4+ iterations on same todo)
+                    # Auto-complete todo after sufficient work based on configurable thresholds
                     successful_tools = [
                         t["tool"]
                         for t in tool_history
                         if t.get("success") and t["tool"] in tools_used_in_iteration
                     ]
                     tools_for_this_todo = todo_tool_counts.get(current_todo.id, 0)
-                    if (tools_for_this_todo >= 5 and len(successful_tools) >= 3) or (
-                        i > 2 and tools_for_this_todo >= 4
-                    ):
+                    cfg = _get_executor_config()
+                    min_tools = int(
+                        os.environ.get(
+                            "SAGO_AUTOCOMPLETE_MIN_TOOLS", str(cfg.auto_complete_min_tools)
+                        )
+                    )
+                    min_success = int(
+                        os.environ.get(
+                            "SAGO_AUTOCOMPLETE_MIN_SUCCESS", str(cfg.auto_complete_min_success)
+                        )
+                    )
+                    min_iters = int(
+                        os.environ.get(
+                            "SAGO_AUTOCOMPLETE_MIN_ITERATIONS",
+                            str(cfg.auto_complete_min_iterations),
+                        )
+                    )
+
+                    if (
+                        tools_for_this_todo >= min_tools and len(successful_tools) >= min_success
+                    ) or (i > 2 and tools_for_this_todo >= min_iters):
                         tm.complete_todo(
                             task_plan.id,
                             current_todo.id,

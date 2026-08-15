@@ -124,6 +124,40 @@ class RoutingConfig(BaseModel):
     triggers: dict[str, list[str]] = Field(default_factory=dict)
 
 
+class SearchConfig(BaseModel):
+    """Hybrid search configuration."""
+
+    max_files: int = 50000
+    use_embeddings: bool = False
+    cache_dir: str = "~/.sago/cache/hybrid_index"
+
+
+class DaemonConfig(BaseModel):
+    """Daemon server configuration."""
+
+    host: str = "127.0.0.1"
+    port: int = 7654
+    max_connections: int = 10
+
+
+class MeshConfig(BaseModel):
+    """P2P Mesh network configuration."""
+
+    port: int = 7655
+    task_timeout_seconds: int = 120
+
+
+class ExecutorConfig(BaseModel):
+    """Execution engine thresholds and behavior."""
+
+    project_context_ttl: int = 300
+    max_tokens: int = 32000
+    circular_detection_threshold: int = 3
+    auto_complete_min_tools: int = 5
+    auto_complete_min_success: int = 3
+    auto_complete_min_iterations: int = 4
+
+
 class SagoConfig(BaseModel):
     """Root configuration model for Sago."""
 
@@ -134,6 +168,10 @@ class SagoConfig(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     llm_providers: LLMProvidersConfig = Field(default_factory=LLMProvidersConfig)
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
+    search: SearchConfig = Field(default_factory=SearchConfig)
+    daemon: DaemonConfig = Field(default_factory=DaemonConfig)
+    mesh: MeshConfig = Field(default_factory=MeshConfig)
+    executor: ExecutorConfig = Field(default_factory=ExecutorConfig)
 
 
 def _expand_path(path_str: str) -> Path:

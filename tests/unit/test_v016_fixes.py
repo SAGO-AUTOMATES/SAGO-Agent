@@ -397,3 +397,27 @@ def test_thread_safe_singletons_and_metadata_default() -> None:
     res2 = ToolResult()
     res1.metadata["test_key"] = "unique_value"
     assert "test_key" not in res2.metadata
+
+
+def test_configurable_settings_and_doctor_command() -> None:
+    """Verify configurable search/daemon/mesh/executor schemas and doctor command."""
+    from click.testing import CliRunner
+
+    from sago.config.loader import get_config
+    from sago.main import cli
+
+    cfg = get_config()
+    assert hasattr(cfg, "search")
+    assert cfg.search.max_files == 50000
+    assert hasattr(cfg, "daemon")
+    assert cfg.daemon.host == "127.0.0.1"
+    assert hasattr(cfg, "mesh")
+    assert cfg.mesh.port == 7655
+    assert hasattr(cfg, "executor")
+    assert cfg.executor.max_tokens == 32000
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["doctor"])
+    assert result.exit_code == 0
+    assert "System Health Check" in result.output
+    assert "Python Runtime" in result.output

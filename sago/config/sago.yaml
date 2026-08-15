@@ -222,3 +222,29 @@ routing:
       - "roadmap"
       - "milestone"
       - "task"
+
+# Hybrid Code Search Configuration
+search:
+  max_files: 50000
+  use_embeddings: false
+  cache_dir: "~/.sago/cache/hybrid_index"
+
+# Daemon Server Configuration
+daemon:
+  host: "127.0.0.1"
+  port: 7654
+  max_connections: 10
+
+# P2P Mesh Network Configuration
+mesh:
+  port: 7655
+  task_timeout_seconds: 120
+
+# Execution Engine & Task Management
+executor:
+  project_context_ttl: 300
+  max_tokens: 32000
+  circular_detection_threshold: 3
+  auto_complete_min_tools: 5
+  auto_complete_min_success: 3
+  auto_complete_min_iterations: 4
