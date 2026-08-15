@@ -1,5 +1,7 @@
 """Tests for TUI turn containerization, thinking step containment, theme switching, developer mode, and autocompletion."""
 
+from pathlib import Path
+
 import pytest
 
 from sago.tui.app import SagoApp
@@ -76,7 +78,7 @@ async def test_tui_collapse_command():
 
 
 @pytest.mark.anyio
-async def test_tui_developer_mode():
+async def test_tui_developer_mode(tmp_path: Path):
     app = SagoApp()
     async with app.run_test() as pilot:
         assert app.developer_mode is False
@@ -89,7 +91,8 @@ async def test_tui_developer_mode():
         # Check logs / traces / export subcommands
         app._handle_developer_command("logs")
         app._handle_developer_command("traces")
-        app._handle_developer_command("export")
+        test_out = tmp_path / "test_trace.json"
+        app._handle_developer_command(f"export {test_out}")
         await pilot.pause()
 
         # Turn OFF
