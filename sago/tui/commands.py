@@ -1936,11 +1936,23 @@ class CommandHandlers:
             if not subargs:
                 self._add_system_message("Usage: /checkpoint restore <checkpoint-id>")
                 return
-            success, msg = mgr.restore_checkpoint(subargs.strip())
-            if success:
-                self._add_system_message(f"● [bold green]Restored[/bold green]: {msg}")
+            res = mgr.restore_checkpoint(subargs.strip())
+            if res.get("success"):
+                self._add_system_message(
+                    f"● [bold green]Restored[/bold green]: Successfully restored {res.get('restored_count', 0)} files from {subargs.strip()}"
+                )
             else:
-                self._add_system_message(f"● [bold red]Restore Failed[/bold red]: {msg}")
+                self._add_system_message(
+                    f"● [bold red]Restore Failed[/bold red]: {res.get('error')}"
+                )
+        elif subcmd in ("prune", "clean"):
+            keep = 3
+            if subargs and subargs.strip().isdigit():
+                keep = int(subargs.strip())
+            deleted = mgr.prune_checkpoints(keep_latest=keep)
+            self._add_system_message(
+                f"● [bold green]Checkpoints Pruned[/bold green]: Removed {len(deleted)} old snapshots (retaining newest {keep})"
+            )
         else:
             import time
 
@@ -1956,8 +1968,51 @@ class CommandHandlers:
                 lines.append(
                     f"  • `{cp.checkpoint_id}` - [dim]{t_str}[/dim] ({len(cp.file_paths)} files) - {cp.description}"
                 )
-            lines.append("\n[dim]To restore: /checkpoint restore <id>[/dim]")
+            lines.append(
+                "\n[dim]To restore: /checkpoint restore <id> | To prune: /checkpoint prune [keep][/dim]"
+            )
             self._add_system_message("\n".join(lines))
+
+    def _handle_clean_command(self: SagoApp, args: str = "") -> None:
+        """Handle /clean and /gc garbage collection command."""
+        from sago.cleanup import run_cleanup
+
+        mode = args.strip().lower() if args else "all"
+        clean_cache = mode in ("all", "cache", "caches")
+        clean_backup = mode in ("all", "backups", "backup")
+        clean_chkpt = mode in ("all", "checkpoints", "checkpoint")
+        clean_db = mode in ("all", "db", "database", "sessions")
+        clean_log = mode in ("all", "logs", "log")
+
+        if not any([clean_cache, clean_backup, clean_chkpt, clean_db, clean_log]):
+            clean_cache = clean_backup = clean_chkpt = clean_db = clean_log = True
+
+        results = run_cleanup(
+            clean_cache=clean_cache,
+            clean_backup=clean_backup,
+            clean_chkpt=clean_chkpt,
+            clean_db=clean_db,
+            clean_log=clean_log,
+        )
+
+        total_reclaimed = sum(r.bytes_reclaimed for r in results)
+        total_items = sum(r.items_deleted for r in results)
+
+        lines = ["[bold cyan]═══ SAGO GARBAGE COLLECTION ═══[/bold cyan]"]
+        for r in results:
+            lines.append(
+                f"  • [bold]{r.category}:[/bold] {', '.join(r.details) if r.details else 'Cleaned'}"
+            )
+
+        if total_reclaimed < 1024 * 1024:
+            rec_str = f"{total_reclaimed / 1024:.1f} KB"
+        else:
+            rec_str = f"{total_reclaimed / (1024 * 1024):.2f} MB"
+
+        lines.append(
+            f"\n[bold green]✓ Cleanup complete:[/] {total_items} items purged, [bold cyan]{rec_str}[/bold cyan] disk space reclaimed."
+        )
+        self._add_system_message("\n".join(lines))
 
     def _handle_shortcuts_command(self: SagoApp, args: str = "") -> None:
         """Handle ? / /? / /shortcuts command."""

@@ -1240,6 +1240,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/search": lambda: self._handle_search_command(args),
             "/semantic": lambda: self._handle_search_command(args),
             "/detach": lambda: self._detach_session(),
+            "/clean": lambda: self._handle_clean_command(args),
+            "/gc": lambda: self._handle_clean_command(args),
             "/copy": lambda: self._handle_copy_command(args),
             "/clip": lambda: self._handle_copy_command(args),
             "/buttons": lambda: self._handle_buttons_command(args),

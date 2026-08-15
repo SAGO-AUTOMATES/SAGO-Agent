@@ -104,7 +104,43 @@ class CheckpointManager:
         logger.info(
             "Created checkpoint %s with %d files: %s", chk_id, len(copied_files), description
         )
+        # Automatic retention pruning (keep latest 20 by default)
+        try:
+            self.prune_checkpoints(keep_latest=20)
+        except Exception:
+            pass
         return meta
+
+    def prune_checkpoints(
+        self, keep_latest: int = 10, max_age_days: float | None = None
+    ) -> list[str]:
+        """Prune older checkpoints to keep repository size bounded."""
+        if not self.checkpoints_dir.exists():
+            return []
+
+        now = time.time()
+        cutoff_ts = (now - max_age_days * 86400) if max_age_days is not None else None
+
+        snapshots = [d for d in self.checkpoints_dir.iterdir() if d.is_dir()]
+        snapshots.sort(key=lambda p: p.name, reverse=True)
+
+        to_delete: list[Path] = []
+        if max_age_days is not None:
+            for snap in snapshots:
+                if snap.stat().st_mtime <= cutoff_ts:
+                    to_delete.append(snap)
+        else:
+            to_delete = snapshots[keep_latest:]
+
+        deleted_ids: list[str] = []
+        for snap in to_delete:
+            try:
+                shutil.rmtree(snap, ignore_errors=True)
+                deleted_ids.append(snap.name)
+            except OSError as e:
+                logger.debug("Failed to prune checkpoint %s: %s", snap, e)
+
+        return deleted_ids
 
     def list_checkpoints(self, limit: int = 50) -> list[CheckpointMeta]:
         """List all available snapshots ordered from newest to oldest."""

@@ -1729,10 +1729,12 @@ def plugins_cmd() -> None:
 
 
 @cli.command("checkpoint")
-@click.argument("action", default="list", type=click.Choice(["create", "list", "restore"]))
+@click.argument(
+    "action", default="list", type=click.Choice(["create", "list", "restore", "prune", "clean"])
+)
 @click.argument("target", required=False)
 def checkpoint_cmd(action: str, target: str | None) -> None:
-    """Manage atomic snapshots and rollbacks for large refactorings (create, list, restore)."""
+    """Manage atomic snapshots and rollbacks for large refactorings (create, list, restore, prune)."""
     from sago.engine.checkpoint import CheckpointManager
 
     mgr = CheckpointManager()
@@ -1768,6 +1770,138 @@ def checkpoint_cmd(action: str, target: str | None) -> None:
             )
         else:
             console.print(f"[bold red]Failed to restore:[/bold red] {res.get('error')}")
+    elif action in ("prune", "clean"):
+        keep = 3
+        if target and target.isdigit():
+            keep = int(target)
+        deleted = mgr.prune_checkpoints(keep_latest=keep)
+        console.print(
+            f"[bold green]✓ Checkpoints pruned:[/] Removed {len(deleted)} old snapshots (retained newest {keep})."
+        )
+
+
+@cli.command("clean")
+@click.option(
+    "--all",
+    "clean_all",
+    is_flag=True,
+    default=False,
+    help="Clean all caches, backups, checkpoints, logs, and empty DB sessions (Default)",
+)
+@click.option("--cache", is_flag=True, help="Purge hybrid index & AST graph caches")
+@click.option("--backups", is_flag=True, help="Purge stale file edit backups (~/.sago/backups)")
+@click.option(
+    "--checkpoints", is_flag=True, help="Purge older workspace snapshots (.sago/checkpoints)"
+)
+@click.option("--db", is_flag=True, help="Clean empty/noise sessions and vacuum SQLite database")
+@click.option("--logs", is_flag=True, help="Clean / truncate old and oversized log files")
+@click.option("--days", type=float, default=None, help="Purge items older than N days")
+@click.option(
+    "--keep-checkpoints",
+    type=int,
+    default=3,
+    help="Number of newest checkpoints to retain (default: 3)",
+)
+@click.option(
+    "--keep-backups",
+    type=int,
+    default=3,
+    help="Number of newest session backups to retain (default: 3)",
+)
+@click.option("--dry-run", is_flag=True, help="Show what would be cleaned without deleting")
+@click.option("--force", "-f", is_flag=True, help="Perform cleanup without confirmation prompts")
+def clean_cmd(
+    clean_all: bool,
+    cache: bool,
+    backups: bool,
+    checkpoints: bool,
+    db: bool,
+    logs: bool,
+    days: float | None,
+    keep_checkpoints: int,
+    keep_backups: int,
+    dry_run: bool,
+    force: bool,
+) -> None:
+    """Safely clean stale caches, backups, checkpoints, logs, and empty DB sessions."""
+    from sago.cleanup import run_cleanup
+
+    # Default to cleaning everything if no specific target is selected or --all is used
+    if not (cache or backups or checkpoints or db or logs):
+        clean_all = True
+
+    c_cache = clean_all or cache
+    c_backup = clean_all or backups
+    c_chkpt = clean_all or checkpoints
+    c_db = clean_all or db
+    c_logs = clean_all or logs
+
+    if dry_run:
+        console.print(
+            "[bold yellow]Running in dry-run mode (no files will be deleted)...[/bold yellow]\n"
+        )
+
+    results = run_cleanup(
+        clean_cache=c_cache,
+        clean_backup=c_backup,
+        clean_chkpt=c_chkpt,
+        clean_db=c_db,
+        clean_log=c_logs,
+        keep_checkpoints=keep_checkpoints,
+        keep_recent_backups=keep_backups,
+        max_age_days=days,
+        dry_run=dry_run,
+    )
+
+    table = Table(
+        title="Sago Garbage Collection & Cleanup Summary",
+        show_header=True,
+        header_style="bold cyan",
+    )
+    table.add_column("Target Category", style="bold white", min_width=30)
+    table.add_column("Scanned", justify="right")
+    table.add_column("Purged / Cleaned", justify="right", style="green")
+    table.add_column("Space Reclaimed", justify="right", style="bold green")
+    table.add_column("Details", style="dim")
+
+    total_scanned = 0
+    total_deleted = 0
+    total_reclaimed = 0
+
+    for r in results:
+        total_scanned += r.items_scanned
+        total_deleted += r.items_deleted
+        total_reclaimed += r.bytes_reclaimed
+        detail_msg = (
+            "; ".join(r.details)
+            if r.details
+            else ("OK" if not r.error else f"[red]{r.error}[/red]")
+        )
+        table.add_row(
+            r.category,
+            str(r.items_scanned),
+            str(r.items_deleted),
+            r.human_bytes,
+            detail_msg,
+        )
+
+    console.print(table)
+
+    if total_reclaimed < 1024 * 1024:
+        rec_str = f"{total_reclaimed / 1024:.1f} KB"
+    elif total_reclaimed < 1024 * 1024 * 1024:
+        rec_str = f"{total_reclaimed / (1024 * 1024):.2f} MB"
+    else:
+        rec_str = f"{total_reclaimed / (1024 * 1024 * 1024):.2f} GB"
+
+    if dry_run:
+        console.print(
+            f"\n[bold yellow]Dry-run complete:[/] Found {total_deleted} items ({rec_str}) eligible for cleanup."
+        )
+    else:
+        console.print(
+            f"\n[bold green]✓ Cleanup complete:[/] Purged {total_deleted} items and reclaimed [bold cyan]{rec_str}[/bold cyan] disk space."
+        )
 
 
 @cli.command()
