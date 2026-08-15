@@ -382,7 +382,7 @@ class UIHelpers:
 
         # Turn finished -> clear active exchange card
         self._active_exchange_card = None
-        self.query_one("#messages").scroll_end()
+        self.query_one("#messages").scroll_end(animate=False)
 
     def _add_thinking_card(self: SagoApp, reasoning_text: str) -> None:
         """Add a dedicated collapsible technical reasoning card inside active turn box."""
@@ -398,7 +398,7 @@ class UIHelpers:
             target_card.mount(card)
         else:
             self.query_one("#messages").mount(card)
-        self.query_one("#messages").scroll_end()
+        self.query_one("#messages").scroll_end(animate=False)
 
     def _add_plan_card(self: SagoApp, plan_text: str, step_count: int = 0) -> None:
         """Add a dedicated collapsible plan card inside active turn box."""
@@ -407,7 +407,7 @@ class UIHelpers:
         card = Collapsible(
             Static(plan_text, classes="plan-text", markup=True),
             title=title,
-            collapsed=False,
+            collapsed=True,
         )
         if target_card is not None and hasattr(target_card, "mount_child"):
             target_card.mount_child(card)
@@ -415,7 +415,7 @@ class UIHelpers:
             target_card.mount(card)
         else:
             self.query_one("#messages").mount(card)
-        self.query_one("#messages").scroll_end()
+        self.query_one("#messages").scroll_end(animate=False)
 
     def _add_agent_message(self: SagoApp, agent_name: str, content: str) -> None:
         """Add a message with explicit agent tagging."""

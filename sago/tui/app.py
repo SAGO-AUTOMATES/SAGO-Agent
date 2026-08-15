@@ -1471,6 +1471,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         if not items:
             self._hide_suggestions()
             return
+        items = items[:8]
+        values = values[:8]
         self.suggestion_items = items
         self.suggestion_values = values
         self.suggestion_index = 0
@@ -1534,9 +1536,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             target_card.mount(s)
         else:
             self.query_one("#messages").mount(s)
-        self.query_one("#messages").scroll_end()
+        self.query_one("#messages").scroll_end(animate=False)
         self._spinner = s
-        self._spinner_timer = self.set_interval(0.08, self._advance_spinner)
+        self._spinner_timer = self.set_interval(0.2, self._advance_spinner)
 
     def _advance_spinner(self) -> None:
         if self._spinner:
@@ -1758,21 +1760,60 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 )
                 return
 
+            from sago.agents.handoff import HandoffContext, get_recursion_guard
             from sago.tools.file.spawn_agent import SpawnAgentTool
+
+            handoff_ctx = HandoffContext(original_task=task, task_type="chain")
+            guard = get_recursion_guard()
+            guard.reset()
 
             tool = SpawnAgentTool()
             current_input = task
             for i, agent in enumerate(agents):
+                # Check recursion guard
+                allowed, reason = guard.can_spawn(agent)
+                if not allowed:
+                    self.call_from_thread(self._add_system_message, f"Chain stopped: {reason}")
+                    break
+
+                guard.enter(agent)
                 info = tm.create_task(agent, f"Chain step {i + 1}: {task[:50]}")
                 info.status = AgentStatus.RUNNING
                 self.call_from_thread(self._update_dashboard)
                 self.call_from_thread(self._update_spinner, f"Step {i + 1}/{len(agents)}: {agent}")
-                result = tool.run(task=current_input, agent_name=agent)
+
+                # Build structured context for this agent
+                context_str = ""
+                if i > 0:
+                    context_str = handoff_ctx.get_compact_handoff_prompt(agent)
+
+                result = tool.run(task=current_input, agent_name=agent, context=context_str)
+
+                # Record result in handoff context
+                is_success = not (result.startswith("Error") or "REJECTED" in result)
+                handoff_ctx.add_result(agent, result, success=is_success)
+
+                # Extract files created from result
+                if "Files created/modified:" in result:
+                    files_line = result.split("Files created/modified:")[1].split("\n")[0]
+                    for f in files_line.split(","):
+                        f = f.strip()
+                        if f and f not in handoff_ctx.files_created:
+                            handoff_ctx.files_created.append(f)
+
                 info.status = AgentStatus.COMPLETED
                 info.result = result
                 info.elapsed = _time.time() - info.start_time
                 self.call_from_thread(self._update_dashboard)
-                current_input = f"Previous agent ({agent}) said:\n\n{result}\n\nNow continue."
+
+                guard.exit(agent)
+
+                # Build input for next agent using structured context
+                if i + 1 < len(agents):
+                    current_input = handoff_ctx.get_compact_handoff_prompt(agents[i + 1])
+                else:
+                    current_input = result
+
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_assistant_message, current_input, agent_name=agents[-1])
         except Exception as e:
@@ -1885,16 +1926,52 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     def _execute_orchestration_plan_thread(self, plan: list[dict]) -> None:
         """Runs in a background thread — all call_from_thread calls are safe here."""
         try:
+            from sago.agents.handoff import HandoffContext, get_recursion_guard
             from sago.tools.file.spawn_agent import SpawnAgentTool
+
+            handoff_ctx = HandoffContext(
+                original_task=plan[0].get("task", "") if plan else "",
+                task_type="orchestrate",
+            )
+            guard = get_recursion_guard()
+            guard.reset()
 
             tool = SpawnAgentTool()
             results = []
             for i, step in enumerate(plan):
                 agent = step.get("agent", "python-engineer")
                 step_task = step.get("task", "")
+
+                # Check recursion guard
+                allowed, reason = guard.can_spawn(agent)
+                if not allowed:
+                    results.append(f"**{agent}**: SKIPPED — {reason}")
+                    continue
+
+                guard.enter(agent)
                 self.call_from_thread(self._update_spinner, f"Step {i + 1}/{len(plan)}: {agent}")
-                result = tool.run(task=step_task, agent_name=agent)
+
+                # Build structured context from previous steps
+                context_str = ""
+                if i > 0:
+                    context_str = handoff_ctx.get_compact_handoff_prompt(agent)
+
+                result = tool.run(task=step_task, agent_name=agent, context=context_str)
+
+                # Record in handoff context
+                is_success = not (result.startswith("Error") or "REJECTED" in result)
+                handoff_ctx.add_result(agent, result, success=is_success)
+
+                # Extract files created
+                if "Files created/modified:" in result:
+                    files_line = result.split("Files created/modified:")[1].split("\n")[0]
+                    for f in files_line.split(","):
+                        f = f.strip()
+                        if f and f not in handoff_ctx.files_created:
+                            handoff_ctx.files_created.append(f)
+
                 results.append(f"**{agent}**: {result[:500]}")
+                guard.exit(agent)
 
             self.call_from_thread(self._hide_spinner)
             final = f"Orchestration complete ({len(plan)} steps):\n\n" + "\n\n".join(results)
