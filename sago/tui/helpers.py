@@ -423,9 +423,12 @@ class UIHelpers:
 
     def _add_system_message(self: SagoApp, content: str) -> None:
         self._hide_welcome_screen()
+        clean_text = content.strip()
         self.query_one("#messages").mount(
             Static(
-                f"[bold yellow][SYSTEM][/bold yellow] {content}", classes="msg-system", markup=True
+                f"[dim yellow]●[/dim yellow] [dim]{clean_text}[/dim]",
+                classes="msg-system",
+                markup=True,
             )
         )
         self.query_one("#messages").scroll_end(animate=False)

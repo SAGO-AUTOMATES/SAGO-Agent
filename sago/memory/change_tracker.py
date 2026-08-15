@@ -43,8 +43,8 @@ class FileChange:
 class ChangeTracker:
     """Tracks file modifications for a session."""
 
-    # Paths to exclude from tracking (virtual filesystems, socket dirs, internal git objects)
-    _EXCLUDED_PREFIXES = ("/dev/", "/proc/", "/sys/", "/run/")
+    # Paths to exclude from tracking (temp dirs, virtual filesystems, etc.)
+    _EXCLUDED_PREFIXES = ("/tmp/", "/var/tmp/", "/dev/shm/", "/dev/", "/proc/", "/sys/", "/run/")
     _EXCLUDED_SUBSTRINGS = ("/.git/objects/", "/__pycache__/")
 
     def __init__(self, session_id: str | None = None) -> None:

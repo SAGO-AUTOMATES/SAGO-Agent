@@ -323,6 +323,9 @@ class TokenTracker:
             m["tokens"] += usage.total_tokens
             m["cost"] += usage.cost_usd
 
+        # Waste summary
+        summary.waste_summary = self.get_waste_summary()
+
         return summary
 
     def get_daily_usage(self) -> dict[str, dict[str, Any]]:

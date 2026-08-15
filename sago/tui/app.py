@@ -108,12 +108,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         margin: 1 0;
     }
     .msg-system {
-        background: #111822;
-        border: solid #21262d;
-        border-left: solid #d29922;
-        color: #e6edf3;
-        padding: 1 2;
-        margin: 1 0;
+        background: transparent;
+        color: #e3b341;
+        padding: 0 1;
+        margin: 0;
+        border: none;
     }
     .msg-meta { color: #6e7681; padding: 0; }
     .msg-parallel {
@@ -142,6 +141,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .exchange-body {
         padding: 1 2;
         height: auto;
+        color: #e6edf3;
     }
     .exchange-divider {
         color: #30363d;
@@ -156,10 +156,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     }
     .exchange-assistant {
         color: #e6edf3;
+        background: transparent;
         padding: 0;
     }
     .thinking-text {
-        color: #8b949e;
+        color: #c9d1d9;
         text-style: italic;
         padding: 1 2;
         background: #080c14;
@@ -183,33 +184,42 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         padding: 0;
         margin: 1 0;
         height: auto;
+        color: #e6edf3;
     }
     .card-header {
-        background: #0d1117;
-        color: #8b949e;
+        background: #161b22;
+        color: #58a6ff;
         padding: 0 2;
     }
     .card-body {
         padding: 1 2;
         height: auto;
+        color: #e6edf3;
     }
 
-    /* Textual built-in Collapsible widget — uniform header treatment */
+    /* Textual built-in Collapsible widget — uniform header treatment & bright readable text */
     Collapsible {
         border: solid #21262d;
         border-left: solid #388bfd;
         background: #0d1117;
+        color: #e6edf3;
         margin: 1 0;
         padding: 0;
     }
     CollapsibleTitle {
-        background: #0d1117;
-        color: #8b949e;
+        background: #161b22;
+        color: #58a6ff;
         padding: 0 2;
     }
     Collapsible > Contents {
+        background: #0d1117;
+        color: #e6edf3;
         padding: 1 2;
         height: auto;
+    }
+    Collapsible > Contents Static {
+        color: #e6edf3;
+        background: transparent;
     }
 
     .code-action-bar {
@@ -3190,9 +3200,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 tool_calls = exec_result.get("tool_calls", [])
 
                 if not is_success or err:
+                    err_text = err or output or "Unknown execution failure"
                     self.call_from_thread(
-                        self._add_system_message,
-                        f"[bold red]Execution Error:[/] {err or output or 'Unknown execution failure'}",
+                        self._add_assistant_message,
+                        f"❌ **Execution Error:** {err_text}",
                     )
                 elif output and output.strip():
                     self.call_from_thread(self._add_assistant_message, output)
@@ -3223,7 +3234,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 error_msg = f"Authentication failed. Check your {self.current_provider} API key."
             elif "404" in error_msg:
                 error_msg = f"Model '{self.current_model}' not found. Try a different model."
-            self.call_from_thread(self._add_system_message, f"Error: {error_msg}")
+            self.call_from_thread(self._add_assistant_message, f"❌ **Error:** {error_msg}")
         finally:
             self.is_thinking = False
 
