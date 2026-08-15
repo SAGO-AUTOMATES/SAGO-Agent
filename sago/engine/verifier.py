@@ -238,22 +238,44 @@ class ProjectVerifier:
         go_files = [str(p) for p in clean_paths if p.suffix == ".go"]
 
         if py_files:
-            # 1. Python Syntax compilation check
+            # 1. Python Syntax compilation check (in-process for zero subprocess overhead)
+            import py_compile
+
             for pyf in py_files:
-                code, out = self.run_command_safe(["python3", "-m", "py_compile", pyf], timeout=10)
-                if code != 0:
+                try:
+                    py_compile.compile(pyf, doraise=True)
+                except (py_compile.PyCompileError, SyntaxError) as err:
                     typecheck_passed = False
-                    raw_outputs.append(f"--- Syntax Error ({Path(pyf).name}) ---\n{out}")
+                    err_msg = str(err)
+                    raw_outputs.append(f"--- Syntax Error ({Path(pyf).name}) ---\n{err_msg}")
                     issues.append(
                         DiagnosticIssue(
                             file_path=pyf,
-                            line=1,
-                            column=1,
+                            line=getattr(err, "lineno", 1) or 1,
+                            column=getattr(err, "offset", 1) or 1,
                             severity="error",
                             rule="SYNTAX_ERROR",
-                            message=out.strip() or "Syntax error during py_compile",
+                            message=err_msg or "Syntax error during py_compile",
                         )
                     )
+                except Exception:
+                    # Fallback to subprocess if file system edge cases arise
+                    code, out = self.run_command_safe(
+                        ["python3", "-m", "py_compile", pyf], timeout=10
+                    )
+                    if code != 0:
+                        typecheck_passed = False
+                        raw_outputs.append(f"--- Syntax Error ({Path(pyf).name}) ---\n{out}")
+                        issues.append(
+                            DiagnosticIssue(
+                                file_path=pyf,
+                                line=1,
+                                column=1,
+                                severity="error",
+                                rule="SYNTAX_ERROR",
+                                message=out.strip() or "Syntax error during py_compile",
+                            )
+                        )
 
             # 2. Targeted Ruff check
             code, out = self.run_command_safe(["ruff", "check"] + py_files, timeout=15)
@@ -356,9 +378,29 @@ class ContinuousVerifier:
             except Exception:
                 continue
 
+            callbacks = [callback] if callback else []
+            batched_files = set(files)
+            full_project = not bool(files)
+
+            # Drain pending queue items to batch into a single verification run
+            while True:
+                try:
+                    next_files, next_cb = self.queue.get_nowait()
+                    if not next_files:
+                        full_project = True
+                    else:
+                        batched_files.update(next_files)
+                    if next_cb:
+                        callbacks.append(next_cb)
+                    self.queue.task_done()
+                except Exception:
+                    break
+
             try:
-                if files:
-                    report = self.verifier.verify_files(files)
+                if full_project:
+                    report = self.verifier.verify_project()
+                elif batched_files:
+                    report = self.verifier.verify_files(list(batched_files))
                 else:
                     report = self.verifier.verify_project()
 
@@ -368,8 +410,11 @@ class ContinuousVerifier:
                     for issue in report.issues:
                         self.diagnostics_by_file.setdefault(issue.file_path, []).append(issue)
 
-                if callback:
-                    callback(report)
+                for cb in callbacks:
+                    try:
+                        cb(report)
+                    except Exception:
+                        pass
             except Exception:
                 pass
             finally:

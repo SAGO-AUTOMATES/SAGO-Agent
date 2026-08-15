@@ -446,24 +446,63 @@ class AgentSpawner:
 
         # Analyze task to determine needed agents
         keyword_map: dict[str, list[str]] = {
-            "python-pro": ["python", "fastapi", "django", "flask", "pydantic", "pip"],
-            "fullstack-dev": ["web", "frontend", "backend", "api", "fullstack", "react", "vue"],
-            "rust-systems": ["rust", "systems", "performance", "memory", "concurrent"],
-            "go-backend": ["go", "golang", "microservice", "grpc"],
-            "debugger": ["debug", "error", "bug", "fix", "crash", "exception", "traceback"],
-            "security-debugger": ["security", "vulnerability", "injection", "xss", "csrf", "auth"],
-            "system-architect": ["architecture", "design", "scale", "pattern", "structure", "plan"],
+            "python-engineer": ["python", "fastapi", "django", "flask", "pydantic", "pip"],
+            "backend-engineer": ["web", "backend", "api", "fullstack", "server", "fastapi"],
+            "frontend-engineer": [
+                "ui",
+                "ux",
+                "css",
+                "layout",
+                "component",
+                "responsive",
+                "react",
+                "vue",
+                "frontend",
+            ],
+            "rust-engineer": ["rust", "systems", "performance", "memory", "concurrent", "cargo"],
+            "go-engineer": ["go", "golang", "microservice", "grpc"],
+            "architect": [
+                "architecture",
+                "design",
+                "scale",
+                "pattern",
+                "structure",
+                "plan",
+                "system",
+            ],
             "data-architect": ["database", "schema", "data", "sql", "model", "er diagram"],
-            "devops-engineer": ["deploy", "docker", "kubernetes", "ci/cd", "pipeline", "container"],
-            "cloud-engineer": ["aws", "gcp", "azure", "cloud", "serverless", "lambda"],
-            "sre-engineer": ["reliability", "monitoring", "incident", "slo", "sli", "uptime"],
-            "code-reviewer": ["review", "quality", "check", "audit", "best practice"],
-            "security-reviewer": ["security review", "threat model", "owasp"],
-            "db-optimizer": ["optimize", "slow query", "index", "performance", "explain"],
-            "api-designer": ["api design", "rest", "graphql", "openapi", "swagger", "endpoint"],
+            "devops": ["deploy", "docker", "kubernetes", "ci/cd", "pipeline", "container", "sre"],
+            "cloud-architect": ["aws", "gcp", "azure", "cloud", "serverless", "lambda"],
+            "reviewer": ["review", "quality", "check", "audit", "best practice", "lint"],
+            "security-engineer": [
+                "security",
+                "vulnerability",
+                "injection",
+                "xss",
+                "csrf",
+                "auth",
+                "threat model",
+                "owasp",
+            ],
+            "database-administrator": [
+                "optimize",
+                "slow query",
+                "index",
+                "performance",
+                "explain",
+                "db",
+            ],
+            "api-engineer": ["api design", "rest", "graphql", "openapi", "swagger", "endpoint"],
             "ml-engineer": ["machine learning", "ml", "model", "train", "neural", "ai", "llm"],
-            "frontend-expert": ["ui", "ux", "css", "layout", "component", "responsive"],
-            "tech-writer": ["documentation", "docs", "readme", "guide", "tutorial", "write"],
+            "documentation-updater": [
+                "documentation",
+                "docs",
+                "readme",
+                "guide",
+                "tutorial",
+                "write",
+            ],
+            "tester": ["test", "pytest", "unit test", "integration", "coverage", "assert"],
         }
 
         # Score each agent
@@ -479,14 +518,14 @@ class AgentSpawner:
             chain = [name for name, _ in sorted_agents[:3]]
         else:
             # Default chain for general tasks
-            chain = ["python-pro", "code-reviewer"]
+            chain = ["python-engineer", "reviewer"]
 
         # Ensure we start with a builder agent, not a reviewer
-        if chain and chain[0] in ("code-reviewer", "security-reviewer", "db-optimizer"):
+        if chain and chain[0] in ("reviewer", "security-engineer", "database-administrator"):
             if len(chain) > 1:
                 chain = [chain[1], chain[0]]
             else:
-                chain = ["python-pro"] + chain
+                chain = ["python-engineer"] + chain
 
         return chain
 

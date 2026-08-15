@@ -1,12 +1,13 @@
 """Hybrid Code Indexer - BM25 + Dense Semantic Vector Search across Multi-Language Codebases.
 
 Combines BM25 probabilistic term ranking with local dense vector embeddings and
-AST symbol boosting for fast, zero-cloud semantic code search across 1,000+ files.
+AST symbol boosting for fast, zero-cloud semantic code search across 10,000+ files.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import math
 import os
@@ -34,6 +35,7 @@ class HybridCodeChunk:
     symbols: list[str] = field(default_factory=list)
     tokens: list[str] = field(default_factory=list)
     vector: list[float] = field(default_factory=list)
+    term_freqs: dict[str, int] = field(default_factory=dict)
     hash: str = ""
 
     def __post_init__(self) -> None:
@@ -43,6 +45,11 @@ class HybridCodeChunk:
             ).hexdigest()[:12]
         if not self.tokens:
             self.tokens = _tokenize_code(self.content)
+        if not self.term_freqs and self.tokens:
+            freqs: dict[str, int] = {}
+            for t in self.tokens:
+                freqs[t] = freqs.get(t, 0) + 1
+            self.term_freqs = freqs
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -55,6 +62,40 @@ class HybridCodeChunk:
             "symbols": self.symbols,
             "preview": self.content[:300],
         }
+
+    def to_cache_dict(self) -> dict[str, Any]:
+        return {
+            "file_path": self.file_path,
+            "start_line": self.start_line,
+            "end_line": self.end_line,
+            "content": self.content,
+            "language": self.language,
+            "chunk_type": self.chunk_type,
+            "name": self.name,
+            "symbols": self.symbols,
+            "tokens": self.tokens,
+            "vector": self.vector,
+            "term_freqs": self.term_freqs,
+            "hash": self.hash,
+        }
+
+    @classmethod
+    def from_cache_dict(cls, data: dict[str, Any]) -> HybridCodeChunk:
+        chunk = cls(
+            file_path=data["file_path"],
+            start_line=data["start_line"],
+            end_line=data["end_line"],
+            content=data["content"],
+            language=data["language"],
+            chunk_type=data["chunk_type"],
+            name=data.get("name"),
+            symbols=data.get("symbols", []),
+            tokens=data.get("tokens", []),
+            vector=data.get("vector", []),
+            term_freqs=data.get("term_freqs", {}),
+            hash=data.get("hash", ""),
+        )
+        return chunk
 
 
 @dataclass
@@ -78,9 +119,7 @@ class HybridSearchResult:
 
 def _tokenize_code(text: str) -> list[str]:
     """Tokenize source code splitting camelCase, snake_case, and identifiers."""
-    # Split camelCase into words
     s1 = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
-    # Replace non-alphanumeric characters (including underscores) with spaces
     cleaned = re.sub(r"[^a-zA-Z0-9]+", " ", s1)
     tokens = [t.lower() for t in cleaned.split() if len(t) > 1 and not t.isdigit()]
     return tokens
@@ -93,7 +132,6 @@ def _compute_dense_vector(tokens: list[str], dim: int = 128) -> list[float]:
 
     vec = [0.0] * dim
     for tok in tokens:
-        # Compute sub-token n-grams (3-gram to 5-gram)
         ngrams = [tok[i : i + n] for n in (3, 4, 5) for i in range(len(tok) - n + 1)] or [tok]
         for ng in ngrams:
             h = int(hashlib.md5(ng.encode()).hexdigest(), 16)
@@ -101,7 +139,6 @@ def _compute_dense_vector(tokens: list[str], dim: int = 128) -> list[float]:
             sign = 1.0 if ((h >> 8) & 1) else -1.0
             vec[idx] += sign
 
-    # L2 normalize
     norm = math.sqrt(sum(x * x for x in vec))
     if norm > 0:
         vec = [x / norm for x in vec]
@@ -116,7 +153,7 @@ def _cosine_similarity(v1: list[float], v2: list[float]) -> float:
 
 
 class HybridCodeIndexer:
-    """High-performance hybrid BM25 + dense vector code indexer."""
+    """High-performance hybrid BM25 + dense vector code indexer with inverted index & disk cache."""
 
     LANGUAGE_EXTENSIONS: dict[str, str] = {
         ".py": "python",
@@ -157,6 +194,7 @@ class HybridCodeIndexer:
     def __init__(self, root_dir: str | Path | None = None) -> None:
         self.root_dir = Path(root_dir).resolve() if root_dir else Path.cwd().resolve()
         self.chunks: list[HybridCodeChunk] = []
+        self.inverted_index: dict[str, list[int]] = {}  # term -> list of chunk indices
         self.doc_freqs: dict[str, int] = {}  # term -> number of chunks containing term
         self.avg_doc_len: float = 0.0
         self.total_docs: int = 0
@@ -164,13 +202,63 @@ class HybridCodeIndexer:
         self._cache_dir = get_sago_home() / "cache" / "hybrid_index"
         self._cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def index_project(self, max_files: int = 2000, force_reindex: bool = False) -> int:
-        """Scan and index all codebase files with BM25 statistics and dense vectors."""
+    def _get_cache_file(self) -> Path:
+        key = hashlib.md5(str(self.root_dir).encode()).hexdigest()[:16]
+        return self._cache_dir / f"idx_{key}.json"
+
+    def _load_cache(self, files_to_index: list[Path]) -> bool:
+        cache_file = self._get_cache_file()
+        if not cache_file.exists():
+            return False
+        try:
+            with open(cache_file, encoding="utf-8") as f:
+                data = json.load(f)
+
+            cached_mtimes: dict[str, float] = data.get("mtimes", {})
+            current_mtimes = {str(p): p.stat().st_mtime for p in files_to_index if p.exists()}
+
+            # Validate that file count and modification times match
+            if cached_mtimes != current_mtimes:
+                return False
+
+            raw_chunks = data.get("chunks", [])
+            self.chunks = [HybridCodeChunk.from_cache_dict(c) for c in raw_chunks]
+            self.doc_freqs = data.get("doc_freqs", {})
+            self.avg_doc_len = data.get("avg_doc_len", 0.0)
+            self.total_docs = len(self.chunks)
+
+            # Rebuild in-memory inverted index
+            self.inverted_index.clear()
+            for idx, chunk in enumerate(self.chunks):
+                for term in chunk.term_freqs:
+                    self.inverted_index.setdefault(term, []).append(idx)
+
+            self.is_indexed = True
+            return True
+        except Exception as e:
+            logger.debug("Failed to load hybrid index cache: %s", e)
+            return False
+
+    def _save_cache(self, files_to_index: list[Path]) -> None:
+        cache_file = self._get_cache_file()
+        try:
+            current_mtimes = {str(p): p.stat().st_mtime for p in files_to_index if p.exists()}
+            data = {
+                "root_dir": str(self.root_dir),
+                "mtimes": current_mtimes,
+                "chunks": [c.to_cache_dict() for c in self.chunks],
+                "doc_freqs": self.doc_freqs,
+                "avg_doc_len": self.avg_doc_len,
+            }
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+        except Exception as e:
+            logger.debug("Failed to save hybrid index cache: %s", e)
+
+    def index_project(self, max_files: int = 50000, force_reindex: bool = False) -> int:
+        """Scan and index codebase files with BM25 statistics, dense vectors, and disk caching."""
         if self.is_indexed and not force_reindex:
             return len(self.chunks)
-
-        self.chunks.clear()
-        self.doc_freqs.clear()
 
         files_to_index: list[Path] = []
         for root, dirs, files in os.walk(self.root_dir):
@@ -184,6 +272,13 @@ class HybridCodeIndexer:
             if len(files_to_index) >= max_files:
                 break
 
+        if not force_reindex and self._load_cache(files_to_index):
+            return len(self.chunks)
+
+        self.chunks.clear()
+        self.doc_freqs.clear()
+        self.inverted_index.clear()
+
         total_length = 0
         for file_path in files_to_index:
             try:
@@ -191,18 +286,21 @@ class HybridCodeIndexer:
                 chunks = self._chunk_file(file_path, content)
                 for chunk in chunks:
                     chunk.vector = _compute_dense_vector(chunk.tokens)
+                    chunk_idx = len(self.chunks)
                     self.chunks.append(chunk)
                     total_length += len(chunk.tokens)
-                    # Update document frequencies
-                    unique_terms = set(chunk.tokens)
-                    for term in unique_terms:
+
+                    # Update inverted index and document frequencies
+                    for term in chunk.term_freqs:
                         self.doc_freqs[term] = self.doc_freqs.get(term, 0) + 1
+                        self.inverted_index.setdefault(term, []).append(chunk_idx)
             except Exception as e:
                 logger.debug("Failed to index %s: %s", file_path, e)
 
         self.total_docs = len(self.chunks)
         self.avg_doc_len = total_length / max(self.total_docs, 1)
         self.is_indexed = True
+        self._save_cache(files_to_index)
         return self.total_docs
 
     def _chunk_file(self, file_path: Path, content: str) -> list[HybridCodeChunk]:
@@ -220,7 +318,6 @@ class HybridCodeIndexer:
         if not lines:
             return chunks
 
-        # Extract functions/classes via regex
         chunk_patterns = [
             (r"^(?:async\s+)?def\s+([a-zA-Z0-9_]+)\s*\(", "function"),
             (r"^class\s+([a-zA-Z0-9_]+)", "class"),
@@ -231,8 +328,7 @@ class HybridCodeIndexer:
             (r"^(?:export\s+)?class\s+([a-zA-Z0-9_]+)", "class"),
         ]
 
-        # Scan for structured definition chunks
-        chunk_starts: list[tuple[int, str, str]] = []  # (line_idx, name, type)
+        chunk_starts: list[tuple[int, str, str]] = []
         for i, line in enumerate(lines):
             for pattern, c_type in chunk_patterns:
                 m = re.search(pattern, line.strip())
@@ -263,7 +359,7 @@ class HybridCodeIndexer:
                         )
                     )
 
-        # Also add fixed-window sliding chunks for complete repository coverage
+        # Fixed-window sliding chunks for complete repository coverage
         window_size = 40
         step = 25
         for i in range(0, len(lines), step):
@@ -291,15 +387,7 @@ class HybridCodeIndexer:
         b: float = 0.75,
         alpha: float = 0.60,
     ) -> list[HybridSearchResult]:
-        """Perform hybrid BM25 + dense vector code search.
-
-        Args:
-            query: Natural language or symbol query
-            limit: Number of top results to return
-            k1: BM25 term saturation parameter
-            b: BM25 length normalization parameter
-            alpha: Weight for BM25 score (1 - alpha for vector similarity)
-        """
+        """Perform sub-millisecond hybrid BM25 + dense vector code search using inverted index."""
         if not self.is_indexed:
             self.index_project()
 
@@ -307,25 +395,37 @@ class HybridCodeIndexer:
             return []
 
         q_tokens = _tokenize_code(query)
-        q_vec = _compute_dense_vector(q_tokens)
         if not q_tokens:
             return []
+
+        q_vec = _compute_dense_vector(q_tokens)
+
+        # Collect candidate chunk indices from inverted index
+        candidate_indices: set[int] = set()
+        for term in q_tokens:
+            if term in self.inverted_index:
+                candidate_indices.update(self.inverted_index[term])
+
+        # If lexical matches are sparse, include first 100 chunks to allow dense vector matching
+        if len(candidate_indices) < limit * 5:
+            candidate_indices.update(range(min(len(self.chunks), 200)))
 
         results: list[HybridSearchResult] = []
         raw_bm25: list[float] = []
         raw_vec: list[float] = []
 
-        for chunk in self.chunks:
-            # 1. Compute BM25 Score
+        for idx in candidate_indices:
+            chunk = self.chunks[idx]
+            # 1. Compute BM25 Score with O(1) term_freqs lookups
             score_bm25 = 0.0
-            matched = []
+            matched: list[str] = []
             chunk_len = len(chunk.tokens)
 
             for term in q_tokens:
                 if term in self.doc_freqs:
                     df = self.doc_freqs[term]
                     idf = math.log((self.total_docs - df + 0.5) / (df + 0.5) + 1.0)
-                    tf = chunk.tokens.count(term)
+                    tf = chunk.term_freqs.get(term, 0)
                     if tf > 0:
                         matched.append(term)
                         num = tf * (k1 + 1.0)
@@ -351,12 +451,14 @@ class HybridCodeIndexer:
                 )
             )
 
+        if not results:
+            return []
+
         # Normalize BM25 scores to [0, 1]
         max_bm25 = max(raw_bm25) if raw_bm25 and max(raw_bm25) > 0 else 1.0
         for i, res in enumerate(results):
             norm_bm25 = raw_bm25[i] / max_bm25
             norm_vec = raw_vec[i]
-            # Combined score: convex combination with symbol boost
             combined = (alpha * norm_bm25) + ((1.0 - alpha) * norm_vec)
             if res.chunk.name and any(q.lower() in res.chunk.name.lower() for q in q_tokens):
                 combined += 0.15

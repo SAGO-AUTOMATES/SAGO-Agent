@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-MESH_PORT = 7654
+MESH_PORT = int(os.environ.get("SAGO_MESH_PORT", "7655"))
 MESH_BROADCAST = "255.255.255.255"
 DISCOVERY_TIMEOUT = 5
 
@@ -28,7 +28,7 @@ class MeshNode:
     hostname: str
     ip_address: str
     port: int = MESH_PORT
-    sago_version: str = "0.1.5"
+    sago_version: str = "0.1.6"
     capabilities: list[str] = field(default_factory=list)
     load: float = 0.0  # 0-100%
     last_heartbeat: float = 0.0
@@ -107,10 +107,12 @@ class MeshNetwork:
         node_id: str,
         port: int = MESH_PORT,
         auth_secret: str | None = None,
+        task_executor: Any = None,
     ) -> None:
         self.node_id = node_id
         self.port = port
         self.auth_secret = auth_secret or os.environ.get("SAGO_MESH_SECRET", "")
+        self.task_executor = task_executor
         self.nodes: dict[str, MeshNode] = {}
         self._running = False
         self._socket: socket.socket | None = None
@@ -274,6 +276,38 @@ class MeshNetwork:
                             ip_address=addr[0],
                             port=addr[1],
                             last_heartbeat=time.time(),
+                        )
+
+                # Process task requests and return execution results
+                elif msg.type == "task_request" and (
+                    msg.receiver == self.node_id or msg.receiver is None
+                ):
+                    task_str = msg.payload.get("task", "")
+                    agent_name = msg.payload.get("agent")
+                    task_id = msg.payload.get("task_id", f"task_{int(time.time() * 1000)}")
+                    try:
+                        if self.task_executor:
+                            res = self.task_executor(task_str, agent_name)
+                        else:
+                            from sago.engine.production import execute_agent_task
+
+                            res_obj = execute_agent_task(
+                                task=task_str, agent_name=agent_name or "python-engineer"
+                            )
+                            res = (
+                                res_obj.get("output", "")
+                                if isinstance(res_obj, dict)
+                                else str(res_obj)
+                            )
+                        self.send_task_result(
+                            target=msg.sender, task_id=task_id, result=str(res), success=True
+                        )
+                    except Exception as e:
+                        self.send_task_result(
+                            target=msg.sender,
+                            task_id=task_id,
+                            result=f"Task execution failed: {e}",
+                            success=False,
                         )
 
                 messages.append(msg)

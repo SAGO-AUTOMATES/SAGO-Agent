@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class GeminiProvider(BaseLLMProvider):
-    """Google Gemini LLM provider."""
+    """Google Gemini LLM provider supporting both google.genai and legacy google.generativeai."""
 
     def __init__(self, config: dict[str, Any]) -> None:
         super().__init__(config)
@@ -21,11 +21,13 @@ class GeminiProvider(BaseLLMProvider):
         self.api_key = os.environ.get(self.api_key_env, "")
         self._client: Any = None
 
-    def _get_model(self) -> Any:
-        import google.generativeai as genai
+    def _get_genai_client(self) -> Any | None:
+        try:
+            from google import genai
 
-        genai.configure(api_key=self.api_key)
-        return genai.GenerativeModel(self.model)
+            return genai.Client(api_key=self.api_key)
+        except ImportError:
+            return None
 
     def generate(
         self,
@@ -34,9 +36,36 @@ class GeminiProvider(BaseLLMProvider):
         **kwargs: Any,
     ) -> str:
         """Generate response using Gemini API."""
-        import google.generativeai as genai
+        client = self._get_genai_client()
+        if client is not None:
+            from google.genai import types as genai_types
 
-        model = self._get_model()
+            api_model = (
+                self.model.replace("google/", "", 1)
+                if self.model.startswith("google/")
+                else self.model
+            )
+            config = genai_types.GenerateContentConfig(
+                system_instruction=system_prompt or None,
+                max_output_tokens=self.max_tokens,
+                temperature=self.temperature,
+            )
+
+            def _call_genai() -> str:
+                response = client.models.generate_content(
+                    model=api_model,
+                    contents=prompt,
+                    config=config,
+                )
+                return response.text or ""
+
+            return retry_with_backoff(_call_genai)
+
+        # Fallback to legacy google.generativeai
+        import google.generativeai as legacy_genai
+
+        legacy_genai.configure(api_key=self.api_key)
+        model = legacy_genai.GenerativeModel(self.model)
 
         gen_config = {
             "max_output_tokens": self.max_tokens,
@@ -45,10 +74,10 @@ class GeminiProvider(BaseLLMProvider):
         if system_prompt:
             gen_config["system_instruction"] = system_prompt
 
-        def _call() -> str:
+        def _call_legacy() -> str:
             response = model.generate_content(
                 prompt,
-                generation_config=genai.GenerationConfig(**gen_config),
+                generation_config=legacy_genai.GenerationConfig(**gen_config),
             )
             if response.prompt_feedback and response.prompt_feedback.block_reason:
                 logger.warning("Gemini response blocked: %s", response.prompt_feedback.block_reason)
@@ -58,7 +87,7 @@ class GeminiProvider(BaseLLMProvider):
                 return ""
             return response.text
 
-        return retry_with_backoff(_call)
+        return retry_with_backoff(_call_legacy)
 
     def generate_stream(
         self,
@@ -67,7 +96,35 @@ class GeminiProvider(BaseLLMProvider):
         **kwargs: Any,
     ):
         """Generate streaming response using Gemini API."""
-        model = self._get_model()
+        client = self._get_genai_client()
+        if client is not None:
+            from google.genai import types as genai_types
+
+            api_model = (
+                self.model.replace("google/", "", 1)
+                if self.model.startswith("google/")
+                else self.model
+            )
+            config = genai_types.GenerateContentConfig(
+                system_instruction=system_prompt or None,
+                max_output_tokens=self.max_tokens,
+                temperature=self.temperature,
+            )
+            response = client.models.generate_content_stream(
+                model=api_model,
+                contents=prompt,
+                config=config,
+            )
+            for chunk in response:
+                if chunk.text:
+                    yield chunk.text
+            return
+
+        # Fallback to legacy google.generativeai
+        import google.generativeai as legacy_genai
+
+        legacy_genai.configure(api_key=self.api_key)
+        model = legacy_genai.GenerativeModel(self.model)
 
         gen_config = {
             "max_output_tokens": self.max_tokens,
@@ -76,12 +133,10 @@ class GeminiProvider(BaseLLMProvider):
         if system_prompt:
             gen_config["system_instruction"] = system_prompt
 
-        import google.generativeai as genai
-
         try:
             response = model.generate_content(
                 prompt,
-                generation_config=genai.GenerationConfig(**gen_config),
+                generation_config=legacy_genai.GenerationConfig(**gen_config),
                 stream=True,
             )
             for chunk in response:
@@ -96,19 +151,30 @@ class GeminiProvider(BaseLLMProvider):
         if not self.api_key:
             return False
         try:
-            import google.generativeai  # noqa: F401
+            from google import genai  # noqa: F401
 
             return True
         except ImportError:
-            return False
+            try:
+                import google.generativeai  # noqa: F401
+
+                return True
+            except ImportError:
+                return False
 
     def get_langchain_llm(self) -> Any:
         """Get LangChain ChatGoogleGenerativeAI instance."""
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
 
-        return ChatGoogleGenerativeAI(
-            model=self.model,
-            google_api_key=self.api_key,
-            max_output_tokens=self.max_tokens,
-            temperature=self.temperature,
-        )
+            return ChatGoogleGenerativeAI(
+                model=self.model,
+                google_api_key=self.api_key,
+                max_output_tokens=self.max_tokens,
+                temperature=self.temperature,
+            )
+        except ImportError as e:
+            raise ImportError(
+                "langchain-google-genai is required for LangChain integration with Gemini. "
+                "Install it via: pip install langchain-google-genai"
+            ) from e

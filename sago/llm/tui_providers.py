@@ -12,8 +12,6 @@ import logging
 import os
 from typing import Any
 
-from openai import OpenAI
-
 logger = logging.getLogger(__name__)
 
 
@@ -109,7 +107,7 @@ def resolve_active_llm_config(
     }
 
 
-def get_tui_client(provider: str, model: str) -> tuple[OpenAI | Any, str]:
+def get_tui_client(provider: str, model: str) -> tuple[Any, str]:
     """Get (client, api_model) for the TUI.
 
     Returns:
@@ -137,8 +135,16 @@ def _get_google_client(model: str) -> tuple[Any, str]:
     return client, api_model
 
 
-def _get_openai_client(model: str) -> tuple[OpenAI, str]:
+def _get_openai_client(model: str) -> tuple[Any, str]:
     """OpenAI direct."""
+    try:
+        from openai import OpenAI
+    except ImportError as err:
+        raise ImportError(
+            "The 'openai' package is required to use OpenAI models. "
+            "Install it via: pip install openai or pip install langchain-openai"
+        ) from err
+
     key = os.environ.get("OPENAI_API_KEY", "")
     if not key:
         raise ValueError("OPENAI_API_KEY not set.")
@@ -146,8 +152,16 @@ def _get_openai_client(model: str) -> tuple[OpenAI, str]:
     return OpenAI(api_key=key, timeout=90.0), api_model
 
 
-def _get_openrouter_client(model: str, api_key: str) -> OpenAI:
+def _get_openrouter_client(model: str, api_key: str) -> Any:
     """OpenRouter — routes to any provider."""
+    try:
+        from openai import OpenAI
+    except ImportError as err:
+        raise ImportError(
+            "The 'openai' package is required to use OpenRouter. "
+            "Install it via: pip install openai or pip install langchain-openai"
+        ) from err
+
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY not set.")
     return OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=90.0)

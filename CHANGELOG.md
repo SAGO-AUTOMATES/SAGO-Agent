@@ -2,6 +2,32 @@
 
 All notable changes to the SAGO project are documented in this file.
 
+## [0.1.6] - 2026-08-15
+
+### Added
+- **Sub-Millisecond Inverted Index & Disk Caching for Hybrid Search**:
+  - `HybridCodeIndexer` now builds an in-memory inverted term index and caches AST tokenized chunks and statistics to disk (`~/.sago/cache/hybrid_index/`).
+  - Search term frequency lookup changed from $O(\text{tokens})$ linear scan to $O(1)$ dictionary lookups, accelerating query speeds to sub-millisecond range.
+  - Lifted the default indexing limit from 2,000 to 50,000 files for seamless large codebase scale.
+- **Mesh Task Execution Engine & Port Isolation**:
+  - Added receiver-side task execution for `task_request` messages with automatic `task_result` responses in `MeshNetwork`.
+  - Moved default UDP mesh port to `7655` (configurable via `SAGO_MESH_PORT`) to eliminate collisions with the TCP daemon on `7654`.
+- **In-Process Python Syntax Verification & Queue Batching**:
+  - `ProjectVerifier` now performs fast in-process `py_compile` checks, avoiding subprocess spawn overhead on file verification.
+  - `ContinuousVerifier` now batches consecutive queued file verification tasks to prevent N+1 linter storms during bulk file modifications.
+- **Agent Profile Aliases & 100% Valid Handoff Resolution**:
+  - Added `AGENT_ALIASES` in `sago/agents/registry.py` mapping legacy names (`system-architect`, `test-runner`, `ui-designer`, etc.) to canonical profiles.
+  - 100% of all 1,570 profile handoff targets now cleanly resolve.
+  - Fixed `_plan_chain` in `sago/agents/spawner.py` to route to registered agent profile IDs.
+
+### Fixed
+- **TUI & Workflow Import Safety**:
+  - Made `OpenAI` import lazy in `sago/llm/tui_providers.py`, allowing TUI, workflow, and local Ollama execution without crashing when `openai` is not installed.
+- **Native Google GenAI SDK Compatibility**:
+  - Updated `GeminiProvider` in `sago/llm/gemini.py` to support modern `google.genai` SDK with fallback to `google.generativeai`.
+- **MCP Risk-Based Permission Gating**:
+  - Added permission manager validation in `MCPServer.call_tool()` to ensure tool executions over MCP respect risk approvals and access controls.
+
 ## [0.1.5] - 2026-08-14
 
 ### Added

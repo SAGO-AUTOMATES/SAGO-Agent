@@ -101,9 +101,32 @@ def _load_profiles() -> None:
 _load_profiles()
 
 
+AGENT_ALIASES: dict[str, str] = {
+    "system-architect": "architect",
+    "test-runner": "tester",
+    "ui-designer": "frontend-engineer",
+    "python-pro": "python-engineer",
+    "fullstack-dev": "backend-engineer",
+    "rust-systems": "rust-engineer",
+    "go-backend": "go-engineer",
+    "debugger": "python-engineer",
+    "security-debugger": "security-engineer",
+    "code-reviewer": "reviewer",
+    "security-reviewer": "security-engineer",
+    "db-optimizer": "database-administrator",
+    "api-designer": "api-engineer",
+    "frontend-expert": "frontend-engineer",
+    "tech-writer": "documentation-updater",
+    "devops-engineer": "devops",
+    "cloud-engineer": "cloud-architect",
+    "sre-engineer": "devops",
+}
+
+
 def get_agent(name: str) -> AgentDefinition | None:
-    """Get an agent definition by name."""
-    return AGENTS.get(name)
+    """Get an agent definition by name or alias."""
+    resolved_name = AGENT_ALIASES.get(name, name)
+    return AGENTS.get(resolved_name)
 
 
 def list_agents() -> list[dict[str, Any]]:
@@ -146,10 +169,15 @@ def get_agents_by_skill(skill: str) -> list[AgentDefinition]:
 
 def get_handoff_targets(agent_name: str) -> list[AgentDefinition]:
     """Get agents that a given agent can hand off to."""
-    agent = AGENTS.get(agent_name)
+    agent = get_agent(agent_name)
     if not agent:
         return []
-    return [AGENTS[name] for name in agent.handoff_to if name in AGENTS]
+    targets: list[AgentDefinition] = []
+    for name in agent.handoff_to:
+        target_agent = get_agent(name)
+        if target_agent and target_agent not in targets:
+            targets.append(target_agent)
+    return targets
 
 
 def reload_agents() -> None:
