@@ -56,7 +56,7 @@ def create_collapsible(
 
 
 class DismissableNotice(Horizontal):
-    """Dismissable / Removable system notification card with delete button and right-click support."""
+    """Dismissable / Removable system notification card with explicit dismiss button."""
 
     def __init__(self, content: str, level: str = "system", **kwargs: Any) -> None:
         super().__init__(classes="msg-system", **kwargs)
@@ -76,12 +76,6 @@ class DismissableNotice(Horizontal):
     def on_dismiss(self, event: Button.Pressed) -> None:
         event.stop()
         self.remove()
-
-    @on(events.Click)
-    def on_right_click(self, event: events.Click) -> None:
-        if getattr(event, "button", 1) == 3:  # Right click
-            event.stop()
-            self.remove()
 
 
 class ExchangeTurnCard(Vertical):
@@ -104,7 +98,7 @@ class ExchangeTurnCard(Vertical):
             )
             yield Static("", classes="spacer")
             yield Button("⤢ Expand", classes="btn-turn-expand", variant="default")
-            yield Button("🗑️ Delete", classes="btn-turn-delete", variant="default")
+            yield Button("✕", classes="btn-turn-delete", variant="default")
 
         with Vertical(classes="exchange-body"):
             yield Static(escape(self.prompt), classes="exchange-user-prompt", markup=True)
@@ -124,12 +118,6 @@ class ExchangeTurnCard(Vertical):
     def on_header_clicked(self, event: events.Click) -> None:
         event.stop()
         self.toggle_collapse()
-
-    @on(events.Click)
-    def on_right_click(self, event: events.Click) -> None:
-        if getattr(event, "button", 1) == 3:  # Right-click delete
-            event.stop()
-            self.remove()
 
     def toggle_collapse(self) -> None:
         """Toggle collapsed state of entire exchange body."""
@@ -190,7 +178,7 @@ class CollapsibleOutputCard(Vertical):
                 markup=True,
             )
             yield Static("", classes="spacer")
-            yield Button("🗑️", classes="btn-turn-delete", variant="default")
+            yield Button("✕", classes="btn-turn-delete", variant="default")
 
         with Vertical(classes="card-body"):
             yield self._content_widget
@@ -204,12 +192,6 @@ class CollapsibleOutputCard(Vertical):
     def on_header_clicked(self, event: events.Click) -> None:
         event.stop()
         self.toggle_collapse()
-
-    @on(events.Click)
-    def on_right_click(self, event: events.Click) -> None:
-        if getattr(event, "button", 1) == 3:
-            event.stop()
-            self.remove()
 
     def toggle_collapse(self) -> None:
         try:
