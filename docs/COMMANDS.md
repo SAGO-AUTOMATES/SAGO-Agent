@@ -85,6 +85,15 @@ sago telemetry --export otel --output traces.json
 sago telemetry --export prometheus --output metrics.prom
 ```
 
+### `sago parse`
+Parse complex document formats (PDF, DOCX, XLSX, PPTX, HTML, CSV, JSON, XML) to clean, token-efficient Markdown powered by MarkItDown.
+
+```bash
+sago parse design_spec.pdf                     # Output parsed Markdown directly to terminal
+sago parse data_sheet.xlsx -o sheet.md         # Save parsed table to Markdown file
+sago parse architecture.pptx -o slides.md      # Convert slide deck to Markdown
+```
+
 ### `sago verify`
 Run multi-language automated verification (linters, type checks, and test suites) with diagnostic reports.
 

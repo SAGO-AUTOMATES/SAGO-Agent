@@ -1692,6 +1692,42 @@ def telemetry(export: str, output: str | None) -> None:
             console.print(f"[bold red]Export failed:[/bold red] {res}")
 
 
+@cli.command("parse")
+@click.argument("file_path", type=click.Path(exists=True))
+@click.option("--output", "-o", default=None, help="Save parsed Markdown to file")
+def parse_cmd(file_path: str, output: str | None) -> None:
+    """Parse documents, PDFs, spreadsheets, and web files to Markdown via MarkItDown.
+
+    Example:
+        sago parse documentation.pdf
+        sago parse financial_report.xlsx -o report.md
+    """
+    from rich.markdown import Markdown
+
+    from sago.utils.markitdown_converter import convert_file_to_markdown, is_markitdown_available
+
+    path = Path(file_path)
+    success, content = convert_file_to_markdown(path)
+    if not success:
+        avail_msg = (
+            ""
+            if is_markitdown_available()
+            else "\nTip: Run `pip install markitdown` for full Microsoft Office & PDF parsing support."
+        )
+        console.print(f"[bold red]Parse error:[/] {content}{avail_msg}")
+        return
+
+    if output:
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(content, encoding="utf-8")
+        console.print(
+            f"[bold green]✓ Converted {path.name} to Markdown:[/] [cyan]{out_path}[/cyan] ({len(content):,} chars)"
+        )
+    else:
+        console.print(Markdown(content))
+
+
 def main() -> None:
     """Main entry point."""
     cli()

@@ -118,6 +118,7 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for full CLI and TUI command reference.
 | `sago run "task" --chain X,Y,Z` | Sequential agent chain |
 | `sago run "task" --effort high` | Control execution depth (low/medium/high/max) |
 | `sago map [--dir .]` | **Symbol Repo Map** — Compact AST symbol map across 1,000+ files |
+| `sago parse <file>` | **MarkItDown Document Parser** — Convert PDF, DOCX, XLSX, PPTX, HTML to Markdown |
 | `sago project-graph --view llm` | **AI Architecture Analysis** — Generate an LLM-backed report from the project topology |
 | `sago verify [--dir .]` | **Self-Healing Verification** — Automated linters, type checks & tests |
 | `sago skills [--filter X]` | List workspace & built-in skills and capabilities |

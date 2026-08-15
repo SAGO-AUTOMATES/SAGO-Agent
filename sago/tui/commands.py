@@ -145,42 +145,93 @@ class CommandHandlers:
         self._process_delegation(agent_name, task)
 
     def _chain_agents(self: SagoApp, args: str) -> None:
-        parts = args.split(None, 1)
-        if len(parts) < 2:
-            # No agents specified — use smart routing
-            task = args.strip()
-            if not task:
-                self._add_system_message(
-                    "Usage: /chain <agent1,agent2> <task> OR /chain <task> (auto-route)"
-                )
-                return
-            try:
-                from sago.agents.router import route_for_chain
-
-                agents = route_for_chain(task, max_agents=4)
-                if not agents:
-                    agents = ["python-engineer"]
-                self._add_system_message(f"Auto-routed chain: {' → '.join(agents)}")
-            except Exception:
-                agents = ["python-engineer"]
-                self._add_system_message("Using default chain: python-engineer")
-            self._add_user_message(f"/chain {args}")
-            self._process_chain(agents, task)
+        args = args.strip()
+        if not args:
+            self._add_system_message(
+                "Usage: /chain <task> (auto-route) or /chain agent1,agent2 <task>"
+            )
             return
 
-        agent_chain, task = parts
-        # Parse chain: "a,b → c,d" means (a,b parallel) → (c,d parallel)
-        chain_steps = []
-        for step_str in agent_chain.split("→"):
-            step_agents = [a.strip() for a in step_str.split(",") if a.strip()]
-            if step_agents:
-                chain_steps.append(step_agents)
+        # Detect if args are just agent names (no real task text)
+        # Heuristic: if there's no comma/arrow and words look like agent names (contain hyphens)
+        has_separator = "," in args or "→" in args
+        words = args.split()
 
-        if not chain_steps:
-            chain_steps = [["python-engineer"]]
+        if not has_separator and len(words) >= 2:
+            # Check if all words look like agent names (contain hyphens, no spaces in "task-like" text)
+            all_look_like_agents = all("-" in w and len(w) < 40 for w in words)
+            if all_look_like_agents:
+                # Treat all words as agents, use smart routing for task
+                try:
+                    # Use the agent names as hints for what kind of task to generate
+                    agent_list = words
+                    self._add_system_message(
+                        f"Agents: {', '.join(agent_list)} — describe what you want them to do, or I'll auto-route"
+                    )
+                    self._add_user_message(f"/chain {args}")
+                    # Just run them as a chain with auto-routing on empty task
+                    chain_steps = [[a] for a in agent_list]
+                    self._process_chain(chain_steps, f"Execute: {', '.join(agent_list)}")
+                    return
+                except Exception:
+                    pass
 
+        # Parse with separator: "a,b → c,d" or "a,b task"
+        if has_separator:
+            # Find where agents end and task begins
+            # If there's a "→", split on it; otherwise check if last part after comma is a task
+            parts = args.split(None, 1)
+            if len(parts) >= 2 and "→" not in args and "," not in parts[0]:
+                # "/chain agent1 task description here"
+                agent_chain_str = parts[0]
+                task = parts[1]
+            else:
+                # "/chain agent1,agent2 → agent3 task" or "/chain agent1,agent2 task"
+                # Try to split task from agent chain
+                agent_chain_str = args
+                task = ""
+                # Check if last segment after arrow or comma looks like a task
+                for sep in ["→", ","]:
+                    if sep in args:
+                        last_sep_idx = args.rfind(sep)
+                        after = args[last_sep_idx + 1 :].strip()
+                        # If after the last separator has no hyphen-heavy words, it's a task
+                        after_words = after.split()
+                        if after_words and not all("-" in w for w in after_words):
+                            task = after
+                            agent_chain_str = args[:last_sep_idx]
+                            break
+
+            chain_steps = []
+            for step_str in agent_chain_str.split("→"):
+                step_agents = [a.strip() for a in step_str.split(",") if a.strip()]
+                if step_agents:
+                    chain_steps.append(step_agents)
+
+            if not chain_steps:
+                chain_steps = [["python-engineer"]]
+
+            if not task:
+                task = f"Execute chain: {' → '.join(a for step in chain_steps for a in step)}"
+
+            self._add_user_message(f"/chain {args}")
+            self._process_chain(chain_steps, task)
+            return
+
+        # Single word or phrase — treat as task, auto-route
+        task = args
+        try:
+            from sago.agents.router import route_for_chain
+
+            agents = route_for_chain(task, max_agents=4)
+            if not agents:
+                agents = ["python-engineer"]
+            self._add_system_message(f"Auto-routed: {' → '.join(agents)}")
+        except Exception:
+            agents = ["python-engineer"]
+            self._add_system_message("Using default: python-engineer")
         self._add_user_message(f"/chain {args}")
-        self._process_chain(chain_steps, task)
+        self._process_chain([[a] for a in agents], task)
 
     def _orchestrate_task(self: SagoApp, task: str) -> None:
         if not task:

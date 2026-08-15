@@ -87,7 +87,26 @@ class CodebaseIndexer:
         Returns number of chunks indexed.
         """
         if extensions is None:
-            extensions = [".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".rb", ".php"]
+            extensions = [
+                ".py",
+                ".js",
+                ".ts",
+                ".jsx",
+                ".tsx",
+                ".go",
+                ".rs",
+                ".java",
+                ".rb",
+                ".php",
+                ".md",
+                ".txt",
+                ".csv",
+                ".json",
+                ".html",
+                ".pdf",
+                ".docx",
+                ".xlsx",
+            ]
 
         if exclude_dirs is None:
             exclude_dirs = [
@@ -117,7 +136,29 @@ class CodebaseIndexer:
                     continue
 
                 try:
-                    content = Path(fpath).read_text(encoding="utf-8", errors="ignore")
+                    from sago.utils.markitdown_converter import (
+                        convert_file_to_markdown,
+                        is_document_file,
+                    )
+
+                    if is_document_file(fpath) and ext in (
+                        ".pdf",
+                        ".docx",
+                        ".xlsx",
+                        ".pptx",
+                        ".html",
+                        ".csv",
+                        ".json",
+                    ):
+                        success, md_content = convert_file_to_markdown(fpath)
+                        content = (
+                            md_content
+                            if success
+                            else Path(fpath).read_text(encoding="utf-8", errors="ignore")
+                        )
+                    else:
+                        content = Path(fpath).read_text(encoding="utf-8", errors="ignore")
+
                     rel_path = os.path.relpath(fpath, work_dir)
                     language = self._detect_language(fname)
                     chunks = self._chunk_code(content, rel_path, language)
@@ -147,6 +188,17 @@ class CodebaseIndexer:
             ".java": "java",
             ".rb": "ruby",
             ".php": "php",
+            ".md": "markdown",
+            ".txt": "text",
+            ".html": "html",
+            ".htm": "html",
+            ".json": "json",
+            ".csv": "csv",
+            ".xml": "xml",
+            ".pdf": "document",
+            ".docx": "document",
+            ".xlsx": "document",
+            ".pptx": "document",
         }
         ext = os.path.splitext(filename)[1].lower()
         return ext_map.get(ext, "unknown")

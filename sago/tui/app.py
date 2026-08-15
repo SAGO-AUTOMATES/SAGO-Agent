@@ -133,7 +133,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         height: auto;
     }
     .exchange-prompt-header {
-        background: #161b22;
+        background: #0d1117;
         color: #58a6ff;
         padding: 0 1;
         border-bottom: solid #21262d;
@@ -187,7 +187,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         color: #e6edf3;
     }
     .card-header {
-        background: #161b22;
+        background: #0d1117;
         color: #58a6ff;
         padding: 0 2;
     }
@@ -207,7 +207,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         padding: 0;
     }
     CollapsibleTitle {
-        background: #161b22;
+        background: #0d1117;
         color: #58a6ff;
         padding: 0 2;
     }
@@ -248,7 +248,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-nord { background: #242933; }
     .theme-nord #agent-dashboard { background: #2e3440; border-left: solid #434c5e; }
     .theme-nord .exchange-box { background: #2e3440; border: solid #434c5e; border-left: solid #88c0d0; }
-    .theme-nord .exchange-prompt-header { background: #3b4252; color: #88c0d0; border-bottom: solid #434c5e; }
+    .theme-nord .exchange-prompt-header { background: #2e3440; color: #88c0d0; border-bottom: solid #434c5e; }
     .theme-nord .exchange-user-prompt { color: #eceff4; }
     .theme-nord .exchange-divider { color: #434c5e; }
     .theme-nord .exchange-assistant { color: #eceff4; }
@@ -261,7 +261,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-dracula { background: #1e1f29; }
     .theme-dracula #agent-dashboard { background: #282a36; border-left: solid #44475a; }
     .theme-dracula .exchange-box { background: #282a36; border: solid #44475a; border-left: solid #bd93f9; }
-    .theme-dracula .exchange-prompt-header { background: #44475a; color: #bd93f9; border-bottom: solid #6272a4; }
+    .theme-dracula .exchange-prompt-header { background: #282a36; color: #bd93f9; border-bottom: solid #6272a4; }
     .theme-dracula .exchange-user-prompt { color: #f8f8f2; }
     .theme-dracula .exchange-divider { color: #44475a; }
     .theme-dracula .exchange-assistant { color: #f8f8f2; }
@@ -274,7 +274,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-monokai { background: #1e1f1c; }
     .theme-monokai #agent-dashboard { background: #272822; border-left: solid #3e3d32; }
     .theme-monokai .exchange-box { background: #272822; border: solid #3e3d32; border-left: solid #a6e22e; }
-    .theme-monokai .exchange-prompt-header { background: #3e3d32; color: #a6e22e; border-bottom: solid #49483e; }
+    .theme-monokai .exchange-prompt-header { background: #272822; color: #a6e22e; border-bottom: solid #49483e; }
     .theme-monokai .exchange-user-prompt { color: #f8f8f2; }
     .theme-monokai .exchange-divider { color: #3e3d32; }
     .theme-monokai .exchange-assistant { color: #f8f8f2; }
@@ -287,7 +287,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-tokyo-night { background: #16161e; }
     .theme-tokyo-night #agent-dashboard { background: #1a1b26; border-left: solid #292e42; }
     .theme-tokyo-night .exchange-box { background: #1a1b26; border: solid #292e42; border-left: solid #7aa2f7; }
-    .theme-tokyo-night .exchange-prompt-header { background: #292e42; color: #7aa2f7; border-bottom: solid #3b4261; }
+    .theme-tokyo-night .exchange-prompt-header { background: #1a1b26; color: #7aa2f7; border-bottom: solid #3b4261; }
     .theme-tokyo-night .exchange-user-prompt { color: #c0caf5; }
     .theme-tokyo-night .exchange-divider { color: #292e42; }
     .theme-tokyo-night .exchange-assistant { color: #c0caf5; }
@@ -300,7 +300,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-solarized-dark { background: #00212b; }
     .theme-solarized-dark #agent-dashboard { background: #002b36; border-left: solid #073642; }
     .theme-solarized-dark .exchange-box { background: #002b36; border: solid #073642; border-left: solid #268bd2; }
-    .theme-solarized-dark .exchange-prompt-header { background: #073642; color: #268bd2; border-bottom: solid #586e75; }
+    .theme-solarized-dark .exchange-prompt-header { background: #002b36; color: #268bd2; border-bottom: solid #586e75; }
     .theme-solarized-dark .exchange-user-prompt { color: #839496; }
     .theme-solarized-dark .exchange-divider { color: #073642; }
     .theme-solarized-dark .exchange-assistant { color: #839496; }
@@ -313,7 +313,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-cyberpunk { background: #08090f; }
     .theme-cyberpunk #agent-dashboard { background: #10121d; border-left: solid #00f0ff; }
     .theme-cyberpunk .exchange-box { background: #10121d; border: solid #202637; border-left: solid #ffee00; }
-    .theme-cyberpunk .exchange-prompt-header { background: #181d2e; color: #00f0ff; border-bottom: solid #00f0ff; }
+    .theme-cyberpunk .exchange-prompt-header { background: #10121d; color: #00f0ff; border-bottom: solid #00f0ff; }
     .theme-cyberpunk .exchange-user-prompt { color: #00f0ff; }
     .theme-cyberpunk .exchange-divider { color: #202637; }
     .theme-cyberpunk .exchange-assistant { color: #00f0ff; }
@@ -326,7 +326,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-catppuccin-mocha { background: #1e1e2e; }
     .theme-catppuccin-mocha #agent-dashboard { background: #181825; border-left: solid #313244; }
     .theme-catppuccin-mocha .exchange-box { background: #181825; border: solid #313244; border-left: solid #cba6f7; }
-    .theme-catppuccin-mocha .exchange-prompt-header { background: #313244; color: #cba6f7; border-bottom: solid #45475a; }
+    .theme-catppuccin-mocha .exchange-prompt-header { background: #181825; color: #cba6f7; border-bottom: solid #45475a; }
     .theme-catppuccin-mocha .exchange-user-prompt { color: #cdd6f4; }
     .theme-catppuccin-mocha .exchange-divider { color: #313244; }
     .theme-catppuccin-mocha .exchange-assistant { color: #cdd6f4; }
@@ -339,7 +339,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-gruvbox-dark { background: #1d2021; }
     .theme-gruvbox-dark #agent-dashboard { background: #282828; border-left: solid #3c3836; }
     .theme-gruvbox-dark .exchange-box { background: #282828; border: solid #3c3836; border-left: solid #fabd2f; }
-    .theme-gruvbox-dark .exchange-prompt-header { background: #3c3836; color: #fabd2f; border-bottom: solid #504945; }
+    .theme-gruvbox-dark .exchange-prompt-header { background: #282828; color: #fabd2f; border-bottom: solid #504945; }
     .theme-gruvbox-dark .exchange-user-prompt { color: #ebdbb2; }
     .theme-gruvbox-dark .exchange-divider { color: #3c3836; }
     .theme-gruvbox-dark .exchange-assistant { color: #ebdbb2; }
@@ -352,7 +352,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-rose-pine { background: #191724; }
     .theme-rose-pine #agent-dashboard { background: #1f1d2e; border-left: solid #26233a; }
     .theme-rose-pine .exchange-box { background: #1f1d2e; border: solid #26233a; border-left: solid #eb6f92; }
-    .theme-rose-pine .exchange-prompt-header { background: #26233a; color: #eb6f92; border-bottom: solid #393552; }
+    .theme-rose-pine .exchange-prompt-header { background: #1f1d2e; color: #eb6f92; border-bottom: solid #393552; }
     .theme-rose-pine .exchange-user-prompt { color: #e0def4; }
     .theme-rose-pine .exchange-divider { color: #26233a; }
     .theme-rose-pine .exchange-assistant { color: #e0def4; }
@@ -365,7 +365,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .theme-light { background: #f6f8fa; }
     .theme-light #agent-dashboard { background: #ffffff; border-left: solid #d0d7de; }
     .theme-light .exchange-box { background: #ffffff; border: solid #d0d7de; border-left: solid #0969da; }
-    .theme-light .exchange-prompt-header { background: #f1f3f5; color: #0969da; border-bottom: solid #d0d7de; }
+    .theme-light .exchange-prompt-header { background: #ffffff; color: #0969da; border-bottom: solid #d0d7de; }
     .theme-light .exchange-user-prompt { color: #24292f; }
     .theme-light .exchange-divider { color: #d0d7de; }
     .theme-light .exchange-assistant { color: #24292f; }
@@ -391,7 +391,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         height: auto;
     }
     Collapsible .collapsible-title {
-        background: #161b22;
+        background: #0d1117;
         color: #58a6ff;
         padding: 0 2;
         text-style: bold;

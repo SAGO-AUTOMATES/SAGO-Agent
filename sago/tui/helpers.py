@@ -68,14 +68,14 @@ class ExchangeTurnCard(Vertical):
         preview = self.prompt.replace("\n", " ").strip()
         title_snippet = f"{preview[:120]}..." if len(preview) > 120 else preview
         yield Static(
-            f"[bold cyan]▼ USER[/bold cyan]  [bold white]{escape(title_snippet)}[/bold white]",
+            f"[bold]▼ USER[/bold]  {escape(title_snippet)}",
             classes="exchange-prompt-header",
             markup=True,
         )
         with Vertical(classes="exchange-body"):
             rendered_prompt = _render_markdown(self.prompt)
             yield Static(
-                f"[bold cyan]User Prompt:[/bold cyan]\n{rendered_prompt}",
+                f"[bold]User Prompt:[/bold]\n{rendered_prompt}",
                 classes="exchange-user-prompt",
                 markup=True,
             )
@@ -98,12 +98,10 @@ class ExchangeTurnCard(Vertical):
 
             if self.is_turn_collapsed:
                 hdr.update(
-                    f"[bold cyan]▶ USER[/bold cyan]  [bold white]{escape(title_snippet)}[/bold white]  [dim]─ (click to expand)[/dim]"
+                    f"[bold]▶ USER[/bold]  {escape(title_snippet)}  [dim]─ (click to expand)[/dim]"
                 )
             else:
-                hdr.update(
-                    f"[bold cyan]▼ USER[/bold cyan]  [bold white]{escape(title_snippet)}[/bold white]"
-                )
+                hdr.update(f"[bold]▼ USER[/bold]  {escape(title_snippet)}")
         except Exception:
             pass
 
