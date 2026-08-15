@@ -378,16 +378,19 @@ def tools() -> None:
 
 @cli.command()
 @click.option("--limit", "-l", default=20, help="Number of sessions to list")
-def sessions(limit: int) -> None:
+@click.option("--clean/--no-clean", default=True, help="Auto-clean empty and useless sessions")
+def sessions(limit: int, clean: bool) -> None:
     """List recent sessions with message and tool execution stats."""
     from sago.database import MessageStore, Session, ToolUsageStore, init_db
 
     init_db()
     session = Session()
+    if clean:
+        session.cleanup_useless_sessions()
     sessions_list = session.list_all(limit=limit)
 
     if not sessions_list:
-        console.print("[dim]No sessions found in database ~/.sago/data/sago.db.[/]")
+        console.print("[dim]No active sessions found in database ~/.sago/data/sago.db.[/]")
         return
 
     console.print(Panel.fit("[bold cyan]Recent SAGO Sessions[/]", border_style="cyan"))
@@ -445,12 +448,11 @@ def history(session_id: str) -> None:
     init_db()
 
     target_sid = session_id
-    if len(session_id) < 36:
-        all_s = Session().list_all(limit=100)
-        for s in all_s:
-            if s["id"].startswith(session_id):
-                target_sid = s["id"]
-                break
+    session_title = "Untitled"
+    matched = Session().find_by_prefix(session_id)
+    if matched:
+        target_sid = matched["id"]
+        session_title = matched.get("title") or "Untitled"
 
     msg_store = MessageStore(target_sid)
     messages = msg_store.get_history(limit=100)
@@ -461,7 +463,7 @@ def history(session_id: str) -> None:
 
     console.print(
         Panel.fit(
-            f"[bold]Session History: {session_id[:12]}[/]",
+            f"[bold]Session History: {target_sid[:12]}[/] [dim]({session_title})[/]",
             border_style="blue",
         )
     )
@@ -821,7 +823,7 @@ def update(check: bool, pre: bool) -> None:
             return
     else:
         console.print(f"  • Current Installed Version: [bold]{__version__}[/]")
-        console.print("  • Checking PyPI for updates...")
+        console.print("  • [yellow]Note:[/] Checking PyPI for updates...")
 
     if check:
         return
@@ -864,6 +866,8 @@ def update(check: bool, pre: bool) -> None:
     elif has_uv:
         console.print("\n[dim]⚡ Detected package manager: [bold cyan]uv[/bold cyan][/dim]")
         update_cmd = ["uv", "pip", "install", "--upgrade", package_name]
+        if sys.prefix == sys.base_prefix:
+            update_cmd.append("--system")
         if pre:
             update_cmd.append("--prerelease=allow")
     else:

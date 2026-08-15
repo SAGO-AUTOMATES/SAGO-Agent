@@ -520,3 +520,103 @@ def test_spawn_agent_resilience_and_dev_trace_graphs(tmp_path: Path) -> None:
     data_json = json.loads(json_path.read_text(encoding="utf-8"))
     assert "interaction_graph" in data_json
     assert len(data_json["interaction_graph"]["nodes"]) == 3
+
+
+def test_session_prefix_lookup_and_useless_session_auto_cleanup(tmp_path: Path) -> None:
+    """Verify session find_by_prefix, has_human_messages, and cleanup_useless_sessions."""
+    from sago.database import MessageStore, Session, init_db
+
+    init_db()
+
+    # Session 1: Real human message -> Should be kept
+    s1 = Session()
+    s1.create(title="Real Session")
+    ms1 = MessageStore(s1.id)
+    ms1.add(role="user", content="Write a sorting function in Python")
+    ms1.add(role="assistant", content="Here is quicksort")
+    ms1.flush()
+
+    # Session 2: Only slash commands -> Useless, should be deleted
+    s2 = Session()
+    s2.create(title="Command Only Session")
+    ms2 = MessageStore(s2.id)
+    ms2.add(role="user", content="/model gpt-4o")
+    ms2.add(role="user", content="/help")
+    ms2.flush()
+
+    # Session 3: Empty session (no messages) -> Useless, should be deleted
+    s3 = Session()
+    s3.create(title="Empty Session")
+
+    # Session 4: Only system or assistant messages -> Useless, should be deleted
+    s4 = Session()
+    s4.create(title="System Only Session")
+    ms4 = MessageStore(s4.id)
+    ms4.add(role="system", content="System notification")
+    ms4.flush()
+
+    # Verify has_human_messages
+    assert s1.has_human_messages() is True
+    assert s2.has_human_messages() is False
+    assert s3.has_human_messages() is False
+    assert s4.has_human_messages() is False
+
+    # Verify find_by_prefix
+    matched = Session().find_by_prefix(s1.id[:8])
+    assert matched is not None
+    assert matched["id"] == s1.id
+
+    # Verify cleanup_useless_sessions
+    deleted_count = Session().cleanup_useless_sessions()
+    assert deleted_count >= 3
+
+    # s1 should still exist, s2, s3, s4 should be gone
+    assert Session(s1.id).get() is not None
+    assert Session(s2.id).get() is None
+    assert Session(s3.id).get() is None
+    assert Session(s4.id).get() is None
+
+    # Cleanup s1
+    s1.delete()
+
+
+def test_read_file_header_empty_file_edge_cases(tmp_path: Path) -> None:
+    """Verify ReadFileTool produces clean headers on empty files and non-empty files."""
+    from sago.tools.file.read_file import ReadFileTool
+
+    tool = ReadFileTool()
+
+    # Empty file
+    empty_file = tmp_path / "empty.txt"
+    empty_file.write_text("", encoding="utf-8")
+    out_empty = tool.run(file_path=str(empty_file))
+    assert "(empty or beyond offset, total lines: 0)" in out_empty
+
+    # Non-empty file
+    regular_file = tmp_path / "code.py"
+    regular_file.write_text("print('hello')\nprint('world')\n", encoding="utf-8")
+    out_reg = tool.run(file_path=str(regular_file))
+    assert "lines 1-2 of 2" in out_reg
+
+
+def test_continue_command_tool_context_injection() -> None:
+    """Verify /continue extracts recent tool usage for prompt context."""
+    from sago.database import Session, ToolUsageStore, init_db
+
+    init_db()
+    s = Session()
+    s.create(title="Test Continue")
+
+    tus = ToolUsageStore(s.id)
+    tus.log(
+        "write_file", {"path": "main.py"}, "File written successfully", duration_ms=50, success=True
+    )
+    tus.log("execute_command", {"cmd": "pytest"}, "1 passed", duration_ms=200, success=True)
+    tus.flush()
+
+    recent = tus.get_all()
+    assert len(recent) == 2
+    assert recent[0]["tool_name"] == "write_file"
+    assert recent[1]["tool_name"] == "execute_command"
+
+    s.delete()

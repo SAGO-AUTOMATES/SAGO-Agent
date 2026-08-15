@@ -68,7 +68,10 @@ class ReadFileTool(BaseTool):
                 result = "".join(lines)
                 line_count = len(lines)
                 total_lines = len(md_content.splitlines())
-                header = f"--- {path} (converted to Markdown, lines {offset + 1}-{offset + line_count} of {total_lines}) ---\n"
+                if line_count == 0:
+                    header = f"--- {path} (converted to Markdown, empty or beyond offset, total lines: {total_lines}) ---\n"
+                else:
+                    header = f"--- {path} (converted to Markdown, lines {offset + 1}-{offset + line_count} of {total_lines}) ---\n"
                 return header + result
 
         try:
@@ -85,7 +88,10 @@ class ReadFileTool(BaseTool):
                 result = "".join(lines)
                 line_count = len(lines)
                 total_lines = len(md_content.splitlines())
-                header = f"--- {path} (converted to Markdown, lines {offset + 1}-{offset + line_count} of {total_lines}) ---\n"
+                if line_count == 0:
+                    header = f"--- {path} (converted to Markdown, empty or beyond offset, total lines: {total_lines}) ---\n"
+                else:
+                    header = f"--- {path} (converted to Markdown, lines {offset + 1}-{offset + line_count} of {total_lines}) ---\n"
                 return header + result
 
             # Try with latin-1 as fallback
@@ -105,5 +111,8 @@ class ReadFileTool(BaseTool):
         line_count = len(lines)
         total_lines = len(content.splitlines())
 
-        header = f"--- {path} (lines {offset + 1}-{offset + line_count} of {total_lines}) ---\n"
+        if line_count == 0:
+            header = f"--- {path} (empty or beyond offset, total lines: {total_lines}) ---\n"
+        else:
+            header = f"--- {path} (lines {offset + 1}-{offset + line_count} of {total_lines}) ---\n"
         return header + result

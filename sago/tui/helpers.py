@@ -693,8 +693,8 @@ class UIHelpers:
                 )
                 self._message_store.flush()
 
-                # Automatically update session title with first user prompt
-                if role == "user":
+                # Automatically update session title with first real user prompt (ignoring slash commands)
+                if role == "user" and content and not content.strip().startswith("/"):
                     try:
                         s = Session(self.current_session_id)
                         curr_session = s.get()

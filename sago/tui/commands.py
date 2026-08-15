@@ -575,9 +575,32 @@ class CommandHandlers:
             self._add_system_message("No previous message to continue.")
             return
 
+        # Fetch recently executed tools from ToolUsageStore if available
+        recent_tools_summary = ""
+        try:
+            from sago.database import ToolUsageStore
+
+            if self.current_session_id and self.current_session_id != "local":
+                tus = ToolUsageStore(self.current_session_id)
+                recent = tus.get_all()
+                if recent:
+                    last_entries = recent[-5:]
+                    formatted_tools = []
+                    for t in last_entries:
+                        t_name = t.get("tool_name", "")
+                        t_args = t.get("arguments", "")
+                        t_res = (t.get("result") or "")[:200]
+                        formatted_tools.append(f"- {t_name}({t_args}) -> {t_res}")
+                    recent_tools_summary = (
+                        "\n\nRecently executed tools in this turn:\n" + "\n".join(formatted_tools)
+                    )
+        except Exception:
+            recent_tools_summary = ""
+
         interrupted_prompt = (
             "Please continue and finish the previous task from where it was interrupted. "
             "Do not repeat already executed steps or duplicate tool calls. Proceed with the next steps."
+            + recent_tools_summary
         )
         self._add_user_message("/continue")
         self._process_message(interrupted_prompt)
@@ -604,53 +627,33 @@ class CommandHandlers:
             self._add_system_message(f"Save error: {e}")
 
     def _load_session(self: SagoApp, sid: str) -> None:
-        self._hide_welcome_screen()
-        if not sid:
-            self._add_system_message("Usage: /load <session-id>")
-            return
+        """Load a previous session's messages."""
         try:
             from sago.database import MessageStore, Session, init_db
 
             init_db()
             s = Session()
-            sessions = s.list_all(limit=100)
+            matched = s.find_by_prefix(sid)
             s.close()
-            for ses in sessions:
-                if ses["id"].startswith(sid):
-                    self.current_session_id = ses["id"]
-                    ms = MessageStore(ses["id"])
-                    msgs = ms.get_history(limit=200)
-                    ms.close()
-                    self.messages = [
-                        {
-                            "role": m["role"],
-                            "content": m["content"],
-                            "agent_name": m.get("agent_name"),
-                            "metadata": m.get("metadata", "{}"),
-                            "created_at": m.get("created_at"),
-                        }
-                        for m in msgs
-                    ]
-                    # Refresh the UI
-                    container = self.query_one("#messages")
-                    container.remove_children()
-                    for m in self.messages:
-                        if m["role"] == "user":
-                            container.mount(
-                                Static(f"> {m['content']}", classes="msg-user", markup=False)
-                            )
-                        elif m["role"] == "assistant":
-                            agent = m.get("agent_name") or ""
-                            prefix = f"[{agent}] " if agent else ""
-                            container.mount(
-                                Static(
-                                    f"{prefix}{m['content']}", classes="msg-assistant", markup=False
-                                )
-                            )
-                    container.scroll_end()
+            if matched:
+                actual_sid = matched["id"]
+                ms = MessageStore(actual_sid)
+                history = ms.get_history(limit=50)
+                ms.close()
+                if history:
+                    self.messages.clear()
+                    self.query_one("#messages").remove_children()
+                    self.current_session_id = actual_sid
                     self._add_system_message(
-                        f"Loaded: {ses.get('title', 'Untitled')} ({len(msgs)} messages)"
+                        f"Loaded session {actual_sid[:8]} ({len(history)} messages)"
                     )
+                    for msg in history:
+                        role = msg["role"]
+                        content = msg["content"]
+                        if role == "user":
+                            self._add_user_message(content)
+                        elif role == "assistant":
+                            self._add_assistant_message(content)
                     return
             self._add_system_message(
                 f"Session not found: {sid}\nUse /sessions to list available sessions"
@@ -659,7 +662,7 @@ class CommandHandlers:
             self._add_system_message(f"Load error: {e}")
 
     def _exit_session(self: SagoApp) -> None:
-        """Save session and exit, showing resume info."""
+        """Save session and exit, or auto-delete if no human messages exist."""
         # Flush any pending messages
         if hasattr(self, "_message_store") and self._message_store:
             try:
@@ -670,8 +673,15 @@ class CommandHandlers:
             from sago.database import Session, init_db
 
             init_db()
-            # Save current session
             s = Session(self.current_session_id)
+            # If session has no real human user messages, auto-delete it
+            if not s.has_human_messages(self.current_session_id):
+                s.delete()
+                s.close()
+                self.exit()
+                return
+
+            # Save current session
             s.update(title=f"Session {self.current_session_id[:8]}", status="closed")
             s.close()
         except Exception:

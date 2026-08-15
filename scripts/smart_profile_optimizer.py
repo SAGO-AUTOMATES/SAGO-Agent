@@ -178,18 +178,86 @@ DEFAULT_DEV_TOOLS = [
 
 # Domain-tailored handoff targets
 CATEGORY_HANDOFFS = {
-    "database-specialists": ["backend-engineer", "python-engineer", "dbre-engineer", "db-migration-tools-engineer", "security-engineer", "reviewer"],
-    "cloud-infra-architecture": ["devops", "kubernetes-engineer", "terraform-engineer", "security-engineer", "cloud-architect", "reviewer"],
-    "cloud-providers": ["cloud-architect", "devops", "security-engineer", "terraform-engineer", "reviewer"],
-    "infrastructure-ops": ["devops", "site-reliability-engineer", "kubernetes-engineer", "docker-engineer", "security-engineer", "reviewer"],
-    "compliance-legal-finance": ["security-engineer", "appsec-engineer", "audit-engineer", "reviewer"],
-    "language-specific": ["reviewer", "qa-engineer", "tester", "test-runner", "security-engineer", "backend-engineer"],
-    "engineering-dev": ["reviewer", "qa-engineer", "tester", "security-engineer", "system-architect"],
-    "frontend-frameworks": ["designer", "ui-designer", "reviewer", "e2e-automation-engineer", "backend-engineer"],
-    "testing-quality": ["python-engineer", "backend-engineer", "frontend-engineer", "reviewer", "security-engineer"],
-    "data-intelligence": ["data-engineer", "mlops-engineer", "backend-engineer", "reviewer", "python-engineer"],
+    "database-specialists": [
+        "backend-engineer",
+        "python-engineer",
+        "dbre-engineer",
+        "db-migration-tools-engineer",
+        "security-engineer",
+        "reviewer",
+    ],
+    "cloud-infra-architecture": [
+        "devops",
+        "kubernetes-engineer",
+        "terraform-engineer",
+        "security-engineer",
+        "cloud-architect",
+        "reviewer",
+    ],
+    "cloud-providers": [
+        "cloud-architect",
+        "devops",
+        "security-engineer",
+        "terraform-engineer",
+        "reviewer",
+    ],
+    "infrastructure-ops": [
+        "devops",
+        "site-reliability-engineer",
+        "kubernetes-engineer",
+        "docker-engineer",
+        "security-engineer",
+        "reviewer",
+    ],
+    "compliance-legal-finance": [
+        "security-engineer",
+        "appsec-engineer",
+        "audit-engineer",
+        "reviewer",
+    ],
+    "language-specific": [
+        "reviewer",
+        "qa-engineer",
+        "tester",
+        "test-runner",
+        "security-engineer",
+        "backend-engineer",
+    ],
+    "engineering-dev": [
+        "reviewer",
+        "qa-engineer",
+        "tester",
+        "security-engineer",
+        "system-architect",
+    ],
+    "frontend-frameworks": [
+        "designer",
+        "ui-designer",
+        "reviewer",
+        "e2e-automation-engineer",
+        "backend-engineer",
+    ],
+    "testing-quality": [
+        "python-engineer",
+        "backend-engineer",
+        "frontend-engineer",
+        "reviewer",
+        "security-engineer",
+    ],
+    "data-intelligence": [
+        "data-engineer",
+        "mlops-engineer",
+        "backend-engineer",
+        "reviewer",
+        "python-engineer",
+    ],
     "specialized-engineering": ["system-architect", "reviewer", "qa-engineer", "devops"],
-    "design-architecture": ["system-architect", "backend-engineer", "frontend-engineer", "reviewer"],
+    "design-architecture": [
+        "system-architect",
+        "backend-engineer",
+        "frontend-engineer",
+        "reviewer",
+    ],
 }
 
 
@@ -199,8 +267,8 @@ def clean_and_enrich_profile(file_path: Path) -> bool:
 
     # 1. Strip out the static boilerplate if present
     content = re.sub(
-        r'### Enterprise Execution Guidelines\n(?:1\..*?\n2\..*?\n3\..*?\n(?:   -.*?\n)*\n)?',
-        '',
+        r"### Enterprise Execution Guidelines\n(?:1\..*?\n2\..*?\n3\..*?\n(?:   -.*?\n)*\n)?",
+        "",
         content,
     )
 
@@ -218,16 +286,16 @@ def clean_and_enrich_profile(file_path: Path) -> bool:
 
     # 5. Update tools in file
     content = re.sub(
-        r'tools=\[.*?\]',
-        f'tools={tools_repr}',
+        r"tools=\[.*?\]",
+        f"tools={tools_repr}",
         content,
         flags=re.DOTALL,
     )
 
     # 6. Update handoff_to in file
     content = re.sub(
-        r'handoff_to=\[.*?\]',
-        f'handoff_to={handoffs_repr}',
+        r"handoff_to=\[.*?\]",
+        f"handoff_to={handoffs_repr}",
         content,
         flags=re.DOTALL,
     )

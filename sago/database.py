@@ -222,6 +222,48 @@ class Session:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def find_by_prefix(self, prefix: str) -> dict[str, Any] | None:
+        """Find a session by exact ID or prefix match."""
+        row = self.conn.execute("SELECT * FROM sessions WHERE id = ?", (prefix,)).fetchone()
+        if row:
+            return dict(row)
+        row = self.conn.execute(
+            "SELECT * FROM sessions WHERE id LIKE ? ORDER BY created_at DESC LIMIT 1",
+            (f"{prefix}%",),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def has_human_messages(self, session_id: str | None = None) -> bool:
+        """Check if a session contains at least one real human message (not a slash command)."""
+        sid = session_id or self.id
+        row = self.conn.execute(
+            """SELECT 1 FROM messages
+               WHERE session_id = ?
+                 AND role = 'user'
+                 AND content NOT LIKE '/%'
+                 AND TRIM(content) != ''
+               LIMIT 1""",
+            (sid,),
+        ).fetchone()
+        return bool(row)
+
+    def cleanup_useless_sessions(self) -> int:
+        """Delete sessions that contain no real user messages (only commands, system messages, or empty)."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            DELETE FROM sessions
+            WHERE id NOT IN (
+                SELECT DISTINCT session_id
+                FROM messages
+                WHERE role = 'user'
+                  AND content NOT LIKE '/%'
+                  AND TRIM(content) != ''
+            )
+        """)
+        deleted = cursor.rowcount
+        self.conn.commit()
+        return deleted
+
     def delete(self) -> None:
         """Delete session and all cascaded data."""
         self.conn.execute("DELETE FROM sessions WHERE id = ?", (self.id,))
