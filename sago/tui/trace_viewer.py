@@ -567,11 +567,11 @@ class TraceViewerScreen(ModalScreen[None]):
                 return
 
             graph_lines = [
-                "┌─────────────────────────────────────────────────────────────┐",
-                "│            SAGO Execution & Interaction Flow Graph          │",
-                "└─────────────────────────────────────────────────────────────┘",
+                "╔═══════════════════════════════════════════════════════════════════════════╗",
+                "║             SAGO Execution & Interaction Flow Graph (Deep View)           ║",
+                "╚═══════════════════════════════════════════════════════════════════════════╝",
                 "",
-                "[User Input / Task Trigger]",
+                " ● [User Input / Conversational Turn Started]",
             ]
 
             step_idx = 1
@@ -580,36 +580,67 @@ class TraceViewerScreen(ModalScreen[None]):
                 dur = f" ({_fmt_ms(e.duration_ms)})" if e.duration_ms > 0 else ""
                 status_mark = "✓" if e.status == "OK" else "✗"
 
-                if et in ("LLM_RAW_REQUEST", "LLM_PAYLOAD"):
+                if et == "LLM_PAYLOAD" or et == "LLM_RAW_REQUEST":
                     model = e.data.get("model", "LLM")
-                    graph_lines.append("   │")
-                    graph_lines.append(f"   ├──► [Step {step_idx}: LLM Query → {model}]{dur}")
+                    tokens_in = e.data.get("tokens_in", 0)
+                    tokens_out = e.data.get("tokens_out", 0)
+                    tok_str = (
+                        f" [In: {tokens_in} | Out: {tokens_out} tok]"
+                        if tokens_in or tokens_out
+                        else ""
+                    )
+                    graph_lines.append(" │")
+                    graph_lines.append(
+                        f" ├──► [Step {step_idx}: LLM Query → {model}]{dur}{tok_str}"
+                    )
                     step_idx += 1
                 elif et == "LLM_THINKING":
                     model = e.data.get("model", "LLM")
-                    chars = len(e.data.get("thinking", ""))
-                    graph_lines.append(f"   │     └── [Reasoning / Thinking: {chars} chars]")
+                    thinking_str = e.data.get("thinking", "").strip()
+                    chars = len(thinking_str)
+                    preview = (
+                        thinking_str.splitlines()[0][:70] if thinking_str else "Reasoning trace"
+                    )
+                    graph_lines.append(" │     │")
+                    graph_lines.append(
+                        f' │     └──► [Reasoning / CoT ({chars} chars)]: "{preview}..."'
+                    )
                 elif et == "TOOL_DISPATCH":
                     tname = e.data.get("tool_name", e.action)
-                    graph_lines.append("   │")
-                    graph_lines.append(
-                        f"   ├──► [Step {step_idx}: Tool Execution: {tname}] {status_mark}{dur}"
+                    args = e.data.get("arguments", {})
+                    args_summary = (
+                        ", ".join(f"{k}={repr(v)[:30]}" for k, v in args.items())
+                        if isinstance(args, dict)
+                        else ""
                     )
+                    args_str = f" ({args_summary[:60]})" if args_summary else ""
+                    graph_lines.append(" │")
+                    graph_lines.append(
+                        f" ├──► [Step {step_idx}: Tool Execution: {tname}{args_str}] [{status_mark}]{dur}"
+                    )
+                    res_prev = e.data.get("result_preview", "")
+                    if res_prev:
+                        first_res = res_prev.splitlines()[0][:75]
+                        graph_lines.append(f" │     └── Output: {first_res}...")
                     step_idx += 1
                 elif et == "AGENT_ROUTING":
                     target = e.data.get("target_agent", e.action)
-                    graph_lines.append("   │")
-                    graph_lines.append(f"   ├──► [Step {step_idx}: Sub-Agent Delegated: @{target}]")
+                    reason = e.data.get("reason", "")
+                    graph_lines.append(" │")
+                    graph_lines.append(f" ├──► [Step {step_idx}: Sub-Agent Delegated: @{target}]")
+                    if reason:
+                        graph_lines.append(f" │     └── Intent: {reason[:70]}")
                     step_idx += 1
                 elif et == "ERROR":
-                    graph_lines.append("   │")
+                    err_msg = e.data.get("error", e.action)
+                    graph_lines.append(" │")
                     graph_lines.append(
-                        f"   └──► [Step {step_idx}: ⚠️ Error Encountered: {e.data.get('error', e.action)[:60]}]"
+                        f" ├──► [Step {step_idx}: ⚠️ Error Encountered: {err_msg[:80]}]"
                     )
                     step_idx += 1
 
-            graph_lines.append("   │")
-            graph_lines.append("   └──► [Response Delivered to User]")
+            graph_lines.append(" │")
+            graph_lines.append(" └──► [● Response Formatted & Delivered to User]")
 
             yield Static("\n".join(graph_lines), classes="tv-graph-block", markup=False)
 

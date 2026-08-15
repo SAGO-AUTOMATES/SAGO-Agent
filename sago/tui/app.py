@@ -2734,26 +2734,29 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                         current_parts = [google_types.Part(text=c_text)]
 
                             elif role == "assistant":
-                                parts = []
-                                if c_text:
-                                    parts.append(google_types.Part(text=c_text))
-                                for tc in msg.get("tool_calls", []):
-                                    fn = tc.get("function", {})
-                                    fname = fn.get("name", "")
-                                    fargs = fn.get("arguments", {})
-                                    if isinstance(fargs, str):
-                                        try:
-                                            fargs = json.loads(fargs) if fargs else {}
-                                        except Exception:
-                                            fargs = {}
-                                    parts.append(
-                                        google_types.Part(
-                                            function_call=google_types.FunctionCall(
-                                                name=fname,
-                                                args=fargs if isinstance(fargs, dict) else {},
+                                if msg.get("_google_parts"):
+                                    parts = list(msg["_google_parts"])
+                                else:
+                                    parts = []
+                                    if c_text:
+                                        parts.append(google_types.Part(text=c_text))
+                                    for tc in msg.get("tool_calls", []):
+                                        fn = tc.get("function", {})
+                                        fname = fn.get("name", "")
+                                        fargs = fn.get("arguments", {})
+                                        if isinstance(fargs, str):
+                                            try:
+                                                fargs = json.loads(fargs) if fargs else {}
+                                            except Exception:
+                                                fargs = {}
+                                        parts.append(
+                                            google_types.Part(
+                                                function_call=google_types.FunctionCall(
+                                                    name=fname,
+                                                    args=fargs if isinstance(fargs, dict) else {},
+                                                )
                                             )
                                         )
-                                    )
                                 if parts:
                                     if current_role == "model":
                                         current_parts.extend(parts)
@@ -2865,9 +2868,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             )
                             cumulative_tokens += total_tokens_out
 
-                        # Extract tool calls from Gemini response
+                        # Extract tool calls and reasoning from Gemini response
+                        _gemini_raw_parts = []
                         if response.candidates and response.candidates[0].content:
-                            for part in response.candidates[0].content.parts or []:
+                            _gemini_raw_parts = list(response.candidates[0].content.parts or [])
+                            for part in _gemini_raw_parts:
                                 if part.function_call:
                                     native_tool_calls.append(
                                         {
@@ -3022,6 +3027,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                     # Build assistant message
                     assistant_msg: dict = {"role": "assistant", "content": content or None}
+                    if use_native_gemini and _gemini_raw_parts:
+                        assistant_msg["_google_parts"] = _gemini_raw_parts
                     if native_tool_calls:
                         assistant_msg["tool_calls"] = [
                             {
@@ -3773,6 +3780,17 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
             error_msg = str(e)
+
+            from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+            get_dev_tracer().record(
+                event_type=TraceEventType.ERROR,
+                source="sago.tui.app",
+                action=f"process_message_failed({self.current_provider})",
+                data={"error": error_msg, "model": self.current_model},
+                status="FAILED",
+            )
+
             if "429" in error_msg or "rate" in error_msg.lower():
                 provider_urls = {
                     "google": "https://console.cloud.google.com/billing",
