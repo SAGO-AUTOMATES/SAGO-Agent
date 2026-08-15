@@ -18,6 +18,8 @@ from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from typing import Any
 
+from sago.version import __version__
+
 MESH_PORT = int(os.environ.get("SAGO_MESH_PORT", "7655"))
 MESH_BROADCAST = "255.255.255.255"
 DISCOVERY_TIMEOUT = 5
@@ -34,7 +36,7 @@ class MeshNode:
     hostname: str
     ip_address: str
     port: int = MESH_PORT
-    sago_version: str = "0.1.7"
+    sago_version: str = field(default_factory=lambda: __version__)
     capabilities: list[str] = field(default_factory=list)
     load: float = 0.0  # 0-100%
     last_heartbeat: float = 0.0

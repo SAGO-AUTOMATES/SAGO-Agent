@@ -14,12 +14,14 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
+from sago.version import __version__
+
 
 class ProjectConfig(BaseModel):
     """Project-level configuration."""
 
     name: str = "sago"
-    version: str = "0.1.7"
+    version: str = Field(default_factory=lambda: __version__)
     environment: str = "development"
     description: str = "Sophisticated Multi-Agent Orchestration System"
 
