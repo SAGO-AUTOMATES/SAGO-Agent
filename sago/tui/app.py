@@ -2683,17 +2683,70 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     native_tool_calls: list[dict] = []
 
                     if use_native_gemini:
-                        # Convert messages to Google format with tools
+                        from google.genai import types as google_types
+
                         sys_msg = ""
                         contents = []
                         for msg in messages:
-                            if msg["role"] == "system":
-                                sys_msg = msg["content"]
-                            elif msg["role"] in ("user", "assistant"):
-                                contents.append(msg["content"])
+                            role = msg.get("role")
+                            c_text = msg.get("content")
+                            if role == "system":
+                                sys_msg = c_text or ""
+                                continue
+                            if role == "user":
+                                if c_text:
+                                    contents.append(
+                                        google_types.Content(
+                                            role="user",
+                                            parts=[google_types.Part(text=c_text)],
+                                        )
+                                    )
+                            elif role == "assistant":
+                                parts = []
+                                if c_text:
+                                    parts.append(google_types.Part(text=c_text))
+                                for tc in msg.get("tool_calls", []):
+                                    fn = tc.get("function", {})
+                                    fname = fn.get("name", "")
+                                    fargs = fn.get("arguments", {})
+                                    if isinstance(fargs, str):
+                                        try:
+                                            fargs = json.loads(fargs) if fargs else {}
+                                        except Exception:
+                                            fargs = {}
+                                    parts.append(
+                                        google_types.Part(
+                                            function_call=google_types.FunctionCall(
+                                                name=fname,
+                                                args=fargs if isinstance(fargs, dict) else {},
+                                            )
+                                        )
+                                    )
+                                if parts:
+                                    contents.append(google_types.Content(role="model", parts=parts))
+                            elif role == "tool":
+                                # Tool execution output returned as function_response
+                                tname = msg.get("name") or "tool"
+                                contents.append(
+                                    google_types.Content(
+                                        role="user",
+                                        parts=[
+                                            google_types.Part(
+                                                function_response=google_types.FunctionResponse(
+                                                    name=tname,
+                                                    response={"result": c_text or ""},
+                                                )
+                                            )
+                                        ],
+                                    )
+                                )
+
                         if not contents:
-                            contents = ["Hello"]
-                        from google.genai import types as google_types
+                            contents = [
+                                google_types.Content(
+                                    role="user", parts=[google_types.Part(text="Hello")]
+                                )
+                            ]
 
                         # Convert tools to Google format
                         google_tools = []
@@ -3237,6 +3290,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                         messages.append(
                             {
                                 "role": "tool",
+                                "name": name,
                                 "tool_call_id": tc_id,
                                 "content": result_str[:500]
                                 if len(result_str) > 500
