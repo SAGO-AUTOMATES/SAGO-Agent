@@ -56,10 +56,11 @@ tools = server.list_tools()
 # [{'name': 'read_file', 'description': '...', 'inputSchema': {...}}]
 ```
 
-### Call Tool
+### Call Tool (with Risk-Based Permission Gating)
 
 ```python
-result = server.call_tool("read_file", {"path": "main.py"})
+# call_tool enforces fail-closed permission checks against PermissionManager
+result = server.call_tool("read_file", {"path": "main.py"}, session_id="mcp_session")
 ```
 
 ### MCP Protocol Response

@@ -309,3 +309,30 @@ def test_hybrid_search_full_semantic_recall() -> None:
         results = indexer.search("auth jwt bearer", limit=5)
         assert len(results) > 0
         assert results[0].chunk.name == "authenticate_jwt_bearer_token"
+
+
+def test_hybrid_search_incremental_preserves_vectors() -> None:
+    """Regression for bug R-search-#1: edited files must keep their dense vectors
+    after an incremental re-index. The earlier implementation left re-indexed
+    chunks with `vector=[]`, making their semantic score permanently 0."""
+    from sago.memory.hybrid_indexer import HybridCodeIndexer
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        target = root / "auth.py"
+        target.write_text("def authenticate_jwt_bearer_token():\n    return 'valid'\n")
+        for i in range(50):
+            (root / f"file_{i:03d}.py").write_text(f"def process_item_{i}():\n    return {i}\n")
+
+        indexer = HybridCodeIndexer(root_dir=root)
+        indexer.index_project()
+        assert all(len(c.vector) > 0 for c in indexer.chunks)
+
+        # Edit the target file, then re-index incrementally (same cache dir)
+        target.write_text("def authenticate_jwt_bearer_token():\n    return 'refreshed'\n")
+        re_indexer = HybridCodeIndexer(root_dir=root)
+        re_indexer.index_project()
+
+        assert all(
+            len(c.vector) > 0 for c in re_indexer.chunks
+        ), "incremental re-index dropped dense vectors on edited files"

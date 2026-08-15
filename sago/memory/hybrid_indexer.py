@@ -253,6 +253,8 @@ class HybridCodeIndexer:
                         content = p.read_text(encoding="utf-8", errors="ignore")
                         if content.strip():
                             parsed = self._chunk_file(p, content)
+                            for chunk in parsed:
+                                chunk.vector = _compute_dense_vector(chunk.tokens)
                             new_chunks.extend(parsed)
                     except Exception:
                         pass
