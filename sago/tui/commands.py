@@ -569,6 +569,19 @@ class CommandHandlers:
         else:
             self._add_system_message("No messages to retry")
 
+    def _continue_last(self: SagoApp) -> None:
+        """Resume interrupted task from last executed tool state without wasting past tokens."""
+        if not self.messages:
+            self._add_system_message("No previous message to continue.")
+            return
+
+        interrupted_prompt = (
+            "Please continue and finish the previous task from where it was interrupted. "
+            "Do not repeat already executed steps or duplicate tool calls. Proceed with the next steps."
+        )
+        self._add_user_message("/continue")
+        self._process_message(interrupted_prompt)
+
     def _reset(self: SagoApp) -> None:
         self.messages.clear()
         self.query_one("#messages").remove_children()
@@ -867,11 +880,19 @@ class CommandHandlers:
                 except Exception:
                     args = {}
 
-                if not success or "error" in str(log.get("result", "")).lower():
-                    error_logs.append((i, tool, args, log.get("result", "")))
+                res_str = str(log.get("result", ""))
+                is_actual_err = (
+                    not success
+                    or res_str.lower().startswith("error")
+                    or res_str.lower().startswith("traceback")
+                    or "exception:" in res_str.lower()
+                    or "failed:" in res_str.lower()
+                )
+                if is_actual_err:
+                    error_logs.append((i, tool, args, res_str))
 
                 if tool == "spawn_agent":
-                    subagent_calls.append((i, args, log.get("result", "")))
+                    subagent_calls.append((i, args, res_str))
 
                 args_str = str(args)
                 if len(args_str) > 120:

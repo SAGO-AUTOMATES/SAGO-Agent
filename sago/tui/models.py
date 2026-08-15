@@ -27,6 +27,7 @@ COMMANDS = {
     "/cost": "Token usage and costs",
     "/compact": "Summarize and compress context",
     "/retry": "Retry last message",
+    "/continue": "Resume interrupted task from last state without starting over",
     "/reset": "Reset session",
     "/save": "Save session (/save [name])",
     "/load": "Load session (/load <id>)",

@@ -1195,6 +1195,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/cost": lambda: self._show_cost(),
             "/compact": lambda: self._compact(),
             "/retry": lambda: self._retry_last(),
+            "/continue": lambda: self._continue_last(),
             "/reset": lambda: self._reset(),
             "/save": lambda: self._save_session(args),
             "/load": lambda: self._load_session(args),

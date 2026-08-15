@@ -50,6 +50,12 @@ logs/
 .sago/
 /sessions/
 /prompts/
+sago_trace_*.json
+sago_trace_*.md
+*_export.md
+*.db
+*.sqlite
+*.sqlite3
 
 # Testing
 .coverage

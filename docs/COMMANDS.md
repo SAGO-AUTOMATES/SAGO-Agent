@@ -165,9 +165,14 @@ Show system and connection status.
 | `/todos` | Show all tasks in plan |
 | `/todo <id>` | Show details of a specific todo item |
 | `/done <id>` | Mark a todo item as completed |
+| `/retry` | Retry last user prompt |
+| `/continue` | Resume an interrupted task from previous execution state without wasting tokens |
 | `/compact` | Semantic context compression (prunes verbose tool outputs) |
 | `/reset` | Reset active session |
 | `/detach` | Cleanly detach from session while keeping background tasks running (safe to close terminal) |
+| `/buttons [on\|off\|toggle]` | Toggle or configure bottom quick action buttons bar |
+| `/show` | Make bottom action buttons bar visible |
+| `/hide` | Hide bottom button bar for a clean, power-user experience |
 | `/version` | Show Sago version info |
 | `/exit` | Save session and quit |
 

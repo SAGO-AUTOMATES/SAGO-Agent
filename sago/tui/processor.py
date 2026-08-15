@@ -1363,11 +1363,16 @@ class MessageProcessorMixin:
                     "openrouter": "https://openrouter.ai/settings/credits",
                 }
                 url = provider_urls.get(self.current_provider, "your provider's dashboard")
-                error_msg = f"Rate limited. Wait or check credits at {url}"
+                error_msg = (
+                    f"Rate limited. Wait a few seconds or check credits at {url}.\n"
+                    f"💡 *Tip:* Type `/continue` to resume this task without losing previous tool results, or switch model with `/model`."
+                )
             elif "401" in error_msg or "auth" in error_msg.lower():
                 error_msg = f"Authentication failed. Check your {self.current_provider} API key."
             elif "404" in error_msg:
-                error_msg = f"Model '{self.current_model}' not found. Try a different model."
+                error_msg = (
+                    f"Model '{self.current_model}' not found. Try a different model with `/model`."
+                )
             self.call_from_thread(self._add_assistant_message, f"❌ **Error:** {error_msg}")
         finally:
             self.is_thinking = False
