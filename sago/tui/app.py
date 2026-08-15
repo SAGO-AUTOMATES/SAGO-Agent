@@ -485,6 +485,40 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         background: #0a0d12;
     }
 
+    #input-action-bar {
+        height: 1;
+        margin: 1 0 0 0;
+        overflow-x: auto;
+    }
+    .btn-input-action {
+        height: 1;
+        min-width: 10;
+        border: none;
+        background: #161b22;
+        color: #8b949e;
+        margin-right: 1;
+        padding: 0 1;
+    }
+    .btn-input-action:hover {
+        background: #21262d;
+        color: #e6edf3;
+    }
+    .btn-action-traces {
+        color: #58a6ff;
+        text-style: bold;
+    }
+    .btn-action-traces:hover {
+        background: #1f6feb;
+        color: #ffffff;
+    }
+    .btn-action-cancel {
+        color: #f85149;
+    }
+    .btn-action-cancel:hover {
+        background: #da3633;
+        color: #ffffff;
+    }
+
     #suggestions {
         display: none;
         height: auto;
@@ -728,6 +762,24 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     yield Input(
                         placeholder="/, @, # for autocomplete (or type a message)", id="msg-input"
                     )
+                    with Horizontal(id="input-action-bar"):
+                        yield Button(
+                            "⚡ Dev Traces [F2]",
+                            id="btn-input-traces",
+                            classes="btn-input-action btn-action-traces",
+                        )
+                        yield Button(
+                            "📊 Dashboard [Ctrl+D]",
+                            id="btn-input-dashboard",
+                            classes="btn-input-action",
+                        )
+                        yield Button("⌨ Help [F1]", id="btn-input-help", classes="btn-input-action")
+                        yield Button("🧹 Clear", id="btn-input-clear", classes="btn-input-action")
+                        yield Button(
+                            "⛔ Cancel",
+                            id="btn-input-cancel",
+                            classes="btn-input-action btn-action-cancel",
+                        )
             with Vertical(id="agent-dashboard", classes="hidden"):
                 yield Static("Agent Dashboard", classes="dashboard-title", markup=True)
                 yield Static("", id="agent-dashboard-content", markup=True)
@@ -1278,8 +1330,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self._add_system_message(f"⚡ Trace viewer error: {e}")
 
     @on(Button.Pressed, "#btn-top-traces")
-    def on_top_traces_clicked(self) -> None:
-        """Open trace viewer from top bar button."""
+    @on(Button.Pressed, "#btn-input-traces")
+    def on_traces_button_clicked(self) -> None:
+        """Open trace viewer from top bar or input action bar button."""
         self.action_open_trace_viewer()
 
     @on(Button.Pressed, ".btn-view-trace")
@@ -1289,7 +1342,6 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         trace_events = getattr(btn, "_trace_events", None)
         trace_label = getattr(btn, "_trace_label", "")
         if not trace_events:
-            # Fall back to full session traces
             from sago.tracking.dev_tracer import get_dev_tracer
 
             trace_events = get_dev_tracer().get_recent_traces(limit=500)
@@ -1304,14 +1356,26 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self._add_system_message(f"⚡ Trace viewer error: {e}")
 
     @on(Button.Pressed, "#btn-top-dashboard")
-    def on_top_dashboard_clicked(self) -> None:
-        """Toggle agent dashboard from top bar button."""
+    @on(Button.Pressed, "#btn-input-dashboard")
+    def on_dashboard_button_clicked(self) -> None:
+        """Toggle agent dashboard from top bar or input action bar button."""
         self.action_toggle_dashboard()
 
     @on(Button.Pressed, "#btn-top-help")
-    def on_top_help_clicked(self) -> None:
-        """Show shortcuts help from top bar button."""
+    @on(Button.Pressed, "#btn-input-help")
+    def on_help_button_clicked(self) -> None:
+        """Show shortcuts help from top bar or input action bar button."""
         self.action_show_shortcuts()
+
+    @on(Button.Pressed, "#btn-input-clear")
+    def on_clear_button_clicked(self) -> None:
+        """Clear message log from input action bar button."""
+        self.action_clear_chat()
+
+    @on(Button.Pressed, "#btn-input-cancel")
+    def on_cancel_button_clicked(self) -> None:
+        """Cancel current execution from input action bar button."""
+        self.action_cancel_task()
 
     def _show_shortcuts_suggestions(self, query: str = "") -> None:
         """Show shortcuts and quick help suggestions."""
