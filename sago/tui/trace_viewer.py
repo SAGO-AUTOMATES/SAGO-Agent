@@ -1,12 +1,13 @@
-"""Deep Trace Viewer — Modern modal popup for analyzing all execution traces.
+"""Deep Trace & Dev Console — Interactive execution inspector and telemetry viewer.
 
 Features:
- - Tabbed interface: Overview · LLM · Tools · Flow · Thinking · Events
- - Per-event human-readable formatting (no raw JSON dumps)
- - Export to JSON/Markdown
- - Copy full trace to clipboard
- - Keyboard shortcuts: Esc/q close, e export, c copy
- - Triggered via F2 global OR per-turn "View Trace" button
+ - 7 tabs: Overview · LLM · Tools · Flow · Graph · Thinking · Events
+ - Per-event human-readable formatting without markup injection or truncation
+ - Complete untruncated expandable views
+ - Visual ASCII interaction graph for agent handoffs and tool executions
+ - Rich export options (JSON / Markdown / Full dump)
+ - Clipboard copy with system fallback
+ - Keyboard shortcuts: Esc/q close, e export, c copy, Tab switch tabs
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from rich.markup import escape
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -41,27 +43,28 @@ def _fmt_ts(ts: float) -> str:
     return datetime.fromtimestamp(ts).strftime("%H:%M:%S.") + f"{int((ts % 1) * 1000):03d}"
 
 
-def _fmt_kv(data: dict, max_value: int = 200) -> list[str]:
-    """Format dict keys/values as human-readable lines (no JSON blobs)."""
+def _fmt_kv(data: dict, max_value: int = 400) -> list[str]:
+    """Format dict keys/values cleanly without JSON blobs and without markup errors."""
     lines = []
     for k, v in data.items():
         if isinstance(v, list):
             if len(v) == 0:
                 lines.append(f"  {k}: (empty)")
             elif len(v) <= 3:
-                lines.append(f"  {k}: [{', '.join(str(i)[:80] for i in v)}]")
+                items_str = ", ".join(str(i)[:120] for i in v)
+                lines.append(f"  {k}: [{items_str}]")
             else:
-                lines.append(f"  {k}: [{len(v)} items] {str(v[0])[:60]}\u2026")
+                lines.append(f"  {k}: [{len(v)} items] {str(v[0])[:100]}…")
         elif isinstance(v, dict):
             if len(v) == 0:
                 lines.append(f"  {k}: {{empty}}")
             else:
-                inner = ", ".join(f"{ki}: {str(vi)[:40]}" for ki, vi in list(v.items())[:4])
+                inner = ", ".join(f"{ki}: {str(vi)[:60]}" for ki, vi in list(v.items())[:6])
                 lines.append(f"  {k}: {{ {inner} }}")
         elif isinstance(v, str):
             preview = v.replace("\n", " ").strip()
             if len(preview) > max_value:
-                preview = preview[:max_value] + "\u2026"
+                preview = preview[:max_value] + "…"
             lines.append(f"  {k}: {preview}")
         elif isinstance(v, bool):
             lines.append(f"  {k}: {'yes' if v else 'no'}")
@@ -71,24 +74,24 @@ def _fmt_kv(data: dict, max_value: int = 200) -> list[str]:
 
 
 TYPE_ICONS: dict[str, tuple[str, str]] = {
-    "LLM_RAW_REQUEST": ("\U0001f4e4", "request"),
-    "LLM_RAW_RESPONSE": ("\U0001f4e5", "response"),
-    "LLM_PAYLOAD": ("\U0001f9e0", "llm"),
-    "LLM_THINKING": ("\U0001f4ad", "thinking"),
-    "TOOL_DISPATCH": ("\U0001f527", "tool"),
-    "AGENT_ROUTING": ("\U0001f500", "routing"),
-    "FUNCTION_CALL": ("\U0001f4de", "fn-call"),
-    "FUNCTION_RETURN": ("\u21a9", "fn-return"),
-    "ERROR": ("\u274c", "error"),
-    "RETRY": ("\U0001f501", "retry"),
-    "PERMISSION_CHECK": ("\U0001f512", "perm"),
-    "LOG_EVENT": ("\U0001f4dd", "log"),
-    "STATE_CHANGE": ("\U0001f504", "state"),
+    "LLM_RAW_REQUEST": ("📤", "request"),
+    "LLM_RAW_RESPONSE": ("📥", "response"),
+    "LLM_PAYLOAD": ("🧠", "llm"),
+    "LLM_THINKING": ("💭", "thinking"),
+    "TOOL_DISPATCH": ("🔧", "tool"),
+    "AGENT_ROUTING": ("🔀", "routing"),
+    "FUNCTION_CALL": ("📞", "fn-call"),
+    "FUNCTION_RETURN": ("↩", "fn-return"),
+    "ERROR": ("❌", "error"),
+    "RETRY": ("🔁", "retry"),
+    "PERMISSION_CHECK": ("🔒", "perm"),
+    "LOG_EVENT": ("📝", "log"),
+    "STATE_CHANGE": ("🔄", "state"),
 }
 
 _TV_CSS = """
 TraceViewerScreen {
-    background: rgba(0,0,0,0.75);
+    background: rgba(0,0,0,0.85);
     align: center middle;
 }
 .tv-box {
@@ -183,9 +186,18 @@ TabPane       { background: #0d1117; padding: 0; }
     padding: 0 2;
     color: #e6edf3;
 }
-.tv-stat-row { height: 5; margin: 1 0; }
+.tv-graph-block {
+    background: #080c14;
+    border: solid #21262d;
+    border-left: solid #58a6ff;
+    padding: 1 2;
+    margin: 1 0;
+    color: #79c0ff;
+}
+.tv-stat-row { height: 5; margin: 1 0; overflow-x: auto; }
 .tv-stat-box {
     width: 1fr; height: 5;
+    min-width: 10;
     background: #161b22;
     border: solid #21262d;
     align: center middle;
@@ -205,7 +217,7 @@ TabPane       { background: #0d1117; padding: 0; }
 
 
 class TraceViewerScreen(ModalScreen[None]):
-    """Modern full-screen modal trace viewer with 6 tabs."""
+    """Modern full-screen developer console and execution inspector modal."""
 
     CSS = _TV_CSS
 
@@ -219,15 +231,13 @@ class TraceViewerScreen(ModalScreen[None]):
     def __init__(
         self,
         events: list[DevTraceEvent],
-        title: str = "Execution Trace",
+        title: str = "Developer Telemetry & Execution Inspector",
         turn_label: str = "",
     ) -> None:
         super().__init__()
         self.events = events
         self.viewer_title = title
         self.turn_label = turn_label
-
-    # ── compose ──────────────────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
         ev = self.events
@@ -239,7 +249,7 @@ class TraceViewerScreen(ModalScreen[None]):
             if e.event_type.value == "LLM_THINKING"
             or (e.event_type.value == "LLM_RAW_RESPONSE" and e.data.get("thinking"))
         ]
-        err_ev = [e for e in ev if e.event_type.value == "ERROR" or e.status == "ERROR"]
+        err_ev = [e for e in ev if e.event_type.value == "ERROR" or e.status in ("ERROR", "FAILED")]
         route_ev = [e for e in ev if e.event_type.value == "AGENT_ROUTING"]
 
         subtitle = self.turn_label or f"{len(ev)} events"
@@ -247,7 +257,7 @@ class TraceViewerScreen(ModalScreen[None]):
         with Vertical(classes="tv-box"):
             with Horizontal(classes="tv-header"):
                 yield Label(
-                    f"\u26a1 {self.viewer_title}  [dim]{subtitle}[/dim]",
+                    f"⚡ {escape(self.viewer_title)}  [dim]{escape(subtitle)}[/dim]",
                     classes="tv-title",
                     markup=True,
                 )
@@ -259,9 +269,9 @@ class TraceViewerScreen(ModalScreen[None]):
                     classes="tv-stats",
                     markup=True,
                 )
-                yield Button("\u2b06 Export", id="btn-tv-export", classes="tv-btn tv-btn-export")
-                yield Button("\u2398 Copy", id="btn-tv-copy", classes="tv-btn")
-                yield Button("\u2715 Close", id="btn-tv-close", classes="tv-btn tv-btn-close")
+                yield Button("⬆ Export", id="btn-tv-export", classes="tv-btn tv-btn-export")
+                yield Button("⎘ Copy", id="btn-tv-copy", classes="tv-btn")
+                yield Button("✕ Close", id="btn-tv-close", classes="tv-btn tv-btn-close")
 
             yield Static(
                 "[dim]Esc / q[/] close  [dim]e[/] export  [dim]c[/] copy  [dim]Tab[/] switch tabs",
@@ -278,6 +288,8 @@ class TraceViewerScreen(ModalScreen[None]):
                     yield from self._tab_tools()
                 with TabPane("Flow", id="tab-flow"):
                     yield from self._tab_flow()
+                with TabPane("Event Graph", id="tab-graph"):
+                    yield from self._tab_graph()
                 with TabPane("Thinking", id="tab-thinking"):
                     yield from self._tab_thinking()
                 with TabPane("Events", id="tab-events"):
@@ -320,8 +332,8 @@ class TraceViewerScreen(ModalScreen[None]):
                     e.data.get("tokens_out", e.data.get("usage", {}).get("tokens_out", 0))
                     for e in llm_ev
                 )
-                em_dash = "\u2014"
-                yield Label("Session Timing", classes="tv-section-head")
+                em_dash = "—"
+                yield Label("Session Timing & Metrics", classes="tv-section-head")
                 yield Static(
                     f"  [dim]Start[/]        {_fmt_ts(s_ts)}\n"
                     f"  [dim]End[/]          {_fmt_ts(e_ts)}\n"
@@ -340,16 +352,16 @@ class TraceViewerScreen(ModalScreen[None]):
                     ok = e.status == "OK"
                     yield Static(
                         f"  [{'tv-ok' if ok else 'tv-err'}]{'✓' if ok else '✗'}[/] "
-                        f"[bold]{name}[/]  [dim]{_fmt_ms(e.duration_ms)}[/]",
+                        f"[bold]{escape(str(name))}[/]  [dim]{_fmt_ms(e.duration_ms)}[/]",
                         markup=True,
                     )
 
             if err_ev:
-                yield Label("Errors", classes="tv-section-head")
+                yield Label("Errors & Failures", classes="tv-section-head")
                 for e in err_ev:
                     msg = e.data.get("error", e.data.get("message", e.action))
                     yield Static(
-                        f"  [bold red]\u2717[/] [dim]{e.event_type.value}[/]  {str(msg)[:120]}",
+                        f"  [bold red]✗[/] [dim]{escape(e.event_type.value)}[/]  {escape(str(msg)[:160])}",
                         markup=True,
                     )
 
@@ -390,23 +402,23 @@ class TraceViewerScreen(ModalScreen[None]):
                 model = resp.data.get("model", "unknown")
                 latency = _fmt_ms(resp.duration_ms)
                 usage = resp.data.get("usage", {})
-                tok_in = usage.get("tokens_in", "?")
+                tok_in = usage.get("tokens_in", req.data.get("messages_count", "?") if req else "?")
                 tok_out = usage.get("tokens_out", "?")
                 finish = resp.data.get("finish_reason", "")
                 tcalls = resp.data.get("tool_calls", [])
                 content = resp.data.get("response_content", "")
-                is_ok = finish not in ("error", "stop_error")
+                is_ok = finish not in ("error", "stop_error") and resp.status != "ERROR"
                 ts = _fmt_ts(resp.timestamp)
 
                 with Collapsible(
-                    title=f"{'✓' if is_ok else '✗'} {model}  {latency}  {ts}  tok: {tok_in}→{tok_out}",
+                    title=f"{'✓' if is_ok else '✗'} {escape(str(model))}  {latency}  {ts}  tok: {tok_in}→{tok_out}",
                     collapsed=False,
                 ):
                     if req:
                         msgs = req.data.get("messages", [])
                         tools_n = req.data.get("tools_count", 0)
                         yield Static(
-                            f"  [dim]Request:[/] {len(msgs)} messages, {tools_n} tools",
+                            f"  [dim]Request:[/] {len(msgs)} messages in context, {tools_n} tools declared",
                             markup=True,
                         )
                         for msg in msgs[-3:]:
@@ -414,7 +426,7 @@ class TraceViewerScreen(ModalScreen[None]):
                             mc = msg.get("content", "")
                             if isinstance(mc, list):
                                 mc = " ".join(p.get("text", "") for p in mc if isinstance(p, dict))
-                            preview = str(mc).replace("\n", " ")[:200]
+                            preview = str(mc).replace("\n", " ")[:300]
                             rc = (
                                 "tv-llm"
                                 if role == "assistant"
@@ -422,32 +434,31 @@ class TraceViewerScreen(ModalScreen[None]):
                                 if role == "tool"
                                 else "tv-event-val"
                             )
-                            yield Static(f"  [{rc}]{role}[/]  {preview}", markup=True)
+                            yield Static(
+                                f"  [{rc}]{escape(str(role))}[/]  {escape(preview)}", markup=True
+                            )
 
                     if tcalls:
-                        yield Static(f"  [bold green]Tool calls ({len(tcalls)})[/]", markup=True)
+                        yield Static(
+                            f"  [bold green]Tool calls generated ({len(tcalls)})[/]", markup=True
+                        )
                         for tc in tcalls:
                             tname = tc.get("name", "?")
                             targs = tc.get("args", {})
                             if isinstance(targs, dict):
                                 ap = ", ".join(
-                                    f"{k}={str(v)[:40]}" for k, v in list(targs.items())[:3]
+                                    f"{k}={str(v)[:60]}" for k, v in list(targs.items())[:4]
                                 )
                             else:
-                                ap = str(targs)[:80]
+                                ap = str(targs)[:120]
                             yield Static(
-                                f"  [bold cyan]  \u2192 {tname}[/]  [dim]{ap}[/]", markup=True
+                                f"  [bold cyan]  → {escape(str(tname))}[/]  [dim]{escape(ap)}[/]",
+                                markup=True,
                             )
 
                     if content:
-                        with Collapsible(title="Response text", collapsed=False):
-                            for line in content[:2000].split("\n"):
-                                yield Static(f"  {line}", classes="tv-response-block")
-                            if len(content) > 2000:
-                                yield Static(
-                                    f"  [dim]\u2026 {len(content) - 2000} more chars[/]",
-                                    markup=True,
-                                )
+                        with Collapsible(title="Assistant response text", collapsed=False):
+                            yield Static(content, classes="tv-response-block", markup=False)
 
     # ── Tools tab ────────────────────────────────────────────────────────────
 
@@ -461,7 +472,7 @@ class TraceViewerScreen(ModalScreen[None]):
             ok_n = sum(1 for e in tool_ev if e.status == "OK")
             fail_n = len(tool_ev) - ok_n
             yield Static(
-                f"  [bold green]{ok_n} ok[/]  [bold red]{fail_n} failed[/]  [dim]/ {len(tool_ev)} total[/]",
+                f"  [bold green]{ok_n} ok[/]  [bold red]{fail_n} failed[/]  [dim]/ {len(tool_ev)} total calls[/]",
                 markup=True,
             )
 
@@ -475,32 +486,29 @@ class TraceViewerScreen(ModalScreen[None]):
                 is_ok = e.status == "OK"
 
                 with Collapsible(
-                    title=f"{'✓' if is_ok else '✗'} [{idx}] {name}  {dur}  {ts}  {risk}",
-                    collapsed=(idx > 3),
+                    title=f"{'✓' if is_ok else '✗'} [{idx}] {escape(str(name))}  {dur}  {ts}  {risk}",
+                    collapsed=(idx > 4),
                 ):
                     if isinstance(args, dict) and args:
                         yield Static("  [dim]Arguments:[/]", markup=True)
                         for line in _fmt_kv(args):
                             k, _, v = line.partition(":")
                             yield Static(
-                                f"  [tv-event-key]{k.strip()}[/] [dim]\u2192[/] {v.strip()}",
+                                f"  [tv-event-key]{escape(k.strip())}[/] [dim]→[/] {escape(v.strip())}",
                                 markup=True,
                             )
                     elif args:
-                        yield Static(f"  [dim]args:[/] {str(args)[:200]}", markup=True)
+                        yield Static(f"  [dim]args:[/] {escape(str(args)[:300])}", markup=True)
 
                     if result:
-                        with Collapsible(title="Result", collapsed=False):
-                            for line in str(result)[:1500].split("\n"):
-                                yield Static(f"  {line}", classes="tv-response-block")
-                            if len(str(result)) > 1500:
-                                yield Static(
-                                    f"  [dim]\u2026 {len(str(result)) - 1500} more chars[/]",
-                                    markup=True,
-                                )
+                        with Collapsible(title="Tool Execution Output", collapsed=False):
+                            yield Static(str(result), classes="tv-response-block", markup=False)
 
                     if not is_ok and e.data.get("error"):
-                        yield Static(f"  [bold red]Error:[/] {e.data['error'][:200]}", markup=True)
+                        yield Static(
+                            f"  [bold red]Error:[/] {escape(str(e.data['error'])[:300])}",
+                            markup=True,
+                        )
 
     # ── Flow tab ─────────────────────────────────────────────────────────────
 
@@ -523,13 +531,15 @@ class TraceViewerScreen(ModalScreen[None]):
             }
             prev = self.events[0].timestamp
             for e in self.events:
-                icon, _ = TYPE_ICONS.get(e.event_type.value, ("\u00b7", ""))
+                icon, _ = TYPE_ICONS.get(e.event_type.value, ("·", ""))
                 color = COLOR_MAP.get(e.event_type.value, "tv-event-dimval")
                 ts = _fmt_ts(e.timestamp)
                 dur = _fmt_ms(e.duration_ms)
                 gap = _fmt_ms((e.timestamp - prev) * 1000)
                 gap_s = f"[dim]+{gap}[/] " if gap else ""
-                sicon = "✓" if e.status == "OK" else ("✗" if e.status == "ERROR" else " ")
+                sicon = (
+                    "✓" if e.status == "OK" else ("✗" if e.status in ("ERROR", "FAILED") else " ")
+                )
                 prev = e.timestamp
 
                 al = e.action
@@ -539,11 +549,69 @@ class TraceViewerScreen(ModalScreen[None]):
                     al = e.data.get("model", e.action)
 
                 yield Static(
-                    f"  [dim]{ts}[/] {gap_s}[{color}]{icon} {e.event_type.value}[/]  "
-                    f"[bold]{al[:40]}[/]  [dim]{dur}[/]  {sicon}",
+                    f"  [dim]{ts}[/] {gap_s}[{color}]{icon} {escape(e.event_type.value)}[/]  "
+                    f"[bold]{escape(str(al)[:50])}[/]  [dim]{dur}[/]  {sicon}",
                     classes="tv-timeline-row",
                     markup=True,
                 )
+
+    # ── Event Graph tab ──────────────────────────────────────────────────────
+
+    def _tab_graph(self) -> ComposeResult:
+        """Visual interaction graph showing orchestration flow."""
+        with VerticalScroll(classes="tv-tab-scroll"):
+            if not self.events:
+                yield Static(
+                    "  [dim]No interaction events captured.[/]", classes="tv-empty", markup=True
+                )
+                return
+
+            graph_lines = [
+                "┌─────────────────────────────────────────────────────────────┐",
+                "│            SAGO Execution & Interaction Flow Graph          │",
+                "└─────────────────────────────────────────────────────────────┘",
+                "",
+                "[User Input / Task Trigger]",
+            ]
+
+            step_idx = 1
+            for e in self.events:
+                et = e.event_type.value
+                dur = f" ({_fmt_ms(e.duration_ms)})" if e.duration_ms > 0 else ""
+                status_mark = "✓" if e.status == "OK" else "✗"
+
+                if et in ("LLM_RAW_REQUEST", "LLM_PAYLOAD"):
+                    model = e.data.get("model", "LLM")
+                    graph_lines.append("   │")
+                    graph_lines.append(f"   ├──► [Step {step_idx}: LLM Query → {model}]{dur}")
+                    step_idx += 1
+                elif et == "LLM_THINKING":
+                    model = e.data.get("model", "LLM")
+                    chars = len(e.data.get("thinking", ""))
+                    graph_lines.append(f"   │     └── [Reasoning / Thinking: {chars} chars]")
+                elif et == "TOOL_DISPATCH":
+                    tname = e.data.get("tool_name", e.action)
+                    graph_lines.append("   │")
+                    graph_lines.append(
+                        f"   ├──► [Step {step_idx}: Tool Execution: {tname}] {status_mark}{dur}"
+                    )
+                    step_idx += 1
+                elif et == "AGENT_ROUTING":
+                    target = e.data.get("target_agent", e.action)
+                    graph_lines.append("   │")
+                    graph_lines.append(f"   ├──► [Step {step_idx}: Sub-Agent Delegated: @{target}]")
+                    step_idx += 1
+                elif et == "ERROR":
+                    graph_lines.append("   │")
+                    graph_lines.append(
+                        f"   └──► [Step {step_idx}: ⚠️ Error Encountered: {e.data.get('error', e.action)[:60]}]"
+                    )
+                    step_idx += 1
+
+            graph_lines.append("   │")
+            graph_lines.append("   └──► [Response Delivered to User]")
+
+            yield Static("\n".join(graph_lines), classes="tv-graph-block", markup=False)
 
     # ── Thinking tab ─────────────────────────────────────────────────────────
 
@@ -561,8 +629,8 @@ class TraceViewerScreen(ModalScreen[None]):
 
             if not blocks:
                 yield Static(
-                    "  [dim]No thinking / reasoning blocks found.\n"
-                    "  These appear when the LLM uses extended thinking mode.[/]",
+                    "  [dim]No thinking / reasoning blocks captured.\n"
+                    "  These appear when the LLM produces reasoning or <thinking> blocks.[/]",
                     classes="tv-empty",
                     markup=True,
                 )
@@ -574,18 +642,15 @@ class TraceViewerScreen(ModalScreen[None]):
                 lines = thinking.count("\n") + 1
 
                 with Collapsible(
-                    title=f"\U0001f4ad Block {idx}  {model}  {chars:,} chars  {lines} lines  {ts}",
+                    title=f"💭 Block {idx}  {escape(str(model))}  {chars:,} chars  {lines} lines  {ts}",
                     collapsed=(idx > 1),
                 ):
-                    for line in thinking.split("\n")[:200]:
-                        yield Static(f"  {line}", classes="tv-thinking-block")
-                    if lines > 200:
-                        yield Static(f"  [dim]\u2026 {lines - 200} more lines[/]", markup=True)
+                    yield Static(thinking, classes="tv-thinking-block", markup=False)
 
     # ── Events tab ───────────────────────────────────────────────────────────
 
     def _tab_events(self) -> ComposeResult:
-        """Human-readable event log — no raw JSON."""
+        """Human-readable event log — safe rendering without markup crashes."""
         with VerticalScroll(classes="tv-tab-scroll"):
             if not self.events:
                 yield Static("  [dim]No events.[/]", classes="tv-empty", markup=True)
@@ -594,7 +659,7 @@ class TraceViewerScreen(ModalScreen[None]):
             yield Static(f"  [dim]{len(self.events)} events captured[/]", markup=True)
 
             for idx, e in enumerate(self.events, 1):
-                icon, _ = TYPE_ICONS.get(e.event_type.value, ("\u00b7", ""))
+                icon, _ = TYPE_ICONS.get(e.event_type.value, ("·", ""))
                 ts = _fmt_ts(e.timestamp)
                 dur = _fmt_ms(e.duration_ms)
                 is_ok = e.status in ("OK", "")
@@ -602,22 +667,28 @@ class TraceViewerScreen(ModalScreen[None]):
                 sicon = "✓" if is_ok else "✗"
 
                 with Collapsible(
-                    title=f"{icon} [{idx}] {e.event_type.value}  {e.source}  {dur}  {ts}  {sicon}",
+                    title=f"{icon} [{idx}] {escape(e.event_type.value)}  {escape(str(e.source))}  {dur}  {ts}  {sicon}",
                     collapsed=True,
                 ):
-                    yield Static(f"  [dim]source:[/] {e.source}", markup=True)
-                    yield Static(f"  [dim]action:[/] {e.action}", markup=True)
-                    yield Static(f"  [dim]status:[/] [{scls}]{e.status or 'ok'}[/]", markup=True)
+                    yield Static(f"  [dim]source:[/] {escape(str(e.source))}", markup=True)
+                    yield Static(f"  [dim]action:[/] {escape(str(e.action))}", markup=True)
+                    yield Static(
+                        f"  [dim]status:[/] [{scls}]{escape(str(e.status or 'ok'))}[/]", markup=True
+                    )
                     if dur:
                         yield Static(f"  [dim]duration:[/] {dur}", markup=True)
                     if e.data:
                         yield Static("  [dim]data:[/]", markup=True)
-                        for line in _fmt_kv(e.data, max_value=120):
+                        for line in _fmt_kv(e.data, max_value=250):
                             k, _, v = line.partition(":")
                             yield Static(
-                                f"  [tv-event-key]{k.strip()}[/] [dim]\u2192[/] {v.strip()}",
+                                f"  [tv-event-key]{escape(k.strip())}[/] [dim]→[/] {escape(v.strip())}",
                                 markup=True,
                             )
+                        # Untruncated data drawer
+                        with Collapsible(title="Raw Data (Full View)", collapsed=True):
+                            raw_json = json.dumps(e.data, indent=2, default=str)
+                            yield Static(raw_json, classes="tv-response-block", markup=False)
 
     # ── Button handlers ───────────────────────────────────────────────────────
 
@@ -641,7 +712,6 @@ class TraceViewerScreen(ModalScreen[None]):
     def action_close(self) -> None:
         self.dismiss()
 
-    # backward compat for tests
     def on_close_button(self) -> None:
         self.dismiss()
 
@@ -690,7 +760,7 @@ class TraceViewerScreen(ModalScreen[None]):
                 "",
             ]
             for i, e in enumerate(self.events, 1):
-                icon, _ = TYPE_ICONS.get(e.event_type.value, ("\u00b7", ""))
+                icon, _ = TYPE_ICONS.get(e.event_type.value, ("·", ""))
                 md_lines.append(f"### [{i}] {icon} {e.event_type.value} — {_fmt_ts(e.timestamp)}")
                 md_lines.append(f"- **Source:** `{e.source}`")
                 md_lines.append(f"- **Action:** `{e.action}`")
@@ -700,23 +770,23 @@ class TraceViewerScreen(ModalScreen[None]):
                 if e.data:
                     md_lines.append("")
                     md_lines.append("```")
-                    md_lines.extend(_fmt_kv(e.data, max_value=300))
+                    md_lines.extend(_fmt_kv(e.data, max_value=500))
                     md_lines.append("```")
                 md_lines.append("")
 
             with open(md_path, "w") as f:
                 f.write("\n".join(md_lines))
 
-            self._show_note(f"Exported \u2192 {json_path}  +  {md_path}", ok=True)
+            self._show_note(f"Exported → {json_path}  +  {md_path}", ok=True)
         except Exception as exc:
             self._show_note(f"Export failed: {exc}", ok=False)
 
     def action_copy_trace(self) -> None:
         """Copy trace summary to clipboard."""
         try:
-            lines = [f"SAGO Trace \u2014 {len(self.events)} events  {datetime.now().isoformat()}"]
+            lines = [f"SAGO Trace — {len(self.events)} events  {datetime.now().isoformat()}"]
             for i, e in enumerate(self.events, 1):
-                icon, _ = TYPE_ICONS.get(e.event_type.value, ("\u00b7", ""))
+                icon, _ = TYPE_ICONS.get(e.event_type.value, ("·", ""))
                 lines.append(
                     f"[{i}] {icon} {e.event_type.value}  "
                     f"{e.source}  {e.action}  {e.status}  {_fmt_ms(e.duration_ms)}"

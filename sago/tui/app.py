@@ -38,6 +38,31 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     CSS = """
     Screen { background: #0a0d12; }
 
+    #top-status-bar {
+        height: 1;
+        background: #111418;
+        border-bottom: solid #21262d;
+        padding: 0 1;
+    }
+    #brand-label {
+        width: auto;
+        color: #58a6ff;
+        padding: 0 1;
+    }
+    .btn-top-bar {
+        height: 1;
+        min-width: 12;
+        border: none;
+        background: #161b22;
+        color: #8b949e;
+        margin: 0 0 0 1;
+        padding: 0 1;
+    }
+    .btn-top-bar:hover {
+        background: #21262d;
+        color: #58a6ff;
+    }
+
     #main-layout {
         height: 1fr;
     }
@@ -45,10 +70,13 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     #messages-parent {
         width: 1fr;
         height: 1fr;
+        min-width: 30;
     }
 
     #agent-dashboard {
-        width: 32;
+        width: 30;
+        min-width: 24;
+        max-width: 40;
         height: 1fr;
         background: #111418;
         border-left: solid #21262d;
@@ -73,7 +101,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     }
     .agent-name { text-style: bold; }
     .agent-status { color: #8b949e; padding: 0 0 0 1; }
-    .agent-task { color: #8b949e; text-style: italic; padding: 0; max-width: 30; }
+    .agent-task { color: #8b949e; text-style: italic; padding: 0; }
     .agent-tools { color: #58a6ff; padding: 0; }
     .agent-progress { padding: 0; color: #3fb950; }
     .dashboard-separator { color: #21262d; padding: 0; }
@@ -85,7 +113,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
     #messages {
         height: 1fr;
-        padding: 1 2;
+        padding: 1 1;
         overflow-y: auto;
         scrollbar-size: 1 1;
         scrollbar-color: #30363d #0a0d12;
@@ -97,14 +125,14 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         border: solid #21262d;
         border-left: solid #388bfd;
         color: #58a6ff;
-        padding: 1 2;
+        padding: 1 1;
         margin: 1 0;
     }
     .msg-assistant {
         background: #0d1117;
         border: solid #21262d;
         color: #e6edf3;
-        padding: 1 2;
+        padding: 1 1;
         margin: 1 0;
     }
     .msg-system {
@@ -120,7 +148,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         color: #d2a8ff;
         border: solid #21262d;
         border-left: solid #d2a8ff;
-        padding: 1 2;
+        padding: 1 1;
         margin: 1 0;
     }
 
@@ -139,7 +167,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         border-bottom: solid #21262d;
     }
     .exchange-body {
-        padding: 1 2;
+        padding: 1 1;
         height: auto;
         color: #e6edf3;
     }
@@ -162,7 +190,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .thinking-text {
         color: #c9d1d9;
         text-style: italic;
-        padding: 1 2;
+        padding: 1 1;
         background: #080c14;
         border: solid #21262d;
         border-left: solid #d2a8ff;
@@ -185,11 +213,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     }
     .btn-view-trace {
         height: 1;
-        min-width: 16;
+        min-width: 12;
         border: none;
         background: #1a2433;
         color: #388bfd;
-        padding: 0 2;
+        padding: 0 1;
     }
     .btn-view-trace:hover {
         background: #1f3148;
@@ -198,7 +226,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
     .plan-text {
         color: #7ee787;
-        padding: 1 2;
+        padding: 1 1;
         background: #080c14;
         border: solid #21262d;
         border-left: solid #3fb950;
@@ -217,15 +245,15 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     .card-header {
         background: #0d1117;
         color: #58a6ff;
-        padding: 0 2;
+        padding: 0 1;
     }
     .card-body {
-        padding: 1 2;
+        padding: 1 1;
         height: auto;
         color: #e6edf3;
     }
 
-    /* Textual built-in Collapsible widget — uniform header treatment & bright readable text */
+    /* Textual built-in Collapsible widget */
     Collapsible {
         border: solid #21262d;
         border-left: solid #388bfd;
@@ -237,12 +265,12 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     CollapsibleTitle {
         background: #0d1117;
         color: #58a6ff;
-        padding: 0 2;
+        padding: 0 1;
     }
     Collapsible > Contents {
         background: #0d1117;
         color: #e6edf3;
-        padding: 1 2;
+        padding: 1 1;
         height: auto;
     }
     Collapsible > Contents Static {
@@ -259,7 +287,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         width: 1fr;
     }
     .btn-copy-code {
-        min-width: 14;
+        min-width: 12;
         height: 1;
         background: #21262d;
         color: #8b949e;
@@ -404,7 +432,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
     .dev-trace-text {
         color: #79c0ff;
-        padding: 1 2;
+        padding: 1 1;
         background: #06090e;
         border: solid #21262d;
         border-left: solid #f85149;
@@ -421,13 +449,13 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     Collapsible .collapsible-title {
         background: #0d1117;
         color: #58a6ff;
-        padding: 0 2;
+        padding: 0 1;
         text-style: bold;
     }
     Collapsible .collapsible-body {
         background: #0d1117;
         color: #e6edf3;
-        padding: 1 2;
+        padding: 1 1;
         overflow-y: auto;
         scrollbar-size: 1 1;
         scrollbar-color: #30363d #111418;
@@ -448,6 +476,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         color: #c9d1d9;
         margin: 0;
         padding: 0 1;
+        width: 1fr;
     }
     #msg-input:focus {
         border: none;
@@ -459,7 +488,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     #suggestions {
         display: none;
         height: auto;
-        max-height: 14;
+        max-height: 12;
         overflow-y: auto;
         background: #0a0d12;
         border: none;
@@ -559,7 +588,6 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         color: #f0883e;
         text-style: bold;
         padding: 0 0 0 0;
-        max-width: 80;
     }
 
     #approval-bar .approval-buttons {
@@ -659,6 +687,15 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     _parallel_lock: threading.Lock | None = None
 
     def compose(self) -> ComposeResult:
+        with Horizontal(id="top-status-bar"):
+            yield Static(
+                "[bold green]SAGO[/bold green] [dim]Agent[/dim]", id="brand-label", markup=True
+            )
+            yield Static("", id="top-bar-spacer", classes="spacer")
+            yield Button("⚡ Traces [F2]", id="btn-top-traces", classes="btn-top-bar")
+            yield Button("📊 Dashboard", id="btn-top-dashboard", classes="btn-top-bar")
+            yield Button("⌨ Help [F1]", id="btn-top-help", classes="btn-top-bar")
+
         with Horizontal(id="main-layout"):
             with Vertical(id="messages-parent"):
                 yield ScrollableContainer(id="messages")
@@ -688,7 +725,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     )
                     yield Vertical(id="parallel-agents")
                 with Vertical(id="input-area"):
-                    yield Input(placeholder="/, @, # for autocomplete", id="msg-input")
+                    yield Input(
+                        placeholder="/, @, # for autocomplete (or type a message)", id="msg-input"
+                    )
             with Vertical(id="agent-dashboard", classes="hidden"):
                 yield Static("Agent Dashboard", classes="dashboard-title", markup=True)
                 yield Static("", id="agent-dashboard-content", markup=True)
@@ -986,27 +1025,25 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             val = self.suggestion_values[self.suggestion_index]
             self._hide_suggestions()
 
-            # Commands that require further task/arguments
-            if (
+            # Commands that still require additional arguments from the user
+            # (e.g. bare /delegate without an agent or /chain without task)
+            requires_more_args = (
                 val.startswith("/delegate")
                 or val.startswith("@delegate")
                 or val.startswith("/chain")
                 or val.startswith("@chain")
-                or val.startswith("/agent")
-                or val.startswith("@agent")
-                or val.startswith("/model")
-                or val.startswith("/effort")
-                or val.startswith("/theme")
-                or val.startswith("/dev")
-                or val.startswith("/checkpoint")
-            ):
-                event.input.value = val + " "
-                event.input.cursor_position = len(event.input.value)
-                return
-            elif val.startswith("/"):
-                # Complete command selected -> execute immediately
+                or (val.startswith("/agent") and len(val.split()) == 1)
+                or (val.startswith("@agent") and len(val.split()) == 1)
+            )
+
+            # If user explicitly selected a complete suggestion like "/dev on", "/model openrouter/free", "/effort max", "/theme nord", execute right away!
+            if not requires_more_args and val.startswith("/"):
                 event.input.value = ""
                 self._handle_command(val)
+                return
+            elif requires_more_args:
+                event.input.value = val + " "
+                event.input.cursor_position = len(event.input.value)
                 return
             elif val.startswith("@") or val.startswith("#") or val.startswith("~"):
                 v = event.value
@@ -1184,7 +1221,25 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self._show_tasks()
 
     def action_cancel_task(self) -> None:
-        """Cancel the most recent running task."""
+        """Cancel current running LLM iteration or background task (Ctrl+C)."""
+        cancelled_anything = False
+
+        # 1. Cancel active conversational message thread if running
+        if getattr(self, "is_thinking", False) or getattr(self, "_active_cancel_event", None):
+            cancel_ev = getattr(self, "_active_cancel_event", None)
+            if cancel_ev:
+                cancel_ev.set()
+            pause_ev = getattr(self, "_executor_pause_event", None)
+            if pause_ev:
+                pause_ev.set()
+            self.is_thinking = False
+            self._hide_spinner()
+            self._add_system_message(
+                "⛔ [bold red]Execution interrupted and cancelled by user (Ctrl+C).[/bold red]"
+            )
+            cancelled_anything = True
+
+        # 2. Cancel background task from TaskManager if any
         from sago.tui.widgets import get_task_manager
 
         tm = get_task_manager()
@@ -1192,9 +1247,13 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         if active:
             last = active[-1]
             tm.cancel_task(last.agent_id)
-            self._add_system_message(f"Cancelled: {last.agent_name} ({last.agent_id})")
-        else:
-            self._add_system_message("No active tasks to cancel")
+            self._add_system_message(
+                f"Cancelled background task: {last.agent_name} ({last.agent_id})"
+            )
+            cancelled_anything = True
+
+        if not cancelled_anything:
+            self._add_system_message("No active tasks or generation to cancel")
 
     def action_show_shortcuts(self) -> None:
         """Show shortcuts reference modal."""
@@ -1218,6 +1277,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         except Exception as e:
             self._add_system_message(f"⚡ Trace viewer error: {e}")
 
+    @on(Button.Pressed, "#btn-top-traces")
+    def on_top_traces_clicked(self) -> None:
+        """Open trace viewer from top bar button."""
+        self.action_open_trace_viewer()
+
     @on(Button.Pressed, ".btn-view-trace")
     def on_view_trace_button(self, event: Button.Pressed) -> None:
         """Handle per-turn 'View Trace ⚡' button clicks."""
@@ -1238,6 +1302,16 @@ class SagoApp(App, CommandHandlers, UIHelpers):
             self.push_screen(TraceViewerScreen(trace_events, turn_label=trace_label))
         except Exception as e:
             self._add_system_message(f"⚡ Trace viewer error: {e}")
+
+    @on(Button.Pressed, "#btn-top-dashboard")
+    def on_top_dashboard_clicked(self) -> None:
+        """Toggle agent dashboard from top bar button."""
+        self.action_toggle_dashboard()
+
+    @on(Button.Pressed, "#btn-top-help")
+    def on_top_help_clicked(self) -> None:
+        """Show shortcuts help from top bar button."""
+        self.action_show_shortcuts()
 
     def _show_shortcuts_suggestions(self, query: str = "") -> None:
         """Show shortcuts and quick help suggestions."""
@@ -2281,6 +2355,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     def _process_message(self, message: str) -> None:
         """Entry point — runs on main thread, dispatches work to a background thread."""
         self.is_thinking = True
+        self._active_cancel_event = threading.Event()
         self._show_spinner()
         t = threading.Thread(target=self._process_message_thread, args=(message,), daemon=True)
         t.start()
@@ -2288,6 +2363,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     def _process_message_thread(self, message: str) -> None:
         """Runs in a background thread — all call_from_thread calls are safe here."""
         try:
+            cancel_ev = getattr(self, "_active_cancel_event", None)
             effort = EFFORT_LEVELS.get(self.current_effort, EFFORT_LEVELS["medium"])
 
             def on_tool(name, args):
@@ -2488,7 +2564,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 # Initialize DB stores for this session
                 _tool_usage_store = None
                 _token_tracker = None
-                if self.current_session_id and self.current_session_id != "local":
+                if self.current_session_id:
                     try:
                         from sago.database import ToolUsageStore, init_db
 
@@ -2504,6 +2580,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     logger.debug("Token tracker init failed: %s", e)
 
                 for iteration in range(effort["max_iterations"]):
+                    if cancel_ev and cancel_ev.is_set():
+                        self.call_from_thread(self._hide_spinner)
+                        return
+
                     # Hard token cap — stop if budget exceeded
                     if cumulative_tokens >= MAX_CUMULATIVE_TOKENS:
                         self.call_from_thread(
@@ -2572,12 +2652,38 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                 google_types.Tool(function_declarations=google_tools)
                             ]
 
+                        # Deep trace: record raw request
+                        from sago.tracking.dev_tracer import get_dev_tracer as _gdt
+
+                        _tracer = _gdt()
+                        if _tracer.is_enabled:
+                            _tracer.record_llm_request(
+                                source=f"tui.llm.{self.current_provider}",
+                                model=api_model,
+                                messages=messages,
+                                tools=openai_tools,
+                                max_tokens=effort["max_tokens"],
+                                temperature=0.3,
+                            )
+
+                        _llm_start_time = time.time()
                         response = gemini_client.models.generate_content(
                             model=api_model,
                             contents=contents,
                             config=google_config,
                         )
                         content = response.text or ""
+
+                        # Usage metadata from Gemini response if available
+                        if hasattr(response, "usage_metadata") and response.usage_metadata:
+                            total_tokens_in = (
+                                getattr(response.usage_metadata, "prompt_token_count", 0) or 0
+                            )
+                            total_tokens_out = (
+                                getattr(response.usage_metadata, "candidates_token_count", 0) or 0
+                            )
+                            cumulative_tokens += total_tokens_out
+
                         # Extract tool calls from Gemini response
                         if response.candidates and response.candidates[0].content:
                             for part in response.candidates[0].content.parts or []:
@@ -2670,48 +2776,55 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                 }
                             )
 
-                        from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+                    from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
-                        _llm_latency_ms = (time.time() - _llm_start_time) * 1000
+                    _llm_latency_ms = (time.time() - _llm_start_time) * 1000
 
-                        # Extract thinking content if present
-                        _thinking_content = ""
-                        _thinking_match = re.search(
-                            r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>",
-                            content,
-                            re.DOTALL,
-                        )
-                        if _thinking_match:
-                            _thinking_content = _thinking_match.group(1).strip()
-
-                        # Raw response trace (deep debug)
-                        get_dev_tracer().record_llm_response(
+                    # Extract thinking content if present (<thinking> tags or <thought> tags)
+                    _thinking_content = ""
+                    _thinking_match = re.search(
+                        r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>",
+                        content,
+                        re.DOTALL,
+                    )
+                    if _thinking_match:
+                        _thinking_content = _thinking_match.group(1).strip()
+                        get_dev_tracer().record_thinking(
                             source=f"tui.llm.{self.current_provider}",
                             model=api_model,
-                            response_content=content[:10000] if content else "",
-                            thinking=_thinking_content[:10000] if _thinking_content else "",
-                            tool_calls=[
-                                {"name": tc["name"], "args": tc["args"]} for tc in native_tool_calls
-                            ],
-                            usage={"tokens_in": total_tokens_in, "tokens_out": total_tokens_out},
-                            latency_ms=_llm_latency_ms,
+                            thinking_content=_thinking_content,
                         )
 
-                        # Summary trace (compact)
-                        get_dev_tracer().record(
-                            event_type=TraceEventType.LLM_PAYLOAD,
-                            source=f"tui.llm.{self.current_provider}",
-                            action=f"chat.completions.create({api_model})",
-                            data={
-                                "model": api_model,
-                                "provider": self.current_provider,
-                                "messages_count": len(messages),
-                                "tokens_in": total_tokens_in,
-                                "tokens_out": total_tokens_out,
-                                "tool_calls_generated": len(native_tool_calls),
-                                "latency_ms": _llm_latency_ms,
-                            },
-                        )
+                    # Raw response trace (deep debug)
+                    get_dev_tracer().record_llm_response(
+                        source=f"tui.llm.{self.current_provider}",
+                        model=api_model,
+                        response_content=content[:10000] if content else "",
+                        thinking=_thinking_content[:10000] if _thinking_content else "",
+                        tool_calls=[
+                            {"name": tc["name"], "args": tc["args"]} for tc in native_tool_calls
+                        ],
+                        usage={"tokens_in": total_tokens_in, "tokens_out": total_tokens_out},
+                        latency_ms=_llm_latency_ms,
+                    )
+
+                    # Summary trace (compact)
+                    get_dev_tracer().record(
+                        event_type=TraceEventType.LLM_PAYLOAD,
+                        source=f"tui.llm.{self.current_provider}",
+                        action=f"generate_content({api_model})"
+                        if use_native_gemini
+                        else f"chat.completions.create({api_model})",
+                        data={
+                            "model": api_model,
+                            "provider": self.current_provider,
+                            "messages_count": len(messages),
+                            "tokens_in": total_tokens_in,
+                            "tokens_out": total_tokens_out,
+                            "tool_calls_generated": len(native_tool_calls),
+                            "latency_ms": _llm_latency_ms,
+                        },
+                    )
 
                     # Handle empty content with no tool calls
                     if not content and not native_tool_calls:
@@ -2811,6 +2924,10 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     tools_used_in_iteration = []
 
                     for tc in native_tool_calls:
+                        if cancel_ev and cancel_ev.is_set():
+                            self.call_from_thread(self._hide_spinner)
+                            return
+
                         tc_id = tc["id"]
                         name = tc["name"]
                         args = tc["args"] if isinstance(tc["args"], dict) else {}
@@ -3033,7 +3150,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                 _tool_usage_store.log(
                                     tool_name=name,
                                     arguments=args,
-                                    result=result_str[:1000],
+                                    result=result_str[:2000],
+                                    duration_ms=int(tool_dur_ms),
                                     success=not is_error,
                                 )
                             except Exception:

@@ -202,19 +202,17 @@ Problems:
 - [ ] **J11** Consolidate duplicate tools: `git_ops`/`git_operations`, `code_search_tool`/`hybrid_search_tool`, `spawn_agent`/`delegate_to_agent`/`agent_delegator`.
 - [ ] **J12** Add input validation for `effort` parameter (`main.py:580`).
 
-### Milestone K — Tests (P2, NEW from §8.8)
-- [ ] **K1** Add tests for LLM providers (mock-based, no live keys).
-- [ ] **K2** Add tests for streaming handler.
-- [ ] **K3** Add tests for daemon server lifecycle.
-- [ ] **K4** Add tests for MCP server end-to-end.
-- [ ] **K5** Add tests for workflow templates.
-- [ ] **K6** Add tests for orchestrator/delegator core logic.
-- [ ] **K7** Add tests for LSP client.
-- [ ] **K8** Add tests for change tracker persistence.
-- [ ] **K9** Add tests for concurrent tool execution.
-- [ ] **K10** Add tests for session persistence round-trip.
-- [ ] **K11** Add tests for checkpoint restore.
-- [ ] **K12** Fix weak security tests — assert traversal is blocked, not just `result is not None`.
+### Milestone L — TUI Telemetry & Experience Hardening (P0/P1, v0.1.6)
+- [x] **L1** Fix Textual markup injection crash on dynamic dictionary values and unescaped LLM event keys (`trace_viewer.py`).
+- [x] **L2** Add visual Event Interaction Graph tab (`#tab-graph`) displaying full multi-step LLM queries, tool runs, and subagent handoffs.
+- [x] **L3** Add untruncated expandable raw JSON data drawers for every event in the Events tab.
+- [x] **L4** Implement instant one-hit suggestion submission on Enter for complete commands (`/dev on`, `/model ...`, `/effort ...`, `/theme ...`, `/checkpoint ...`).
+- [x] **L5** Add smart multi-provider resolution for `/model` supporting `/model <provider> <model>` (e.g. `/model google gemini-2.0-pro`, `/model openrouter deepseek/deepseek-r1`).
+- [x] **L6** Unify telemetry and token recording across all providers (Gemini, OpenAI, OpenRouter, Claude) in dev traces.
+- [x] **L7** Add interactive persistent top status bar with direct clickable buttons: `⚡ Traces [F2]`, `📊 Dashboard`, `⌨ Help [F1]`.
+- [x] **L8** Add instant execution cancellation with `Ctrl+C` stopping both conversational message loops and background tasks.
+- [x] **L9** Ensure `/export` accurately includes all tool execution logs and durations with DevTracer fallback.
+- [x] **L10** Polish visual contrast, dividers, and responsiveness across all terminal sizes.
 
 ---
 

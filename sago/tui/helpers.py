@@ -75,10 +75,11 @@ class ExchangeTurnCard(Vertical):
         with Vertical(classes="exchange-body"):
             rendered_prompt = _render_markdown(self.prompt)
             yield Static(
-                f"[bold]User Prompt:[/bold]\n{rendered_prompt}",
+                f"[bold cyan]User Prompt:[/bold cyan]\n{rendered_prompt}",
                 classes="exchange-user-prompt",
                 markup=True,
             )
+            yield Static("─" * 40, classes="exchange-divider", markup=False)
 
     @on(events.Click, ".exchange-prompt-header")
     def on_header_clicked(self, event: events.Click) -> None:

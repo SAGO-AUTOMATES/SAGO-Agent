@@ -411,26 +411,76 @@ class CommandHandlers:
             self._add_system_message(msg)
             return
 
-        # /model <provider> <model> — set provider + model
-        if len(parts) >= 2:
-            provider = parts[0]
-            model_name = parts[1]
+        # Known providers for smart parsing
+        known_providers = {
+            "google",
+            "gemini",
+            "openai",
+            "openrouter",
+            "anthropic",
+            "claude",
+            "ollama",
+            "deepseek",
+        }
+
+        # /model <provider> <model> — explicit syntax (e.g. /model google gemini-2.0-pro or /model openrouter deepseek/deepseek-r1)
+        if len(parts) >= 2 and parts[0].lower() in known_providers:
+            provider = (
+                "google"
+                if parts[0].lower() in ("google", "gemini")
+                else (
+                    "anthropic" if parts[0].lower() in ("claude", "anthropic") else parts[0].lower()
+                )
+            )
+            model_name = " ".join(parts[1:])
             self.current_provider = provider
             self.current_model = model_name
-            self._add_system_message(f"Provider: {provider} | Model: {model_name}")
+            self._add_system_message(
+                f"Provider: [bold cyan]{provider}[/] | Model: [bold green]{model_name}[/]"
+            )
             return
 
-        # /model <name> — fuzzy match (legacy compat)
+        # /model provider/model or general string
         search = parts[0]
+        if "/" in search:
+            prefix, rest = search.split("/", 1)
+            if prefix.lower() in known_providers:
+                provider = (
+                    "google"
+                    if prefix.lower() in ("google", "gemini")
+                    else (
+                        "anthropic" if prefix.lower() in ("claude", "anthropic") else prefix.lower()
+                    )
+                )
+                self.current_provider = provider
+                self.current_model = rest if provider == "google" else search
+                self._add_system_message(
+                    f"Provider: [bold cyan]{self.current_provider}[/] | Model: [bold green]{self.current_model}[/]"
+                )
+                return
+
         models = get_all_models()
         for model in models:
             if search.lower() in model.lower():
                 self.current_model = model
-                self._add_system_message(f"Model: {model}")
+                if "google" in model.lower() or "gemini" in model.lower():
+                    self.current_provider = "google"
+                elif "openai" in model.lower() or "gpt" in model.lower():
+                    self.current_provider = "openai"
+                self._add_system_message(
+                    f"Model: [bold green]{model}[/] (Provider: [bold cyan]{self.current_provider}[/])"
+                )
                 return
-        # Not in list — allow it
+
+        # Not in list — allow custom model
         self.current_model = search
-        self._add_system_message(f"Model: {search} (custom)")
+        if "gemini" in search.lower():
+            self.current_provider = "google"
+        elif "gpt" in search.lower() or "o1" in search.lower() or "o3" in search.lower():
+            self.current_provider = "openai"
+        self._add_system_message(
+            f"Model: [bold green]{search}[/] (custom, Provider: [bold cyan]{self.current_provider}[/])"
+        )
 
     def _change_provider(self: SagoApp, p: str) -> None:
         self.current_model = f"{p}/free" if "/" not in p else p
@@ -776,6 +826,26 @@ class CommandHandlers:
             tus.close()
         except Exception:
             tool_logs = []
+
+        # Fallback to dev tracer in case DB was local or not yet flushed
+        if not tool_logs:
+            try:
+                from sago.tracking.dev_tracer import get_dev_tracer
+
+                traces = get_dev_tracer().get_recent_traces(limit=500)
+                for t in traces:
+                    if t.event_type.value == "TOOL_DISPATCH":
+                        tool_logs.append(
+                            {
+                                "tool_name": t.data.get("tool_name", t.action),
+                                "arguments": t.data.get("arguments", {}),
+                                "result": t.data.get("result_preview", ""),
+                                "duration_ms": int(t.duration_ms),
+                                "success": 1 if t.status == "OK" else 0,
+                            }
+                        )
+            except Exception:
+                pass
 
         subagent_calls = []
         error_logs = []
