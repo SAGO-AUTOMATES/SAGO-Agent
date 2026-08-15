@@ -133,44 +133,15 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         margin: 1 0;
         height: auto;
     }
-    .exchange-prompt-header-bar {
-        background: #0d1117;
-        height: 1;
+    .exchange-prompt-header {
+        background: #161b22;
+        color: #58a6ff;
         padding: 0 1;
         border-bottom: solid #21262d;
     }
-    .exchange-prompt-header {
-        background: #0d1117;
-        color: #8b949e;
-        padding: 0 1;
-    }
-    .btn-turn-expand, .btn-turn-delete, .btn-dismiss-notice {
-        min-width: 8;
-        height: 1;
-        background: #161b22;
-        color: #8b949e;
-        border: none;
-        padding: 0 1;
-        margin: 0 1 0 0;
-    }
-    .btn-turn-expand:hover, .btn-turn-delete:hover, .btn-dismiss-notice:hover {
-        background: #21262d;
-        color: #f85149;
-    }
-    .btn-turn-expand:hover {
-        color: #58a6ff;
-    }
-    .notice-text {
-        color: #e3b341;
-        padding: 0 1;
-    }
     .exchange-body {
-        padding: 1 2 1 2;
+        padding: 1 2;
         height: auto;
-    }
-    .exchange-user-prompt {
-        color: #e6edf3;
-        padding: 0 0 1 0;
     }
     .exchange-divider {
         color: #30363d;

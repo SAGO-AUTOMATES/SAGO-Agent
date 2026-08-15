@@ -983,6 +983,55 @@ def execute_agent_task(
         except Exception:
             return distilled
 
+    # ---- Post-execution quality review ----
+    def _review_output_quality(output: str, files_created: list, tool_history: list) -> list[str]:
+        """Review output quality and return list of issues found."""
+        issues = []
+        if not output or len(output.strip()) < 50:
+            issues.append(f"Output too short ({len(output or '')} chars) — likely incomplete")
+        output_lower = (output or "").lower()
+        failure_indicators = ["i cannot", "i'm unable", "i don't have", "not possible"]
+        for fi in failure_indicators:
+            if fi in output_lower:
+                issues.append(f"Output contains failure indicator: '{fi}'")
+        if tool_history and not files_created:
+            write_calls = [t for t in tool_history if t.get("tool") in ("write_file", "edit_file")]
+            if write_calls:
+                issues.append("write_file/edit_file called but no files tracked as created")
+        return issues
+
+    # ---- Pre-validate tool arguments to catch hallucinated/empty args ----
+    def _validate_tool_args(tool_name: str, tool_args: dict) -> str | None:
+        """Return an error message if tool args are invalid, else None."""
+        if tool_name == "spawn_agent":
+            task_val = tool_args.get("task", "")
+            if not task_val or not task_val.strip() or len(task_val.strip()) < 5:
+                return None
+        elif tool_name == "write_file":
+            content_val = tool_args.get("content", "")
+            path_val = tool_args.get("file_path", "")
+            if not path_val or not path_val.strip():
+                return "REJECTED: write_file requires a non-empty file_path."
+            if not content_val or not content_val.strip():
+                return f"REJECTED: write_file requires non-empty content for '{path_val}'."
+        elif tool_name == "execute_shell":
+            cmd_val = tool_args.get("command", "")
+            if not cmd_val or not cmd_val.strip():
+                return "REJECTED: execute_shell requires a non-empty command."
+        elif tool_name == "edit_file":
+            path_val = tool_args.get("file_path", "") or tool_args.get("target_file", "")
+            if not path_val or not path_val.strip():
+                return "REJECTED: edit_file requires a non-empty file_path."
+        elif tool_name == "read_file":
+            path_val = tool_args.get("file_path", "") or tool_args.get("path", "")
+            if not path_val or not path_val.strip():
+                return "REJECTED: read_file requires a non-empty file_path."
+        elif tool_name == "http_client":
+            url_val = tool_args.get("url", "")
+            if not url_val or not url_val.strip():
+                return "REJECTED: http_client requires a non-empty URL."
+        return None
+
     for i in range(max_iterations):
         # --- OPT-IN observability (no-op unless a trace was started) ---
         # To capture a full per-step span tree around each LLM+tool iteration,
@@ -1397,6 +1446,9 @@ def execute_agent_task(
                             }
                         )
                         continue
+            # ---- Post-execution quality review ----
+            quality_issues = _review_output_quality(content, files_created, tool_history)
+
             return {
                 "success": True,
                 "output": content,
@@ -1411,6 +1463,7 @@ def execute_agent_task(
                 "elapsed": time.time() - start_time,
                 "files_created": files_created,
                 "task_plan": task_plan.to_dict() if task_plan else None,
+                "quality_issues": quality_issues,
             }
 
         # ---- Execute native tool calls and return results as role:tool messages ----
@@ -1520,6 +1573,20 @@ def execute_agent_task(
 
             if on_tool_call:
                 on_tool_call(name, args)
+
+            # --- Pre-validate tool arguments to catch hallucinated/empty args ---
+            validation_error = _validate_tool_args(name, args)
+            if validation_error:
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "name": name,
+                        "content": validation_error,
+                    }
+                )
+                failed_calls.add(call_key)
+                continue
 
             tool_instance = tools[name]()
             result = tool_instance.run(**args)

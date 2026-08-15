@@ -122,9 +122,56 @@ class SpawnAgentTool(BaseTool):
             or ""
         )
 
+        # --- Argument validation: reject empty/trivial tasks ---
+        if not actual_task.strip() or len(actual_task.strip()) < 10:
+            return (
+                "REJECTED: spawn_agent requires a meaningful task description (min 10 characters).\n"
+                f"Got: '{actual_task.strip()}'\n\n"
+                "Fix: Provide a specific task. Examples:\n"
+                '  - "Create a Python calculator with add, subtract, multiply, divide functions"\n'
+                '  - "Write unit tests for the authentication module"\n'
+                '  - "Review the API endpoints for security vulnerabilities"'
+            )
+
         resolved_agent = self._resolve_target_agent(raw_agent, actual_task)
-        if not actual_task.strip():
-            actual_task = f"Execute specialist work for {resolved_agent}"
+
+        # Warn if agent resolution was purely heuristic (no explicit agent_name given)
+        if not raw_agent.strip():
+            task_lower = actual_task.lower()
+            domain_keywords = [
+                "python",
+                "java",
+                "go ",
+                "golang",
+                "rust",
+                "c++",
+                "cpp",
+                "frontend",
+                "backend",
+                "fullstack",
+                "devops",
+                "docker",
+                "k8s",
+                "security",
+                "test",
+                "qa",
+                "database",
+                "api",
+                "mobile",
+                "android",
+                "ios",
+                "react",
+                "vue",
+                "angular",
+            ]
+            if not any(kw in task_lower for kw in domain_keywords):
+                return (
+                    f"REJECTED: Could not determine a specialist agent for this task.\n"
+                    f"Task: '{actual_task[:200]}'\n"
+                    f"Resolved to: '{resolved_agent}' (generic fallback)\n\n"
+                    "Fix: Explicitly set agent_name to a specialist.\n"
+                    "Examples: python-engineer, java-engineer, go-engineer, devops-engineer"
+                )
 
         from sago.agents.handoff import get_recursion_guard
 
@@ -179,6 +226,23 @@ class SpawnAgentTool(BaseTool):
         finally:
             guard.exit(resolved_agent)
 
+    # Fallback agent chains: if primary fails, try these alternatives
+    _FALLBACK_AGENTS: dict[str, list[str]] = {
+        "python-engineer": ["software-engineer", "fullstack-developer"],
+        "java-engineer": ["software-engineer", "fullstack-developer"],
+        "go-engineer": ["software-engineer", "rust-engineer"],
+        "rust-engineer": ["software-engineer", "cpp-engineer"],
+        "cpp-engineer": ["software-engineer"],
+        "frontend-engineer": ["fullstack-developer", "ui-engineer"],
+        "backend-engineer": ["fullstack-developer", "api-engineer"],
+        "fullstack-developer": ["software-engineer"],
+        "devops-engineer": ["cloud-engineer", "sre-engineer"],
+        "mobile-engineer": ["android-engineer", "ios-engineer"],
+        "qa-engineer": ["test-engineer", "automation-engineer"],
+        "security-engineer": ["appsec-engineer"],
+        "data-engineer": ["database-engineer", "ml-engineer"],
+    }
+
     def _execute_agent(
         self,
         agent_name: str,
@@ -189,10 +253,7 @@ class SpawnAgentTool(BaseTool):
         guard: Any,
         llm_cfg: dict[str, Any] | None = None,
     ) -> str:
-        """Execute the agent with proper prompts and context."""
-        # Build the system prompt with full context
-        system_prompt = self._build_system_prompt(agent_name, task, context, feedback, guard)
-
+        """Execute the agent with proper prompts and context. Retries with fallback agents on failure."""
         # Use active model from settings/env/config
         if llm_cfg is None:
             from sago.llm.tui_providers import resolve_active_llm_config
@@ -202,47 +263,78 @@ class SpawnAgentTool(BaseTool):
         model = llm_cfg["model"]
         base_url = llm_cfg["base_url"]
 
-        # Try with user-selected model first, fallback to free model if distinct
-        models_to_try = [model]
-        if model != "openrouter/free":
-            models_to_try.append("openrouter/free")
+        # Build fallback chain: primary agent + fallbacks
+        fallbacks = self._FALLBACK_AGENTS.get(agent_name, ["software-engineer"])
+        agents_to_try = [agent_name] + [a for a in fallbacks if a != agent_name]
 
         last_error = None
-        for try_model in models_to_try:
-            try:
-                from sago.engine.simple_executor import execute_agent_task
+        for try_agent in agents_to_try:
+            system_prompt = self._build_system_prompt(try_agent, task, context, feedback, guard)
 
-                result = execute_agent_task(
-                    task=task,
-                    agent_role=agent_name.replace("-", " ").title(),
-                    system_prompt=system_prompt,
-                    api_key=api_key,
-                    model=try_model,
-                    base_url=base_url if try_model == model else "https://openrouter.ai/api/v1",
-                    max_tokens=8192,
-                    max_iterations=20,
-                )
+            # Try with user-selected model first, fallback to free model if distinct
+            models_to_try = [model]
+            if model != "openrouter/free":
+                models_to_try.append("openrouter/free")
 
-                output = result.get("output", "")
-                tools_used = result.get("tool_calls", [])
-                files_created = result.get("files_created", [])
+            for try_model in models_to_try:
+                try:
+                    from sago.engine.simple_executor import execute_agent_task
 
-                # If tools succeeded or files created or output present, format full success response
-                if tools_used or files_created or (output and len(output.strip()) > 5):
-                    return self._format_response(
-                        agent_name, output, tools_used, files_created, guard
+                    result = execute_agent_task(
+                        task=task,
+                        agent_role=try_agent.replace("-", " ").title(),
+                        system_prompt=system_prompt,
+                        api_key=api_key,
+                        model=try_model,
+                        base_url=base_url if try_model == model else "https://openrouter.ai/api/v1",
+                        max_tokens=8192,
+                        max_iterations=20,
                     )
 
-                last_error = output or "Empty response from agent"
+                    output = result.get("output", "")
+                    tools_used = result.get("tool_calls", [])
+                    files_created = result.get("files_created", [])
 
-            except Exception as e:
-                last_error = str(e)
-                continue
+                    # Quality gate: reject empty/trivial responses
+                    if not output or len(output.strip()) < 20:
+                        last_error = f"Agent '{try_agent}' produced empty/trivial output ({len(output or '')} chars)"
+                        continue
 
-        # All models failed
+                    # Quality gate: reject responses that are mostly failure indicators
+                    failure_signals = [
+                        "i cannot",
+                        "i'm unable",
+                        "i don't have",
+                        "error:",
+                        "failed to",
+                    ]
+                    failure_count = sum(1 for s in failure_signals if s in output.lower())
+                    if failure_count >= 2 and len(output.strip()) < 200:
+                        last_error = (
+                            f"Agent '{try_agent}' produced failure-heavy output: {output[:100]}"
+                        )
+                        continue
+
+                    # Success — format and return
+                    used_different_agent = try_agent != agent_name
+                    response = self._format_response(
+                        try_agent, output, tools_used, files_created, guard
+                    )
+                    if used_different_agent:
+                        response = (
+                            f"[Note: '{agent_name}' was unavailable, "
+                            f"used '{try_agent}' instead]\n\n" + response
+                        )
+                    return response
+
+                except Exception as e:
+                    last_error = f"{try_agent}/{try_model}: {e}"
+                    continue
+
+        # All agents and models failed
         return (
-            f"Agent '{agent_name}' could not be spawned.\n"
-            f"Reason: {last_error}\n\n"
+            f"Agent '{agent_name}' could not be spawned after trying {len(agents_to_try)} agent(s).\n"
+            f"Last error: {last_error}\n\n"
             f"Alternatives:\n"
             f"  1. Try running the task directly (without agent delegation)\n"
             f"  2. Check your API key and credits at https://openrouter.ai/settings/credits\n"

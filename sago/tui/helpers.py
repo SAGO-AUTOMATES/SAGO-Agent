@@ -55,29 +55,6 @@ def create_collapsible(
     return Collapsible(*content, title=title, collapsed=collapsed)
 
 
-class DismissableNotice(Horizontal):
-    """Dismissable / Removable system notification card with explicit dismiss button."""
-
-    def __init__(self, content: str, level: str = "system", **kwargs: Any) -> None:
-        super().__init__(classes="msg-system", **kwargs)
-        self.content_text = content
-        self.level = level
-
-    def compose(self):
-        yield Static(
-            f"[bold yellow][SYSTEM][/bold yellow] {self.content_text}",
-            classes="notice-text",
-            markup=True,
-        )
-        yield Static("", classes="spacer")
-        yield Button("✕", classes="btn-dismiss-notice", variant="default")
-
-    @on(Button.Pressed, ".btn-dismiss-notice")
-    def on_dismiss(self, event: Button.Pressed) -> None:
-        event.stop()
-        self.remove()
-
-
 class ExchangeTurnCard(Vertical):
     """Container for a single unified conversational turn (Prompt, Reasoning, Tools, Response)."""
 
@@ -89,30 +66,13 @@ class ExchangeTurnCard(Vertical):
 
     def compose(self):
         preview = self.prompt.replace("\n", " ").strip()
-        title_snippet = f"{preview[:70]}…" if len(preview) > 70 else preview
-        with Horizontal(classes="exchange-prompt-header-bar"):
-            yield Static(
-                f"[bold #58a6ff]▼ USER[/bold #58a6ff] [dim]•[/dim] {escape(title_snippet)}",
-                classes="exchange-prompt-header",
-                markup=True,
-            )
-            yield Static("", classes="spacer")
-            yield Button("⤢ Expand", classes="btn-turn-expand", variant="default")
-            yield Button("✕", classes="btn-turn-delete", variant="default")
-
-        with Vertical(classes="exchange-body"):
-            yield Static(escape(self.prompt), classes="exchange-user-prompt", markup=True)
-            yield Static("─" * 40, classes="exchange-divider", markup=False)
-
-    @on(Button.Pressed, ".btn-turn-expand")
-    def on_expand_button(self, event: Button.Pressed) -> None:
-        event.stop()
-        self.toggle_collapse()
-
-    @on(Button.Pressed, ".btn-turn-delete")
-    def on_delete_button(self, event: Button.Pressed) -> None:
-        event.stop()
-        self.remove()
+        title_snippet = f"{preview[:80]}..." if len(preview) > 80 else preview
+        yield Static(
+            f"[bold cyan]▼ USER[/bold cyan]  [bold white]{escape(title_snippet)}[/bold white]",
+            classes="exchange-prompt-header",
+            markup=True,
+        )
+        yield Vertical(classes="exchange-body")
 
     @on(events.Click, ".exchange-prompt-header")
     def on_header_clicked(self, event: events.Click) -> None:
@@ -124,23 +84,20 @@ class ExchangeTurnCard(Vertical):
         try:
             body = self.query_one(".exchange-body")
             hdr = self.query_one(".exchange-prompt-header", Static)
-            exp_btn = self.query_one(".btn-turn-expand", Button)
             self.is_turn_collapsed = not self.is_turn_collapsed
             body.display = not self.is_turn_collapsed
 
             preview = self.prompt.replace("\n", " ").strip()
-            title_snippet = f"{preview[:70]}…" if len(preview) > 70 else preview
+            title_snippet = f"{preview[:80]}..." if len(preview) > 80 else preview
 
             if self.is_turn_collapsed:
                 hdr.update(
-                    f"[bold #8b949e]▶ USER[/bold #8b949e] [dim]•[/dim] {escape(title_snippet)}"
+                    f"[bold cyan]▶ USER[/bold cyan]  [bold white]{escape(title_snippet)}[/bold white]  [dim]─ (click to expand)[/dim]"
                 )
-                exp_btn.label = "⤢ Expand"
             else:
                 hdr.update(
-                    f"[bold #58a6ff]▼ USER[/bold #58a6ff] [dim]•[/dim] {escape(title_snippet)}"
+                    f"[bold cyan]▼ USER[/bold cyan]  [bold white]{escape(title_snippet)}[/bold white]"
                 )
-                exp_btn.label = "− Collapse"
         except Exception:
             pass
 
@@ -171,22 +128,13 @@ class CollapsibleOutputCard(Vertical):
     def compose(self):
         icon = "▶" if self.is_collapsed else "▼"
         safe_title = escape(self.card_title)
-        with Horizontal(classes="exchange-prompt-header-bar"):
-            yield Static(
-                f"[dim]{icon}[/dim]  {safe_title}",
-                classes="card-header",
-                markup=True,
-            )
-            yield Static("", classes="spacer")
-            yield Button("✕", classes="btn-turn-delete", variant="default")
-
+        yield Static(
+            f"[dim]{icon}[/dim]  {safe_title}",
+            classes="card-header",
+            markup=True,
+        )
         with Vertical(classes="card-body"):
             yield self._content_widget
-
-    @on(Button.Pressed, ".btn-turn-delete")
-    def on_delete(self, event: Button.Pressed) -> None:
-        event.stop()
-        self.remove()
 
     @on(events.Click, ".card-header")
     def on_header_clicked(self, event: events.Click) -> None:
@@ -475,10 +423,12 @@ class UIHelpers:
 
     def _add_system_message(self: SagoApp, content: str) -> None:
         self._hide_welcome_screen()
-        notice = DismissableNotice(content)
-        msg_container = self.query_one("#messages")
-        msg_container.mount(notice)
-        msg_container.scroll_end(animate=False)
+        self.query_one("#messages").mount(
+            Static(
+                f"[bold yellow][SYSTEM][/bold yellow] {content}", classes="msg-system", markup=True
+            )
+        )
+        self.query_one("#messages").scroll_end(animate=False)
 
     def _add_tool_call(
         self: SagoApp, tool_name: str, args: dict, result: str, success: bool = True
