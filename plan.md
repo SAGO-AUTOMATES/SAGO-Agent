@@ -948,4 +948,4 @@ Nothing from the analysis was omitted. The structured §2–§3 ledger, the §4 
 
 ---
 
-*Last updated: deep code audit v0.1.6+. All issues from §8 are NEW findings not present in the original v0.1.5 audit (§2–§7).*
+*Last updated: Session v0.1.6+ (2026-08-15). Smart router, parallel execution, handoff fixes complete.*

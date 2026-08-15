@@ -1742,14 +1742,19 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         finally:
             self.is_thinking = False
 
-    def _process_chain(self, agents: list[str], task: str) -> None:
+    def _process_chain(self, chain_steps: list[list[str]], task: str) -> None:
         self.is_thinking = True
-        t = threading.Thread(target=self._process_chain_thread, args=(agents, task), daemon=True)
+        t = threading.Thread(
+            target=self._process_chain_thread, args=(chain_steps, task), daemon=True
+        )
         t.start()
 
-    def _process_chain_thread(self, agents: list[str], task: str) -> None:
+    def _process_chain_thread(self, chain_steps: list[list[str]], task: str) -> None:
         tm = self._task_manager or get_task_manager()
-        self.call_from_thread(self._show_spinner, f"Chain: {' → '.join(agents)}")
+        flat_agents = [a for step in chain_steps for a in step]
+        self.call_from_thread(
+            self._show_spinner, f"Chain: {' → '.join(['+'.join(s) for s in chain_steps])}"
+        )
         try:
             api_key = self._get_provider_api_key()
             if not api_key:
@@ -1769,53 +1774,112 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
             tool = SpawnAgentTool()
             current_input = task
-            for i, agent in enumerate(agents):
-                # Check recursion guard
-                allowed, reason = guard.can_spawn(agent)
-                if not allowed:
-                    self.call_from_thread(self._add_system_message, f"Chain stopped: {reason}")
-                    break
 
-                guard.enter(agent)
-                info = tm.create_task(agent, f"Chain step {i + 1}: {task[:50]}")
-                info.status = AgentStatus.RUNNING
-                self.call_from_thread(self._update_dashboard)
-                self.call_from_thread(self._update_spinner, f"Step {i + 1}/{len(agents)}: {agent}")
+            for step_idx, step_agents in enumerate(chain_steps):
+                allowed_agents = []
+                for agent in step_agents:
+                    can, reason = guard.can_spawn(agent)
+                    if can:
+                        allowed_agents.append(agent)
+                    else:
+                        self.call_from_thread(self._add_system_message, f"Skip {agent}: {reason}")
 
-                # Build structured context for this agent
-                context_str = ""
-                if i > 0:
-                    context_str = handoff_ctx.get_compact_handoff_prompt(agent)
+                if not allowed_agents:
+                    continue
 
-                result = tool.run(task=current_input, agent_name=agent, context=context_str)
+                for agent in allowed_agents:
+                    guard.enter(agent)
 
-                # Record result in handoff context
-                is_success = not (result.startswith("Error") or "REJECTED" in result)
-                handoff_ctx.add_result(agent, result, success=is_success)
+                if len(allowed_agents) == 1:
+                    # Sequential single agent
+                    agent = allowed_agents[0]
+                    info = tm.create_task(agent, f"Step {step_idx + 1}: {task[:50]}")
+                    info.status = AgentStatus.RUNNING
+                    self.call_from_thread(self._update_dashboard)
+                    self.call_from_thread(self._update_spinner, f"Step {step_idx + 1}: {agent}")
 
-                # Extract files created from result
-                if "Files created/modified:" in result:
-                    files_line = result.split("Files created/modified:")[1].split("\n")[0]
-                    for f in files_line.split(","):
-                        f = f.strip()
-                        if f and f not in handoff_ctx.files_created:
-                            handoff_ctx.files_created.append(f)
+                    context_str = (
+                        handoff_ctx.get_compact_handoff_prompt(agent)
+                        if step_idx > 0 or handoff_ctx.agent_results
+                        else ""
+                    )
+                    result = tool.run(task=current_input, agent_name=agent, context=context_str)
 
-                info.status = AgentStatus.COMPLETED
-                info.result = result
-                info.elapsed = _time.time() - info.start_time
-                self.call_from_thread(self._update_dashboard)
+                    is_success = not (result.startswith("Error") or "REJECTED" in result)
+                    handoff_ctx.add_result(agent, result, success=is_success)
+                    if "Files created/modified:" in result:
+                        files_line = result.split("Files created/modified:")[1].split("\n")[0]
+                        for f in files_line.split(","):
+                            f = f.strip()
+                            if f and f not in handoff_ctx.files_created:
+                                handoff_ctx.files_created.append(f)
 
-                guard.exit(agent)
-
-                # Build input for next agent using structured context
-                if i + 1 < len(agents):
-                    current_input = handoff_ctx.get_compact_handoff_prompt(agents[i + 1])
-                else:
+                    info.status = AgentStatus.COMPLETED
+                    info.result = result
+                    info.elapsed = _time.time() - info.start_time
+                    self.call_from_thread(self._update_dashboard)
                     current_input = result
+                else:
+                    # Parallel agents
+                    self.call_from_thread(
+                        self._update_spinner,
+                        f"Step {step_idx + 1}: {len(allowed_agents)} agents in parallel",
+                    )
+                    results = {}
+                    errors = {}
+
+                    def _run_parallel(agent_name: str):
+                        try:
+                            ctx = (
+                                handoff_ctx.get_compact_handoff_prompt(agent_name)
+                                if step_idx > 0 or handoff_ctx.agent_results
+                                else ""
+                            )
+                            r = tool.run(task=current_input, agent_name=agent_name, context=ctx)
+                            results[agent_name] = r
+                        except Exception as e:
+                            errors[agent_name] = str(e)
+
+                    threads = []
+                    for agent in allowed_agents:
+                        t = threading.Thread(target=_run_parallel, args=(agent,), daemon=True)
+                        threads.append((agent, t))
+                        t.start()
+
+                    for agent, t in threads:
+                        t.join(timeout=300)
+                        if t.is_alive():
+                            errors[agent] = "Timeout (300s)"
+
+                    # Merge parallel results
+                    merged_parts = []
+                    for agent in allowed_agents:
+                        if agent in results:
+                            r = results[agent]
+                            handoff_ctx.add_result(
+                                agent, r, success=not (r.startswith("Error") or "REJECTED" in r)
+                            )
+                            if "Files created/modified:" in r:
+                                files_line = r.split("Files created/modified:")[1].split("\n")[0]
+                                for f in files_line.split(","):
+                                    f = f.strip()
+                                    if f and f not in handoff_ctx.files_created:
+                                        handoff_ctx.files_created.append(f)
+                            merged_parts.append(f"[{agent}]: {r}")
+                        elif agent in errors:
+                            merged_parts.append(f"[{agent}] Error: {errors[agent]}")
+
+                    current_input = "\n\n".join(merged_parts)
+
+                    for agent in allowed_agents:
+                        guard.exit(agent)
 
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_assistant_message, current_input, agent_name=agents[-1])
+            self.call_from_thread(
+                self._add_assistant_message,
+                current_input,
+                agent_name=flat_agents[-1] if flat_agents else "chain",
+            )
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_system_message, f"Chain error: {e}")

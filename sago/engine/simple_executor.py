@@ -1469,37 +1469,40 @@ def execute_agent_task(
         # ---- Execute native tool calls and return results as role:tool messages ----
         tools_used_in_iteration = []
 
-        for tc in native_tool_calls:
+        # Tools safe to run in parallel (read-only, no side effects)
+        _PARALLEL_SAFE = {
+            "grep",
+            "glob",
+            "read_file",
+            "list_directory",
+            "search_files",
+            "count_lines",
+        }
+
+        def _exec_single_tool(tc: dict) -> dict:
+            """Execute a single tool call and return the result message."""
             tc_id = tc["id"]
             name = tc["name"]
             args = tc["args"]
-
-            # Loop prevention
             call_key = f"{name}:{json.dumps(args, sort_keys=True)}"
+
             if call_key in failed_calls:
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc_id,
-                        "name": name,
-                        "content": f"[SKIP] Already failed: {name} with same args",
-                    }
-                )
-                continue
+                return {
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "name": name,
+                    "content": f"[SKIP] Already failed: {name} with same args",
+                }
 
             if name not in tools:
                 avail = ", ".join(sorted(tools.keys()))
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc_id,
-                        "name": name,
-                        "content": f"Unknown tool '{name}'. Available: {avail}",
-                    }
-                )
-                continue
+                return {
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "name": name,
+                    "content": f"Unknown tool '{name}'. Available: {avail}",
+                }
 
-            # Check permissions before execution
             from sago.permissions import RiskLevel, get_permission_manager
 
             pm = get_permission_manager()
@@ -1519,32 +1522,19 @@ def execute_agent_task(
                     ):
                         pm.approve_tool(name, session_id=session_id)
                         allowed = True
-                        reason = "User approved"
 
                 if not allowed:
-                    if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL):
-                        messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tc_id,
-                                "name": name,
-                                "content": f"Permission denied: {name} requires approval (risk: {risk.value})",
-                            }
-                        )
-                    else:
-                        messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tc_id,
-                                "name": name,
-                                "content": f"Permission denied: {reason}",
-                            }
-                        )
-                    continue
+                    return {
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "name": name,
+                        "content": f"Permission denied: {name} requires approval"
+                        if risk in (RiskLevel.HIGH, RiskLevel.CRITICAL)
+                        else f"Permission denied: {reason}",
+                    }
 
             tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
 
-            # Detect circular behavior
             recent_calls = [
                 f"{c['tool']}:{json.dumps(c['args'], sort_keys=True)[:50]}"
                 for c in tool_history[-5:]
@@ -1558,35 +1548,25 @@ def execute_agent_task(
             if len(recent_calls) >= circular_thresh:
                 unique_recent = set(recent_calls[-circular_thresh:])
                 if len(unique_recent) == 1:
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc_id,
-                            "name": name,
-                            "content": (
-                                f"[HINT] You've called {name} with similar args {circular_thresh} times in a row. "
-                                f"If this isn't working, try a completely different approach or finish the task."
-                            ),
-                        }
-                    )
-                    continue
+                    return {
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "name": name,
+                        "content": f"[HINT] You've called {name} with similar args {circular_thresh} times in a row.",
+                    }
 
             if on_tool_call:
                 on_tool_call(name, args)
 
-            # --- Pre-validate tool arguments to catch hallucinated/empty args ---
             validation_error = _validate_tool_args(name, args)
             if validation_error:
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc_id,
-                        "name": name,
-                        "content": validation_error,
-                    }
-                )
                 failed_calls.add(call_key)
-                continue
+                return {
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "name": name,
+                    "content": validation_error,
+                }
 
             tool_instance = tools[name]()
             result = tool_instance.run(**args)
@@ -1596,7 +1576,6 @@ def execute_agent_task(
             if is_error:
                 failed_calls.add(call_key)
 
-            # Track created and modified files, enqueue for background verification
             if name in ("write_file", "edit_file", "file_operations") and not is_error:
                 fp = (
                     args.get("file_path", "") or args.get("target_file", "") or args.get("path", "")
@@ -1609,11 +1588,6 @@ def execute_agent_task(
                     get_continuous_verifier().enqueue_files([fp] if fp else [])
                 except Exception:
                     pass
-
-                # Close the self-healing loop: synchronously verify the just-written
-                # Python file and surface actionable diagnostics back into the tool
-                # result so the agent can immediately correct errors instead of
-                # discovering them only on a later full-project verification pass.
                 if fp and fp.endswith(".py"):
                     try:
                         from sago.engine.verifier import ProjectVerifier
@@ -1626,17 +1600,10 @@ def execute_agent_task(
                         pass
 
             tool_history.append(
-                {
-                    "tool": name,
-                    "args": args,
-                    "result": result_str[:2000],
-                    "success": not is_error,
-                }
+                {"tool": name, "args": args, "result": result_str[:2000], "success": not is_error}
             )
-
             tools_used_in_iteration.append(name)
 
-            # Log tool usage to DB using shared store
             if tool_usage_store is not None:
                 try:
                     tool_usage_store.log(
@@ -1648,24 +1615,42 @@ def execute_agent_task(
                 except Exception:
                     pass
 
-            # Notify caller of tool result immediately
             if on_tool_result:
                 on_tool_result(name, args, result_str, not is_error)
 
-            # Send result back as role:tool message with tool_call_id
-            if is_error:
-                tool_result_content = f"[ERROR] {name}:\n{result_str}\nTry a different approach."
-            else:
-                tool_result_content = result_str
-
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tc_id,
-                    "name": name,
-                    "content": tool_result_content,
-                }
+            content = (
+                f"[ERROR] {name}:\n{result_str}\nTry a different approach."
+                if is_error
+                else result_str
             )
+            return {"role": "tool", "tool_call_id": tc_id, "name": name, "content": content}
+
+        # Group tool calls: parallel-safe tools run concurrently, others run sequentially
+        i = 0
+        while i < len(native_tool_calls):
+            tc = native_tool_calls[i]
+            if tc["name"] in _PARALLEL_SAFE:
+                # Collect batch of parallel-safe calls
+                batch = []
+                while i < len(native_tool_calls) and native_tool_calls[i]["name"] in _PARALLEL_SAFE:
+                    batch.append(native_tool_calls[i])
+                    i += 1
+
+                if len(batch) == 1:
+                    messages.append(_exec_single_tool(batch[0]))
+                else:
+                    # Execute parallel batch
+                    import concurrent.futures
+
+                    with concurrent.futures.ThreadPoolExecutor(
+                        max_workers=min(len(batch), 6)
+                    ) as pool:
+                        futures = {pool.submit(_exec_single_tool, tc): tc for tc in batch}
+                        for future in concurrent.futures.as_completed(futures):
+                            messages.append(future.result())
+            else:
+                messages.append(_exec_single_tool(tc))
+                i += 1
 
         # Update task plan progress based on actual work done
         if task_plan:

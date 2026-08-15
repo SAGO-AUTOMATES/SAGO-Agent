@@ -167,10 +167,20 @@ class CommandHandlers:
             self._add_user_message(f"/chain {args}")
             self._process_chain(agents, task)
             return
+
         agent_chain, task = parts
-        agents = [a.strip() for a in agent_chain.split(",")]
+        # Parse chain: "a,b → c,d" means (a,b parallel) → (c,d parallel)
+        chain_steps = []
+        for step_str in agent_chain.split("→"):
+            step_agents = [a.strip() for a in step_str.split(",") if a.strip()]
+            if step_agents:
+                chain_steps.append(step_agents)
+
+        if not chain_steps:
+            chain_steps = [["python-engineer"]]
+
         self._add_user_message(f"/chain {args}")
-        self._process_chain(agents, task)
+        self._process_chain(chain_steps, task)
 
     def _orchestrate_task(self: SagoApp, task: str) -> None:
         if not task:

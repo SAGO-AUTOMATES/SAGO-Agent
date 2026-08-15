@@ -63,6 +63,8 @@ SYNONYM_MAP: dict[str, list[str]] = {
     "security": [
         "security",
         "vulnerability",
+        "vulnerabilities",
+        "vuln",
         "pentest",
         "owasp",
         "auth",
@@ -72,6 +74,25 @@ SYNONYM_MAP: dict[str, list[str]] = {
         "oauth",
         "jwt",
         "saml",
+        "injection",
+        "sql injection",
+        "xss",
+        "csrf",
+        "ssrf",
+        "xxe",
+        "rce",
+        "exploit",
+        "cve",
+        "threat",
+        "hardening",
+        "firewall",
+        "waf",
+        "ids",
+        "ips",
+        "audit",
+        "scan",
+        "渗透",
+        "漏洞",
     ],
     "testing": [
         "test",
@@ -273,6 +294,16 @@ class SmartRouter:
                     expanded.append(key)
         return expanded
 
+    # Generic skills that many agents have — shouldn't dominate scoring
+    GENERIC_SKILLS = {
+        "security",
+        "testing",
+        "performance",
+        "documentation",
+        "monitoring",
+        "automation",
+    }
+
     def _score_skills(self, task_tokens: list[str], agent_name: str) -> tuple[float, list[str]]:
         """Score agent based on skill tag matching."""
         agent = self._agents.get(agent_name)
@@ -284,27 +315,47 @@ class SmartRouter:
         agent_skills_lower = [s.lower() for s in agent.skills]
         expanded_tokens = self._expand_synonyms(task_tokens)
 
+        def _stem(word: str) -> str:
+            """Simple stemming: strip common suffixes."""
+            for suffix in ["ies", "ves", "es", "s", "ing", "tion", "ment"]:
+                if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+                    return word[: -len(suffix)]
+            return word
+
+        exact_count = 0
         for token in expanded_tokens:
+            if len(token) < 3:
+                continue
+            token_stem = _stem(token)
             for skill in agent_skills_lower:
+                is_generic = skill in self.GENERIC_SKILLS
                 if token == skill:
-                    score += 2.0
-                    reasons.append(f"exact skill match: {skill}")
-                elif token in skill or skill in token:
-                    score += 1.0
-                    reasons.append(f"partial skill match: {token}~{skill}")
+                    pts = 1.5 if is_generic else 3.0
+                    score += pts
+                    exact_count += 1
+                    reasons.append(f"{'generic' if is_generic else 'exact'}: {skill}")
+                elif token_stem == skill or token == _stem(skill):
+                    pts = 1.0 if is_generic else 2.0
+                    score += pts
+                    reasons.append(f"stem: {token}~{skill}")
+                elif token in skill and len(token) >= len(skill) * 0.5:
+                    score += 1.5
+                    reasons.append(f"match: {token}~{skill}")
 
-        # Bonus for matching multiple skills
-        matched_skills = sum(
-            1 for t in expanded_tokens if any(t in s or s in t for s in agent_skills_lower)
+        # Bonus for matching multiple specific (non-generic) skills
+        specific_matches = sum(
+            1
+            for t in expanded_tokens
+            if any((t == s or t in s) and s not in self.GENERIC_SKILLS for s in agent_skills_lower)
         )
-        if matched_skills >= 3:
-            score *= 1.5
-            reasons.append(f"multi-skill bonus ({matched_skills} skills)")
+        if specific_matches >= 2:
+            score *= 1.4
+            reasons.append(f"multi-skill bonus ({specific_matches})")
 
-        return min(score, 10.0), reasons[:3]
+        return min(score, 12.0), reasons[:3]
 
     def _score_category(self, task_tokens: list[str], agent_name: str) -> tuple[float, list[str]]:
-        """Score agent based on category relevance."""
+        """Score agent based on category relevance with domain alignment."""
         agent = self._agents.get(agent_name)
         if not agent:
             return 0.0, []
@@ -312,6 +363,56 @@ class SmartRouter:
         score = 0.0
         reasons = []
         category = agent.category.lower()
+
+        # Detect task domain from tokens
+        task_domains = set()
+        domain_map = {
+            "security": [
+                "security",
+                "vulnerability",
+                "injection",
+                "xss",
+                "csrf",
+                "auth",
+                "audit",
+                "threat",
+                "owasp",
+            ],
+            "data": ["data", "database", "sql", "schema", "migration", "query", "warehouse"],
+            "infra": ["docker", "kubernetes", "deploy", "ci/cd", "devops", "container", "helm"],
+            "frontend": ["react", "vue", "angular", "css", "ui", "frontend", "responsive"],
+            "language": ["python", "java", "go", "rust", "c++", "ruby", "php", "swift", "kotlin"],
+        }
+        for domain, keywords in domain_map.items():
+            if any(kw in task_tokens for kw in keywords):
+                task_domains.add(domain)
+
+        # Map categories to their primary domains
+        category_domains = {
+            "specialized-engineering": {"security", "mobile", "blockchain"},
+            "infrastructure-ops": {"infra"},
+            "data-intelligence": {"data"},
+            "frontend-frameworks": {"frontend"},
+            "language-specific": {"language"},
+            "database-specialists": {"data"},
+            "cloud-infra-architecture": {"infra"},
+            "testing-quality": set(),
+        }
+
+        agent_domains = set()
+        for cat, domains in category_domains.items():
+            if cat in category:
+                agent_domains.update(domains)
+
+        # Score alignment
+        if task_domains and agent_domains:
+            overlap = task_domains & agent_domains
+            if overlap:
+                score += 4.0
+                reasons.append(f"category aligns: {category} → {overlap}")
+            elif not agent_domains.intersection(task_domains):
+                score -= 2.0
+                reasons.append(f"category misaligned: {category}")
 
         # Direct category keyword matches
         category_keywords = {
@@ -343,7 +444,7 @@ class SmartRouter:
                         score += 1.5
                         reasons.append(f"category match: {cat} + {kw}")
 
-        return min(score, 5.0), reasons[:2]
+        return max(min(score, 5.0), -3.0), reasons[:2]
 
     def _score_task_type(self, task_tokens: list[str], agent_name: str) -> tuple[float, list[str]]:
         """Score agent based on task type alignment."""
