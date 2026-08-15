@@ -43,8 +43,9 @@ class FileChange:
 class ChangeTracker:
     """Tracks file modifications for a session."""
 
-    # Paths to exclude from tracking (temp dirs, caches, etc.)
-    _EXCLUDED_PREFIXES = ("/tmp/", "/var/tmp/", "/dev/shm/")
+    # Paths to exclude from tracking (virtual filesystems, socket dirs, internal git objects)
+    _EXCLUDED_PREFIXES = ("/dev/", "/proc/", "/sys/", "/run/")
+    _EXCLUDED_SUBSTRINGS = ("/.git/objects/", "/__pycache__/")
 
     def __init__(self, session_id: str | None = None) -> None:
         self.session_id = session_id or "default"
@@ -54,10 +55,13 @@ class ChangeTracker:
         self._load_index()
 
     def _should_track(self, file_path: str) -> bool:
-        """Check if a file path should be tracked (skip temp dirs, caches, etc.)."""
+        """Check if a file path should be tracked."""
         real_path = os.path.realpath(file_path)
         for prefix in self._EXCLUDED_PREFIXES:
             if real_path.startswith(prefix):
+                return False
+        for sub in self._EXCLUDED_SUBSTRINGS:
+            if sub in real_path:
                 return False
         return True
 
