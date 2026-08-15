@@ -99,15 +99,20 @@ def _pydantic_field_to_schema_simple(annotation: Any, field_info: Any) -> dict[s
 
 
 def _build_openai_tools(tool_classes: dict[str, type[BaseTool]]) -> list[dict[str, Any]]:
-    """Convert tool classes to OpenAI function calling tool definitions.
+    """Convert tool classes to concise OpenAI function calling tool definitions.
 
-    Returns a list of tool dicts in the format:
-        [{"type": "function", "function": {"name": ..., "description": ..., "parameters": ...}}]
+    Optimized to minimize input token overhead while maintaining full precision for the LLM.
     """
     openai_tools: list[dict[str, Any]] = []
 
     for name, cls in sorted(tool_classes.items()):
-        description = cls.description or name
+        raw_desc = (cls.description or name).strip()
+        # Compact single-line description to save tokens
+        first_line = raw_desc.split("\n", 1)[0].strip()
+        if len(first_line) > 160:
+            first_line = first_line[:157] + "..."
+        description = first_line or name
+
         parameters: dict[str, Any] = {
             "type": "object",
             "properties": {},
@@ -118,6 +123,12 @@ def _build_openai_tools(tool_classes: dict[str, type[BaseTool]]) -> list[dict[st
             fields = cls.args_model.model_fields
             for field_name, field_info in fields.items():
                 prop = _pydantic_field_to_schema(field_info)
+                # Trim overly verbose parameter descriptions
+                if "description" in prop and isinstance(prop["description"], str):
+                    pdesc = prop["description"].split("\n", 1)[0].strip()
+                    if len(pdesc) > 100:
+                        pdesc = pdesc[:97] + "..."
+                    prop["description"] = pdesc
                 parameters["properties"][field_name] = prop
                 if field_info.is_required():
                     parameters["required"].append(field_name)

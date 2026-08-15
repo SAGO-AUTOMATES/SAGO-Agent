@@ -511,6 +511,13 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         background: #1f6feb;
         color: #ffffff;
     }
+    .dev-only-btn {
+        display: none;
+    }
+    .dev-mode-enabled .dev-only-btn {
+        display: block;
+    }
+
     .btn-action-cancel {
         color: #f85149;
     }
@@ -726,9 +733,8 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                 "[bold green]SAGO[/bold green] [dim]Agent[/dim]", id="brand-label", markup=True
             )
             yield Static("", id="top-bar-spacer", classes="spacer")
-            yield Button("⚡ Traces [F2]", id="btn-top-traces", classes="btn-top-bar")
-            yield Button("📊 Dashboard", id="btn-top-dashboard", classes="btn-top-bar")
-            yield Button("⌨ Help [F1]", id="btn-top-help", classes="btn-top-bar")
+            yield Button("⚡ Traces [F2]", id="btn-top-traces", classes="btn-top-bar dev-only-btn")
+            yield Button("⌨  Help [F1]", id="btn-top-help", classes="btn-top-bar")
 
         with Horizontal(id="main-layout"):
             with Vertical(id="messages-parent"):
@@ -764,16 +770,13 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                     )
                     with Horizontal(id="input-action-bar"):
                         yield Button(
-                            "⚡ Dev Traces [F2]",
-                            id="btn-input-traces",
-                            classes="btn-input-action btn-action-traces",
+                            "⌨  Help [F1]", id="btn-input-help", classes="btn-input-action"
                         )
                         yield Button(
-                            "📊 Dashboard [Ctrl+D]",
-                            id="btn-input-dashboard",
-                            classes="btn-input-action",
+                            "⚡ Dev Traces [F2]",
+                            id="btn-input-traces",
+                            classes="btn-input-action btn-action-traces dev-only-btn",
                         )
-                        yield Button("⌨ Help [F1]", id="btn-input-help", classes="btn-input-action")
                         yield Button("🧹 Clear", id="btn-input-clear", classes="btn-input-action")
                         yield Button(
                             "⛔ Cancel",
@@ -798,6 +801,9 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self._init_session()
         self._load_settings()
         self._task_manager = get_task_manager()
+        # Initialize dev mode class if active
+        if getattr(self, "developer_mode", False):
+            self.add_class("dev-mode-enabled")
         # Populate welcome screen
         self._populate_welcome_screen()
         # Auto-resume if --resume flag was passed
@@ -809,6 +815,13 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         self.query_one("#msg-input").focus()
         # Start dashboard update timer
         self._dashboard_timer = self.set_interval(1.0, self._periodic_dashboard_update)
+
+    def watch_developer_mode(self, value: bool) -> None:
+        """Dynamically add or remove .dev-mode-enabled class when developer mode changes."""
+        if value:
+            self.add_class("dev-mode-enabled")
+        else:
+            self.remove_class("dev-mode-enabled")
 
     def _populate_welcome_screen(self) -> None:
         """Populate the welcome screen with SAGO logo and info."""

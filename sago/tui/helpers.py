@@ -300,7 +300,8 @@ class UIHelpers:
             from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
             tracer = get_dev_tracer()
-            traces = tracer.get_recent_traces(limit=500)
+            if tracer.is_enabled:
+                traces = tracer.get_recent_traces(limit=500)
             if traces:
                 llm_count = sum(
                     1
