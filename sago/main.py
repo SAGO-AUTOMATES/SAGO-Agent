@@ -801,16 +801,16 @@ def update(check: bool, pre: bool) -> None:
 
     # 1. Fetch latest version from PyPI
     latest_version = None
+    package_name = "sago-agent"
     try:
         req = urllib.request.Request(
-            "https://pypi.org/pypi/sago/json",
+            f"https://pypi.org/pypi/{package_name}/json",
             headers={"User-Agent": f"sago-cli/{__version__}"},
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode())
             latest_version = data.get("info", {}).get("version")
     except Exception:
-        # Fallback query
         latest_version = None
 
     if latest_version:
@@ -826,28 +826,67 @@ def update(check: bool, pre: bool) -> None:
     if check:
         return
 
-    # 2. Detect package manager and environment
+    # 2. Detect package manager and installation method
     has_uv = bool(shutil.which("uv"))
+    has_pipx = bool(shutil.which("pipx"))
+
+    # Check if installed via `uv tool`
+    is_uv_tool = False
+    if has_uv:
+        try:
+            res = subprocess.run(["uv", "tool", "list"], capture_output=True, text=True, timeout=5)
+            if res.returncode == 0 and "sago-agent" in res.stdout:
+                is_uv_tool = True
+        except Exception:
+            is_uv_tool = False
+
+    # Check if installed via `pipx`
+    is_pipx = False
+    if not is_uv_tool and has_pipx:
+        try:
+            res = subprocess.run(["pipx", "list"], capture_output=True, text=True, timeout=5)
+            if res.returncode == 0 and "sago-agent" in res.stdout:
+                is_pipx = True
+        except Exception:
+            is_pipx = False
 
     update_cmd = []
-    if has_uv:
+    if is_uv_tool:
+        console.print(
+            "\n[dim]⚡ Detected global installation via [bold cyan]uv tool[/bold cyan][/dim]"
+        )
+        update_cmd = ["uv", "tool", "upgrade", package_name]
+    elif is_pipx:
+        console.print(
+            "\n[dim]📦 Detected global installation via [bold cyan]pipx[/bold cyan][/dim]"
+        )
+        update_cmd = ["pipx", "upgrade", package_name]
+    elif has_uv:
         console.print("\n[dim]⚡ Detected package manager: [bold cyan]uv[/bold cyan][/dim]")
-        update_cmd = ["uv", "pip", "install", "--upgrade", "sago"]
+        update_cmd = ["uv", "pip", "install", "--upgrade", package_name]
         if pre:
             update_cmd.append("--prerelease=allow")
     else:
         console.print("\n[dim]📦 Detected package manager: [bold cyan]pip[/bold cyan][/dim]")
-        update_cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "sago"]
+        update_cmd = [sys.executable, "-m", "pip", "install", "--upgrade", package_name]
         if pre:
             update_cmd.append("--pre")
 
     console.print(f"[bold]Executing upgrade command:[/] `{' '.join(update_cmd)}`\n")
     try:
-        result = subprocess.run(update_cmd, capture_output=True, text=True, timeout=120)
+        with console.status(
+            f"[bold cyan]Fetching and installing latest {package_name}...[/bold cyan]",
+            spinner="dots",
+        ):
+            result = subprocess.run(update_cmd, capture_output=True, text=True, timeout=120)
+
         if result.returncode == 0:
-            console.print("[bold green]✓ SAGO has been successfully updated![/bold green]")
+            console.print(
+                "[bold green]✓ SAGO has been successfully updated to the latest version![/bold green]\n"
+            )
             if result.stdout.strip():
-                console.print(f"[dim]{result.stdout.strip()[-300:]}[/dim]\n")
+                tail_out = "\n".join(result.stdout.strip().splitlines()[-6:])
+                console.print(f"[dim]{tail_out}[/dim]\n")
         else:
             console.print(
                 f"[bold red]✗ Update failed with exit code {result.returncode}:[/bold red]"
