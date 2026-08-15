@@ -11,20 +11,25 @@ from pathlib import Path
 
 
 def get_sago_home() -> Path:
-    """Get the Sago home directory based on OS.
+    """Get the Sago home directory based on OS and environment.
 
-    Linux/macOS: ~/.sago/
-    Windows: %USERPROFILE%/.sago/
+    Supports:
+    - SAGO_HOME environment variable override (any OS)
+    - Linux/macOS: ~/.sago/
+    - Windows: %USERPROFILE%/.sago/ or %LOCALAPPDATA%/sago
 
     Returns:
         Path to the Sago home directory.
     """
-    if platform.system() == "Windows":
+    if "SAGO_HOME" in os.environ:
+        sago_home = Path(os.environ["SAGO_HOME"]).expanduser().resolve()
+    elif platform.system() == "Windows":
         base = Path(os.environ.get("USERPROFILE", Path.home()))
+        sago_home = (base / ".sago").resolve()
     else:
         base = Path.home()
+        sago_home = (base / ".sago").resolve()
 
-    sago_home = base / ".sago"
     sago_home.mkdir(parents=True, exist_ok=True)
     return sago_home
 

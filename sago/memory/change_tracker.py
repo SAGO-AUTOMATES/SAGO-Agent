@@ -68,7 +68,10 @@ class ChangeTracker:
                 session_dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
                 for old_dir in session_dirs[self._MAX_SESSIONS_TO_KEEP :]:
                     if old_dir != self._backup_dir:
-                        shutil.rmtree(old_dir, ignore_errors=True)
+                        try:
+                            shutil.rmtree(old_dir, ignore_errors=True)
+                        except Exception:
+                            pass
         except Exception:
             pass
 
@@ -87,13 +90,14 @@ class ChangeTracker:
             pass
 
     def _should_track(self, file_path: str) -> bool:
-        """Check if a file path should be tracked."""
+        """Check if a file path should be tracked cross-platform."""
         real_path = os.path.realpath(file_path)
+        normalized_path = real_path.replace("\\", "/")
         for prefix in self._EXCLUDED_PREFIXES:
-            if real_path.startswith(prefix):
+            if normalized_path.startswith(prefix):
                 return False
         for sub in self._EXCLUDED_SUBSTRINGS:
-            if sub in real_path:
+            if sub in normalized_path:
                 return False
         return True
 

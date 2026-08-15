@@ -83,6 +83,26 @@ def _get_dir_size_and_count(path: Path) -> tuple[int, int]:
     return total_bytes, total_files
 
 
+def _force_rmtree(path: Path | str) -> None:
+    """Recursively remove a directory tree cross-platform, handling Windows readonly files."""
+    import stat
+
+    def _onerror(func, p, exc_info):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except Exception:
+            pass
+
+    try:
+        shutil.rmtree(path, onerror=_onerror)
+    except Exception:
+        try:
+            shutil.rmtree(path, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def clean_caches(
     workspace_root: Path | str | None = None,
     dry_run: bool = False,
@@ -233,7 +253,7 @@ def clean_backups(
             sz, count = _get_dir_size_and_count(sdir)
             if not dry_run:
                 try:
-                    shutil.rmtree(sdir, ignore_errors=True)
+                    _force_rmtree(sdir)
                 except OSError as e:
                     logger.debug("Failed to remove backup dir %s: %s", sdir, e)
                     continue
@@ -289,7 +309,7 @@ def clean_checkpoints(
             sz, count = _get_dir_size_and_count(snap)
             if not dry_run:
                 try:
-                    shutil.rmtree(snap, ignore_errors=True)
+                    _force_rmtree(snap)
                 except OSError as e:
                     logger.debug("Failed to remove snapshot %s: %s", snap, e)
                     continue
