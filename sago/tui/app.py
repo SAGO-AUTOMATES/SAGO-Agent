@@ -519,9 +519,21 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     }
 
     .btn-action-cancel {
+        display: none;
         color: #f85149;
     }
+    .is-thinking .btn-action-cancel {
+        display: block;
+    }
     .btn-action-cancel:hover {
+        background: #da3633;
+        color: #ffffff;
+    }
+
+    .btn-action-exit {
+        color: #8b949e;
+    }
+    .btn-action-exit:hover {
         background: #da3633;
         color: #ffffff;
     }
@@ -782,6 +794,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             "⛔ Cancel",
                             id="btn-input-cancel",
                             classes="btn-input-action btn-action-cancel",
+                        )
+                        yield Button(
+                            "🚪 Exit",
+                            id="btn-input-exit",
+                            classes="btn-input-action btn-action-exit",
                         )
             with Vertical(id="agent-dashboard", classes="hidden"):
                 yield Static("Agent Dashboard", classes="dashboard-title", markup=True)
@@ -1389,6 +1406,11 @@ class SagoApp(App, CommandHandlers, UIHelpers):
     def on_cancel_button_clicked(self) -> None:
         """Cancel current execution from input action bar button."""
         self.action_cancel_task()
+
+    @on(Button.Pressed, "#btn-input-exit")
+    def on_exit_button_clicked(self) -> None:
+        """Exit the application."""
+        self.action_quit()
 
     def _show_shortcuts_suggestions(self, query: str = "") -> None:
         """Show shortcuts and quick help suggestions."""
@@ -2687,20 +2709,30 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                         sys_msg = ""
                         contents = []
+                        current_role = None
+                        current_parts = []
+
                         for msg in messages:
                             role = msg.get("role")
                             c_text = msg.get("content")
                             if role == "system":
                                 sys_msg = c_text or ""
                                 continue
+
                             if role == "user":
                                 if c_text:
-                                    contents.append(
-                                        google_types.Content(
-                                            role="user",
-                                            parts=[google_types.Part(text=c_text)],
-                                        )
-                                    )
+                                    if current_role == "user":
+                                        current_parts.append(google_types.Part(text=c_text))
+                                    else:
+                                        if current_role and current_parts:
+                                            contents.append(
+                                                google_types.Content(
+                                                    role=current_role, parts=current_parts
+                                                )
+                                            )
+                                        current_role = "user"
+                                        current_parts = [google_types.Part(text=c_text)]
+
                             elif role == "assistant":
                                 parts = []
                                 if c_text:
@@ -2723,23 +2755,42 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                         )
                                     )
                                 if parts:
-                                    contents.append(google_types.Content(role="model", parts=parts))
-                            elif role == "tool":
-                                # Tool execution output returned as function_response
-                                tname = msg.get("name") or "tool"
-                                contents.append(
-                                    google_types.Content(
-                                        role="user",
-                                        parts=[
-                                            google_types.Part(
-                                                function_response=google_types.FunctionResponse(
-                                                    name=tname,
-                                                    response={"result": c_text or ""},
+                                    if current_role == "model":
+                                        current_parts.extend(parts)
+                                    else:
+                                        if current_role and current_parts:
+                                            contents.append(
+                                                google_types.Content(
+                                                    role=current_role, parts=current_parts
                                                 )
                                             )
-                                        ],
+                                        current_role = "model"
+                                        current_parts = parts
+
+                            elif role == "tool":
+                                tname = msg.get("name") or "tool"
+                                fpart = google_types.Part(
+                                    function_response=google_types.FunctionResponse(
+                                        name=tname,
+                                        response={"result": str(c_text or "")},
                                     )
                                 )
+                                if current_role == "user":
+                                    current_parts.append(fpart)
+                                else:
+                                    if current_role and current_parts:
+                                        contents.append(
+                                            google_types.Content(
+                                                role=current_role, parts=current_parts
+                                            )
+                                        )
+                                    current_role = "user"
+                                    current_parts = [fpart]
+
+                        if current_role and current_parts:
+                            contents.append(
+                                google_types.Content(role=current_role, parts=current_parts)
+                            )
 
                         if not contents:
                             contents = [
