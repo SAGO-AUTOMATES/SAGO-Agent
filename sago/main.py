@@ -1793,7 +1793,10 @@ def checkpoint_cmd(action: str, target: str | None) -> None:
 @click.option(
     "--checkpoints", is_flag=True, help="Purge older workspace snapshots (.sago/checkpoints)"
 )
-@click.option("--db", is_flag=True, help="Clean empty/noise sessions and vacuum SQLite database")
+@click.option(
+    "--plans", is_flag=True, help="Purge completed/stale task plans (~/.sago/task_plans.json)"
+)
+@click.option("--db", is_flag=True, help="Clean empty/stale sessions and vacuum SQLite database")
 @click.option("--logs", is_flag=True, help="Clean / truncate old and oversized log files")
 @click.option("--days", type=float, default=None, help="Purge items older than N days")
 @click.option(
@@ -1805,8 +1808,14 @@ def checkpoint_cmd(action: str, target: str | None) -> None:
 @click.option(
     "--keep-backups",
     type=int,
-    default=3,
-    help="Number of newest session backups to retain (default: 3)",
+    default=1,
+    help="Number of newest session backups to retain (default: 1)",
+)
+@click.option(
+    "--keep-sessions",
+    type=int,
+    default=10,
+    help="Number of newest DB sessions to retain (default: 10)",
 )
 @click.option("--dry-run", is_flag=True, help="Show what would be cleaned without deleting")
 @click.option("--force", "-f", is_flag=True, help="Perform cleanup without confirmation prompts")
@@ -1815,24 +1824,27 @@ def clean_cmd(
     cache: bool,
     backups: bool,
     checkpoints: bool,
+    plans: bool,
     db: bool,
     logs: bool,
     days: float | None,
     keep_checkpoints: int,
     keep_backups: int,
+    keep_sessions: int,
     dry_run: bool,
     force: bool,
 ) -> None:
-    """Safely clean stale caches, backups, checkpoints, logs, and empty DB sessions."""
+    """Safely clean stale caches, backups, checkpoints, task plans, logs, and DB sessions."""
     from sago.cleanup import run_cleanup
 
     # Default to cleaning everything if no specific target is selected or --all is used
-    if not (cache or backups or checkpoints or db or logs):
+    if not (cache or backups or checkpoints or plans or db or logs):
         clean_all = True
 
     c_cache = clean_all or cache
     c_backup = clean_all or backups
     c_chkpt = clean_all or checkpoints
+    c_plans = clean_all or plans
     c_db = clean_all or db
     c_logs = clean_all or logs
 
@@ -1845,10 +1857,12 @@ def clean_cmd(
         clean_cache=c_cache,
         clean_backup=c_backup,
         clean_chkpt=c_chkpt,
+        clean_plan=c_plans,
         clean_db=c_db,
         clean_log=c_logs,
         keep_checkpoints=keep_checkpoints,
         keep_recent_backups=keep_backups,
+        keep_recent_sessions=keep_sessions,
         max_age_days=days,
         dry_run=dry_run,
     )

@@ -1,11 +1,13 @@
 """Sago Cleanup & Garbage Collection System.
 
 Safely purges regenerable caches, stale workspace checkpoints, unneeded edit backups,
-empty/noise database sessions, and oversized logs across ~/.sago and project .sago directories.
+empty/noise database sessions, and oversized logs across ~/.sago and project .sago directories,
+while strictly preserving user configuration, credentials, and active data.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -18,6 +20,16 @@ from pathlib import Path
 from sago.paths import get_db_path, get_logs_dir, get_sago_home
 
 logger = logging.getLogger(__name__)
+
+# Essential user configuration files that must NEVER be deleted during cleanup
+PRESERVED_USER_FILES = {
+    "settings.json",
+    "permissions.json",
+    "config.yaml",
+    "daemon.key",
+    "config.sago.json",
+    ".sago.yaml",
+}
 
 
 @dataclass
@@ -76,18 +88,25 @@ def clean_caches(
     dry_run: bool = False,
     max_age_days: float | None = None,
 ) -> CleanResult:
-    """Purge regenerable index & project graph caches.
+    """Purge regenerable index & project graph caches and standalone cache files.
 
-    These caches are 100% regenerable on-demand from source files.
+    Cleans:
+    - ~/.sago/cache/ (hybrid_index, project_graphs)
+    - ~/.sago/codebase_index.json (search index cache)
+    - ~/.sago/models.json (cached model catalog)
+    - ~/.sago/cache.json
+    - <workspace>/.sago/cache/
+    - Empty temporary directories in ~/.sago (e.g. empty prompts/, sessions/)
     """
-    res = CleanResult(category="Caches (Hybrid Index & AST Graphs)")
+    res = CleanResult(category="Caches (Search Index, AST Graphs & Model Catalog)")
     now = time.time()
     cutoff_ts = (now - max_age_days * 86400) if max_age_days is not None else None
 
+    sago_home = get_sago_home()
     cache_dirs = [
-        get_sago_home() / "cache" / "hybrid_index",
-        get_sago_home() / "cache" / "project_graphs",
-        get_sago_home() / "cache",
+        sago_home / "cache" / "hybrid_index",
+        sago_home / "cache" / "project_graphs",
+        sago_home / "cache",
     ]
 
     if workspace_root:
@@ -141,20 +160,37 @@ def clean_caches(
             res.error = str(e)
             logger.error("Error during cache cleanup: %s", e)
 
-    # Check standalone cache.json in sago home
-    standalone_cache = get_sago_home() / "cache.json"
-    if standalone_cache.is_file():
-        res.items_scanned += 1
-        try:
-            sz = standalone_cache.stat().st_size
-            mtime = standalone_cache.stat().st_mtime
-            if cutoff_ts is None or mtime <= cutoff_ts:
-                if not dry_run:
-                    standalone_cache.unlink(missing_ok=True)
-                res.items_deleted += 1
-                res.bytes_reclaimed += sz
-        except OSError:
-            pass
+    # Standalone cache files in ~/.sago/ root (regenerable caches)
+    standalone_cache_files = [
+        sago_home / "cache.json",
+        sago_home / "codebase_index.json",
+        sago_home / "models.json",
+    ]
+
+    for sc_file in standalone_cache_files:
+        if sc_file.is_file():
+            res.items_scanned += 1
+            try:
+                sz = sc_file.stat().st_size
+                mtime = sc_file.stat().st_mtime
+                if cutoff_ts is None or mtime <= cutoff_ts:
+                    if not dry_run:
+                        sc_file.unlink(missing_ok=True)
+                    res.items_deleted += 1
+                    res.bytes_reclaimed += sz
+            except OSError:
+                pass
+
+    # Clean empty temporary folders in sago home
+    if not dry_run:
+        for empty_cand in ("prompts", "sessions"):
+            d = sago_home / empty_cand
+            if d.exists() and d.is_dir():
+                try:
+                    if not any(d.iterdir()):
+                        d.rmdir()
+                except OSError:
+                    pass
 
     res.details.append(f"Deleted {res.items_deleted} cache files ({res.human_bytes})")
     return res
@@ -163,7 +199,7 @@ def clean_caches(
 def clean_backups(
     dry_run: bool = False,
     max_age_days: float | None = None,
-    keep_recent_sessions: int = 3,
+    keep_recent_sessions: int = 1,
 ) -> CleanResult:
     """Purge stale session edit backups from ~/.sago/backups/.
 
@@ -270,19 +306,66 @@ def clean_checkpoints(
     return res
 
 
+def clean_plans(dry_run: bool = False) -> CleanResult:
+    """Clean completed / stale task plans from ~/.sago/task_plans.json."""
+    res = CleanResult(category="Task Plans (~/.sago/task_plans.json)")
+    plans_file = get_sago_home() / "task_plans.json"
+    if not plans_file.exists():
+        res.details.append("No task plans file found.")
+        return res
+
+    try:
+        sz_before = plans_file.stat().st_size
+        res.items_scanned = 1
+        with open(plans_file, encoding="utf-8") as f:
+            data = json.load(f)
+
+        if isinstance(data, dict):
+            # Prune plans that are completed or empty
+            active_plans = {}
+            for pid, plan in data.items():
+                if isinstance(plan, dict):
+                    status = plan.get("status", "")
+                    todos = plan.get("todos", [])
+                    # Keep only actively pending/in_progress plans with uncompleted todos
+                    is_done = status == "completed" or (
+                        todos and all(t.get("status") == "completed" for t in todos)
+                    )
+                    if not is_done:
+                        active_plans[pid] = plan
+            pruned_count = len(data) - len(active_plans)
+
+            if not dry_run:
+                with open(plans_file, "w", encoding="utf-8") as f:
+                    json.dump(active_plans, f, indent=2)
+                sz_after = plans_file.stat().st_size
+                res.bytes_reclaimed = max(0, sz_before - sz_after)
+            res.items_deleted = pruned_count
+            res.details.append(
+                f"Pruned {pruned_count} completed task plans ({res.human_bytes} reclaimed)"
+            )
+    except Exception as e:
+        res.error = str(e)
+        logger.error("Error cleaning task plans: %s", e)
+
+    return res
+
+
 def clean_database(
     db_path: Path | None = None,
     dry_run: bool = False,
-    remove_empty_only: bool = True,
+    remove_empty_only: bool = False,
+    keep_recent_sessions: int = 10,
     max_age_days: float | None = None,
 ) -> CleanResult:
-    """Clean empty and noise sessions from ~/.sago/data/sago.db and VACUUM.
+    """Clean empty and stale test sessions from ~/.sago/data/sago.db and VACUUM.
 
     Finds and removes:
     1. Empty sessions (0 messages or all blank content)
-    2. Orphaned records referencing non-existent sessions
-    3. Noise sessions (sessions with zero user/assistant dialog and no valid tool executions)
-    4. Runs VACUUM and PRAGMA optimize to defragment SQLite and reclaim physical disk space.
+    2. Abandoned test runs (generic 'Session <hex>' or 'Test...' titles with <= 2 messages beyond keep_recent)
+    3. Stale sessions older than max_age_days or beyond keep_recent_sessions
+    4. Orphaned records referencing non-existent sessions
+    5. Runs VACUUM and PRAGMA optimize to defragment SQLite and reclaim physical disk space.
     """
     res = CleanResult(category="Database Sessions & Integrity (sago.db)")
     target_db = db_path or get_db_path()
@@ -299,12 +382,12 @@ def clean_database(
         conn.execute("PRAGMA foreign_keys=ON")
         cur = conn.cursor()
 
-        # 1. Identify total sessions
+        # 1. Total sessions
         cur.execute("SELECT COUNT(*) FROM sessions")
         total_sessions = cur.fetchone()[0]
         res.items_scanned = total_sessions
 
-        # 2. Find empty / ghost sessions (no non-empty messages and no tasks)
+        # 2. Empty / ghost sessions (no valid messages and no tasks)
         cur.execute("""
             SELECT s.id FROM sessions s
             WHERE (
@@ -319,14 +402,46 @@ def clean_database(
         """)
         empty_session_ids = [row[0] for row in cur.fetchall()]
 
-        # 3. Optional age cutoff for old stale sessions
-        stale_session_ids = []
-        if max_age_days is not None and not remove_empty_only:
+        # 3. Abandoned / test sessions and stale sessions beyond retention
+        stale_session_ids: list[str] = []
+        if not remove_empty_only:
+            # Fetch all sessions ordered by updated_at / created_at desc
+            cur.execute("""
+                SELECT s.id, s.title, s.created_at,
+                       (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count
+                FROM sessions s
+                ORDER BY s.created_at DESC
+            """)
+            all_rows = cur.fetchall()
+
+            # Identify sessions eligible for pruning beyond keep_recent_sessions
+            for idx, r in enumerate(all_rows):
+                sid = r[0]
+                title = (r[1] or "").lower()
+                msg_count = r[3]
+
+                # If beyond the recent sessions threshold
+                if idx >= keep_recent_sessions:
+                    stale_session_ids.append(sid)
+                elif (
+                    msg_count <= 2
+                    and (
+                        title.startswith("session ")
+                        or "test" in title
+                        or title in ("tui session", "chat session", "")
+                    )
+                    and idx >= 3
+                ):
+                    # Minor test/abandoned sessions kept only if in top 3
+                    stale_session_ids.append(sid)
+
+        if max_age_days is not None:
             cutoff_iso = datetime.fromtimestamp(
                 time.time() - max_age_days * 86400, tz=UTC
             ).isoformat()
             cur.execute("SELECT id FROM sessions WHERE created_at < ?", (cutoff_iso,))
-            stale_session_ids = [row[0] for row in cur.fetchall()]
+            for row in cur.fetchall():
+                stale_session_ids.append(row[0])
 
         all_target_ids = list(set(empty_session_ids + stale_session_ids))
 
@@ -374,7 +489,7 @@ def clean_database(
 
         res.items_deleted = len(all_target_ids) + orphaned_total
         res.details.append(
-            f"Pruned {len(all_target_ids)} empty/stale sessions and {orphaned_total} orphaned records ({res.human_bytes} disk space reclaimed)"
+            f"Pruned {len(all_target_ids)} empty/stale sessions (retained top {min(keep_recent_sessions, total_sessions - len(all_target_ids))}), {orphaned_total} orphaned records ({res.human_bytes} reclaimed)"
         )
     except Exception as e:
         res.error = str(e)
@@ -454,10 +569,12 @@ def run_cleanup(
     clean_cache: bool = True,
     clean_backup: bool = True,
     clean_chkpt: bool = True,
+    clean_plan: bool = True,
     clean_db: bool = True,
     clean_log: bool = True,
     keep_checkpoints: int = 3,
-    keep_recent_backups: int = 3,
+    keep_recent_backups: int = 1,
+    keep_recent_sessions: int = 10,
     max_age_days: float | None = None,
     dry_run: bool = False,
 ) -> list[CleanResult]:
@@ -492,11 +609,15 @@ def run_cleanup(
             )
         )
 
+    if clean_plan:
+        results.append(clean_plans(dry_run=dry_run))
+
     if clean_db:
         results.append(
             clean_database(
                 dry_run=dry_run,
-                remove_empty_only=True,
+                remove_empty_only=False,
+                keep_recent_sessions=keep_recent_sessions,
                 max_age_days=max_age_days,
             )
         )

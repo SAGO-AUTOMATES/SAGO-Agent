@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import time
@@ -242,19 +243,39 @@ def test_clean_logs(temp_sago_env):
     assert log_file.stat().st_size <= 4 * 1024 * 1024
 
 
+def test_clean_plans(temp_sago_env):
+    """Test cleaning completed task plans."""
+    from sago.cleanup import clean_plans
+
+    plans_file = temp_sago_env / "task_plans.json"
+    dummy_plans = {
+        "plan_1": {"status": "completed", "todos": [{"id": 1, "status": "completed"}]},
+        "plan_2": {"status": "in_progress", "todos": [{"id": 2, "status": "pending"}]},
+    }
+    plans_file.write_text(json.dumps(dummy_plans), encoding="utf-8")
+
+    res = clean_plans(dry_run=False)
+    assert res.items_deleted == 1
+    remaining = json.loads(plans_file.read_text(encoding="utf-8"))
+    assert "plan_1" not in remaining
+    assert "plan_2" in remaining
+
+
 def test_run_cleanup_orchestration(temp_sago_env):
     """Test unified run_cleanup."""
     results = run_cleanup(
         clean_cache=True,
         clean_backup=True,
         clean_chkpt=False,
+        clean_plan=True,
         clean_db=False,
         clean_log=True,
     )
-    assert len(results) == 3
+    assert len(results) == 4
     categories = [r.category for r in results]
     assert any("Caches" in c for c in categories)
     assert any("Backups" in c for c in categories)
+    assert any("Plans" in c for c in categories)
     assert any("Logs" in c for c in categories)
 
 
