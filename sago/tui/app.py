@@ -2537,6 +2537,21 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                             api_kwargs["tools"] = openai_tools
                             api_kwargs["tool_choice"] = "auto"
 
+                        # --- Deep trace: capture raw LLM request ---
+                        from sago.tracking.dev_tracer import get_dev_tracer as _gdt
+
+                        _tracer = _gdt()
+                        if _tracer.is_enabled:
+                            _tracer.record_llm_request(
+                                source=f"tui.llm.{self.current_provider}",
+                                model=api_model,
+                                messages=messages,
+                                tools=openai_tools,
+                                max_tokens=effort["max_tokens"],
+                                temperature=0.3,
+                            )
+
+                        _llm_start_time = time.time()
                         stream = client.chat.completions.create(**api_kwargs)
 
                         content = ""
@@ -2589,6 +2604,32 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                         from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
+                        _llm_latency_ms = (time.time() - _llm_start_time) * 1000
+
+                        # Extract thinking content if present
+                        _thinking_content = ""
+                        _thinking_match = re.search(
+                            r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>",
+                            content,
+                            re.DOTALL,
+                        )
+                        if _thinking_match:
+                            _thinking_content = _thinking_match.group(1).strip()
+
+                        # Raw response trace (deep debug)
+                        get_dev_tracer().record_llm_response(
+                            source=f"tui.llm.{self.current_provider}",
+                            model=api_model,
+                            response_content=content[:10000] if content else "",
+                            thinking=_thinking_content[:10000] if _thinking_content else "",
+                            tool_calls=[
+                                {"name": tc["name"], "args": tc["args"]} for tc in native_tool_calls
+                            ],
+                            usage={"tokens_in": total_tokens_in, "tokens_out": total_tokens_out},
+                            latency_ms=_llm_latency_ms,
+                        )
+
+                        # Summary trace (compact)
                         get_dev_tracer().record(
                             event_type=TraceEventType.LLM_PAYLOAD,
                             source=f"tui.llm.{self.current_provider}",
@@ -2600,6 +2641,7 @@ class SagoApp(App, CommandHandlers, UIHelpers):
                                 "tokens_in": total_tokens_in,
                                 "tokens_out": total_tokens_out,
                                 "tool_calls_generated": len(native_tool_calls),
+                                "latency_ms": _llm_latency_ms,
                             },
                         )
 
