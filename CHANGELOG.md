@@ -18,18 +18,29 @@ All notable changes to the SAGO project are documented in this file.
 - **TUI Progressive Live Streaming for Parallel Agents**:
   - Parallel agent execution (`/parallel`) now progressively mounts each agent's individual response card, prompt context, and Rich syntax-highlighted code output in real-time as each worker finishes, without waiting for the full batch.
   - Dynamically updates individual agent badges on the `#parallel-bar` (`⏳ Waiting` $\rightarrow$ `⚡ Running` $\rightarrow$ `✓ Done (Xs)`).
+- **Interactive Onboarding Wizard & System Diagnostics**:
+  - Added `sago onboard` and enhanced `sago setup` with persistent YAML configuration, directory scaffolding, database initialization, and Git hooks prompts.
+  - Added `sago doctor` CLI command for comprehensive environment and subsystem health diagnostics (Python runtime, keys, database, ports, agents).
+- **Configurable Subsystems & Execution Limits**:
+  - Added schema models and YAML configurations for `search`, `daemon`, `mesh`, and `executor` in `sago.yaml` and `loader.py`.
+  - Made context TTL, token compaction thresholds, circular detection limits, and todo auto-completion criteria configurable via YAML and environment variables.
 - **Agent Profile Aliases & 100% Valid Handoff Resolution**:
   - Added `AGENT_ALIASES` in `sago/agents/registry.py` mapping legacy names (`system-architect`, `test-runner`, `ui-designer`, etc.) to canonical profiles.
   - 100% of all 1,570 profile handoff targets now cleanly resolve.
   - Fixed `_plan_chain` in `sago/agents/spawner.py` to route to registered agent profile IDs.
 
 ### Fixed
+- **Security & Injection Prevention**:
+  - Sanitized table and index identifiers in SQLite `PRAGMA` queries in `sql_schema.py` and filtered query parameters in `workflow/templates.py`.
+  - Changed default daemon server binding from `0.0.0.0` to `127.0.0.1` (`SAGO_DAEMON_HOST`).
+  - Passed sudo passwords via subprocess `stdin` to prevent credentials from appearing in process tables.
+  - Enforced fail-closed permission checks in `MCPServer.call_tool()`.
+- **Thread-Safe Singletons & State Storage**:
+  - Added `threading.Lock()` mutex synchronization to error handlers, recovery managers, token trackers, caches, and config loaders.
 - **TUI & Workflow Import Safety**:
   - Made `OpenAI` import lazy in `sago/llm/tui_providers.py`, allowing TUI, workflow, and local Ollama execution without crashing when `openai` is not installed.
 - **Native Google GenAI SDK Compatibility**:
   - Updated `GeminiProvider` in `sago/llm/gemini.py` to support modern `google.genai` SDK with fallback to `google.generativeai`.
-- **MCP Risk-Based Permission Gating**:
-  - Added permission manager validation in `MCPServer.call_tool()` to ensure tool executions over MCP respect risk approvals and access controls.
 
 ## [0.1.5] - 2026-08-14
 

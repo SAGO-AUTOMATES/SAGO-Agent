@@ -1,5 +1,22 @@
 # Sago - Commands Reference
 
+## Setup & Diagnostics
+
+### `sago onboard` / `sago setup`
+Interactive setup wizard to configure LLM providers, API keys, persistent storage, and workspace directories.
+
+```bash
+sago onboard             # Launch interactive onboarding setup wizard
+sago setup               # Reconfigure providers and settings
+```
+
+### `sago doctor`
+Check system health, Python runtime, API keys, SQLite integrity, network ports, and tool dependencies.
+
+```bash
+sago doctor              # Run comprehensive subsystem health check
+```
+
 ## CLI Commands
 
 ### `sago smart`

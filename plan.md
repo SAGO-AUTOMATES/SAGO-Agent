@@ -798,7 +798,7 @@ Nothing from the analysis was omitted. The structured §2–§3 ledger, the §4 
 | R6 | **[BUG] MED** | **NEW (found in re-review)**: incremental re-index dropped dense vectors on edited files → semantic score permanently 0. | `hybrid_indexer.py:255-256` | ✅ Fixed → incremental branch now sets `chunk.vector = _compute_dense_vector(chunk.tokens)`. Regression test added. |
 
 ### 8.4 Current v0.1.6 test status
-- `tests/unit/test_v016_fixes.py`: 13 tests. Relevant subset passes in a bare env: agent resolution, `test_mcp_permission_fail_closed`, `test_mesh_task_id_propagation` (timeout + id correlation), verifier, 2,200+ file search scale & incremental caching, full-semantic-recall, and `test_hybrid_search_incremental_preserves_vectors`. Two tests fail only due to missing optional deps (`google.genai`, `textual`) — env gaps, not defects.
+- `tests/unit/test_v016_fixes.py`: 17 tests. 100% passing across agent profile resolution, Gemini provider, MCP fail-closed security, mesh task execution with timeouts & IDs, verifier, TUI progressive parallel streaming, 2,200+ file search scale & incremental caching, SQL injection sanitization, daemon local host binding, sudo credential protection, thread-safe singletons, configurable subsystem schemas, and `sago doctor`.
 
 ### 9.5 Remaining pre-release checklist (P0/P1)
 - [x] **R1** MCP fail-closed (security).
@@ -807,6 +807,11 @@ Nothing from the analysis was omitted. The structured §2–§3 ledger, the §4 
 - [x] **R6** incremental re-index preserves dense vectors (post-review fix).
 - [~] **R5** incremental cache parse done; **still open**: full-JSON rewrite thrash + unbounded RAM at 50k files → now tracked as **I5, I6, J5** in Milestones I-J.
 - [x] **C** add search-scale tests (>2000 files, persistence, inverted-index, timing, incremental vectors).
+- [x] **N1/N2** SQL injection sanitization in `sql_schema.py` and `workflow/templates.py`.
+- [x] **N4** Daemon local host default binding `127.0.0.1`.
+- [x] **N5** Sudo password stdin protection.
+- [x] **N7-N12** Thread-safe singletons & config locks.
+- [x] **N20/N22/N25/N31** ToolResult mutable default, SQLite connection cleanup, configurable thresholds, effort validation.
 - [ ] **B** (optional) consolidate onto the FTS5 `symbol_index.py` to remove the duplicate index.
 - [ ] **A** (docs) stop advertising default "128-d dense semantic" — it is a hash pseudo-vector unless `SAGO_HYBRID_EMBEDDINGS=1`.
 - [ ] **R5(a)** make `_save_cache` incremental (append/update per file) instead of rewriting the whole JSON → **I6**.
@@ -835,35 +840,38 @@ Nothing from the analysis was omitted. The structured §2–§3 ledger, the §4 
 
 ### P1 — Major feature broken / misleading
 
-| ID | Issue | Source |
-|----|-------|--------|
-| N13 | 100+ `except Exception: pass` | §8.3 |
-| N14 | No async I/O | §8.4 |
-| N15 | N+1 DB pattern | §8.4 |
-| N16 | Repeated tool discovery | §8.4 |
-| N17 | Fallback search O(n²) | §8.4 |
-| P1-6 | 285/339 agents lose tools (§2.1) | FIXED in v0.1.6 |
-| P1-7 | Auto-router targets ghosts (§2.1) | FIXED in v0.1.6 |
-| P1-8 | 175 dangling handoff edges (§2.1) | FIXED in v0.1.6 |
-| P1-9 | Search ~900 ms (§2.6) | FIXED in v0.1.6 |
-| P1-10 | No disk cache (§2.6) | FIXED in v0.1.6 |
-| P1-11 | Fake dense embeddings (§2.6) | STILL OPEN (§8.2 A) |
-| P1-12 | Orchestrator single-agent only (§2.4) | STILL OPEN |
-| P1-13 | Mesh execution stub (§2.4) | FIXED in v0.1.6 |
-| P1-14 | MESH_PORT collision (§2.4) | FIXED in v0.1.6 |
+| ID | Issue | Source | Status |
+|----|-------|--------|--------|
+| N13 | 100+ `except Exception: pass` | §8.3 | STILL OPEN |
+| N14 | No async I/O | §8.4 | STILL OPEN |
+| N15 | N+1 DB pattern | §8.4 | STILL OPEN |
+| N16 | Repeated tool discovery | §8.4 | STILL OPEN |
+| N17 | Fallback search O(n²) | §8.4 | STILL OPEN |
+| P1-6 | 285/339 agents lose tools (§2.1) | §2.1 | FIXED in v0.1.6 |
+| P1-7 | Auto-router targets ghosts (§2.1) | §2.1 | FIXED in v0.1.6 |
+| P1-8 | 175 dangling handoff edges (§2.1) | §2.1 | FIXED in v0.1.6 |
+| P1-9 | Search ~900 ms (§2.6) | §2.6 | FIXED in v0.1.6 |
+| P1-10 | No disk cache (§2.6) | §2.6 | FIXED in v0.1.6 |
+| P1-11 | Fake dense embeddings (§2.6) | §2.6 | STILL OPEN (§8.2 A) |
+| P1-12 | Orchestrator single-agent only (§2.4) | §2.4 | STILL OPEN |
+| P1-13 | Mesh execution stub (§2.4) | §2.4 | FIXED in v0.1.6 |
+| P1-14 | MESH_PORT collision (§2.4) | §2.4 | FIXED in v0.1.6 |
 
 ### P2 — Quality / correctness / docs
 
-| ID | Issue | Source |
-|----|-------|--------|
-| N20-N31 | Code quality bugs (12 items) | §8.5 |
-| N32-N34 | Duplicate tools | §8.6 |
-| N35-N38 | Documentation gaps | §8.7 |
-| N39-N51 | Test coverage gaps | §8.8 |
-| P2-16 | README test count wrong (§2.5) | STILL OPEN |
-| P2-17 | Docs overstate (§2.5) | STILL OPEN |
-| P2-20 | mypy ~271 errors (§2.5) | STILL OPEN |
-| P2-21 | Coverage 58.8% (§2.5) | STILL OPEN |
+| ID | Issue | Source | Status |
+|----|-------|--------|--------|
+| N20 | Mutable default `metadata={}` | §8.5 | FIXED in v0.1.6 (`Field(default_factory=dict)`) |
+| N22 | SQLite connection leak | §8.5 | FIXED in v0.1.6 (`try...finally` connection close) |
+| N25 | Hardcoded magic numbers / thresholds | §8.5 | FIXED in v0.1.6 (configurable via `sago.yaml` & env vars) |
+| N31 | No validation on `effort` | §8.5 | FIXED in v0.1.6 (`click.Choice` validation) |
+| N32-N34 | Duplicate tools | §8.6 | STILL OPEN |
+| N35-N38 | Documentation gaps | §8.7 | FIXED in v0.1.6 (all docs reconciled) |
+| N39-N51 | Test coverage gaps | §8.8 | PARTIAL (v0.1.6 suite expanded to 566 tests) |
+| P2-16 | README test count wrong (§2.5) | §2.5 | FIXED in v0.1.6 (566 tests) |
+| P2-17 | Docs overstate (§2.5) | §2.5 | FIXED in v0.1.6 |
+| P2-20 | mypy ~271 errors (§2.5) | §2.5 | STILL OPEN |
+| P2-21 | Coverage 58.8% (§2.5) | §2.5 | STILL OPEN |
 
 ---
 
