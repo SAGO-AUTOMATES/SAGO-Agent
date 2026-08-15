@@ -24,10 +24,16 @@ class TraceEventType(StrEnum):
     FUNCTION_CALL = "FUNCTION_CALL"
     FUNCTION_RETURN = "FUNCTION_RETURN"
     LLM_PAYLOAD = "LLM_PAYLOAD"
+    LLM_RAW_REQUEST = "LLM_RAW_REQUEST"
+    LLM_RAW_RESPONSE = "LLM_RAW_RESPONSE"
+    LLM_THINKING = "LLM_THINKING"
     TOOL_DISPATCH = "TOOL_DISPATCH"
     AGENT_ROUTING = "AGENT_ROUTING"
     LOG_EVENT = "LOG_EVENT"
     STATE_CHANGE = "STATE_CHANGE"
+    ERROR = "ERROR"
+    RETRY = "RETRY"
+    PERMISSION_CHECK = "PERMISSION_CHECK"
 
 
 @dataclass
@@ -161,6 +167,92 @@ class DevTracer:
         if filter_type is not None:
             events = [e for e in events if e.event_type == filter_type]
         return events[-limit:]
+
+    def get_events(
+        self, limit: int = 0, filter_type: TraceEventType | None = None
+    ) -> list[DevTraceEvent]:
+        """Alias for get_recent_traces. limit=0 means all events."""
+        return self.get_recent_traces(limit=limit or 99999, filter_type=filter_type)
+
+    def get_event_count(self) -> int:
+        """Return total number of events in buffer."""
+        with self._lock:
+            return len(self._events)
+
+    def record_llm_request(
+        self,
+        source: str,
+        model: str,
+        messages: list[dict[str, Any]],
+        system_prompt: str = "",
+        tools: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> DevTraceEvent:
+        """Record the raw LLM request payload."""
+        data = {
+            "model": model,
+            "messages": messages,
+            "messages_count": len(messages),
+            "system_prompt": system_prompt[:5000] if system_prompt else "",
+            "system_prompt_truncated": len(system_prompt) > 5000 if system_prompt else False,
+            "tools_count": len(tools) if tools else 0,
+            "tools": tools[:10] if tools else [],
+            **kwargs,
+        }
+        return self.record(
+            TraceEventType.LLM_RAW_REQUEST, source, f"LLM REQUEST -> {model}", data=data
+        )
+
+    def record_llm_response(
+        self,
+        source: str,
+        model: str,
+        response_content: str,
+        thinking: str = "",
+        tool_calls: list[dict[str, Any]] | None = None,
+        usage: dict[str, Any] | None = None,
+        finish_reason: str = "",
+        latency_ms: float = 0.0,
+        **kwargs: Any,
+    ) -> DevTraceEvent:
+        """Record the raw LLM response content including thinking."""
+        data = {
+            "model": model,
+            "response_content": response_content[:10000] if response_content else "",
+            "response_truncated": len(response_content) > 10000 if response_content else False,
+            "thinking": thinking[:10000] if thinking else "",
+            "thinking_truncated": len(thinking) > 10000 if thinking else False,
+            "thinking_length": len(thinking) if thinking else 0,
+            "tool_calls": tool_calls or [],
+            "tool_calls_count": len(tool_calls) if tool_calls else 0,
+            "usage": usage or {},
+            "finish_reason": finish_reason,
+            **kwargs,
+        }
+        status = "OK" if finish_reason != "error" else "ERROR"
+        return self.record(
+            TraceEventType.LLM_RAW_RESPONSE,
+            source,
+            f"LLM RESPONSE <- {model}",
+            data=data,
+            duration_ms=latency_ms,
+            status=status,
+        )
+
+    def record_thinking(
+        self, source: str, model: str, thinking_content: str, thinking_type: str = "reasoning"
+    ) -> DevTraceEvent:
+        """Record LLM thinking/reasoning content separately for deep analysis."""
+        data = {
+            "model": model,
+            "thinking": thinking_content[:20000] if thinking_content else "",
+            "thinking_truncated": len(thinking_content) > 20000 if thinking_content else False,
+            "thinking_type": thinking_type,
+            "thinking_length": len(thinking_content) if thinking_content else 0,
+        }
+        return self.record(
+            TraceEventType.LLM_THINKING, source, f"THINKING ({thinking_type})", data=data
+        )
 
     def clear(self) -> None:
         with self._lock:
@@ -360,3 +452,8 @@ def get_dev_tracer() -> DevTracer:
             if _GLOBAL_TRACER is None:
                 _GLOBAL_TRACER = DevTracer()
     return _GLOBAL_TRACER
+
+
+def get_tracer() -> DevTracer:
+    """Alias for get_dev_tracer() — backward compatibility."""
+    return get_dev_tracer()

@@ -149,6 +149,22 @@ result = tool.execute(pattern="def \w+\(", include="*.py")
 
 ---
 
+#### `convert_to_markdown` (NEW)
+Convert office docs, PDFs, spreadsheets, presentations, and web files to clean Markdown via MarkItDown.
+
+```python
+from sago.tools.file.convert_to_markdown import ConvertToMarkdownTool
+
+tool = ConvertToMarkdownTool()
+result = tool.run(file_path="architecture_slides.pptx", output_path="slides.md")
+```
+
+**Parameters:**
+- `file_path` (str): Path to document/PDF/spreadsheet/presentation/HTML file
+- `output_path` (str, optional): Optional file path to save resulting Markdown
+
+---
+
 #### `file_ops`
 Move, copy, delete, rename files.
 
