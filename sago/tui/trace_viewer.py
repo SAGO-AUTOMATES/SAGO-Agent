@@ -1,13 +1,18 @@
-"""Deep Trace Viewer — Modal popup for analyzing all execution traces.
+"""Deep Trace Viewer — Modern modal popup for analyzing all execution traces.
 
-Shows LLM raw I/O, tool dispatches, agent routing, thinking blocks,
-and raw event data in a tabbed, expandable interface.
+Features:
+ - Tabbed interface: Overview · LLM · Tools · Flow · Thinking · Events
+ - Per-event human-readable formatting (no raw JSON dumps)
+ - Export to JSON/Markdown
+ - Copy full trace to clipboard
+ - Keyboard shortcuts: Esc/q close, e export, c copy
+ - Triggered via F2 global OR per-turn "View Trace" button
 """
 
 from __future__ import annotations
 
 import json
-import time
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from textual import on
@@ -15,378 +20,725 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Static, TabbedContent, TabPane
+from textual.widgets import Button, Collapsible, Label, Static, TabbedContent, TabPane
 
 if TYPE_CHECKING:
     from sago.tracking.dev_tracer import DevTraceEvent
 
 
-class TraceViewerScreen(ModalScreen[None]):
-    """Full-screen modal trace viewer with tabbed sections."""
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
-    CSS = """
-    TraceViewerScreen {
-        background: $surface;
-        align: center middle;
-    }
-    .trace-viewer-box {
-        width: 95%;
-        height: 92%;
-        border: solid #388bfd;
-        background: #0d1117;
-        layout: vertical;
-    }
-    .trace-viewer-header {
-        background: #161b22;
-        color: #58a6ff;
-        padding: 0 1;
-        dock: top;
-        height: 3;
-        align-vertical: middle;
-    }
-    .trace-viewer-header Static {
-        height: 1;
-        padding-top: 1;
-    }
-    .trace-viewer-header Button {
-        height: 1;
-        min-width: 14;
-        margin-right: 1;
-    }
-    .trace-viewer-tabs {
-        dock: top;
-        height: 3;
-    }
-    .trace-tab-content {
-        height: 1fr;
-        overflow-y: auto;
-        padding: 1 2;
-    }
-    .trace-section {
-        margin: 0 0 1 0;
-    }
-    .trace-section-title {
-        color: #58a6ff;
-        text-style: bold;
-        margin: 1 0 0 0;
-    }
-    .trace-event {
-        padding: 0 1;
-        margin: 0 0 0 0;
-        border-left: solid #30363d;
-    }
-    .trace-event:hover {
-        border-left: solid #58a6ff;
-        background: #161b22;
-    }
-    .trace-event-expand {
-        color: #8b949e;
-    }
-    .trace-key {
-        color: #7ee787;
-    }
-    .trace-value {
-        color: #e6edf3;
-    }
-    .trace-string {
-        color: #c9d1d9;
-    }
-    .trace-number {
-        color: #79c0ff;
-    }
-    .trace-error {
-        color: #f85149;
-    }
-    .trace-success {
-        color: #3fb950;
-    }
-    .trace-thinking {
-        color: #d2a8ff;
-        background: #0d1117;
-        border-left: solid #d2a8ff;
-        padding: 0 1;
-        margin: 0 0 0 2;
-    }
-    .trace-raw-json {
-        color: #c9d1d9;
-        background: #161b22;
-        padding: 1;
-        margin: 0 0 0 0;
-    }
-    .trace-summary-badge {
-        color: #f0883e;
-    }
-    """
+
+def _fmt_ms(ms: float) -> str:
+    if ms <= 0:
+        return ""
+    if ms < 1000:
+        return f"{ms:.0f}ms"
+    return f"{ms / 1000:.2f}s"
+
+
+def _fmt_ts(ts: float) -> str:
+    return datetime.fromtimestamp(ts).strftime("%H:%M:%S.") + f"{int((ts % 1) * 1000):03d}"
+
+
+def _fmt_kv(data: dict, max_value: int = 200) -> list[str]:
+    """Format dict keys/values as human-readable lines (no JSON blobs)."""
+    lines = []
+    for k, v in data.items():
+        if isinstance(v, list):
+            if len(v) == 0:
+                lines.append(f"  {k}: (empty)")
+            elif len(v) <= 3:
+                lines.append(f"  {k}: [{', '.join(str(i)[:80] for i in v)}]")
+            else:
+                lines.append(f"  {k}: [{len(v)} items] {str(v[0])[:60]}\u2026")
+        elif isinstance(v, dict):
+            if len(v) == 0:
+                lines.append(f"  {k}: {{empty}}")
+            else:
+                inner = ", ".join(f"{ki}: {str(vi)[:40]}" for ki, vi in list(v.items())[:4])
+                lines.append(f"  {k}: {{ {inner} }}")
+        elif isinstance(v, str):
+            preview = v.replace("\n", " ").strip()
+            if len(preview) > max_value:
+                preview = preview[:max_value] + "\u2026"
+            lines.append(f"  {k}: {preview}")
+        elif isinstance(v, bool):
+            lines.append(f"  {k}: {'yes' if v else 'no'}")
+        else:
+            lines.append(f"  {k}: {v}")
+    return lines
+
+
+TYPE_ICONS: dict[str, tuple[str, str]] = {
+    "LLM_RAW_REQUEST": ("\U0001f4e4", "request"),
+    "LLM_RAW_RESPONSE": ("\U0001f4e5", "response"),
+    "LLM_PAYLOAD": ("\U0001f9e0", "llm"),
+    "LLM_THINKING": ("\U0001f4ad", "thinking"),
+    "TOOL_DISPATCH": ("\U0001f527", "tool"),
+    "AGENT_ROUTING": ("\U0001f500", "routing"),
+    "FUNCTION_CALL": ("\U0001f4de", "fn-call"),
+    "FUNCTION_RETURN": ("\u21a9", "fn-return"),
+    "ERROR": ("\u274c", "error"),
+    "RETRY": ("\U0001f501", "retry"),
+    "PERMISSION_CHECK": ("\U0001f512", "perm"),
+    "LOG_EVENT": ("\U0001f4dd", "log"),
+    "STATE_CHANGE": ("\U0001f504", "state"),
+}
+
+_TV_CSS = """
+TraceViewerScreen {
+    background: rgba(0,0,0,0.75);
+    align: center middle;
+}
+.tv-box {
+    width: 96%;
+    height: 94%;
+    background: #0d1117;
+    border: tall #21262d;
+    border-top: tall #388bfd;
+    layout: vertical;
+}
+.tv-header {
+    height: 3;
+    background: #161b22;
+    border-bottom: solid #21262d;
+    padding: 0 2;
+    align-vertical: middle;
+}
+.tv-title {
+    color: #58a6ff;
+    text-style: bold;
+    width: 1fr;
+    height: 1;
+    content-align: left middle;
+}
+.tv-stats {
+    color: #8b949e;
+    height: 1;
+    content-align: left middle;
+    margin-right: 2;
+}
+.tv-btn {
+    height: 1;
+    min-width: 12;
+    margin-left: 1;
+    border: none;
+    background: #21262d;
+    color: #8b949e;
+}
+.tv-btn:hover {
+    background: #30363d;
+    color: #e6edf3;
+}
+.tv-btn-export { color: #f0883e; }
+.tv-btn-export:hover { background: #2d1f0e; color: #f0883e; }
+.tv-btn-close  { color: #f85149; }
+.tv-btn-close:hover  { background: #1f0e0e; color: #f85149; }
+.tv-shortcuts {
+    height: 1;
+    background: #0d1117;
+    border-bottom: solid #21262d;
+    padding: 0 2;
+    align-vertical: middle;
+    color: #484f58;
+}
+TabbedContent { height: 1fr; background: #0d1117; }
+TabPane       { background: #0d1117; padding: 0; }
+.tv-tab-scroll { height: 1fr; padding: 1 2; }
+.tv-section-head {
+    color: #388bfd;
+    text-style: bold;
+    margin: 1 0 0 0;
+    padding: 0 1;
+    border-left: solid #388bfd;
+}
+.tv-empty { color: #484f58; padding: 2 2; }
+.tv-event {
+    border-left: solid #30363d;
+    background: #0d1117;
+    margin: 0 0 1 0;
+    padding: 0 0 0 1;
+}
+.tv-event:hover { border-left: solid #388bfd; background: #161b22; }
+.tv-event-key { color: #7ee787; }
+.tv-event-val { color: #c9d1d9; }
+.tv-event-dimval { color: #8b949e; }
+.tv-ok    { color: #3fb950; }
+.tv-err   { color: #f85149; }
+.tv-warn  { color: #d29922; }
+.tv-llm   { color: #79c0ff; }
+.tv-tool  { color: #56d364; }
+.tv-route { color: #f0883e; }
+.tv-think { color: #d2a8ff; }
+.tv-thinking-block {
+    background: #12091f;
+    border-left: solid #7139ba;
+    padding: 0 2;
+    color: #d2a8ff;
+}
+.tv-response-block {
+    background: #091520;
+    border-left: solid #1f6feb;
+    padding: 0 2;
+    color: #e6edf3;
+}
+.tv-stat-row { height: 5; margin: 1 0; }
+.tv-stat-box {
+    width: 1fr; height: 5;
+    background: #161b22;
+    border: solid #21262d;
+    align: center middle;
+    margin: 0 1;
+}
+.tv-stat-num   { text-style: bold; height: 2; content-align: center middle; }
+.tv-stat-label { color: #8b949e; height: 1; content-align: center middle; }
+.tv-timeline-row { height: 1; padding: 0 1; color: #8b949e; }
+.tv-timeline-row:hover { background: #161b22; color: #e6edf3; }
+.tv-export-note {
+    height: 1; dock: bottom;
+    background: #1f4c1f; color: #3fb950;
+    padding: 0 2; display: none;
+}
+.tv-export-note.visible { display: block; }
+"""
+
+
+class TraceViewerScreen(ModalScreen[None]):
+    """Modern full-screen modal trace viewer with 6 tabs."""
+
+    CSS = _TV_CSS
 
     BINDINGS = [
-        Binding("escape", "close", "Close"),
-        Binding("q", "close", "Close"),
+        Binding("escape", "close_viewer", "Close"),
+        Binding("q", "close_viewer", "Close"),
+        Binding("e", "export_trace", "Export"),
+        Binding("c", "copy_trace", "Copy"),
     ]
 
-    def __init__(self, events: list[DevTraceEvent], title: str = "Deep Trace Viewer") -> None:
+    def __init__(
+        self,
+        events: list[DevTraceEvent],
+        title: str = "Execution Trace",
+        turn_label: str = "",
+    ) -> None:
         super().__init__()
         self.events = events
         self.viewer_title = title
+        self.turn_label = turn_label
+
+    # ── compose ──────────────────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
-        with Vertical(classes="trace-viewer-box"):
-            with Horizontal(classes="trace-viewer-header"):
-                yield Static(
-                    f"[bold]{self.viewer_title}[/bold]  "
-                    f"[dim]{len(self.events)} events captured[/dim]",
+        ev = self.events
+        llm_ev = [e for e in ev if e.event_type.value in ("LLM_RAW_RESPONSE", "LLM_PAYLOAD")]
+        tool_ev = [e for e in ev if e.event_type.value == "TOOL_DISPATCH"]
+        think_ev = [
+            e
+            for e in ev
+            if e.event_type.value == "LLM_THINKING"
+            or (e.event_type.value == "LLM_RAW_RESPONSE" and e.data.get("thinking"))
+        ]
+        err_ev = [e for e in ev if e.event_type.value == "ERROR" or e.status == "ERROR"]
+        route_ev = [e for e in ev if e.event_type.value == "AGENT_ROUTING"]
+
+        subtitle = self.turn_label or f"{len(ev)} events"
+
+        with Vertical(classes="tv-box"):
+            with Horizontal(classes="tv-header"):
+                yield Label(
+                    f"\u26a1 {self.viewer_title}  [dim]{subtitle}[/dim]",
+                    classes="tv-title",
+                    markup=True,
                 )
-                yield Static("", classes="spacer")
-                yield Button("✕ Close [Esc]", id="btn-close-trace", variant="default")
+                yield Label(
+                    f"[bold cyan]{len(llm_ev)}[/] LLM  "
+                    f"[bold green]{len(tool_ev)}[/] tools  "
+                    f"[bold yellow]{len(think_ev)}[/] thinking  "
+                    f"[bold red]{len(err_ev)}[/] errors",
+                    classes="tv-stats",
+                    markup=True,
+                )
+                yield Button("\u2b06 Export", id="btn-tv-export", classes="tv-btn tv-btn-export")
+                yield Button("\u2398 Copy", id="btn-tv-copy", classes="tv-btn")
+                yield Button("\u2715 Close", id="btn-tv-close", classes="tv-btn tv-btn-close")
 
-            with TabbedContent(initial="tab-llm"):
+            yield Static(
+                "[dim]Esc / q[/] close  [dim]e[/] export  [dim]c[/] copy  [dim]Tab[/] switch tabs",
+                classes="tv-shortcuts",
+                markup=True,
+            )
+
+            with TabbedContent(initial="tab-overview"):
+                with TabPane("Overview", id="tab-overview"):
+                    yield from self._tab_overview(llm_ev, tool_ev, route_ev, think_ev, err_ev)
                 with TabPane("LLM", id="tab-llm"):
-                    yield from self._compose_llm_tab()
-
+                    yield from self._tab_llm()
                 with TabPane("Tools", id="tab-tools"):
-                    yield from self._compose_tools_tab()
-
+                    yield from self._tab_tools()
                 with TabPane("Flow", id="tab-flow"):
-                    yield from self._compose_flow_tab()
-
+                    yield from self._tab_flow()
                 with TabPane("Thinking", id="tab-thinking"):
-                    yield from self._compose_thinking_tab()
+                    yield from self._tab_thinking()
+                with TabPane("Events", id="tab-events"):
+                    yield from self._tab_events()
 
-                with TabPane("Raw", id="tab-raw"):
-                    yield from self._compose_raw_tab()
+            yield Static("", id="tv-export-note", classes="tv-export-note")
 
-    @on(Button.Pressed, "#btn-close-trace")
+    # ── Overview ─────────────────────────────────────────────────────────────
+
+    def _tab_overview(self, llm_ev, tool_ev, route_ev, think_ev, err_ev) -> ComposeResult:
+        with VerticalScroll(classes="tv-tab-scroll"):
+            with Horizontal(classes="tv-stat-row"):
+                with Vertical(classes="tv-stat-box"):
+                    yield Label(str(len(self.events)), classes="tv-stat-num tv-llm")
+                    yield Label("events", classes="tv-stat-label")
+                with Vertical(classes="tv-stat-box"):
+                    yield Label(str(len(llm_ev)), classes="tv-stat-num tv-llm")
+                    yield Label("LLM calls", classes="tv-stat-label")
+                with Vertical(classes="tv-stat-box"):
+                    yield Label(str(len(tool_ev)), classes="tv-stat-num tv-tool")
+                    yield Label("tool calls", classes="tv-stat-label")
+                with Vertical(classes="tv-stat-box"):
+                    yield Label(str(len(think_ev)), classes="tv-stat-num tv-think")
+                    yield Label("thinking", classes="tv-stat-label")
+                with Vertical(classes="tv-stat-box"):
+                    yield Label(str(len(err_ev)), classes="tv-stat-num tv-err")
+                    yield Label("errors", classes="tv-stat-label")
+
+            if self.events:
+                s_ts = self.events[0].timestamp
+                e_ts = self.events[-1].timestamp
+                wall = _fmt_ms((e_ts - s_ts) * 1000)
+                llm_t = sum(e.duration_ms for e in llm_ev if e.duration_ms > 0)
+                tool_t = sum(e.duration_ms for e in tool_ev if e.duration_ms > 0)
+                tok_in = sum(
+                    e.data.get("tokens_in", e.data.get("usage", {}).get("tokens_in", 0))
+                    for e in llm_ev
+                )
+                tok_out = sum(
+                    e.data.get("tokens_out", e.data.get("usage", {}).get("tokens_out", 0))
+                    for e in llm_ev
+                )
+                em_dash = "\u2014"
+                yield Label("Session Timing", classes="tv-section-head")
+                yield Static(
+                    f"  [dim]Start[/]        {_fmt_ts(s_ts)}\n"
+                    f"  [dim]End[/]          {_fmt_ts(e_ts)}\n"
+                    f"  [dim]Wall time[/]     {wall or 'instant'}\n"
+                    f"  [dim]LLM time[/]      {_fmt_ms(llm_t) or em_dash}\n"
+                    f"  [dim]Tool time[/]     {_fmt_ms(tool_t) or em_dash}\n"
+                    f"  [dim]Tokens in[/]     {tok_in or em_dash}\n"
+                    f"  [dim]Tokens out[/]    {tok_out or em_dash}",
+                    markup=True,
+                )
+
+            if tool_ev:
+                yield Label("Tools Called", classes="tv-section-head")
+                for e in tool_ev:
+                    name = e.data.get("tool_name", e.action)
+                    ok = e.status == "OK"
+                    yield Static(
+                        f"  [{'tv-ok' if ok else 'tv-err'}]{'✓' if ok else '✗'}[/] "
+                        f"[bold]{name}[/]  [dim]{_fmt_ms(e.duration_ms)}[/]",
+                        markup=True,
+                    )
+
+            if err_ev:
+                yield Label("Errors", classes="tv-section-head")
+                for e in err_ev:
+                    msg = e.data.get("error", e.data.get("message", e.action))
+                    yield Static(
+                        f"  [bold red]\u2717[/] [dim]{e.event_type.value}[/]  {str(msg)[:120]}",
+                        markup=True,
+                    )
+
+    # ── LLM tab ──────────────────────────────────────────────────────────────
+
+    def _tab_llm(self) -> ComposeResult:
+        with VerticalScroll(classes="tv-tab-scroll"):
+            llm_resp = [e for e in self.events if e.event_type.value == "LLM_RAW_RESPONSE"]
+            llm_req = [e for e in self.events if e.event_type.value == "LLM_RAW_REQUEST"]
+            llm_pay = [e for e in self.events if e.event_type.value == "LLM_PAYLOAD"]
+            if not llm_resp and not llm_req and not llm_pay:
+                yield Static(
+                    "  [dim]No LLM traces yet. Enable developer mode with [bold]/dev on[/bold][/]",
+                    classes="tv-empty",
+                    markup=True,
+                )
+                return
+
+            used_req: set[int] = set()
+            pairs: list[tuple] = []
+            for resp in llm_resp:
+                best_req = None
+                best_diff = float("inf")
+                for req in llm_req:
+                    if id(req) in used_req:
+                        continue
+                    diff = abs(resp.timestamp - req.timestamp)
+                    if diff < best_diff:
+                        best_diff = diff
+                        best_req = req
+                if best_req and best_diff < 120:
+                    pairs.append((best_req, resp))
+                    used_req.add(id(best_req))
+                else:
+                    pairs.append((None, resp))
+
+            for req, resp in pairs:
+                model = resp.data.get("model", "unknown")
+                latency = _fmt_ms(resp.duration_ms)
+                usage = resp.data.get("usage", {})
+                tok_in = usage.get("tokens_in", "?")
+                tok_out = usage.get("tokens_out", "?")
+                finish = resp.data.get("finish_reason", "")
+                tcalls = resp.data.get("tool_calls", [])
+                content = resp.data.get("response_content", "")
+                is_ok = finish not in ("error", "stop_error")
+                ts = _fmt_ts(resp.timestamp)
+
+                with Collapsible(
+                    title=f"{'✓' if is_ok else '✗'} {model}  {latency}  {ts}  tok: {tok_in}→{tok_out}",
+                    collapsed=False,
+                ):
+                    if req:
+                        msgs = req.data.get("messages", [])
+                        tools_n = req.data.get("tools_count", 0)
+                        yield Static(
+                            f"  [dim]Request:[/] {len(msgs)} messages, {tools_n} tools",
+                            markup=True,
+                        )
+                        for msg in msgs[-3:]:
+                            role = msg.get("role", "?")
+                            mc = msg.get("content", "")
+                            if isinstance(mc, list):
+                                mc = " ".join(p.get("text", "") for p in mc if isinstance(p, dict))
+                            preview = str(mc).replace("\n", " ")[:200]
+                            rc = (
+                                "tv-llm"
+                                if role == "assistant"
+                                else "tv-tool"
+                                if role == "tool"
+                                else "tv-event-val"
+                            )
+                            yield Static(f"  [{rc}]{role}[/]  {preview}", markup=True)
+
+                    if tcalls:
+                        yield Static(f"  [bold green]Tool calls ({len(tcalls)})[/]", markup=True)
+                        for tc in tcalls:
+                            tname = tc.get("name", "?")
+                            targs = tc.get("args", {})
+                            if isinstance(targs, dict):
+                                ap = ", ".join(
+                                    f"{k}={str(v)[:40]}" for k, v in list(targs.items())[:3]
+                                )
+                            else:
+                                ap = str(targs)[:80]
+                            yield Static(
+                                f"  [bold cyan]  \u2192 {tname}[/]  [dim]{ap}[/]", markup=True
+                            )
+
+                    if content:
+                        with Collapsible(title="Response text", collapsed=False):
+                            for line in content[:2000].split("\n"):
+                                yield Static(f"  {line}", classes="tv-response-block")
+                            if len(content) > 2000:
+                                yield Static(
+                                    f"  [dim]\u2026 {len(content) - 2000} more chars[/]",
+                                    markup=True,
+                                )
+
+    # ── Tools tab ────────────────────────────────────────────────────────────
+
+    def _tab_tools(self) -> ComposeResult:
+        with VerticalScroll(classes="tv-tab-scroll"):
+            tool_ev = [e for e in self.events if e.event_type.value == "TOOL_DISPATCH"]
+            if not tool_ev:
+                yield Static("  [dim]No tool calls recorded.[/]", classes="tv-empty", markup=True)
+                return
+
+            ok_n = sum(1 for e in tool_ev if e.status == "OK")
+            fail_n = len(tool_ev) - ok_n
+            yield Static(
+                f"  [bold green]{ok_n} ok[/]  [bold red]{fail_n} failed[/]  [dim]/ {len(tool_ev)} total[/]",
+                markup=True,
+            )
+
+            for idx, e in enumerate(tool_ev, 1):
+                name = e.data.get("tool_name", e.action)
+                args = e.data.get("arguments", {})
+                result = e.data.get("result_preview", e.data.get("result", ""))
+                risk = e.data.get("risk_level", "")
+                dur = _fmt_ms(e.duration_ms)
+                ts = _fmt_ts(e.timestamp)
+                is_ok = e.status == "OK"
+
+                with Collapsible(
+                    title=f"{'✓' if is_ok else '✗'} [{idx}] {name}  {dur}  {ts}  {risk}",
+                    collapsed=(idx > 3),
+                ):
+                    if isinstance(args, dict) and args:
+                        yield Static("  [dim]Arguments:[/]", markup=True)
+                        for line in _fmt_kv(args):
+                            k, _, v = line.partition(":")
+                            yield Static(
+                                f"  [tv-event-key]{k.strip()}[/] [dim]\u2192[/] {v.strip()}",
+                                markup=True,
+                            )
+                    elif args:
+                        yield Static(f"  [dim]args:[/] {str(args)[:200]}", markup=True)
+
+                    if result:
+                        with Collapsible(title="Result", collapsed=False):
+                            for line in str(result)[:1500].split("\n"):
+                                yield Static(f"  {line}", classes="tv-response-block")
+                            if len(str(result)) > 1500:
+                                yield Static(
+                                    f"  [dim]\u2026 {len(str(result)) - 1500} more chars[/]",
+                                    markup=True,
+                                )
+
+                    if not is_ok and e.data.get("error"):
+                        yield Static(f"  [bold red]Error:[/] {e.data['error'][:200]}", markup=True)
+
+    # ── Flow tab ─────────────────────────────────────────────────────────────
+
+    def _tab_flow(self) -> ComposeResult:
+        with VerticalScroll(classes="tv-tab-scroll"):
+            if not self.events:
+                yield Static("  [dim]No events.[/]", classes="tv-empty", markup=True)
+                return
+
+            COLOR_MAP = {
+                "LLM_RAW_REQUEST": "tv-llm",
+                "LLM_RAW_RESPONSE": "tv-llm",
+                "LLM_PAYLOAD": "tv-llm",
+                "LLM_THINKING": "tv-think",
+                "TOOL_DISPATCH": "tv-tool",
+                "AGENT_ROUTING": "tv-route",
+                "ERROR": "tv-err",
+                "RETRY": "tv-warn",
+                "PERMISSION_CHECK": "tv-warn",
+            }
+            prev = self.events[0].timestamp
+            for e in self.events:
+                icon, _ = TYPE_ICONS.get(e.event_type.value, ("\u00b7", ""))
+                color = COLOR_MAP.get(e.event_type.value, "tv-event-dimval")
+                ts = _fmt_ts(e.timestamp)
+                dur = _fmt_ms(e.duration_ms)
+                gap = _fmt_ms((e.timestamp - prev) * 1000)
+                gap_s = f"[dim]+{gap}[/] " if gap else ""
+                sicon = "✓" if e.status == "OK" else ("✗" if e.status == "ERROR" else " ")
+                prev = e.timestamp
+
+                al = e.action
+                if e.event_type.value == "TOOL_DISPATCH":
+                    al = e.data.get("tool_name", e.action)
+                elif "LLM" in e.event_type.value:
+                    al = e.data.get("model", e.action)
+
+                yield Static(
+                    f"  [dim]{ts}[/] {gap_s}[{color}]{icon} {e.event_type.value}[/]  "
+                    f"[bold]{al[:40]}[/]  [dim]{dur}[/]  {sicon}",
+                    classes="tv-timeline-row",
+                    markup=True,
+                )
+
+    # ── Thinking tab ─────────────────────────────────────────────────────────
+
+    def _tab_thinking(self) -> ComposeResult:
+        with VerticalScroll(classes="tv-tab-scroll"):
+            blocks: list[tuple[str, str, object]] = []
+            for e in self.events:
+                if e.event_type.value == "LLM_THINKING":
+                    blocks.append((e.data.get("model", ""), e.data.get("thinking", ""), e))
+            for e in self.events:
+                if e.event_type.value == "LLM_RAW_RESPONSE":
+                    t = e.data.get("thinking", "")
+                    if t:
+                        blocks.append((e.data.get("model", ""), t, e))
+
+            if not blocks:
+                yield Static(
+                    "  [dim]No thinking / reasoning blocks found.\n"
+                    "  These appear when the LLM uses extended thinking mode.[/]",
+                    classes="tv-empty",
+                    markup=True,
+                )
+                return
+
+            for idx, (model, thinking, e) in enumerate(blocks, 1):
+                ts = _fmt_ts(e.timestamp)
+                chars = len(thinking)
+                lines = thinking.count("\n") + 1
+
+                with Collapsible(
+                    title=f"\U0001f4ad Block {idx}  {model}  {chars:,} chars  {lines} lines  {ts}",
+                    collapsed=(idx > 1),
+                ):
+                    for line in thinking.split("\n")[:200]:
+                        yield Static(f"  {line}", classes="tv-thinking-block")
+                    if lines > 200:
+                        yield Static(f"  [dim]\u2026 {lines - 200} more lines[/]", markup=True)
+
+    # ── Events tab ───────────────────────────────────────────────────────────
+
+    def _tab_events(self) -> ComposeResult:
+        """Human-readable event log — no raw JSON."""
+        with VerticalScroll(classes="tv-tab-scroll"):
+            if not self.events:
+                yield Static("  [dim]No events.[/]", classes="tv-empty", markup=True)
+                return
+
+            yield Static(f"  [dim]{len(self.events)} events captured[/]", markup=True)
+
+            for idx, e in enumerate(self.events, 1):
+                icon, _ = TYPE_ICONS.get(e.event_type.value, ("\u00b7", ""))
+                ts = _fmt_ts(e.timestamp)
+                dur = _fmt_ms(e.duration_ms)
+                is_ok = e.status in ("OK", "")
+                scls = "tv-ok" if is_ok else "tv-err"
+                sicon = "✓" if is_ok else "✗"
+
+                with Collapsible(
+                    title=f"{icon} [{idx}] {e.event_type.value}  {e.source}  {dur}  {ts}  {sicon}",
+                    collapsed=True,
+                ):
+                    yield Static(f"  [dim]source:[/] {e.source}", markup=True)
+                    yield Static(f"  [dim]action:[/] {e.action}", markup=True)
+                    yield Static(f"  [dim]status:[/] [{scls}]{e.status or 'ok'}[/]", markup=True)
+                    if dur:
+                        yield Static(f"  [dim]duration:[/] {dur}", markup=True)
+                    if e.data:
+                        yield Static("  [dim]data:[/]", markup=True)
+                        for line in _fmt_kv(e.data, max_value=120):
+                            k, _, v = line.partition(":")
+                            yield Static(
+                                f"  [tv-event-key]{k.strip()}[/] [dim]\u2192[/] {v.strip()}",
+                                markup=True,
+                            )
+
+    # ── Button handlers ───────────────────────────────────────────────────────
+
+    @on(Button.Pressed, "#btn-tv-close")
+    def _on_close_btn(self) -> None:
+        self.dismiss()
+
+    @on(Button.Pressed, "#btn-tv-export")
+    def _on_export_btn(self) -> None:
+        self.action_export_trace()
+
+    @on(Button.Pressed, "#btn-tv-copy")
+    def _on_copy_btn(self) -> None:
+        self.action_copy_trace()
+
+    # ── Actions ───────────────────────────────────────────────────────────────
+
+    def action_close_viewer(self) -> None:
+        self.dismiss()
+
+    def action_close(self) -> None:
+        self.dismiss()
+
+    # backward compat for tests
     def on_close_button(self) -> None:
         self.dismiss()
 
-    def _compose_llm_tab(self) -> ComposeResult:
-        """Compose the LLM tab showing raw request/response data."""
-        with VerticalScroll(classes="trace-tab-content"):
-            llm_requests = [e for e in self.events if e.event_type.value == "LLM_RAW_REQUEST"]
-            llm_responses = [e for e in self.events if e.event_type.value == "LLM_RAW_RESPONSE"]
-            llm_summaries = [e for e in self.events if e.event_type.value == "LLM_PAYLOAD"]
+    def _show_note(self, msg: str, ok: bool = True) -> None:
+        note = self.query_one("#tv-export-note", Static)
+        prefix = "✓" if ok else "✗"
+        note.update(f"{prefix} {msg}")
+        note.add_class("visible")
+        self.set_timer(4, lambda: note.remove_class("visible"))
 
-            if not llm_requests and not llm_responses and not llm_summaries:
-                yield Static(
-                    "[dim]No LLM traces captured. Enable developer mode with /dev on[/dim]"
-                )
-                return
+    def action_export_trace(self) -> None:
+        """Export trace to JSON + Markdown."""
+        try:
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            json_path = f"sago_trace_{stamp}.json"
+            md_path = f"sago_trace_{stamp}.md"
 
-            yield Static(
-                f"[trace-section-title]LLM Invocations ({len(llm_summaries)} calls)[/trace-section-title]"
-            )
-
-            # Pair requests and responses by timestamp proximity
-            for resp in llm_responses:
-                model = resp.data.get("model", "unknown")
-                latency = resp.duration_ms
-                usage = resp.data.get("usage", {})
-                content = resp.data.get("response_content", "")
-                tool_calls = resp.data.get("tool_calls", [])
-                finish = resp.data.get("finish_reason", "")
-
-                status_cls = "trace-success" if finish != "error" else "trace-error"
-                with Vertical(classes="trace-event"):
-                    yield Static(
-                        f"[{status_cls}]▶[/] [trace-value]{model}[/]  "
-                        f"[dim]{latency:.0f}ms  tokens: {usage.get('tokens_in', '?')}→{usage.get('tokens_out', '?')}  "
-                        f"finish: {finish}[/]"
-                    )
-                    if tool_calls:
-                        tc_names = ", ".join(tc.get("name", "?") for tc in tool_calls)
-                        yield Static(f"  [trace-key]tool_calls:[/] [{len(tool_calls)}] {tc_names}")
-                    if content:
-                        preview = content[:500].replace("\n", " ")
-                        if len(content) > 500:
-                            preview += "..."
-                        yield Static(f"  [trace-key]response:[/] [trace-string]{preview}[/]")
-
-            # Show raw requests (collapsed by default)
-            for req in llm_requests:
-                model = req.data.get("model", "unknown")
-                msgs = req.data.get("messages", [])
-                sys_prompt = req.data.get("system_prompt", "")
-                tools_count = req.data.get("tools_count", 0)
-
-                with Vertical(classes="trace-event"):
-                    yield Static(
-                        f"[trace-key]📤 REQUEST →[/] [trace-value]{model}[/]  "
-                        f"[dim]{len(msgs)} messages, {tools_count} tools[/]"
-                    )
-                    if sys_prompt:
-                        preview = sys_prompt[:300].replace("\n", " ")
-                        yield Static(f"  [trace-key]system:[/] [trace-string]{preview}[/]")
-                    # Show last 2 messages as preview
-                    for msg in msgs[-2:]:
-                        role = msg.get("role", "?")
-                        content = msg.get("content", "")
-                        if isinstance(content, str):
-                            preview = content[:200].replace("\n", " ")
-                        else:
-                            preview = str(content)[:200]
-                        yield Static(f"  [dim]{role}:[/] [trace-string]{preview}[/]")
-
-    def _compose_tools_tab(self) -> ComposeResult:
-        """Compose the Tools tab showing tool dispatches."""
-        with VerticalScroll(classes="trace-tab-content"):
-            tool_events = [e for e in self.events if e.event_type.value == "TOOL_DISPATCH"]
-
-            if not tool_events:
-                yield Static("[dim]No tool traces captured.[/dim]")
-                return
-
-            yield Static(
-                f"[trace-section-title]Tool Dispatches ({len(tool_events)} calls)[/trace-section-title]"
-            )
-
-            for e in tool_events:
-                tool_name = e.data.get("tool_name", e.action)
-                args = e.data.get("arguments", {})
-                result_preview = e.data.get("result_preview", "")
-                risk = e.data.get("risk_level", "")
-                status_cls = "trace-success" if e.status == "OK" else "trace-error"
-                dur = f"{e.duration_ms:.0f}ms" if e.duration_ms > 0 else ""
-
-                with Vertical(classes="trace-event"):
-                    yield Static(
-                        f"[{status_cls}]{'✓' if e.status == 'OK' else '✗'}[/] "
-                        f"[trace-value]{tool_name}[/]  [dim]{dur} {risk}[/]"
-                    )
-                    if args:
-                        args_str = json.dumps(args, default=str)[:300]
-                        yield Static(f"  [trace-key]args:[/] [trace-string]{args_str}[/]")
-                    if result_preview:
-                        yield Static(
-                            f"  [trace-key]result:[/] [trace-string]{result_preview[:200]}[/]"
-                        )
-
-    def _compose_flow_tab(self) -> ComposeResult:
-        """Compose the Flow tab showing execution timeline."""
-        with VerticalScroll(classes="trace-tab-content"):
-            if not self.events:
-                yield Static("[dim]No flow traces captured.[/dim]")
-                return
-
-            yield Static("[trace-section-title]Execution Flow[/trace-section-title]")
-
-            # Build timeline
-            for e in self.events:
-                t_str = time.strftime("%H:%M:%S", time.localtime(e.timestamp))
-                ms = int((e.timestamp % 1) * 1000)
-                time_tag = f"{t_str}.{ms:03d}"
-                dur = f" ({e.duration_ms:.1f}ms)" if e.duration_ms > 0 else ""
-
-                # Color by type
-                type_colors = {
-                    "FUNCTION_CALL": "trace-number",
-                    "FUNCTION_RETURN": "trace-number",
-                    "LLM_PAYLOAD": "trace-value",
-                    "LLM_RAW_REQUEST": "trace-value",
-                    "LLM_RAW_RESPONSE": "trace-value",
-                    "LLM_THINKING": "trace-thinking",
-                    "TOOL_DISPATCH": "trace-success",
-                    "AGENT_ROUTING": "trace-summary-badge",
-                    "ERROR": "trace-error",
-                    "RETRY": "trace-summary-badge",
-                    "PERMISSION_CHECK": "trace-number",
-                    "LOG_EVENT": "trace-string",
-                    "STATE_CHANGE": "trace-string",
+            payload = [
+                {
+                    "idx": i + 1,
+                    "timestamp": e.timestamp,
+                    "time": _fmt_ts(e.timestamp),
+                    "type": e.event_type.value,
+                    "source": e.source,
+                    "action": e.action,
+                    "status": e.status,
+                    "duration_ms": e.duration_ms,
+                    "data": e.data,
                 }
-                color = type_colors.get(e.event_type.value, "trace-string")
-                status_icon = "✓" if e.status == "OK" else "✗"
+                for i, e in enumerate(self.events)
+            ]
+            with open(json_path, "w") as f:
+                json.dump(payload, f, indent=2, default=str)
 
-                with Vertical(classes="trace-event"):
-                    yield Static(
-                        f"[dim]{time_tag}[/] [{color}]{e.event_type.value}[/] "
-                        f"[trace-value]{e.source}[/] → {e.action}{dur} "
-                        f"[dim]{status_icon}[/]"
+            llm_ev = [e for e in self.events if "LLM" in e.event_type.value]
+            tool_ev = [e for e in self.events if e.event_type.value == "TOOL_DISPATCH"]
+            md_lines = [
+                f"# SAGO Execution Trace — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                "",
+                f"**Session:** {self.turn_label or 'full session'}  "
+                f"**Events:** {len(self.events)}  "
+                f"**LLM calls:** {len(llm_ev)}  "
+                f"**Tool calls:** {len(tool_ev)}",
+                "",
+                "## Event Log",
+                "",
+            ]
+            for i, e in enumerate(self.events, 1):
+                icon, _ = TYPE_ICONS.get(e.event_type.value, ("\u00b7", ""))
+                md_lines.append(f"### [{i}] {icon} {e.event_type.value} — {_fmt_ts(e.timestamp)}")
+                md_lines.append(f"- **Source:** `{e.source}`")
+                md_lines.append(f"- **Action:** `{e.action}`")
+                md_lines.append(f"- **Status:** {e.status or 'ok'}")
+                if e.duration_ms > 0:
+                    md_lines.append(f"- **Duration:** {_fmt_ms(e.duration_ms)}")
+                if e.data:
+                    md_lines.append("")
+                    md_lines.append("```")
+                    md_lines.extend(_fmt_kv(e.data, max_value=300))
+                    md_lines.append("```")
+                md_lines.append("")
+
+            with open(md_path, "w") as f:
+                f.write("\n".join(md_lines))
+
+            self._show_note(f"Exported \u2192 {json_path}  +  {md_path}", ok=True)
+        except Exception as exc:
+            self._show_note(f"Export failed: {exc}", ok=False)
+
+    def action_copy_trace(self) -> None:
+        """Copy trace summary to clipboard."""
+        try:
+            lines = [f"SAGO Trace \u2014 {len(self.events)} events  {datetime.now().isoformat()}"]
+            for i, e in enumerate(self.events, 1):
+                icon, _ = TYPE_ICONS.get(e.event_type.value, ("\u00b7", ""))
+                lines.append(
+                    f"[{i}] {icon} {e.event_type.value}  "
+                    f"{e.source}  {e.action}  {e.status}  {_fmt_ms(e.duration_ms)}"
+                )
+            text = "\n".join(lines)
+
+            import subprocess
+
+            for cmd in (
+                ["xclip", "-selection", "clipboard"],
+                ["xsel", "--clipboard", "--input"],
+                ["pbcopy"],
+                ["wl-copy"],
+            ):
+                try:
+                    subprocess.run(
+                        cmd, input=text.encode(), timeout=2, check=True, capture_output=True
                     )
-
-    def _compose_thinking_tab(self) -> ComposeResult:
-        """Compose the Thinking tab showing LLM reasoning blocks."""
-        with VerticalScroll(classes="trace-tab-content"):
-            thinking_events = [e for e in self.events if e.event_type.value == "LLM_THINKING"]
-
-            # Also extract thinking from LLM responses
-            responses = [e for e in self.events if e.event_type.value == "LLM_RAW_RESPONSE"]
-            thinking_from_responses = []
-            for resp in responses:
-                thinking = resp.data.get("thinking", "")
-                if thinking:
-                    thinking_from_responses.append((resp, thinking))
-
-            if not thinking_events and not thinking_from_responses:
-                yield Static(
-                    "[dim]No thinking traces captured. LLM thinking blocks will appear here.[/dim]"
-                )
-                return
-
-            if thinking_events:
-                yield Static(
-                    f"[trace-section-title]Thinking Blocks ({len(thinking_events)} entries)[/trace-section-title]"
-                )
-                for e in thinking_events:
-                    thinking = e.data.get("thinking", "")
-                    model = e.data.get("model", "")
-                    thinking_type = e.data.get("thinking_type", "reasoning")
-                    t_len = e.data.get("thinking_length", len(thinking))
-
-                    with Vertical(classes="trace-event"):
-                        yield Static(
-                            f"[trace-key]💭 {thinking_type}[/] [dim]{model} ({t_len} chars)[/]"
-                        )
-                        # Show thinking content in a styled block
-                        for line in thinking[:5000].split("\n"):
-                            yield Static(f"  [trace-thinking]{line}[/]")
-                        if len(thinking) > 5000:
-                            yield Static(f"  [dim]... ({len(thinking) - 5000} more chars)[/]")
-
-            if thinking_from_responses:
-                yield Static(
-                    f"[trace-section-title]Thinking from Responses ({len(thinking_from_responses)})[/trace-section-title]"
-                )
-                for resp, thinking in thinking_from_responses:
-                    model = resp.data.get("model", "")
-                    with Vertical(classes="trace-event"):
-                        yield Static(
-                            f"[trace-key]💭 response thinking[/] [dim]{model} ({len(thinking)} chars)[/]"
-                        )
-                        for line in thinking[:5000].split("\n"):
-                            yield Static(f"  [trace-thinking]{line}[/]")
-                        if len(thinking) > 5000:
-                            yield Static(f"  [dim]... ({len(thinking) - 5000} more chars)[/]")
-
-    def _compose_raw_tab(self) -> ComposeResult:
-        """Compose the Raw tab showing full JSON event data."""
-        with VerticalScroll(classes="trace-tab-content"):
-            if not self.events:
-                yield Static("[dim]No raw events captured.[/dim]")
-                return
-
-            yield Static(
-                f"[trace-section-title]All Events ({len(self.events)} total)[/trace-section-title]"
-            )
-
-            for idx, e in enumerate(self.events):
-                t_str = time.strftime("%H:%M:%S", time.localtime(e.timestamp))
-                ms = int((e.timestamp % 1) * 1000)
-                time_tag = f"{t_str}.{ms:03d}"
-
-                with Vertical(classes="trace-event"):
-                    yield Static(
-                        f"[trace-key]Event {idx + 1}[/] [dim]{time_tag}[/] "
-                        f"[trace-value]{e.event_type.value}[/] {e.source} → {e.action}"
-                    )
-                    if e.data:
-                        # Format JSON with syntax highlighting
-                        json_str = json.dumps(e.data, indent=2, default=str)
-                        # Simple syntax highlighting
-                        for line in json_str.split("\n")[:50]:  # Limit to 50 lines per event
-                            yield Static(f"  [trace-raw-json]{line}[/]")
-                        if len(json_str.split("\n")) > 50:
-                            yield Static(
-                                f"  [dim]... ({len(json_str.split(chr(10))) - 50} more lines)[/]"
-                            )
-
-    def action_close(self) -> None:
-        """Close the trace viewer."""
-        self.dismiss()
+                    self._show_note(f"Copied {len(lines)} lines to clipboard", ok=True)
+                    return
+                except Exception:
+                    continue
+            raise RuntimeError("No clipboard utility found (xclip/xsel/pbcopy/wl-copy)")
+        except Exception as exc:
+            self._show_note(f"Copy failed: {exc}", ok=False)

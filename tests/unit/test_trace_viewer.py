@@ -53,10 +53,10 @@ async def test_trace_viewer_modal_mount():
         await pilot.pause()
         assert len(screen.events) == 3
 
-        # Click the Close button
-        btn = screen.query_one("#btn-close-trace")
+        # Close button should exist with new id
+        btn = screen.query_one("#btn-tv-close")
         assert btn is not None
-        screen.on_close_button()
+        screen._on_close_btn()
 
 
 @pytest.mark.asyncio

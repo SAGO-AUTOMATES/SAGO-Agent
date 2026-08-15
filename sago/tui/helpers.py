@@ -294,7 +294,7 @@ class UIHelpers:
             else:
                 target_card.response_text = content
 
-        # If developer mode is active, mount a compact trace badge (click F2 for full viewer)
+        # If developer mode is active, mount a per-turn trace bar with a "View Trace" button
         if getattr(self, "developer_mode", False):
             from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
@@ -311,19 +311,62 @@ class UIHelpers:
                 thinking_count = sum(
                     1 for t in traces if t.event_type == TraceEventType.LLM_THINKING
                 )
+                err_count = sum(1 for t in traces if t.event_type.value == "ERROR")
 
-                # Compact one-line badge
-                badge = (
-                    f"[dim]⚡ trace: [bold]{len(traces)}[/bold] events[/dim] "
-                    f"[dim]│[/dim] [bold magenta]{llm_count} LLM[/bold magenta] "
-                    f"[dim]│[/dim] [bold cyan]{tool_count} tools[/bold cyan] "
-                    f"[dim]│[/dim] [bold green]{route_count} routes[/bold green]"
-                )
+                # Build the stats label
+                parts = [f"⚡ {len(traces)} events"]
+                if llm_count:
+                    parts.append(f"{llm_count} LLM")
+                if tool_count:
+                    parts.append(f"{tool_count} tools")
+                if route_count:
+                    parts.append(f"{route_count} routes")
                 if thinking_count:
-                    badge += f" [dim]│[/dim] [bold yellow]{thinking_count} thinking[/bold yellow]"
-                badge += " [dim]│ F2 to view[/dim]"
+                    parts.append(f"{thinking_count} thinking")
+                if err_count:
+                    parts.append(f"{err_count} errors")
 
-                _mount_element(Static(badge, classes="trace-badge", markup=True))
+                badge_text = "  ·  ".join(parts)
+
+                # Snapshot the events for the button closure
+                captured_events = list(traces)
+
+                bar = Horizontal(classes="trace-action-bar")
+
+                async def _open_trace_viewer(
+                    _evt: object,
+                    _events: list = captured_events,
+                    _label: str = badge_text,
+                ) -> None:
+                    try:
+                        from sago.tui.trace_viewer import TraceViewerScreen
+
+                        await self.push_screen(TraceViewerScreen(_events, turn_label=_label))
+                    except Exception as exc:
+                        self._add_system_message(f"⚡ Trace viewer error: {exc}")
+
+                badge_static = Static(
+                    f"[dim]{badge_text}[/dim]",
+                    classes="trace-badge",
+                    markup=True,
+                )
+                view_btn = Button(
+                    "View Trace ⚡",
+                    id=f"btn-view-trace-{id(traces)}",
+                    classes="btn-view-trace",
+                )
+                view_btn.on_button_pressed = _open_trace_viewer
+
+                def _mount_trace_bar() -> None:
+                    if target_card is not None and hasattr(target_card, "mount_child"):
+                        target_card.mount_child(bar)
+                    else:
+                        container = self.query_one("#messages")
+                        container.mount(bar)
+                    bar.mount(badge_static)
+                    bar.mount(view_btn)
+
+                self.call_after_refresh(_mount_trace_bar)
 
         # Turn finished -> clear active exchange card
         self._active_exchange_card = None

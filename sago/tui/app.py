@@ -169,10 +169,33 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         margin: 1 0;
     }
     .trace-badge {
-        color: #8b949e;
+        color: #484f58;
         padding: 0 1;
         margin: 0;
+        width: 1fr;
+        content-align: left middle;
+        height: 1;
     }
+    .trace-action-bar {
+        height: 1;
+        margin: 0;
+        padding: 0;
+        background: #0d1117;
+        border-top: solid #21262d;
+    }
+    .btn-view-trace {
+        height: 1;
+        min-width: 16;
+        border: none;
+        background: #1a2433;
+        color: #388bfd;
+        padding: 0 2;
+    }
+    .btn-view-trace:hover {
+        background: #1f3148;
+        color: #58a6ff;
+    }
+
     .plan-text {
         color: #7ee787;
         padding: 1 2;
