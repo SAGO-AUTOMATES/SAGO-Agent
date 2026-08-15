@@ -1,0 +1,540 @@
+"""Agent Orchestrator Mixin for Sago TUI - Delegation, Chaining, and Parallel Execution."""
+
+from __future__ import annotations
+
+import concurrent.futures
+import json
+import re
+import threading
+import time
+from typing import TYPE_CHECKING, Any
+
+from textual.widgets import Static
+
+from sago.tui.widgets import AgentStatus, get_task_manager
+
+if TYPE_CHECKING:
+    from sago.tui.app import SagoApp
+
+_time = time
+
+
+class AgentOrchestrationMixin:
+    """Mixin for multi-agent delegation, chaining, parallel execution, and approval flows."""
+
+    def _process_delegation(self: SagoApp, agent_name: str, task: str) -> None:
+        self.is_thinking = True
+        t = threading.Thread(
+            target=self._process_delegation_thread, args=(agent_name, task), daemon=True
+        )
+        t.start()
+
+    def _process_delegation_thread(self: SagoApp, agent_name: str, task: str) -> None:
+        tm = self._task_manager or get_task_manager()
+        info = tm.create_task(agent_name, task)
+        info.status = AgentStatus.RUNNING
+        self.call_from_thread(self._update_dashboard)
+        self.call_from_thread(self._show_spinner, f"Delegating to {agent_name}...")
+        try:
+            api_key = self._get_provider_api_key()
+            if not api_key:
+                self.call_from_thread(self._hide_spinner)
+                self.call_from_thread(
+                    self._add_system_message,
+                    f"No API key. Set {self._get_provider_key_name()} environment variable.",
+                )
+                return
+
+            from sago.tools.file.spawn_agent import SpawnAgentTool
+
+            tool = SpawnAgentTool()
+            result = tool.run(task=task, agent_name=agent_name)
+
+            info.status = AgentStatus.COMPLETED
+            info.result = result
+            info.elapsed = _time.time() - info.start_time
+            self.call_from_thread(self._update_dashboard)
+            self.call_from_thread(self._hide_spinner)
+            if "could not be spawned" in result or "Error:" in result:
+                self.call_from_thread(
+                    self._add_system_message,
+                    f"{result}\n\nTry running the task directly.",
+                )
+            else:
+                self.call_from_thread(self._add_assistant_message, result, agent_name=agent_name)
+        except Exception as e:
+            info.status = AgentStatus.FAILED
+            info.error = str(e)
+            self.call_from_thread(self._update_dashboard)
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(self._add_system_message, f"Delegation error: {e}")
+        finally:
+            self.is_thinking = False
+
+    def _process_chain(self: SagoApp, chain_steps: list[list[str]], task: str) -> None:
+        self.is_thinking = True
+        t = threading.Thread(
+            target=self._process_chain_thread, args=(chain_steps, task), daemon=True
+        )
+        t.start()
+
+    def _process_chain_thread(self: SagoApp, chain_steps: list[list[str]], task: str) -> None:
+        tm = self._task_manager or get_task_manager()
+        flat_agents = [a for step in chain_steps for a in step]
+        self.call_from_thread(
+            self._show_spinner, f"Chain: {' → '.join(['+'.join(s) for s in chain_steps])}"
+        )
+        try:
+            api_key = self._get_provider_api_key()
+            if not api_key:
+                self.call_from_thread(self._hide_spinner)
+                self.call_from_thread(
+                    self._add_system_message,
+                    f"No API key. Set {self._get_provider_key_name()} environment variable.",
+                )
+                return
+
+            from sago.agents.handoff import HandoffContext, get_recursion_guard
+            from sago.tools.file.spawn_agent import SpawnAgentTool
+
+            handoff_ctx = HandoffContext(original_task=task, task_type="chain")
+            guard = get_recursion_guard()
+            guard.reset()
+
+            tool = SpawnAgentTool()
+            current_input = task
+
+            for step_idx, step_agents in enumerate(chain_steps):
+                allowed_agents = []
+                for agent in step_agents:
+                    can, reason = guard.can_spawn(agent)
+                    if can:
+                        allowed_agents.append(agent)
+                    else:
+                        self.call_from_thread(self._add_system_message, f"Skip {agent}: {reason}")
+
+                if not allowed_agents:
+                    continue
+
+                for agent in allowed_agents:
+                    guard.enter(agent)
+
+                if len(allowed_agents) == 1:
+                    # Sequential single agent
+                    agent = allowed_agents[0]
+                    info = tm.create_task(agent, f"Step {step_idx + 1}: {task[:50]}")
+                    info.status = AgentStatus.RUNNING
+                    self.call_from_thread(self._update_dashboard)
+                    self.call_from_thread(self._update_spinner, f"Step {step_idx + 1}: {agent}")
+
+                    context_str = (
+                        handoff_ctx.get_compact_handoff_prompt(agent)
+                        if step_idx > 0 or handoff_ctx.agent_results
+                        else ""
+                    )
+                    result = tool.run(task=current_input, agent_name=agent, context=context_str)
+
+                    is_success = not (result.startswith("Error") or "REJECTED" in result)
+                    handoff_ctx.add_result(agent, result, success=is_success)
+                    if "Files created/modified:" in result:
+                        files_line = result.split("Files created/modified:")[1].split("\n")[0]
+                        for f in files_line.split(","):
+                            f = f.strip()
+                            if f and f not in handoff_ctx.files_created:
+                                handoff_ctx.files_created.append(f)
+
+                    info.status = AgentStatus.COMPLETED
+                    info.result = result
+                    info.elapsed = _time.time() - info.start_time
+                    self.call_from_thread(self._update_dashboard)
+                    current_input = result
+                else:
+                    # Parallel agents
+                    self.call_from_thread(
+                        self._update_spinner,
+                        f"Step {step_idx + 1}: {len(allowed_agents)} agents in parallel",
+                    )
+                    results = {}
+                    errors = {}
+
+                    def _run_parallel(agent_name: str):
+                        try:
+                            ctx = (
+                                handoff_ctx.get_compact_handoff_prompt(agent_name)
+                                if step_idx > 0 or handoff_ctx.agent_results
+                                else ""
+                            )
+                            r = tool.run(task=current_input, agent_name=agent_name, context=ctx)
+                            results[agent_name] = r
+                        except Exception as e:
+                            errors[agent_name] = str(e)
+
+                    threads = []
+                    for agent in allowed_agents:
+                        t = threading.Thread(target=_run_parallel, args=(agent,), daemon=True)
+                        threads.append((agent, t))
+                        t.start()
+
+                    for agent, t in threads:
+                        t.join(timeout=300)
+                        if t.is_alive():
+                            errors[agent] = "Timeout (300s)"
+
+                    # Merge parallel results
+                    merged_parts = []
+                    for agent in allowed_agents:
+                        if agent in results:
+                            r = results[agent]
+                            handoff_ctx.add_result(
+                                agent, r, success=not (r.startswith("Error") or "REJECTED" in r)
+                            )
+                            if "Files created/modified:" in r:
+                                files_line = r.split("Files created/modified:")[1].split("\n")[0]
+                                for f in files_line.split(","):
+                                    f = f.strip()
+                                    if f and f not in handoff_ctx.files_created:
+                                        handoff_ctx.files_created.append(f)
+                            merged_parts.append(f"[{agent}]: {r}")
+                        elif agent in errors:
+                            merged_parts.append(f"[{agent}] Error: {errors[agent]}")
+
+                    current_input = "\n\n".join(merged_parts)
+
+                    for agent in allowed_agents:
+                        guard.exit(agent)
+
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(
+                self._add_assistant_message,
+                current_input,
+                agent_name=flat_agents[-1] if flat_agents else "chain",
+            )
+        except Exception as e:
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(self._add_system_message, f"Chain error: {e}")
+        finally:
+            self.is_thinking = False
+
+    def _process_orchestration(self: SagoApp, task: str) -> None:
+        self.is_thinking = True
+        t = threading.Thread(target=self._process_orchestration_thread, args=(task,), daemon=True)
+        t.start()
+
+    def _process_orchestration_thread(self: SagoApp, task: str) -> None:
+        self.call_from_thread(self._show_spinner, "Analyzing task for delegation...")
+        try:
+            api_key = self._get_provider_api_key()
+            if not api_key:
+                self.call_from_thread(self._hide_spinner)
+                self.call_from_thread(
+                    self._add_system_message,
+                    f"No API key. Set {self._get_provider_key_name()} environment variable.",
+                )
+                return
+
+            from openai import OpenAI
+
+            from sago.agents.registry import list_agents
+
+            client = OpenAI(
+                api_key=api_key,
+                base_url="https://openrouter.ai/api/v1",
+                timeout=30.0,
+            )
+            agents = list_agents()
+            agent_list_str = "\n".join(
+                [
+                    f"- {a['name']}: {a.get('role', '')} | Skills: {', '.join(a.get('skills', [])[:3])}"
+                    for a in agents[:50]
+                ]
+            )
+
+            try:
+                response = client.chat.completions.create(
+                    model=self.current_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a task orchestrator. Analyze the task and break it into steps.\n"
+                                "For each step, specify which agent should handle it.\n"
+                                'Reply with a JSON list of steps: [{"agent": "agent-name", "task": "what to do"}]\n\n'
+                                f"Available agents:\n{agent_list_str}"
+                            ),
+                        },
+                        {"role": "user", "content": task},
+                    ],
+                    max_tokens=1024,
+                )
+            except Exception as api_err:
+                self.call_from_thread(self._hide_spinner)
+                self.call_from_thread(
+                    self._add_system_message,
+                    f"Failed to create plan: {api_err}",
+                )
+                return
+
+            plan_text = response.choices[0].message.content or "[]"
+            try:
+                json_match = re.search(r"\[.*\]", plan_text, re.DOTALL)
+                if json_match:
+                    plan = json.loads(json_match.group())
+                else:
+                    plan = [{"agent": "python-engineer", "task": task}]
+            except json.JSONDecodeError:
+                plan = [{"agent": "python-engineer", "task": task}]
+
+            # Show plan and ask for confirmation
+            plan_lines = []
+            for i, step in enumerate(plan):
+                agent = step.get("agent", "python-engineer")
+                step_task = step.get("task", "")[:80]
+                plan_lines.append(f"  {i + 1}. {agent}: {step_task}")
+            plan_summary = f"Orchestration plan ({len(plan)} steps):\n" + "\n".join(plan_lines)
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(self._add_system_message, plan_summary)
+
+            # Show approval bar with buttons
+            approval_msg = f"Execute {len(plan)} steps?  Press [Y] Approve or [N] Deny"
+            self.call_from_thread(self._show_approval_bar, approval_msg)
+
+            # Store plan for /approve command
+            self.pending_orchestration = {"task": task, "plan": plan}
+
+        except Exception as e:
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(self._add_system_message, f"Orchestration error: {e}")
+        finally:
+            self.is_thinking = False
+
+    def _execute_orchestration_plan(self: SagoApp, plan: list[dict]) -> None:
+        """Execute an approved orchestration plan — dispatches to background thread."""
+        self.is_thinking = True
+        self._show_spinner(f"Executing {len(plan)} steps...")
+        t = threading.Thread(
+            target=self._execute_orchestration_plan_thread, args=(plan,), daemon=True
+        )
+        t.start()
+
+    def _execute_orchestration_plan_thread(self: SagoApp, plan: list[dict]) -> None:
+        """Runs in a background thread — all call_from_thread calls are safe here."""
+        try:
+            from sago.agents.handoff import HandoffContext, get_recursion_guard
+            from sago.tools.file.spawn_agent import SpawnAgentTool
+
+            handoff_ctx = HandoffContext(
+                original_task=plan[0].get("task", "") if plan else "",
+                task_type="orchestrate",
+            )
+            guard = get_recursion_guard()
+            guard.reset()
+
+            tool = SpawnAgentTool()
+            results = []
+            for i, step in enumerate(plan):
+                agent = step.get("agent", "python-engineer")
+                step_task = step.get("task", "")
+
+                # Check recursion guard
+                allowed, reason = guard.can_spawn(agent)
+                if not allowed:
+                    results.append(f"**{agent}**: SKIPPED — {reason}")
+                    continue
+
+                guard.enter(agent)
+                self.call_from_thread(self._update_spinner, f"Step {i + 1}/{len(plan)}: {agent}")
+
+                # Build structured context from previous steps
+                context_str = ""
+                if i > 0:
+                    context_str = handoff_ctx.get_compact_handoff_prompt(agent)
+
+                result = tool.run(task=step_task, agent_name=agent, context=context_str)
+
+                # Record in handoff context
+                is_success = not (result.startswith("Error") or "REJECTED" in result)
+                handoff_ctx.add_result(agent, result, success=is_success)
+
+                # Extract files created
+                if "Files created/modified:" in result:
+                    files_line = result.split("Files created/modified:")[1].split("\n")[0]
+                    for f in files_line.split(","):
+                        f = f.strip()
+                        if f and f not in handoff_ctx.files_created:
+                            handoff_ctx.files_created.append(f)
+
+                results.append(f"**{agent}**: {result[:500]}")
+                guard.exit(agent)
+
+            self.call_from_thread(self._hide_spinner)
+            final = f"Orchestration complete ({len(plan)} steps):\n\n" + "\n\n".join(results)
+            self.call_from_thread(self._add_assistant_message, final)
+        except Exception as e:
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(self._add_system_message, f"Execution error: {e}")
+        finally:
+            self.is_thinking = False
+
+    def _process_parallel(self: SagoApp, agents: list[str], task: str) -> None:
+        """Run multiple agents in parallel on the same task."""
+        self.is_thinking = True
+        t = threading.Thread(target=self._process_parallel_thread, args=(agents, task), daemon=True)
+        t.start()
+
+    def _process_parallel_thread(self: SagoApp, agents: list[str], task: str) -> None:
+        """Runs in a background thread."""
+        tm = self._task_manager or get_task_manager()
+
+        # Create task entries for each agent
+        task_infos = []
+        for agent_name in agents:
+            info = tm.create_task(agent_name, task)
+            info.status = AgentStatus.RUNNING
+            task_infos.append(info)
+
+        # Show parallel bar
+        self.call_from_thread(self._show_parallel_bar, agents)
+
+        # Update dashboard
+        self.call_from_thread(self._update_dashboard)
+
+        try:
+            from sago.tools.file.spawn_agent import SpawnAgentTool
+
+            tool = SpawnAgentTool()
+            results: list[dict[str, Any]] = []
+
+            def execute_agent(agent_name: str, subtask: str, info: Any) -> dict[str, Any]:
+                """Execute a single agent, respecting cancellation and streaming immediately."""
+                start = _time.time()
+                self.call_from_thread(
+                    self._update_parallel_agent_status, agent_name, "⚡ Running..."
+                )
+                try:
+                    # Check cancellation before starting
+                    if info.cancel_event.is_set():
+                        info.status = AgentStatus.CANCELLED
+                        self.call_from_thread(
+                            self._update_parallel_agent_status, agent_name, "🚫 Cancelled"
+                        )
+                        return {
+                            "agent": agent_name,
+                            "result": "Cancelled",
+                            "elapsed": 0,
+                            "success": False,
+                        }
+
+                    result = tool.run(task=subtask, agent_name=agent_name)
+                    elapsed = _time.time() - start
+                    info.elapsed = elapsed
+                    info.status = AgentStatus.COMPLETED
+                    info.result = result
+                    self.call_from_thread(self._update_dashboard)
+                    self.call_from_thread(
+                        self._update_parallel_agent_status, agent_name, f"✓ Done ({elapsed:.1f}s)"
+                    )
+                    # Progressively stream results as soon as this agent completes
+                    self.call_from_thread(
+                        self._add_parallel_result,
+                        agent_name,
+                        result,
+                        elapsed,
+                        True,
+                    )
+                    return {
+                        "agent": agent_name,
+                        "result": result,
+                        "elapsed": elapsed,
+                        "success": True,
+                    }
+                except Exception as e:
+                    elapsed = _time.time() - start
+                    info.elapsed = elapsed
+                    info.status = AgentStatus.FAILED
+                    info.error = str(e)
+                    self.call_from_thread(self._update_dashboard)
+                    self.call_from_thread(
+                        self._update_parallel_agent_status, agent_name, f"✗ Failed ({elapsed:.1f}s)"
+                    )
+                    self.call_from_thread(
+                        self._add_parallel_result,
+                        agent_name,
+                        f"Error: {e}",
+                        elapsed,
+                        False,
+                    )
+                    return {
+                        "agent": agent_name,
+                        "result": f"Error: {e}",
+                        "elapsed": elapsed,
+                        "success": False,
+                    }
+
+            # Execute all agents in parallel using ThreadPoolExecutor
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(agents)) as executor:
+                futures = {}
+                for info in task_infos:
+                    future = executor.submit(execute_agent, info.agent_name, task, info)
+                    futures[future] = info
+                    if self._parallel_lock:
+                        with self._parallel_lock:
+                            self._active_parallel_futures[info.agent_id] = future
+
+                for future in concurrent.futures.as_completed(futures):
+                    result = future.result()
+                    results.append(result)
+
+            # Hide parallel bar and spinner
+            self.call_from_thread(self._hide_parallel_bar)
+            self.call_from_thread(self._hide_spinner)
+
+            # Summary
+            ok = sum(1 for r in results if r["success"])
+            fail = len(results) - ok
+            total_time = sum(r["elapsed"] for r in results)
+            max_time = max(r["elapsed"] for r in results) if results else 0
+            self.call_from_thread(
+                self._add_system_message,
+                f"Parallel complete: {ok} ok, {fail} failed | "
+                f"Total wall time: {max_time:.1f}s | Combined: {total_time:.1f}s",
+            )
+
+        except Exception as e:
+            self.call_from_thread(self._hide_parallel_bar)
+            self.call_from_thread(self._hide_spinner)
+            self.call_from_thread(self._add_system_message, f"Parallel error: {e}")
+        finally:
+            self.is_thinking = False
+            if self._parallel_lock:
+                with self._parallel_lock:
+                    self._active_parallel_futures.clear()
+            self.call_from_thread(self._update_dashboard)
+
+    def _show_parallel_bar(self: SagoApp, agents: list[str]) -> None:
+        """Show the parallel agent status bar."""
+        container = self.query_one("#parallel-agents")
+        container.remove_children()
+        for agent_name in agents:
+            safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", agent_name)
+            container.mount(
+                Static(
+                    f"⏳ {agent_name}: Waiting...",
+                    id=f"pagent-{safe_id}",
+                    classes="parallel-agent",
+                    markup=False,
+                )
+            )
+        self.query_one("#parallel-bar").add_class("visible")
+
+    def _update_parallel_agent_status(self: SagoApp, agent_name: str, status_text: str) -> None:
+        """Update status label for a specific parallel agent in real-time."""
+        try:
+            safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", agent_name)
+            node = self.query_one(f"#pagent-{safe_id}", Static)
+            node.update(f"{agent_name}: {status_text}")
+        except Exception:
+            pass
+
+    def _hide_parallel_bar(self: SagoApp) -> None:
+        """Hide the parallel agent status bar."""
+        self.query_one("#parallel-bar").remove_class("visible")

@@ -98,13 +98,13 @@ TraceViewerScreen {
     width: 96%;
     height: 94%;
     background: #0d1117;
-    border: tall #21262d;
-    border-top: tall #388bfd;
+    border: none;
     layout: vertical;
 }
 .tv-header {
     height: 3;
     background: #161b22;
+    border-top: solid #388bfd;
     border-bottom: solid #21262d;
     padding: 0 2;
     align-vertical: middle;
