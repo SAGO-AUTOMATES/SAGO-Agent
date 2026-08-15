@@ -555,25 +555,24 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
 
 
 def _get_context(cwd: str | None = None) -> str:
+    """Get compact workspace context without massive token dumping."""
     work_dir = Path(cwd) if cwd else Path.cwd()
-    lines = [f"Working directory: {work_dir}"]
+    lines = [f"Workspace: {work_dir}"]
 
-    for name in [
-        "README.md",
-        "readme.md",
-        "pyproject.toml",
-        "package.json",
-        "Cargo.toml",
-        "go.mod",
-    ]:
-        p = work_dir / name
-        if p.exists():
-            try:
-                lines.append(f"\n--- {name} ---\n{p.read_text('utf-8')[:3000]}")
-            except Exception:
-                pass
-
-    skip = {".git", "node_modules", "__pycache__", ".venv", "venv", "env", ".tox", "dist", "build"}
+    skip = {
+        ".git",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "env",
+        ".tox",
+        "dist",
+        "build",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+    }
     files = []
     dirs = []
     try:
@@ -581,27 +580,16 @@ def _get_context(cwd: str | None = None) -> str:
             if item.name.startswith(".") or item.name in skip:
                 continue
             if item.is_dir():
-                try:
-                    count = sum(1 for _ in item.iterdir())
-                    dirs.append(f"  {item.name}/ ({count} items)")
-                except Exception:
-                    dirs.append(f"  {item.name}/")
+                dirs.append(f"{item.name}/")
             else:
-                try:
-                    s = item.stat().st_size
-                    files.append(
-                        f"  {item.name} ({s}B)" if s < 100_000 else f"  {item.name} ({s // 1024}KB)"
-                    )
-                except Exception:
-                    files.append(f"  {item.name}")
+                files.append(item.name)
     except PermissionError:
         pass
+
     if dirs:
-        lines.append(f"\nDirectories ({work_dir.name}/):")
-        lines.extend(dirs[:30])
+        lines.append(f"Dirs: {', '.join(dirs[:15])}")
     if files:
-        lines.append(f"\nFiles ({work_dir.name}/):")
-        lines.extend(files[:50])
+        lines.append(f"Files: {', '.join(files[:25])}")
 
     try:
         import subprocess
@@ -610,11 +598,16 @@ def _get_context(cwd: str | None = None) -> str:
             ["git", "status", "--short"],
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=3,
             cwd=str(work_dir),
         )
         if r.returncode == 0 and r.stdout.strip():
-            lines.append(f"\nGit changes:\n{r.stdout.strip()[:800]}")
+            git_lines = r.stdout.strip().splitlines()
+            if len(git_lines) > 8:
+                summary = "\n".join(git_lines[:8]) + f"\n... (+{len(git_lines) - 8} more files)"
+            else:
+                summary = "\n".join(git_lines)
+            lines.append(f"Git status:\n{summary}")
     except Exception:
         pass
 
@@ -623,71 +616,34 @@ def _get_context(cwd: str | None = None) -> str:
 
 # Task-specific system prompts (tools are now passed via API, not in text)
 PROMPTS = {
-    "chat": """You are {agent_role}, a versatile, articulate, and friendly AI assistant and software engineering expert.
+    "chat": """You are {agent_role}, an expert software engineering AI assistant.
 
 {project_ctx}
 
-=== CONVERSATIONAL & REASONING STRATEGY ===
-- Respond naturally, helpfully, and directly in conversational turns.
-- If the user asks for jokes, creative writing, explanations, casual banter, general knowledge, or conversational follow-ups (e.g. "more", "10-20 more", "tell me another", "why is that"), answer directly and conversationally.
-- DO NOT invoke filesystem or code execution tools unless the user explicitly asks you to inspect, read, search, modify files, or run system commands in their workspace.
-- Maintain full continuity and awareness of recent conversation context and follow-up requests.
-
-=== CRITICAL RULES ===
-- NEVER fabricate tool results. Only use tools when an action on the local environment is required.
-- Provide direct, high-quality, articulate answers.""",
-    "create": """You are {agent_role}. The user wants you to CREATE something (file, project, feature).
+- Answer conversational queries, explanations, and follow-ups directly and concisely.
+- Only invoke tools when the user explicitly requests inspecting, editing, or running workspace commands.
+- Never hallucinate tool results or file contents.""",
+    "create": """You are {agent_role}. The user wants you to create or implement code.
 
 {project_ctx}
 
-=== CREATION STRATEGY ===
-- Start by understanding what exists (glob_files, read_file)
-- Create files ONE AT A TIME using write_file
-- After each file, verify it was created correctly
-- For projects: create structure first, then implement
-- Always verify your work (run tests, check syntax)
-- Only call tools when the user's request requires inspecting or modifying files. If the user asks a conversational question or clarification, reply directly without calling tools.
-
-=== CRITICAL RULES ===
-- NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
-- NEVER claim to have done something you haven't actually done.
-- ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
-- If a tool call fails, report the error honestly. Do not pretend it succeeded.
-- When writing files, put the ACTUAL CODE in the content field. No markdown, no backticks, just the raw code.
-- NEVER say "I cannot" or "I am unable" — you have tools, USE THEM.""",
-    "fix": """You are {agent_role}. The user wants you to FIX something (bug, error, issue).
+- Inspect existing code with tools first if needed.
+- Write or edit files cleanly with exact code.
+- Verify work and report results honestly without fabricating output.
+- Reply directly without calling tools for simple conversational queries.""",
+    "fix": """You are {agent_role}. The user wants you to fix an issue or bug.
 
 {project_ctx}
 
-=== FIX STRATEGY ===
-- Read the error message carefully
-- Find the file and line causing the issue
-- Understand the root cause before fixing
-- Make minimal changes to fix
-- Test that the fix works
-
-=== CRITICAL RULES ===
-- NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
-- NEVER claim to have done something you haven't actually done.
-- ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
-- If a tool call fails, report the error honestly. Do not pretend it succeeded.
-- NEVER say "I cannot" or "I am unable" — you have tools, USE THEM.""",
-    "analyze": """You are {agent_role}. The user wants you to ANALYZE something (code, project, issue).
+- Identify root cause and inspect relevant files before modifying.
+- Make precise, minimal fixes and verify changes.
+- Never guess file contents or pretend tool executions succeeded.""",
+    "analyze": """You are {agent_role}. The user wants you to analyze code or architecture.
 
 {project_ctx}
 
-=== ANALYSIS STRATEGY ===
-- Be thorough but focused
-- Read multiple files to understand the full picture
-- Look for patterns, issues, improvements
-- Provide actionable recommendations
-
-=== CRITICAL RULES ===
-- NEVER fabricate or hallucinate file contents. If you haven't read a file, use read_file first.
-- NEVER claim to have done something you haven't actually done.
-- ALWAYS use tools to interact with the filesystem. Do not guess or make up results.
-- If a tool call fails, report the error honestly. Do not pretend it succeeded.
-- NEVER say "I cannot" or "I am unable" — you have tools, USE THEM.""",
+- Inspect files thoroughly and provide structured, actionable analysis and insights.
+- Do not fabricate findings or tool outputs.""",
 }
 
 
