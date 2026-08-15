@@ -1,0 +1,31 @@
+{
+  "export_timestamp": 1786790954.9379933,
+  "export_time": "2026-08-15 16:19:14",
+  "total_events": 1,
+  "interaction_graph": {
+    "nodes": [
+      {
+        "id": "event_0",
+        "type": "TOOL_DISPATCH",
+        "source": "test_source",
+        "action": "test_action",
+        "status": "OK",
+        "duration_ms": 0.0
+      }
+    ],
+    "edges": []
+  },
+  "events": [
+    {
+      "timestamp": 1786790945.4672852,
+      "event_type": "TOOL_DISPATCH",
+      "source": "test_source",
+      "action": "test_action",
+      "data": {
+        "k": "v"
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    }
+  ]
+}

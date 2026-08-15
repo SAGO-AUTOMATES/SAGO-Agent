@@ -333,18 +333,6 @@ class UIHelpers:
 
                 bar = Horizontal(classes="trace-action-bar")
 
-                async def _open_trace_viewer(
-                    _evt: object,
-                    _events: list = captured_events,
-                    _label: str = badge_text,
-                ) -> None:
-                    try:
-                        from sago.tui.trace_viewer import TraceViewerScreen
-
-                        await self.push_screen(TraceViewerScreen(_events, turn_label=_label))
-                    except Exception as exc:
-                        self._add_system_message(f"⚡ Trace viewer error: {exc}")
-
                 badge_static = Static(
                     f"[dim]{badge_text}[/dim]",
                     classes="trace-badge",
@@ -355,7 +343,9 @@ class UIHelpers:
                     id=f"btn-view-trace-{id(traces)}",
                     classes="btn-view-trace",
                 )
-                view_btn.on_button_pressed = _open_trace_viewer
+                # Store the snapshot on the widget so the app-level handler can pick it up
+                setattr(view_btn, "_trace_events", captured_events)
+                setattr(view_btn, "_trace_label", badge_text)
 
                 def _mount_trace_bar() -> None:
                     if target_card is not None and hasattr(target_card, "mount_child"):

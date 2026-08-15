@@ -1218,6 +1218,27 @@ class SagoApp(App, CommandHandlers, UIHelpers):
         except Exception as e:
             self._add_system_message(f"⚡ Trace viewer error: {e}")
 
+    @on(Button.Pressed, ".btn-view-trace")
+    def on_view_trace_button(self, event: Button.Pressed) -> None:
+        """Handle per-turn 'View Trace ⚡' button clicks."""
+        btn = event.button
+        trace_events = getattr(btn, "_trace_events", None)
+        trace_label = getattr(btn, "_trace_label", "")
+        if not trace_events:
+            # Fall back to full session traces
+            from sago.tracking.dev_tracer import get_dev_tracer
+
+            trace_events = get_dev_tracer().get_recent_traces(limit=500)
+        if not trace_events:
+            self._add_system_message("⚡ No traces captured yet.")
+            return
+        try:
+            from sago.tui.trace_viewer import TraceViewerScreen
+
+            self.push_screen(TraceViewerScreen(trace_events, turn_label=trace_label))
+        except Exception as e:
+            self._add_system_message(f"⚡ Trace viewer error: {e}")
+
     def _show_shortcuts_suggestions(self, query: str = "") -> None:
         """Show shortcuts and quick help suggestions."""
         items = [
