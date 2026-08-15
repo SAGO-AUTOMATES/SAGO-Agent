@@ -377,47 +377,86 @@ def tools() -> None:
 
 
 @cli.command()
-def sessions() -> None:
-    """List recent sessions."""
-    from sago.database import Session
+@click.option("--limit", "-l", default=20, help="Number of sessions to list")
+def sessions(limit: int) -> None:
+    """List recent sessions with message and tool execution stats."""
+    from sago.database import MessageStore, Session, ToolUsageStore, init_db
 
+    init_db()
     session = Session()
-    sessions_list = session.list_all(limit=20)
+    sessions_list = session.list_all(limit=limit)
 
     if not sessions_list:
-        console.print("[dim]No sessions found.[/]")
+        console.print("[dim]No sessions found in database ~/.sago/data/sago.db.[/]")
         return
 
-    console.print(Panel.fit("[bold]Recent Sessions[/]", border_style="blue"))
+    console.print(Panel.fit("[bold cyan]Recent SAGO Sessions[/]", border_style="cyan"))
 
     table = Table(show_header=True, header_style="bold magenta")
-    table.add_column("ID", style="cyan", max_width=12)
-    table.add_column("Title")
-    table.add_column("Created")
+    table.add_column("Session ID", style="cyan", max_width=14)
+    table.add_column("Title / Prompt", max_width=36)
+    table.add_column("Msgs", justify="right", style="green")
+    table.add_column("Tools", justify="right", style="yellow")
+    table.add_column("Created", style="dim")
     table.add_column("Status")
 
     for s in sessions_list:
+        sid = s["id"]
+        try:
+            ms = MessageStore(sid)
+            msg_count = ms.count()
+        except Exception:
+            msg_count = 0
+        try:
+            tus = ToolUsageStore(sid)
+            tool_count = len(tus.get_all())
+        except Exception:
+            tool_count = 0
+
+        status_str = s.get("status", "active")
+        status_styled = (
+            "[bold green]active[/bold green]"
+            if status_str == "active"
+            else (
+                "[cyan]detached[/cyan]" if status_str == "detached" else f"[dim]{status_str}[/dim]"
+            )
+        )
+
         table.add_row(
-            s["id"][:12],
-            (s.get("title") or "Untitled")[:50],
-            s["created_at"][:19],
-            s.get("status", "active"),
+            sid[:12],
+            (s.get("title") or "Untitled")[:35],
+            str(msg_count),
+            str(tool_count),
+            s["created_at"][:16].replace("T", " "),
+            status_styled,
         )
 
     console.print(table)
+    console.print("\n[dim]To view history:  sago history <session_id>[/dim]")
+    console.print("[dim]To resume in TUI: sago tui --resume <session_id>[/dim]\n")
 
 
 @cli.command()
 @click.argument("session_id")
 def history(session_id: str) -> None:
-    """Show message history for a session."""
-    from sago.database import MessageStore
+    """Show message history and tool executions for a session."""
+    from sago.database import MessageStore, Session, init_db
 
-    msg_store = MessageStore(session_id)
-    messages = msg_store.get_history(limit=50)
+    init_db()
+
+    target_sid = session_id
+    if len(session_id) < 36:
+        all_s = Session().list_all(limit=100)
+        for s in all_s:
+            if s["id"].startswith(session_id):
+                target_sid = s["id"]
+                break
+
+    msg_store = MessageStore(target_sid)
+    messages = msg_store.get_history(limit=100)
 
     if not messages:
-        console.print(f"[dim]No messages found for session {session_id}[/]")
+        console.print(f"[dim]No messages found for session {session_id} in ~/.sago/data/sago.db[/]")
         return
 
     console.print(

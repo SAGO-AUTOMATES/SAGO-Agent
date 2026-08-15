@@ -681,9 +681,8 @@ class UIHelpers:
     def _save_message(self: SagoApp, role: str, content: str, metadata: dict | None = None) -> None:
         if self.current_session_id and self.current_session_id != "local":
             try:
-                from sago.database import MessageStore
+                from sago.database import MessageStore, Session
 
-                # Reuse MessageStore instance for batched writes
                 if not hasattr(self, "_message_store") or self._message_store is None:
                     self._message_store = MessageStore(self.current_session_id)
                 self._message_store.add(
@@ -692,5 +691,20 @@ class UIHelpers:
                     agent_name=self.current_agent,
                     metadata=metadata,
                 )
+                self._message_store.flush()
+
+                # Automatically update session title with first user prompt
+                if role == "user":
+                    try:
+                        s = Session(self.current_session_id)
+                        curr_session = s.get()
+                        if curr_session and (
+                            not curr_session.get("title")
+                            or curr_session.get("title") == "TUI Session"
+                        ):
+                            prompt_title = content.strip().split("\n")[0][:45]
+                            s.update(title=prompt_title)
+                    except Exception:
+                        pass
             except Exception:
                 pass
