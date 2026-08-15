@@ -356,10 +356,18 @@ class SpawnAgentTool(BaseTool):
         # Add structured output instructions
         output_instructions = self._get_output_instructions(agent_name)
 
-        # Add context from previous agents
+        # Add context from previous agents — handle both raw strings and HandoffContext
         context_section = ""
         if context:
-            context_section = f"\n\n## Context From Parent Agent\n{context}"
+            # Check if context is a HandoffContext object (from structured handoff)
+            from sago.agents.handoff import HandoffContext
+
+            if isinstance(context, HandoffContext):
+                context_section = (
+                    f"\n\n## Handoff Context\n{context.get_compact_handoff_prompt(agent_name)}"
+                )
+            else:
+                context_section = f"\n\n## Context From Parent Agent\n{context}"
 
         # Add feedback if provided
         feedback_section = ""
