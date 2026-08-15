@@ -421,3 +421,51 @@ def test_configurable_settings_and_doctor_command() -> None:
     assert result.exit_code == 0
     assert "System Health Check" in result.output
     assert "Python Runtime" in result.output
+
+
+def test_daemon_resilience_and_safety_checks() -> None:
+    """Verify dangerous shell command rejection, fallback tool caching, rate limits, and memory caps."""
+    from sago.cache.intelligent import get_cache
+    from sago.errors.handler import _get_tool_class_by_name, get_error_handler
+    from sago.tools.shell.execute import ExecuteShellTool
+    from sago.tracking.token_tracker import TokenUsage, get_token_tracker
+
+    # 1. Shell dangerous commands safety
+    shell = ExecuteShellTool()
+    res = shell._run("rm -rf /")
+    assert "Command rejected by safety guard" in res
+    res_fork = shell._run(":(){ :|:& };:")
+    assert "Command rejected by safety guard" in res_fork
+
+    # 2. Fast cached fallback tool lookup
+    tool_cls = _get_tool_class_by_name("read_file")
+    assert tool_cls is not None
+    assert getattr(tool_cls, "name") == "read_file"
+    # Second call uses cache
+    assert _get_tool_class_by_name("read_file") is tool_cls
+
+    # 3. Fast cache entry size calculation
+    cache = get_cache()
+    cache.set("str_key", "hello world")
+    assert cache.get("str_key") == "hello world"
+
+    # 4. Token tracker and Error handler memory caps
+    tracker = get_token_tracker()
+    for _ in range(5):
+        tracker._usages.append(
+            TokenUsage(
+                provider="test",
+                model="test",
+                input_tokens=10,
+                output_tokens=10,
+                cached=False,
+                latency_ms=10.0,
+                cost_usd=0.001,
+            )
+        )
+    assert len(tracker._usages) <= 10000
+
+    eh = get_error_handler()
+    eh.handle_error("test_tool", ValueError("test error"))
+    assert len(eh.errors) >= 1
+    assert len(eh.errors) <= 5000

@@ -898,6 +898,15 @@ def execute_agent_task(
     current_todo_index = 0
     todo_tool_counts: dict[str, int] = {}  # track tools per todo
 
+    # Initialize single ToolUsageStore instance for task lifecycle
+    tool_usage_store = None
+    try:
+        from sago.database import ToolUsageStore
+
+        tool_usage_store = ToolUsageStore("simple_executor")
+    except Exception:
+        tool_usage_store = None
+
     # Build user message with project context as DATA (not instructions)
     user_content = task
     if project_ctx:
@@ -1022,6 +1031,21 @@ def execute_agent_task(
         # Native tool calls extracted from the model response (OpenAI or Gemini).
         # The gemini branch populates this so the shared execution loop below runs.
         native_tool_calls: list[dict[str, Any]] = []
+
+        # Enforce rate limits if configured
+        try:
+            from sago.tracking.token_tracker import get_token_tracker
+
+            provider_name = "gemini" if model.startswith("gemini") else "openai"
+            allowed, wait_sec = get_token_tracker().check_rate_limit(provider_name)
+            if not allowed and wait_sec > 0:
+                if on_thinking:
+                    on_thinking(
+                        f"Rate limit hit for {provider_name}, backing off for {wait_sec:.1f}s..."
+                    )
+                time.sleep(min(wait_sec, 60))
+        except Exception:
+            pass
 
         try:
             temp = profile.get("temperature", 0.3) if profile else 0.3
@@ -1545,21 +1569,17 @@ def execute_agent_task(
 
             tools_used_in_iteration.append(name)
 
-            # Log tool usage to DB
-            try:
-                from sago.database import ToolUsageStore, init_db
-
-                init_db()
-                _tus = ToolUsageStore("simple_executor")
-                _tus.log(
-                    tool_name=name,
-                    arguments=args,
-                    result=result_str[:1000],
-                    success=not is_error,
-                )
-                _tus.flush()
-            except Exception:
-                pass
+            # Log tool usage to DB using shared store
+            if tool_usage_store is not None:
+                try:
+                    tool_usage_store.log(
+                        tool_name=name,
+                        arguments=args,
+                        result=result_str[:1000],
+                        success=not is_error,
+                    )
+                except Exception:
+                    pass
 
             # Notify caller of tool result immediately
             if on_tool_result:
@@ -1908,6 +1928,12 @@ def execute_agent_task(
                 metadata={"session_id": "simple_executor"},
             )
             tracker.save()
+        except Exception:
+            pass
+
+    if tool_usage_store is not None:
+        try:
+            tool_usage_store.flush()
         except Exception:
             pass
 

@@ -18,6 +18,45 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+_FALLBACK_TOOL_CACHE: dict[str, type] = {}
+_FALLBACK_TOOL_LOCK = threading.Lock()
+
+
+def _get_tool_class_by_name(target_name: str) -> type | None:
+    """Find a tool class by name with thread-safe cached discovery."""
+    with _FALLBACK_TOOL_LOCK:
+        if target_name in _FALLBACK_TOOL_CACHE:
+            return _FALLBACK_TOOL_CACHE[target_name]
+
+        if not _FALLBACK_TOOL_CACHE:
+            import importlib
+            from pathlib import Path
+
+            from sago.tools.base import BaseTool
+
+            tools_dir = Path(__file__).parent.parent / "tools"
+            for py_file in tools_dir.rglob("*.py"):
+                if py_file.name.startswith("_") or py_file.name == "base.py":
+                    continue
+                parts = py_file.relative_to(tools_dir).with_suffix("").as_posix().split("/")
+                module_name = ".".join(["sago", "tools"] + parts)
+                try:
+                    mod = importlib.import_module(module_name)
+                    for attr_name in dir(mod):
+                        obj = getattr(mod, attr_name)
+                        if (
+                            isinstance(obj, type)
+                            and issubclass(obj, BaseTool)
+                            and hasattr(obj, "name")
+                            and obj.name
+                        ):
+                            _FALLBACK_TOOL_CACHE[obj.name] = obj
+                except Exception:
+                    continue
+
+        return _FALLBACK_TOOL_CACHE.get(target_name)
+
+
 class ErrorSeverity(StrEnum):
     """Error severity levels."""
 
@@ -142,6 +181,8 @@ class ErrorHandler:
             traceback_str=traceback.format_exc(),
         )
         self.errors.append(context)
+        if len(self.errors) > 5000:
+            self.errors = self.errors[-5000:]
 
         log_msg = (
             "Error in tool '%s' (attempt %d/%d, severity=%s): %s",
@@ -245,43 +286,21 @@ class RecoveryManager:
         # All retries failed, try fallback
         if last_error and tool_name in self._fallback_tools:
             for fallback_name in self._fallback_tools[tool_name]:
-                try:
-                    # Try to find and execute the fallback tool
-                    import importlib
-                    from pathlib import Path
-
-                    from sago.tools.base import BaseTool
-
-                    tools_dir = Path(__file__).parent.parent / "tools"
-                    for py_file in tools_dir.rglob("*.py"):
-                        if py_file.name.startswith("_") or py_file.name == "base.py":
-                            continue
-                        parts = py_file.relative_to(tools_dir).with_suffix("").as_posix().split("/")
-                        module_name = ".".join(["sago", "tools"] + parts)
-                        try:
-                            mod = importlib.import_module(module_name)
-                            for attr_name in dir(mod):
-                                obj = getattr(mod, attr_name)
-                                if (
-                                    isinstance(obj, type)
-                                    and hasattr(obj, "name")
-                                    and obj.name == fallback_name
-                                ):
-                                    if issubclass(obj, BaseTool):
-                                        fallback_instance = obj()
-                                        result = fallback_instance.run(**kwargs)
-                                        duration = (time.time() - start_time) * 1000
-                                        return RecoveryResult(
-                                            success=True,
-                                            strategy_used=RecoveryStrategy.FALLBACK,
-                                            result=result,
-                                            attempts_made=self.max_retries,
-                                            duration_ms=duration,
-                                        )
-                        except Exception:
-                            continue
-                except Exception:
-                    continue
+                tool_cls = _get_tool_class_by_name(fallback_name)
+                if tool_cls:
+                    try:
+                        fallback_instance = tool_cls()
+                        result = fallback_instance.run(**kwargs)
+                        duration = (time.time() - start_time) * 1000
+                        return RecoveryResult(
+                            success=True,
+                            strategy_used=RecoveryStrategy.FALLBACK,
+                            result=result,
+                            attempts_made=self.max_retries,
+                            duration_ms=duration,
+                        )
+                    except Exception:
+                        continue
 
         duration = (time.time() - start_time) * 1000
         return RecoveryResult(

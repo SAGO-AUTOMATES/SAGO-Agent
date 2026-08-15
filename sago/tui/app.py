@@ -3187,9 +3187,17 @@ class SagoApp(App, CommandHandlers, UIHelpers):
 
                 self.call_from_thread(self._hide_spinner)
 
+                is_success = exec_result.get("success", True)
+                err = exec_result.get("error")
                 output = exec_result.get("output", "")
                 tool_calls = exec_result.get("tool_calls", [])
-                if output and output.strip():
+
+                if not is_success or err:
+                    self.call_from_thread(
+                        self._add_system_message,
+                        f"[bold red]Execution Error:[/] {err or output or 'Unknown execution failure'}",
+                    )
+                elif output and output.strip():
                     self.call_from_thread(self._add_assistant_message, output)
                 elif tool_calls:
                     tools_done = [t.get("tool", "unknown") for t in tool_calls]

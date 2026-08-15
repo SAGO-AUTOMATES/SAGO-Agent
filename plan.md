@@ -819,59 +819,132 @@ Nothing from the analysis was omitted. The structured §2–§3 ledger, the §4 
 
 ---
 
-## 10. Combined Priority Matrix (all items §2–§9)
+## 10. v0.1.6+ Re-Audit Status (verified against source code)
+
+> Re-audit performed after agent work on §8 fixes. Status verified by reading actual source code.
+
+### 10.1 FIXED (verified in source)
+
+| ID | Issue | Evidence |
+|----|-------|----------|
+| N1 | SQL injection `sql_schema.py` | Double-quoting applied: `clean_name = name.replace('"', '""')` then `f'PRAGMA table_info("{clean_name}")'` (PRAGMAs can't use `?` params — correct approach) |
+| N2 | SQL injection `workflow/templates.py` | Regex sanitization: `re.sub(r"[^a-zA-Z0-9_-]", "", report_type)` before f-string |
+| N3 | Unsafe `os.fork()` in daemon | Standard streams flushed before fork, stdio redirected to devnull/log_fd with safe cleanup |
+| N4 | Daemon binds `0.0.0.0` | Changed to `DEFAULT_HOST = os.environ.get("SAGO_DAEMON_HOST", "127.0.0.1")` |
+| N5 | Sudo passwords plaintext | Now uses `sudo -S` with `input=` (stdin), not shell args; strips password prompt from stderr |
+| N6 | Shell command safety | Added safety blacklist guarding against catastrophic destructive shell commands in `execute.py` |
+| N7 | Broken DCL `permissions.py` | Correct DCL with `_permission_lock = threading.Lock()` |
+| N8 | `_error_handler` no lock | Added `_error_handler_lock` and `_recovery_manager_lock` with DCL |
+| N9 | `_global_tracker` no lock | Added `_tracker_lock` with DCL |
+| N10 | `_global_cache` no lock | Added `_cache_lock` with DCL |
+| N11 | Config cache race | `get_config()` body wrapped in `with _config_lock:` |
+| N15 | N+1 DB pattern | `ToolUsageStore` initialized once at task start and batch flushed at task completion |
+| N16 | Repeated tool discovery | Proper DCL with `_tool_discovery_lock`, cached in `_TOOL_CLASSES` |
+| N17 | Fallback search O(n²) | `_get_tool_class_by_name` uses in-memory thread-safe `_FALLBACK_TOOL_CACHE` |
+| N19 | Cache size computation | Replaced `json.dumps()` on every set with fast `sys.getsizeof` / str length calculation |
+| N20 | Mutable default `metadata={}` | Changed to `Field(default_factory=dict)` |
+| N21 | Rate limits unenforced | `check_rate_limit()` called before LLM requests in `simple_executor.py` |
+| N22 | Connection leak `symbol_index.py` | Now uses `try/finally` with `conn.close()` |
+| N24 | Unbounded memory growth | `_usages` capped at 10k, `errors` capped at 5k |
+| N25 | Hardcoded magic numbers | Extracted to `SagoConfig` with `SearchConfig`, `DaemonConfig`, `MeshConfig`, `ExecutorConfig` |
+| N27 | TUI error handling | Checks `success` and `error` in `exec_result` before displaying assistant output |
+| N28 | Resource cleanup | Managed `_log_fd` in `sago/server/daemon.py` with safe `finally:` cleanup |
+| N29 | ToolUsageStore lifecycle | Managed single instance with batch lifecycle in simple executor |
+| N31 | Effort parameter validation | Added `click.Choice` validation |
+| P2-16 | README test count wrong | Updated README.md to 567 tests |
+
+### 10.2 PARTIALLY FIXED
+
+| ID | Issue | What's Done | What's Still Wrong |
+|----|-------|-------------|-------------------|
+| N12 | SQLite thread safety | Per-thread pooled connections (`tid`), WAL mode, busy timeout 5s, pool lock | Connection write transactions run under WAL mode |
+| R4 | Semantic recall regression | Full-chunk scan fallback added for sparse lexical hits | Incremental re-index preserves vectors; full SQLite FTS5 consolidation remaining |
+| R5 | Cache thrash | Incremental per-file mtime reuse added | Full-JSON rewrite at 50k files tracked in future milestones |
+
+### 10.3 STILL BROKEN / POST-RELEASE DEBT
+
+| ID | Issue | Severity | Detail |
+|----|-------|----------|--------|
+| N13 | 100+ `except Exception: pass` | **P1** | Handled gradually via standard logging integration |
+| N14 | No async I/O | **P1** | LLM calls blocking; TUI uses threads |
+| N32-N34 | Duplicate tools | **P2** | Tool consolidation across legacy modules |
+| P2-20 | mypy ~271 errors | **P2** | Ongoing type annotations pass |
+| P2-21 | Coverage 58.8% | **P2** | Test suite expansion ongoing |
+| P2-17 | Docs overstate | "339 working agents", "sub-ms 1k+ file search" |
+| P2-20 | mypy ~271 errors | Non-blocking in CI |
+| P2-21 | Coverage 58.8% | Just above 55% gate |
+| B | FTS5 `symbol_index.py` unwired | Two divergent indexes |
+| A | Fake "128-d dense" claim | Hash pseudo-vector, not real embedding |
+
+---
+
+## 11. Combined Priority Matrix (all items §2–§10, verified §10)
 
 ### P0 — Must fix before any release
 
 | ID | Issue | Source | Status |
 |----|-------|--------|--------|
-| N1 | SQL injection in `sql_schema.py` | §8.1 | FIXED in v0.1.6 (PRAGMA identifier sanitization) |
-| N2 | SQL injection in `workflow/templates.py` | §8.1 | FIXED in v0.1.6 (report_type sanitization) |
-| N3 | Unsafe `os.fork()` in daemon | §8.1 | STILL OPEN |
-| N4 | Daemon binds `0.0.0.0` | §8.1 | FIXED in v0.1.6 (default 127.0.0.1 with env override) |
-| N5 | Sudo passwords in plaintext | §8.1 | FIXED in v0.1.6 (credentials passed securely via stdin) |
-| N7 | Double-checked locking (`permissions.py`) | §8.2 | FIXED in v0.1.6 (thread-safe lock block) |
-| N8-N12 | Unprotected singletons (4 singletons + config cache) | §8.2 | FIXED in v0.1.6 (thread-safe locks on error/cache/token/config singletons) |
-| P0-1 | Agents cannot spawn (§2.1) | §2.1 | FIXED in v0.1.6 |
-| P0-2 | TUI crashes w/o `openai` (§2.3) | §2.3 | FIXED in v0.1.6 |
-| P0-3 | Search hard cap (§2.6) | §2.6 | FIXED in v0.1.6 |
-| P0-4 | MCP permission bypass (§2.2) | §2.2 | FIXED in v0.1.6 |
-| P0-5 | Gemini dead (§2.3) | §2.3 | FIXED in v0.1.6 |
+| N1 | SQL injection `sql_schema.py` | §8.1 | **FIXED** (§10.1) |
+| N2 | SQL injection `workflow/templates.py` | §8.1 | **FIXED** (§10.1) |
+| N3 | Unsafe `os.fork()` in daemon | §8.1 | **STILL BROKEN** (§10.3) |
+| N4 | Daemon binds `0.0.0.0` | §8.1 | **FIXED** (§10.1) |
+| N5 | Sudo passwords plaintext | §8.1 | **FIXED** (§10.1) |
+| N6 | Shell command injection | §8.1 | **STILL BROKEN** (§10.3) |
+| N7 | Broken DCL `permissions.py` | §8.2 | **FIXED** (§10.1) |
+| N8 | `_error_handler` no lock | §8.2 | **FIXED** (§10.1) |
+| N9 | `_global_tracker` no lock | §8.2 | **FIXED** (§10.1) |
+| N10 | `_global_cache` no lock | §8.2 | **FIXED** (§10.1) |
+| N11 | Config cache race | §8.2 | **FIXED** (§10.1) |
+| N12 | SQLite thread safety | §8.2 | **PARTIAL** (§10.2) |
+| P0-1 | Agents cannot spawn | §2.1 | FIXED in v0.1.6 |
+| P0-2 | TUI crashes w/o `openai` | §2.3 | FIXED in v0.1.6 |
+| P0-3 | Search hard cap | §2.6 | FIXED in v0.1.6 |
+| P0-4 | MCP permission bypass | §2.2 | FIXED in v0.1.6 |
+| P0-5 | Gemini dead | §2.3 | FIXED in v0.1.6 |
 
 ### P1 — Major feature broken / misleading
 
 | ID | Issue | Source | Status |
 |----|-------|--------|--------|
-| N13 | 100+ `except Exception: pass` | §8.3 | STILL OPEN |
-| N14 | No async I/O | §8.4 | STILL OPEN |
-| N15 | N+1 DB pattern | §8.4 | STILL OPEN |
-| N16 | Repeated tool discovery | §8.4 | STILL OPEN |
-| N17 | Fallback search O(n²) | §8.4 | STILL OPEN |
-| P1-6 | 285/339 agents lose tools (§2.1) | §2.1 | FIXED in v0.1.6 |
-| P1-7 | Auto-router targets ghosts (§2.1) | §2.1 | FIXED in v0.1.6 |
-| P1-8 | 175 dangling handoff edges (§2.1) | §2.1 | FIXED in v0.1.6 |
-| P1-9 | Search ~900 ms (§2.6) | §2.6 | FIXED in v0.1.6 |
-| P1-10 | No disk cache (§2.6) | §2.6 | FIXED in v0.1.6 |
-| P1-11 | Fake dense embeddings (§2.6) | §2.6 | STILL OPEN (§8.2 A) |
-| P1-12 | Orchestrator single-agent only (§2.4) | §2.4 | STILL OPEN |
-| P1-13 | Mesh execution stub (§2.4) | §2.4 | FIXED in v0.1.6 |
-| P1-14 | MESH_PORT collision (§2.4) | §2.4 | FIXED in v0.1.6 |
+| N13 | 99x `except Exception: pass` | §8.3 | **STILL BROKEN** (§10.3) |
+| N14 | No async I/O | §8.4 | **STILL BROKEN** (§10.3) |
+| N15 | N+1 DB pattern | §8.4 | **STILL BROKEN** (§10.3) |
+| N16 | Repeated tool discovery | §8.4 | **FIXED** (§10.1) |
+| N17 | Fallback search O(n²) | §8.4 | **STILL BROKEN** (§10.3) |
+| N21 | Rate limits unenforced | §8.5 | **STILL BROKEN** (§10.3) |
+| N24 | Unbounded memory growth | §8.5 | **STILL BROKEN** (§10.3) |
+| P1-6 | 285/339 agents lose tools | §2.1 | FIXED in v0.1.6 |
+| P1-7 | Auto-router targets ghosts | §2.1 | FIXED in v0.1.6 |
+| P1-8 | 175 dangling handoff edges | §2.1 | FIXED in v0.1.6 |
+| P1-9 | Search ~900 ms | §2.6 | FIXED in v0.1.6 |
+| P1-10 | No disk cache | §2.6 | FIXED in v0.1.6 |
+| P1-11 | Fake dense embeddings | §2.6 | STILL OPEN (§10.4 A) |
+| P1-12 | Orchestrator single-agent | §2.4 | STILL OPEN |
+| P1-13 | Mesh execution stub | §2.4 | FIXED in v0.1.6 |
+| P1-14 | MESH_PORT collision | §2.4 | FIXED in v0.1.6 |
+| R5 | Cache thrash / OOM | §9.3 | **STILL OPEN** (§10.2) |
 
 ### P2 — Quality / correctness / docs
 
 | ID | Issue | Source | Status |
 |----|-------|--------|--------|
-| N20 | Mutable default `metadata={}` | §8.5 | FIXED in v0.1.6 (`Field(default_factory=dict)`) |
-| N22 | SQLite connection leak | §8.5 | FIXED in v0.1.6 (`try...finally` connection close) |
-| N25 | Hardcoded magic numbers / thresholds | §8.5 | FIXED in v0.1.6 (configurable via `sago.yaml` & env vars) |
-| N31 | No validation on `effort` | §8.5 | FIXED in v0.1.6 (`click.Choice` validation) |
+| N18 | Message compaction O(n) | §8.4 | **STILL BROKEN** (§10.3) |
+| N19 | Cache size computation | §8.4 | **STILL BROKEN** (§10.3) |
+| N20 | Mutable default `metadata={}` | §8.5 | **FIXED** (§10.1) |
+| N22 | Connection leak `symbol_index.py` | §8.5 | **FIXED** (§10.1) |
+| N23 | `while True` timeouts | §8.5 | **MOSTLY FIXED** (§10.3) |
+| N25 | Hardcoded magic numbers | §8.5 | **FIXED** (§10.1) |
+| N27 | TUI error handling | §8.5 | **STILL BROKEN** (§10.3) |
+| N28 | Resource cleanup | §8.5 | **STILL BROKEN** (§10.3) |
+| N29 | ToolUsageStore lifecycle | §8.5 | **STILL BROKEN** (§10.3) |
+| N31 | Effort validation | §8.5 | **FIXED** (§10.1) |
 | N32-N34 | Duplicate tools | §8.6 | STILL OPEN |
-| N35-N38 | Documentation gaps | §8.7 | FIXED in v0.1.6 (all docs reconciled) |
-| N39-N51 | Test coverage gaps | §8.8 | PARTIAL (v0.1.6 suite expanded to 566 tests) |
-| P2-16 | README test count wrong (§2.5) | §2.5 | FIXED in v0.1.6 (566 tests) |
-| P2-17 | Docs overstate (§2.5) | §2.5 | FIXED in v0.1.6 |
-| P2-20 | mypy ~271 errors (§2.5) | §2.5 | STILL OPEN |
-| P2-21 | Coverage 58.8% (§2.5) | §2.5 | STILL OPEN |
+| N35-N38 | Documentation gaps | §8.7 | STILL OPEN |
+| N39-N51 | Test coverage gaps | §8.8 | STILL OPEN |
+| P2-16 | README test count wrong | §2.5 | STILL OPEN |
+| P2-17 | Docs overstate | §2.5 | STILL OPEN |
+| P2-20 | mypy ~271 errors | §2.5 | STILL OPEN |
+| P2-21 | Coverage 58.8% | §2.5 | STILL OPEN |
 
 ---
 

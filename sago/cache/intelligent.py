@@ -15,8 +15,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sago.utils.errors import log_error
-
 
 @dataclass
 class CacheEntry:
@@ -134,12 +132,15 @@ class Cache:
             while len(self._entries) >= self.max_size:
                 self._evict()
 
-            # Calculate size
-            try:
-                size_bytes = len(json.dumps(value, default=str).encode())
-            except Exception as e:
-                log_error("Failed to compute cache entry size", e)
-                size_bytes = 0
+            # Calculate size fast without expensive JSON serialization
+            if isinstance(value, str):
+                size_bytes = len(value.encode("utf-8", errors="replace"))
+            elif isinstance(value, bytes):
+                size_bytes = len(value)
+            else:
+                import sys
+
+                size_bytes = sys.getsizeof(value)
 
             entry = CacheEntry(
                 key=key,

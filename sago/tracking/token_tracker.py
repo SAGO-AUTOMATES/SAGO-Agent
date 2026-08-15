@@ -180,6 +180,8 @@ class TokenTracker:
         )
 
         self._usages.append(usage)
+        if len(self._usages) > 10000:
+            self._usages = self._usages[-10000:]
 
         # Update daily stats
         day = time.strftime("%Y-%m-%d")
