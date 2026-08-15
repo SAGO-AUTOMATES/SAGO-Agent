@@ -4,7 +4,17 @@ All notable changes to the SAGO project are documented in this file.
 
 ## [0.1.6] - 2026-08-15
 
-### Added
+- **Modular TUI Architecture Decomposition**:
+  - Refactored monolithic `sago/tui/app.py` into dedicated, cohesive mixins: `sago/tui/styles.py` (layout CSS & 11 themes), `sago/tui/orchestrator.py` (agent delegation, chaining, routing & parallel execution), `sago/tui/processor.py` (LLM streaming, token budgeting, tool execution loop & test-fix verification), and `sago/tui/commands.py`.
+- **Autonomous Task Continuity (`/continue` command)**:
+  - Added the `/continue` command across TUI models, commands, and app routers to resume interrupted tasks from the exact previous execution state after hitting rate limits (`429`) or network timeouts without token waste or repeating completed steps.
+- **SQLite Database Persistence & Enhanced CLI History**:
+  - Fixed immediate message writes and flushes into `~/.sago/data/sago.db` in `_save_message`.
+  - Added automatic session title tagging from the user's initial prompt.
+  - Enhanced `sago sessions` CLI output with message counts, tool counts, and formatted status indicators.
+  - Enabled short prefix matching for session IDs in `sago history <session_id>` (e.g. `sago history 85ccb9d7`).
+- **TUI Quick Action Bar Visibility Controls**:
+  - Added `/show`, `/hide`, and `/buttons [on|off|toggle]` commands to hide or show the bottom action buttons for a clean, power-user terminal experience with settings persistence.
 - **Sub-Millisecond Inverted Index & Disk Caching for Hybrid Search**:
   - `HybridCodeIndexer` now builds an in-memory inverted term index and caches AST tokenized chunks and statistics to disk (`~/.sago/cache/hybrid_index/`).
   - Search term frequency lookup changed from $O(\text{tokens})$ linear scan to $O(1)$ dictionary lookups, accelerating query speeds to sub-millisecond range.
