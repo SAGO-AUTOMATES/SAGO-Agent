@@ -54,7 +54,7 @@ class SpawnAgentTool(BaseTool):
     risk_level = "high"
 
     def _resolve_target_agent(self, agent_name: str, task: str) -> str:
-        """Resolve agent name with alias translation and task heuristic detection."""
+        """Resolve agent name using smart routing."""
         candidate = (agent_name or "").strip().lower().replace("_", "-")
         if not candidate:
             t_lower = task.lower()
@@ -62,13 +62,19 @@ class SpawnAgentTool(BaseTool):
                 candidate = "python-engineer"
             elif "java" in t_lower and "script" not in t_lower:
                 candidate = "java-engineer"
-            elif "golang" in t_lower or "go " in t_lower or "go/" in t_lower or ".go" in t_lower:
+            elif (
+                "golang" in t_lower
+                or "go " in t_lower
+                or "go/" in t_lower
+                or ".go" in t_lower
+                or " go " in f" {t_lower} "
+            ):
                 candidate = "go-engineer"
             elif "rust" in t_lower or ".rs" in t_lower:
                 candidate = "rust-engineer"
             elif "c++" in t_lower or "cpp" in t_lower:
                 candidate = "cpp-engineer"
-            elif "frontend" in t_lower or "react" in t_lower or "vue" in t_lower or "ui" in t_lower:
+            elif "frontend" in t_lower or "react" in t_lower or "vue" in t_lower:
                 candidate = "frontend-engineer"
             elif (
                 "devops" in t_lower or "docker" in t_lower or "k8s" in t_lower or "ci/cd" in t_lower
@@ -79,7 +85,16 @@ class SpawnAgentTool(BaseTool):
             elif "security" in t_lower or "audit" in t_lower:
                 candidate = "security-engineer"
             else:
-                candidate = "software-engineer"
+                try:
+                    from sago.agents.router import route_single
+
+                    resolved = route_single(task)
+                    if resolved and resolved != "software-engineer":
+                        candidate = resolved
+                    else:
+                        candidate = "software-engineer"
+                except Exception:
+                    candidate = "software-engineer"
 
         try:
             from sago.agents.registry import AGENT_ALIASES, AGENTS
@@ -497,4 +512,24 @@ Do NOT just say "I completed the task" — show evidence of your work.
         response_parts.append(f"Depth: {guard.depth}/{guard.max_depth}")
 
         response_parts.append(output)
+
+        # Parse and include handoff notes if present
+        handoff_notes = self._extract_handoff_notes(output)
+        if handoff_notes:
+            response_parts.append(f"\n[Handoff Notes]: {handoff_notes}")
+
         return "\n".join(response_parts)
+
+    @staticmethod
+    def _extract_handoff_notes(output: str) -> str:
+        """Extract Handoff Notes section from agent output."""
+        import re
+
+        match = re.search(
+            r"##?\s*Handoff\s*Notes?\s*\n(.*?)(?=\n##?\s|\Z)",
+            output,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if match:
+            return match.group(1).strip()
+        return ""

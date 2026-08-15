@@ -1,0 +1,33 @@
+{
+  "export_timestamp": 1786786715.6193676,
+  "export_time": "2026-08-15 15:08:35",
+  "total_events": 1,
+  "interaction_graph": {
+    "nodes": [
+      {
+        "id": "event_0",
+        "type": "AGENT_ROUTING",
+        "source": "spawn_agent",
+        "action": "DELEGATE -> python-engineer",
+        "status": "OK",
+        "duration_ms": 0.0
+      }
+    ],
+    "edges": []
+  },
+  "events": [
+    {
+      "timestamp": 1786786699.3076518,
+      "event_type": "AGENT_ROUTING",
+      "source": "spawn_agent",
+      "action": "DELEGATE -> python-engineer",
+      "data": {
+        "target_agent": "python-engineer",
+        "task": "Refactor codebase",
+        "depth": 1
+      },
+      "duration_ms": 0.0,
+      "status": "OK"
+    }
+  ]
+}

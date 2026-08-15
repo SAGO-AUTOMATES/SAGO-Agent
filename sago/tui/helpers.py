@@ -66,13 +66,19 @@ class ExchangeTurnCard(Vertical):
 
     def compose(self):
         preview = self.prompt.replace("\n", " ").strip()
-        title_snippet = f"{preview[:80]}..." if len(preview) > 80 else preview
+        title_snippet = f"{preview[:120]}..." if len(preview) > 120 else preview
         yield Static(
             f"[bold cyan]▼ USER[/bold cyan]  [bold white]{escape(title_snippet)}[/bold white]",
             classes="exchange-prompt-header",
             markup=True,
         )
-        yield Vertical(classes="exchange-body")
+        with Vertical(classes="exchange-body"):
+            rendered_prompt = _render_markdown(self.prompt)
+            yield Static(
+                f"[bold cyan]User Prompt:[/bold cyan]\n{rendered_prompt}",
+                classes="exchange-user-prompt",
+                markup=True,
+            )
 
     @on(events.Click, ".exchange-prompt-header")
     def on_header_clicked(self, event: events.Click) -> None:
@@ -88,7 +94,7 @@ class ExchangeTurnCard(Vertical):
             body.display = not self.is_turn_collapsed
 
             preview = self.prompt.replace("\n", " ").strip()
-            title_snippet = f"{preview[:80]}..." if len(preview) > 80 else preview
+            title_snippet = f"{preview[:120]}..." if len(preview) > 120 else preview
 
             if self.is_turn_collapsed:
                 hdr.update(
@@ -600,9 +606,20 @@ class UIHelpers:
         if files:
             lines.append(f"Files: {', '.join(files)}")
 
-        box = Static("\n".join(lines), classes="summary-box", markup=False)
-        self.query_one("#messages").mount(box)
-        self.query_one("#messages").scroll_end()
+        title = f"📊 Turn Summary ({elapsed:.1f}s)" if elapsed > 0 else "📊 Turn Summary"
+        card = Collapsible(
+            Static("\n".join(lines), classes="summary-box", markup=False),
+            title=title,
+            collapsed=True,
+        )
+        target_card = getattr(self, "_active_exchange_card", None)
+        if target_card is not None and hasattr(target_card, "mount_child"):
+            target_card.mount_child(card)
+        elif target_card is not None:
+            target_card.mount(card)
+        else:
+            self.query_one("#messages").mount(card)
+        self.query_one("#messages").scroll_end(animate=False)
 
     def _update_dashboard(self: SagoApp) -> None:
         """Update the agent dashboard safely with Rich formatted markup."""

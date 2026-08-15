@@ -147,7 +147,25 @@ class CommandHandlers:
     def _chain_agents(self: SagoApp, args: str) -> None:
         parts = args.split(None, 1)
         if len(parts) < 2:
-            self._add_system_message("Usage: /chain <agent1,agent2> <task>")
+            # No agents specified — use smart routing
+            task = args.strip()
+            if not task:
+                self._add_system_message(
+                    "Usage: /chain <agent1,agent2> <task> OR /chain <task> (auto-route)"
+                )
+                return
+            try:
+                from sago.agents.router import route_for_chain
+
+                agents = route_for_chain(task, max_agents=4)
+                if not agents:
+                    agents = ["python-engineer"]
+                self._add_system_message(f"Auto-routed chain: {' → '.join(agents)}")
+            except Exception:
+                agents = ["python-engineer"]
+                self._add_system_message("Using default chain: python-engineer")
+            self._add_user_message(f"/chain {args}")
+            self._process_chain(agents, task)
             return
         agent_chain, task = parts
         agents = [a.strip() for a in agent_chain.split(",")]
@@ -688,10 +706,8 @@ class CommandHandlers:
             lines.append(" | ".join(header_parts))
             lines.append("")
             lines.append(content)
-            lines.append("")
-
-        # Add tool usage and subagent execution section
-        lines.extend(["---", "", "## Tool Usage & Sub-Agent Delegations", ""])
+            # Add tool usage and subagent execution section
+        lines.extend(["---", "", "## ⚙️ Tool Executions & Sub-Agent Delegations", ""])
         try:
             tus = ToolUsageStore(sid)
             tool_logs = tus.get_all()
@@ -700,13 +716,15 @@ class CommandHandlers:
             tool_logs = []
 
         subagent_calls = []
+        error_logs = []
         if tool_logs:
             lines.append("| # | Tool / Action | Duration | Status | Key Arguments / Target |")
             lines.append("|---|---------------|----------|--------|------------------------|")
             for i, log in enumerate(tool_logs, 1):
                 tool = log.get("tool_name", "?")
                 dur = f"{log.get('duration_ms', 0)}ms"
-                ok = "✓ OK" if log.get("success", 1) else "✗ FAIL"
+                success = bool(log.get("success", 1))
+                ok = "✓ OK" if success else "✗ FAIL"
                 args_raw = log.get("arguments", "{}")
                 try:
                     args = (
@@ -716,6 +734,9 @@ class CommandHandlers:
                     )
                 except Exception:
                     args = {}
+
+                if not success or "error" in str(log.get("result", "")).lower():
+                    error_logs.append((i, tool, args, log.get("result", "")))
 
                 if tool == "spawn_agent":
                     subagent_calls.append((i, args, log.get("result", "")))
@@ -735,27 +756,53 @@ class CommandHandlers:
             for idx, args, result in subagent_calls:
                 target_agent = args.get("agent_name") or args.get("agent") or "Specialist Agent"
                 task_desc = args.get("task", "(No task description)")
-                lines.append(f"### Sub-Agent Call #{idx}: {target_agent}")
+                lines.append(f"### Sub-Agent Delegation #{idx}: `{target_agent}`")
                 lines.append(f"- **Target Agent:** `{target_agent}`")
                 lines.append(f"- **Delegated Task:** {task_desc}")
+                lines.append(
+                    f"- **Arguments & Parameters:** `{__import__('json').dumps(args, indent=2)}`"
+                )
                 if result:
-                    lines.append("- **Execution Result Summary:**")
-                    lines.append("```")
-                    lines.append(result[:1500] + ("..." if len(result) > 1500 else ""))
+                    lines.append("- **Execution Output:**")
+                    lines.append("```markdown")
+                    lines.append(result)
                     lines.append("```")
                 lines.append("")
 
-        # Interaction Flowchart
-        lines.extend(["---", "", "## 🗺️ Interaction Flowchart", "", "```mermaid", "graph TD"])
-        lines.append(f"  User([User Request]) --> Orch[{self.current_agent}]")
-        for i, log in enumerate(tool_logs[:20], 1):
-            t_name = log.get("tool_name", "tool")
-            stat = "✓" if log.get("success", 1) else "✗"
-            if t_name == "spawn_agent":
-                lines.append(f"  Orch -->|Delegate| Sub_{i}[🤖 Subagent ({stat})]")
-            else:
-                lines.append(f"  Orch -->|Call| Tool_{i}[⚙️ {t_name} ({stat})]")
-        lines.extend(["```", ""])
+        # Execution Errors & Diagnostics
+        if error_logs:
+            lines.extend(["---", "", "## ❌ Execution Errors & Issues", ""])
+            for idx, tool, args, result in error_logs:
+                lines.append(f"### Error in Tool #{idx} (`{tool}`)")
+                lines.append(f"- **Parameters:** `{args}`")
+                lines.append("- **Failure Diagnostics:**")
+                lines.append("```")
+                lines.append(str(result))
+                lines.append("```")
+                lines.append("")
+
+        # Interaction Flowchart & Execution Tree
+        from sago.tracking.dev_tracer import get_tracer
+
+        tracer = get_tracer()
+        events = tracer.get_events()
+        if events:
+            lines.extend(["---", "", "## 🗺️ Interaction Graph & Hierarchy", ""])
+            lines.append(tracer._generate_mermaid_graph(events))
+            lines.append("")
+            lines.append(tracer._generate_ascii_tree(events))
+            lines.append("")
+        else:
+            lines.extend(["---", "", "## 🗺️ Interaction Flowchart", "", "```mermaid", "graph TD"])
+            lines.append(f"  User([User Request]) --> Orch[{self.current_agent}]")
+            for i, log in enumerate(tool_logs[:20], 1):
+                t_name = log.get("tool_name", "tool")
+                stat = "✓" if log.get("success", 1) else "✗"
+                if t_name == "spawn_agent":
+                    lines.append(f"  Orch -->|Delegate| Sub_{i}[🤖 Subagent ({stat})]")
+                else:
+                    lines.append(f"  Orch -->|Call| Tool_{i}[⚙️ {t_name} ({stat})]")
+            lines.extend(["```", ""])
 
         # Add token usage summary if available
         lines.extend(["---", "", "## Token Usage", ""])
