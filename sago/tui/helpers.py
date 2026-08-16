@@ -615,6 +615,10 @@ class UIHelpers:
     def _add_tool_call(
         self: SagoApp, tool_name: str, args: dict, result: str, success: bool = True
     ) -> None:
+        if not hasattr(self, "session_tool_calls"):
+            self.session_tool_calls = []
+        self.session_tool_calls.append({"tool": tool_name, "success": success})
+
         status_tag = "[bold green]● OK[/bold green]" if success else "[bold red]✗ FAILED[/bold red]"
         title = f"{status_tag} Tool: [bold cyan]{tool_name}[/bold cyan]"
 

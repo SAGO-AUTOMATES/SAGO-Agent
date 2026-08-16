@@ -8,6 +8,7 @@ import os
 import re
 import threading
 import time
+from typing import Any
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -161,6 +162,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         self._pending_resume = getattr(self, "_pending_resume", None)
         self.command_history: list[str] = []
         self.history_index: int = -1
+        self.session_tool_calls: list[dict[str, Any]] = []
         self._orchestration_lock = threading.Lock()
         self._parallel_lock = threading.Lock()
         self._init_db()

@@ -78,7 +78,11 @@ async def test_tui_collapse_command():
 
 
 @pytest.mark.anyio
-async def test_tui_developer_mode(tmp_path: Path):
+async def test_tui_developer_mode(tmp_path: Path, monkeypatch):
+    from sago.settings import save_setting
+
+    monkeypatch.delenv("SAGO_DEV_MODE", raising=False)
+    save_setting("dev_mode", False)
     app = SagoApp()
     async with app.run_test() as pilot:
         assert app.developer_mode is False
