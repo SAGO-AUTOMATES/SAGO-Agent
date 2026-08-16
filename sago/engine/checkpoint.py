@@ -77,19 +77,23 @@ class CheckpointManager:
                         break
 
         for fpath in target_files:
-            abs_path = fpath if fpath.is_absolute() else self.root / fpath
+            abs_path = fpath if fpath.is_absolute() else (self.root / fpath).resolve()
             if not abs_path.is_file():
                 continue
 
             try:
                 rel = abs_path.relative_to(self.root)
+                dest = snap_dir / "data" / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(abs_path, dest)
+                copied_files.append(str(rel))
             except ValueError:
-                rel = abs_path
-
-            dest = snap_dir / "data" / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(abs_path, dest)
-            copied_files.append(str(rel))
+                # External file outside workspace root (e.g. cross-project path)
+                clean_ext_rel = Path(abs_path.as_posix().lstrip("/"))
+                dest = snap_dir / "data" / "_external" / clean_ext_rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(abs_path, dest)
+                copied_files.append(str(abs_path))
 
         meta = CheckpointMeta(
             checkpoint_id=chk_id,
@@ -186,10 +190,18 @@ class CheckpointManager:
         for p in data_dir.rglob("*"):
             if p.is_file():
                 rel = p.relative_to(data_dir)
-                dest = self.root / rel
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(p, dest)
-                restored_files.append(str(rel))
+                if "_external" in rel.parts:
+                    # Restore external file back to its original absolute path
+                    ext_idx = rel.parts.index("_external")
+                    orig_abs = Path("/" + "/".join(rel.parts[ext_idx + 1 :]))
+                    orig_abs.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(p, orig_abs)
+                    restored_files.append(str(orig_abs))
+                else:
+                    dest = self.root / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(p, dest)
+                    restored_files.append(str(rel))
 
         return {
             "success": True,

@@ -1046,7 +1046,7 @@ class MessageProcessorMixin:
                         if test_fix_attempts >= max_test_fix_attempts:
                             self.call_from_thread(
                                 self._add_system_message,
-                                f"❌ Tests still failing after {max_test_fix_attempts} attempts",
+                                f"❌ Tests still failing after {max_test_fix_attempts} attempts. Use `/undo` or `/checkpoint restore` to safely roll back changes.",
                             )
                             break
 
