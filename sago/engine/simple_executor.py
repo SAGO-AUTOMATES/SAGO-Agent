@@ -801,6 +801,17 @@ def execute_agent_task(
         except Exception:
             task_plan = None
 
+    # Auto-resolve specialist agent if default or generic agent was supplied
+    if agent_role in ("python-engineer", "developer", "general-assistant", "assistant", "agent"):
+        try:
+            from sago.agents.registry import resolve_specialist_agent
+
+            resolved = resolve_specialist_agent(task=task, cwd=cwd, default_agent=agent_role)
+            if resolved and resolved != "general-assistant":
+                agent_role = resolved
+        except Exception:
+            pass
+
     # Load agent profile metadata
     profile = _load_agent_profile(agent_role)
 

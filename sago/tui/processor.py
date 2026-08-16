@@ -147,18 +147,31 @@ class MessageProcessorMixin:
                 if file_context:
                     project_ctx += f"\n\nReferenced files:\n{file_context}"
 
+                from sago.agents.registry import resolve_specialist_agent
+
+                active_agent = self.current_agent or "full-stack-engineer"
+                if active_agent in (
+                    "python-engineer",
+                    "developer",
+                    "general-assistant",
+                    "assistant",
+                ):
+                    resolved = resolve_specialist_agent(task=message, default_agent=active_agent)
+                    if resolved and resolved != "general-assistant":
+                        active_agent = resolved
+
                 # Load profile and build prompt
-                profile = _load_agent_profile(self.current_agent.replace("-", " ").title())
+                profile = _load_agent_profile(active_agent.replace("-", " ").title())
                 if task_type == "chat":
                     template = PROMPTS.get("chat", PROMPTS["create"])
                     system_prompt = template.format(
-                        agent_role=self.current_agent.replace("-", " ").title(),
+                        agent_role=active_agent.replace("-", " ").title(),
                         project_ctx="",
                     )
                 else:
                     template = PROMPTS.get(task_type, PROMPTS["create"])
                     system_prompt = template.format(
-                        agent_role=self.current_agent.replace("-", " ").title(),
+                        agent_role=active_agent.replace("-", " ").title(),
                         project_ctx=project_ctx,
                     )
                     if profile and profile.get("system_prompt"):

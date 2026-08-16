@@ -318,6 +318,10 @@ class IntentClassifier:
             re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in code_intent_words
         )
 
+        from sago.agents.registry import resolve_specialist_agent
+
+        resolved_agent = resolve_specialist_agent(task=task_lower)
+
         # 1. Testing & Quality Assurance (e.g. "why is pytest failing", "run unit tests")
         test_patterns = (
             r"\b(test|tests|pytest|unittest|integration\s+test|unit\s+test|coverage|e2e|mock|assert|assertions)\b",
@@ -344,7 +348,9 @@ class IntentClassifier:
                 task_type="fix",
                 needs_tools=True,
                 confidence=0.92,
-                suggested_agent="debugger",
+                suggested_agent="debugger"
+                if resolved_agent in ("general-assistant", "python-engineer")
+                else resolved_agent,
                 rationale="Troubleshooting and error diagnosis",
                 source="heuristic",
             )
@@ -356,11 +362,24 @@ class IntentClassifier:
             r"\b(provision|terraform|ansible|helm|ingress|nginx|env\s+vars|environment\s+setup)\b",
         )
         if any(re.search(p, task_lower) for p in devops_patterns):
+            devops_target = (
+                resolved_agent
+                if resolved_agent
+                in (
+                    "azure-engineer",
+                    "aws-engineer",
+                    "gcp-engineer",
+                    "docker-engineer",
+                    "kubernetes-engineer",
+                    "terraform-engineer",
+                )
+                else "devops-engineer"
+            )
             return IntentClassification(
                 task_type="devops",
                 needs_tools=True,
                 confidence=0.90,
-                suggested_agent="devops-engineer",
+                suggested_agent=devops_target,
                 rationale="Infrastructure and deployment operations",
                 source="heuristic",
             )
@@ -392,7 +411,7 @@ class IntentClassifier:
                 task_type="create",
                 needs_tools=True,
                 confidence=0.88,
-                suggested_agent="python-engineer",
+                suggested_agent=resolved_agent,
                 rationale="Performance profiling and optimization",
                 source="heuristic",
             )
@@ -406,7 +425,7 @@ class IntentClassifier:
                 task_type="create",
                 needs_tools=True,
                 confidence=0.88,
-                suggested_agent="python-engineer",
+                suggested_agent=resolved_agent,
                 rationale="Code refactoring and modernization",
                 source="heuristic",
             )
@@ -429,12 +448,12 @@ class IntentClassifier:
                 source="heuristic",
             )
 
-        # Default fallback: feature creation & code implementation
+        # Default fallback: feature creation & code implementation with resolved specialist
         return IntentClassification(
             task_type="create",
             needs_tools=True,
             confidence=0.80,
-            suggested_agent="python-engineer",
+            suggested_agent=resolved_agent,
             rationale="Feature creation and code implementation",
             source="heuristic",
         )
