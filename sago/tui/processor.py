@@ -270,11 +270,7 @@ class MessageProcessorMixin:
                     task=message,
                     agent_role=self.current_agent,
                 )
-                if (
-                    enhancement.was_modified
-                    and task_type != "chat"
-                    and len(message.strip().split()) >= 3
-                ):
+                if enhancement.was_modified and task_type != "chat":
                     self.call_from_thread(
                         self._update_spinner,
                         f"✨ Enhanced: {enhancement.intent_summary}",
@@ -284,14 +280,10 @@ class MessageProcessorMixin:
                         enhancement,
                     )
 
-                # Use enhanced structured prompt for substantive engineering requests
+                # Use enhanced structured prompt for engineering requests
                 user_msg_content = (
                     enhancement.enhanced_prompt
-                    if (
-                        task_type != "chat"
-                        and enhancement.was_modified
-                        and len(message.strip().split()) >= 4
-                    )
+                    if (task_type != "chat" and enhancement.was_modified)
                     else message
                 )
 

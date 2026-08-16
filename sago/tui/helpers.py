@@ -310,23 +310,23 @@ class UIHelpers:
         targets = ", ".join(getattr(enhancement, "target_scope", []))
 
         card_lines = [
-            f"[bold cyan]🎯 Goal:[/] [white]{intent_summary}[/white]",
+            f"[bold cyan]🎯 Synthesized Goal:[/] [white]{intent_summary}[/white]",
         ]
         if targets:
-            card_lines.append(f"[dim]📁 Targets:[/] [cyan]{targets}[/cyan]")
+            card_lines.append(f"[bold]📁 Target Files:[/] [cyan]{targets}[/cyan]")
         if tags:
-            card_lines.append(f"[dim]⚡ Additions:[/] [green]{tags}[/green]")
+            card_lines.append(f"[bold]⚡ Enhancements:[/] [green]{tags}[/green]")
         if crit_lines:
-            card_lines.append(f"\n[bold]Acceptance & Verification Criteria:[/]\n{crit_lines}")
+            card_lines.append(f"\n[bold]📋 Acceptance & Verification Criteria:[/]\n{crit_lines}")
 
         card_lines.append(
-            f"\n[dim]── Injected Structured Prompt ──[/dim]\n[dim]{enhanced_prompt[:600]}{'...' if len(enhanced_prompt) > 600 else ''}[/dim]"
+            f"\n[bold yellow]── Enhanced Injected Prompt ──[/bold yellow]\n[white]{enhanced_prompt}[/white]"
         )
 
         title_preview = intent_summary[:60] if intent_summary else "Goal Clarified"
         card = Collapsible(
             Static("\n".join(card_lines), markup=True),
-            title=f"✨ Prompt Automatically Enhanced  [dim]({title_preview})[/dim]",
+            title=f"✨ Enhanced Prompt  [dim]({title_preview})[/dim]",
             collapsed=False,
         )
 
