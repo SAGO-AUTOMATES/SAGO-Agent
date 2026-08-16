@@ -583,16 +583,23 @@ class UIHelpers:
 
     def _add_system_message(self: SagoApp, content: str) -> None:
         self._hide_welcome_screen()
+        from rich.text import Text
+
         clean_text = content.strip()
         if clean_text.startswith("[") or "●" in clean_text or "⚡" in clean_text:
-            text = clean_text
+            text_str = clean_text
         else:
-            text = f"[dim yellow]●[/dim yellow] [dim]{clean_text}[/dim]"
+            text_str = f"[dim yellow]●[/dim yellow] [dim]{clean_text}[/dim]"
+
+        try:
+            renderable = Text.from_markup(text_str)
+        except Exception:
+            renderable = Text(clean_text)
+
         self.query_one("#messages").mount(
             Static(
-                text,
+                renderable,
                 classes="msg-system",
-                markup=True,
             )
         )
         self.query_one("#messages").scroll_end(animate=False)

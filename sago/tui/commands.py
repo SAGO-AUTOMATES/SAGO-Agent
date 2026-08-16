@@ -102,7 +102,7 @@ class CommandHandlers:
                 t = get_tool(query.strip())
                 assert t is not None
                 lines = [
-                    f"[bold cyan]Tool:[/] [bold yellow]{t.name}[/bold yellow]  [dim]Category: [{t.category}] | Source: {t.source}[/dim]\n",
+                    f"[bold cyan]Tool:[/] [bold yellow]{t.name}[/bold yellow]  [dim]Category: ({t.category}) | Source: {t.source}[/dim]\n",
                     f"[bold]Description:[/]\n{escape(t.description)}\n",
                     f"[dim]Module: {t.module_path}[/dim]\n",
                 ]
@@ -240,10 +240,6 @@ class CommandHandlers:
         from sago.engine.prompt_enhancer import enhance_prompt
 
         enhancement = enhance_prompt(task=task, agent_role=agent_name)
-        if enhancement.was_modified:
-            self._add_system_message(
-                f"✨ [bold cyan]Prompt Enhanced for @{agent_name}[/bold cyan]: {enhancement.intent_summary} [dim]({', '.join(enhancement.improvements[:3])})[/dim]"
-            )
 
         self._add_command_turn(
             "delegate",
@@ -2432,7 +2428,7 @@ class CommandHandlers:
             cps = mgr.list_checkpoints(limit=10)
             if not cps:
                 self._add_system_message(
-                    "No checkpoints found. Create one with: `/checkpoint create [description]`"
+                    "No checkpoints found. Create one with: `/checkpoint create <description>`"
                 )
                 return
             lines = ["[bold cyan]═══ WORKSPACE CHECKPOINTS ═══[/bold cyan]"]
@@ -2442,7 +2438,7 @@ class CommandHandlers:
                     f"  • `{cp.checkpoint_id}` - [dim]{t_str}[/dim] ({len(cp.file_paths)} files) - {cp.description}"
                 )
             lines.append(
-                "\n[dim]To restore: /checkpoint restore <id> | To prune: /checkpoint prune [keep][/dim]"
+                "\n[dim]To restore: /checkpoint restore <id> | To prune: /checkpoint prune <keep>[/dim]"
             )
             self._add_system_message("\n".join(lines))
 
