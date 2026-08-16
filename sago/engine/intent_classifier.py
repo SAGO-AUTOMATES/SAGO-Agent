@@ -309,14 +309,39 @@ class IntentClassifier:
             )
         )
 
-        # Detect conversational requests (weather, greetings, jokes, general knowledge)
-        has_chat = any(
-            re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in chat_words
-        ) or bool(re.search(r"^\d+(?:-\d+)?\s+more", task_lower))
+        chat_patterns = (
+            r"\b(hello|hellos|helloo|hi|hii|hiii|hoi|heyy|heyyy|hey|heya|sup|yo|yoo|howdy|greetings|good\s+(?:morning|afternoon|evening|day)|thanks|thank\s+you|who\s+are\s+you|how\s+are\s+you|what\'?s\s+up|weather|forecast|temperature|joke|jokes|pun|riddle|story|poem)\b",
+            r"(?:what|wehta|wat|wht)\s+(?:can|do)\s+(?:you|yiu|u)\s+(?:do|help|perform|show|tell)",
+            r"\b(what\s+are\s+your\s+(?:capabilities|skills|tools|features|agents)|who\s+are\s+you|what\s+is\s+sago|help\s+me\s+understand\s+what\s+you\s+can\s+do|what\s+can\s+i\s+ask\s+you|what\s+can\s+you\s+do)\b",
+        )
+
+        # Detect conversational requests (weather, greetings, capabilities, jokes, general knowledge)
+        has_chat = (
+            any(re.search(p, task_lower) for p in chat_patterns)
+            or any(re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in chat_words)
+            or bool(re.search(r"^\d+(?:-\d+)?\s+more", task_lower))
+        )
 
         has_code = has_file_pattern or any(
             re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in code_intent_words
         )
+
+        # Fast-path for conversational greetings & capability questions without explicit coding commands
+        if (
+            has_chat
+            and not has_file_pattern
+            and not re.search(
+                r"\b(pytest|docker|git\s+commit|git\s+push|refactor\s+code)\b", task_lower
+            )
+        ):
+            return IntentClassification(
+                task_type="chat",
+                needs_tools=False,
+                confidence=0.95,
+                suggested_agent="general-assistant",
+                rationale="Conversational greeting, pleasantries, or capability inquiry",
+                source="heuristic",
+            )
 
         from sago.agents.registry import resolve_specialist_agent
 

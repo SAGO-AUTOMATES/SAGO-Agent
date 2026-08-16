@@ -295,11 +295,11 @@ class UIHelpers:
         msg_container.scroll_end(animate=False)
 
     def _add_prompt_enhancement_card(self: SagoApp, enhancement: Any) -> None:
-        """Display transparent Prompt Enhancement section directly inside the active turn with separators."""
+        """Display clean collapsible Prompt Enhancement section directly inside active exchange turn."""
         if not enhancement or not getattr(enhancement, "was_modified", False):
             return
 
-        from textual.widgets import Static
+        from textual.widgets import Collapsible, Static
 
         tags = " • ".join(getattr(enhancement, "improvements", [])[:4])
         intent_summary = getattr(enhancement, "intent_summary", "")
@@ -310,24 +310,25 @@ class UIHelpers:
         targets = ", ".join(getattr(enhancement, "target_scope", []))
 
         card_lines = [
-            "[dim]──────────────────────────────────────────────────────────[/dim]",
-            f"[bold #58a6ff]✨ Enhanced Prompt:[/] [bold cyan]{intent_summary}[/bold cyan]",
+            f"[bold #58a6ff]Goal:[/] [white]{intent_summary}[/white]",
         ]
         if targets:
-            card_lines.append(f"[dim]📁 Targets:[/] [cyan]{targets}[/cyan]")
+            card_lines.append(f"[dim]Targets:[/] [cyan]{targets}[/cyan]")
         if tags:
-            card_lines.append(f"[dim]⚡ Additions:[/] [green]{tags}[/green]")
+            card_lines.append(f"[dim]Additions:[/] [green]{tags}[/green]")
         if crit_lines:
-            card_lines.append(f"[dim]📋 Acceptance Criteria:[/dim]\n{crit_lines}")
+            card_lines.append(f"\n[bold]Acceptance Criteria:[/]\n{crit_lines}")
 
         card_lines.append(
-            f"[dim]── Injected Prompt to Agent ──[/dim]\n[white]{enhanced_prompt}[/white]\n[dim]──────────────────────────────────────────────────────────[/dim]"
+            f"\n[dim]── Injected Structured Prompt ──[/dim]\n[white]{enhanced_prompt}[/white]"
         )
 
-        card = Static(
-            "\n".join(card_lines),
-            classes="prompt-enhancement-inline",
-            markup=True,
+        title_preview = intent_summary[:55] if intent_summary else "Goal Synthesized"
+        title = f"✨ Enhanced Prompt: [bold]{title_preview}[/bold]"
+        card = Collapsible(
+            Static("\n".join(card_lines), markup=True),
+            title=title,
+            collapsed=False,
         )
 
         target_card = getattr(self, "_active_exchange_card", None)

@@ -90,7 +90,7 @@ class PromptEnhancer:
             "Configure environment, containerization, and infrastructure deployment",
         ),
         "feature_create": (
-            r"\b(add|create|implement|build|develop|make|write|generate|new|scaffold)\b",
+            r"\b(add|create|implement|build|develop|scaffold|write\s+(?:code|a\s+script|tests?|a\s+function|a\s+class)|make\s+(?:a\s+script|a\s+function|a\s+class|an\s+app|a\s+tool))\b",
             "Design and implement production-ready capability with complete logic and error handling",
         ),
         "doc_explain": (
@@ -98,8 +98,10 @@ class PromptEnhancer:
             "Provide accurate, clear, and comprehensive technical documentation and explanations",
         ),
         "casual_chat": (
-            r"\b(hello|hi|hoi|hey|sup|yo|howdy|greetings|good\s+(?:morning|afternoon|evening)|thanks|thank\s+you|who\s+are\s+you|how\s+are\s+you|what\'?s\s+up|weather|forecast|temperature|joke|jokes|pun|riddle|story|poem)\b",
-            "Conversational interaction and pleasantries",
+            r"\b(hello|hellos|helloo|hi|hii|hiii|hoi|heyy|heyyy|hey|heya|sup|yo|yoo|howdy|greetings|good\s+(?:morning|afternoon|evening|day)|thanks|thank\s+you|who\s+are\s+you|how\s+are\s+you|what\'?s\s+up|weather|forecast|temperature|joke|jokes|pun|riddle|story|poem)\b|"
+            r"(?:what|wehta|wat|wht)\s+(?:can|do)\s+(?:you|yiu|u)\s+(?:do|help|perform|show|tell)|"
+            r"\b(what\s+are\s+your\s+(?:capabilities|skills|tools|features|agents)|who\s+are\s+you|what\s+is\s+sago|help\s+me\s+understand\s+what\s+you\s+can\s+do|what\s+can\s+i\s+ask\s+you|what\s+can\s+you\s+do)\b",
+            "Conversational interaction, pleasantries, or capability inquiry",
         ),
         "general_qa": (
             r"^(what\s+is|who\s+is|where\s+is|when\s+is|why\s+is|how\s+does|can\s+you\s+explain|tell\s+me\s+about)\b",
