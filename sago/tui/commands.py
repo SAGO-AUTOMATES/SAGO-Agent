@@ -2335,11 +2335,17 @@ class CommandHandlers:
                 fmt = "md" if subarg.endswith(".md") else "json"
                 success, res = tracer.export_traces(file_path=subarg or None, format=fmt)
                 if success:
+                    from rich.markup import escape
+
                     self._add_system_message(
-                        f"● [bold green]Traces Exported Successfully[/bold green]:\n  `{res}`"
+                        f"● [bold green]Traces Exported Successfully[/bold green]:\n  `{escape(str(res))}`"
                     )
                 else:
-                    self._add_system_message(f"● [bold red]Export Failed[/bold red]: {res}")
+                    from rich.markup import escape
+
+                    self._add_system_message(
+                        f"● [bold red]Export Failed[/bold red]: {escape(str(res))}"
+                    )
         elif action in ("clear", "reset"):
             tracer.clear()
             self._add_system_message("⚡ Developer trace telemetry buffer cleared.")
@@ -2363,11 +2369,13 @@ class CommandHandlers:
                 self._add_system_message("⚡ No developer traces recorded yet.")
                 return
 
+            from rich.markup import escape
+
             lines = ["[bold red]═══ SAGO DEVELOPER EXECUTION TRACES ═══[/bold red]"]
             for t in traces:
-                lines.append(f"  {t.format_line()}")
+                lines.append(f"  {escape(t.format_line())}")
                 if t.data:
-                    data_str = ", ".join(f"{k}={str(v)[:80]}" for k, v in t.data.items())
+                    data_str = ", ".join(f"{k}={escape(str(v)[:80])}" for k, v in t.data.items())
                     lines.append(f"    [dim]↳ data: {data_str}[/dim]")
             lines.append("\n[dim]To export to file: /dev export [filepath.json|filepath.md][/dim]")
             self._add_system_message("\n".join(lines))
