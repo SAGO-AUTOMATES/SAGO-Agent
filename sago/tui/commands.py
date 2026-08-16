@@ -2299,13 +2299,13 @@ class CommandHandlers:
                 "[bold red] ⚡ SAGO DEVELOPER MODE ACTIVATED                             [/bold red]\n"
                 "  • [bold cyan]Deep Tracing[/bold cyan]: LLM payloads, token metrics, exact tool parameters\n"
                 "  • [bold magenta]Telemetry[/bold magenta]: Microsecond function duration & state transitions\n"
-                "  • [bold yellow]Commands[/bold yellow]: `/dev logs` | `/dev traces` | `/dev export [file]` | `/dev off`"
+                "  • [bold yellow]Commands[/bold yellow]: `/dev logs` | `/dev traces` | `/dev export <file>` | `/dev off`"
             )
             self._add_system_message(msg)
         elif action in ("off", "disable", "0", "false"):
             self.developer_mode = False
             tracer.set_enabled(False)
-            self._add_system_message("⚡ [dim][DEV MODE OFF][/dim] Developer diagnostics disabled.")
+            self._add_system_message("⚡ [dim](DEV MODE OFF)[/dim] Developer diagnostics disabled.")
         elif action in ("export", "save"):
             parts_export = subarg.split()
             export_type = parts_export[0].lower() if parts_export else "json"
@@ -2377,7 +2377,7 @@ class CommandHandlers:
                 if t.data:
                     data_str = ", ".join(f"{k}={escape(str(v)[:80])}" for k, v in t.data.items())
                     lines.append(f"    [dim]↳ data: {data_str}[/dim]")
-            lines.append("\n[dim]To export to file: /dev export [filepath.json|filepath.md][/dim]")
+            lines.append("\n[dim]To export to file: /dev export <filepath.json|filepath.md>[/dim]")
             self._add_system_message("\n".join(lines))
         else:
             # Toggle mode
@@ -2388,7 +2388,7 @@ class CommandHandlers:
                 "[bold red]ENABLED[/bold red]" if self.developer_mode else "[dim]DISABLED[/dim]"
             )
             self._add_system_message(
-                f"⚡ Developer Mode is now {state_str}.\nUsage: `/dev [on|off|logs|traces|export|clear]`"
+                f"⚡ Developer Mode is now {state_str}.\nUsage: `/dev <on|off|logs|traces|export|clear>`"
             )
 
     def _handle_checkpoint_command(self: SagoApp, args: str = "") -> None:

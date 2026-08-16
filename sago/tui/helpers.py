@@ -314,15 +314,17 @@ class UIHelpers:
         if not enhancement or not getattr(enhancement, "was_modified", False):
             return
 
+        from rich.markup import escape
         from textual.widgets import Collapsible, Static
 
-        tags = " • ".join(getattr(enhancement, "improvements", [])[:4])
-        intent_summary = getattr(enhancement, "intent_summary", "")
-        enhanced_prompt = getattr(enhancement, "enhanced_prompt", "")
-        crit_lines = "\n".join(
-            f"  {i + 1}. {c}" for i, c in enumerate(getattr(enhancement, "acceptance_criteria", []))
-        )
-        targets = ", ".join(getattr(enhancement, "target_scope", []))
+        raw_tags = getattr(enhancement, "improvements", [])[:4]
+        tags = " • ".join(escape(str(t)) for t in raw_tags)
+        intent_summary = escape(str(getattr(enhancement, "intent_summary", "")))
+        enhanced_prompt = escape(str(getattr(enhancement, "enhanced_prompt", "")))
+        raw_crit = getattr(enhancement, "acceptance_criteria", [])
+        crit_lines = "\n".join(f"  {i + 1}. {escape(str(c))}" for i, c in enumerate(raw_crit))
+        raw_targets = getattr(enhancement, "target_scope", [])
+        targets = ", ".join(escape(str(t)) for t in raw_targets)
 
         card_lines = [
             f"[bold #58a6ff]Goal:[/] [white]{intent_summary}[/white]",
@@ -339,7 +341,7 @@ class UIHelpers:
         )
 
         title_preview = intent_summary[:55] if intent_summary else "Goal Synthesized"
-        title = f"✨ Enhanced Prompt: [bold]{title_preview}[/bold]"
+        title = f"✨ Enhanced Prompt: {title_preview}"
         card = Collapsible(
             Static("\n".join(card_lines), markup=True),
             title=title,
@@ -582,9 +584,13 @@ class UIHelpers:
     def _add_system_message(self: SagoApp, content: str) -> None:
         self._hide_welcome_screen()
         clean_text = content.strip()
+        if clean_text.startswith("[") or "●" in clean_text or "⚡" in clean_text:
+            text = clean_text
+        else:
+            text = f"[dim yellow]●[/dim yellow] [dim]{clean_text}[/dim]"
         self.query_one("#messages").mount(
             Static(
-                f"[dim yellow]●[/dim yellow] [dim]{clean_text}[/dim]",
+                text,
                 classes="msg-system",
                 markup=True,
             )
