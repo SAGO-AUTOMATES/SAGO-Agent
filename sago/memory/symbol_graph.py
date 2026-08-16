@@ -392,3 +392,99 @@ class SymbolGraph:
                 if scanned >= max_files:
                     return outline
         return outline
+
+    def generate_clean_tui_map(
+        self,
+        max_files: int = 150,
+        filter_query: str | None = None,
+    ) -> str:
+        """Generate a clean, structured repository symbol map for TUI & LLM viewing."""
+        ignore_dirs = {
+            ".git",
+            "node_modules",
+            "__pycache__",
+            ".venv",
+            "venv",
+            "dist",
+            "build",
+            ".pytest_cache",
+            ".ruff_cache",
+            ".next",
+            ".cache",
+            "target",
+            "vendor",
+        }
+        total_files = 0
+        total_symbols = 0
+        file_sections: list[str] = []
+
+        q = (filter_query or "").strip().lower()
+
+        for root, dirs, files in os.walk(self.root_dir):
+            dirs[:] = [d for d in sorted(dirs) if d not in ignore_dirs and not d.startswith(".")]
+            for f in sorted(files):
+                if f.startswith(".") or f.endswith(
+                    (".pyc", ".min.js", ".map", ".lock", ".png", ".jpg", ".ico", ".svg")
+                ):
+                    continue
+                file_path = Path(root) / f
+                fs = self.scan_file(file_path)
+                if not fs or not fs.symbols:
+                    continue
+
+                # Filter matching
+                if q:
+                    path_match = q in fs.file_path.lower()
+                    matching_syms = [
+                        s
+                        for s in fs.symbols
+                        if q in s.name.lower() or any(q in c.name.lower() for c in s.children)
+                    ]
+                    if not path_match and not matching_syms:
+                        continue
+                    active_symbols = fs.symbols if path_match else matching_syms
+                else:
+                    active_symbols = fs.symbols
+
+                total_files += 1
+                total_symbols += len(active_symbols)
+
+                lines = [f"📂 **`{fs.file_path}`** `({fs.line_count} lines)`"]
+                for sym in active_symbols[:15]:
+                    kind_icon = "🔷" if sym.symbol_type == "class" else "⚡"
+                    sig = f"({sym.signature})" if sym.signature else ""
+                    doc_snippet = (
+                        f" — *{sym.docstring.strip().splitlines()[0][:45]}*"
+                        if sym.docstring
+                        else ""
+                    )
+                    lines.append(f"  {kind_icon} `{sym.name}{sig}`{doc_snippet}")
+                    for child in sym.children[:6]:
+                        child_sig = f"({child.signature})" if child.signature else ""
+                        lines.append(f"    └─ 🔹 `{child.name}{child_sig}`")
+                    if len(sym.children) > 6:
+                        lines.append(f"    └─ *... and {len(sym.children) - 6} more methods*")
+
+                if len(active_symbols) > 15:
+                    lines.append(f"  *... and {len(active_symbols) - 15} more symbols*")
+
+                file_sections.append("\n".join(lines))
+                if total_files >= max_files:
+                    break
+            if total_files >= max_files:
+                break
+
+        if not file_sections:
+            if q:
+                return f"🔍 **No symbols or files found matching:** `{filter_query}`\n*Try `/map` without filters to inspect all symbols.*"
+            return "📂 **No source code files or symbols found in current directory.**"
+
+        filter_note = f" (Filter: `{filter_query}`)" if q else ""
+        header = (
+            f"### 🗺️ Repository Symbol Map: `{self.root_dir.name}`{filter_note}\n"
+            f"📊 **Overview**: `{total_files}` Files │ `{total_symbols}` Core Symbols\n\n"
+            "---\n"
+        )
+        body = "\n\n".join(file_sections)
+        footer = "\n\n---\n*Tip: Run `/map <query>` to search specific symbols, or `/graph` for architecture diagrams.*"
+        return header + body + footer

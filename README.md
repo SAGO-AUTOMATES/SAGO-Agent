@@ -35,11 +35,11 @@ Sago is a **production-grade multi-agent orchestration system** built for real-w
 | **Workflow Engine** | Stateful multi-step workflows with dependencies, retries, and pausing |
 | **Hybrid BM25 & Dense Code Search** | Probabilistic BM25 + zero-dependency 128-d dense vector semantic search across 1,000+ files (`sago search`) |
 | **Continuous Background Linting** | Automatic non-blocking verification passes upon file modification with instant diagnostics |
-| **OpenTelemetry & Prometheus Export** | Standard OTel JSON trace payload and Prometheus text exposition telemetry export (`/dev export otel`) |
-| **Hierarchical Memory Pyramids** | 3-tiered context compaction and zero-redundancy agent handoffs saving ~70% token overhead |
+| **4-Tier Hierarchical Memory Pyramid** | 4-tiered context compaction (Architectural goals, deltas, semantic distillation, and working turns) with auto-triggering saving ~70% token overhead |
 | **Developer Mode (`/dev`)** | Real-time function execution tracing, LLM payload inspection, and microsecond latency diagnostics |
 | **Atomic Checkpoints & Rollback** | Point-in-time workspace snapshotting and 1-click restore for large-scale refactoring safety |
 | **Smart Project & Data Graph** | Architecture box diagrams, autonomous execution process maps, data model extraction, and Mermaid visualization |
+| **Deep Recursive File Mentions (`#file`)** | Recursive workspace fuzzy indexing with Git-modified prioritization and instant context attachment |
 | **Detach Mode & Background Workers** | Detached execution for CLI tasks and TUI sessions allowing safe terminal closing with `sago attach` reconnection |
 | **Containerized Card TUI** | High-density terminal UI with 11 themes, collapsible turn cards, live agent dashboard, smart autocomplete, and fluid animations |
 | **Multi-LLM Support** | OpenRouter, OpenAI, Gemini, Claude, Ollama |

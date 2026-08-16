@@ -158,108 +158,59 @@ Show system and connection status.
 
 ## TUI Commands
 
-### Core & Autonomous Coding
+### 1. Core & Workflow
 
 | Command | Description |
 |---------|-------------|
-| `/help` | Show categorized command reference |
-| `/project_graph [view] [path]` | Generate architecture, process, data, and dependency views (`dashboard`, `arch`, `process`, `er`, `flow`, `tree`, `mermaid`, `json`), or an AI analysis (`llm`, `ai`, `review`, `analysis`, `summary`) |
-| `/graph` | Alias for `/project_graph` |
-| `/copy [code\|all]` | Copy the last assistant response, its last code block, or the full chat history to the clipboard |
-| `/clip [code\|all]` | Alias for `/copy` |
-| `/map [query]` | Generate compact AST symbol repo map |
-| `/verify` | Run automated linters, type checks, and test suites |
-| `/plan` | Show current multi-step task execution plan |
-| `/todos` | Show all tasks in plan |
-| `/todo <id>` | Show details of a specific todo item |
-| `/done <id>` | Mark a todo item as completed |
-| `/retry` | Retry last user prompt |
-| `/continue` | Resume an interrupted task from previous execution state without wasting tokens |
-| `/compact` | Semantic context compression (prunes verbose tool outputs) |
-| `/reset` | Reset active session |
-| `/detach` | Cleanly detach from session while keeping background tasks running (safe to close terminal) |
-| `/buttons [on\|off\|toggle]` | Toggle or configure bottom quick action buttons bar |
-| `/show` | Make bottom action buttons bar visible |
-| `/hide` | Hide bottom button bar for a clean, power-user experience |
-| `/version` | Show Sago version info |
-| `/exit` | Save session and quit |
+| `/help` | Display categorized command reference manual |
+| `/?` | Open interactive keyboard shortcuts & quick reference modal (`F1`) |
+| `/status` | System health, active provider, model, and session metrics |
+| `/clear` | Clear chat message history from terminal screen |
+| `/compact` | Trigger immediate hierarchical context compaction |
+| `/session [list\|save\|load\|reset]` | Manage sessions (list active, save state, load from disk, or reset) |
+| `/export` | Export active conversation transcript to Markdown (`.md`) |
+| `/exit` | Save active session state and exit cleanly |
 
-### Multi-Agent Swarm & Mention Triggers
+### 2. Multi-Agent Orchestration & Mention Triggers
 
 | Command / Trigger | Description |
 |---|---|
-| `@<agent>` | Mention and invoke a specialist agent anywhere in your prompt (triggers live agent autocompletion popup) |
-| `@delegate <agent>` / `/delegate <agent> <task>` | Delegate task to a specialist with dynamic model and provider inheritance |
-| `@chain <a1,a2>` / `/chain <a1,a2> <task>` | Chain multiple agents sequentially |
-| `/agents [filter]` | List and filter all 339 specialist agents |
-| `/agent <name>` | Set current active agent |
-| `/parallel <a1,a2> <task>` | Run agents in parallel on the same task |
-| `/orchestrate <task>` | Auto-delegate subtasks to specialists |
-| `/handoff` | Show handoff targets for current agent |
-| `#<file>` | Mention and autocomplete local repository files |
-| `~<file>` | Mention and autocomplete user home directory files |
+| `/agent [name\|list]` | Switch active agent or list all 300+ specialist agents by domain |
+| `/delegate <agent> <task>` | Delegate task to a specialist with dynamic model/provider inheritance |
+| `/chain <a1,a2> <task>` | Chain multiple specialist agents in sequence (e.g. `architect -> coder -> test`) |
+| `/orchestrate <task>` | Automatically orchestrate and dispatch task across specialist team |
+| `/parallel <a1,a2> <task>` | Run multiple agents concurrently on the same task |
+| `/tasks [list\|cancel <id>]` | Manage background tasks (`Ctrl+T` or `/tasks cancel <id>`) |
+| `@<agent>` | Mention and route task to specialist agent anywhere in prompt (`@python-engineer`) |
+| `#<file>` | Deep recursive workspace file autocomplete and automatic context injection |
+| `~<file>` | Autocomplete user home directory file paths |
 
-### Model & Runtime
-
-| Command | Description |
-|---------|-------------|
-| `/model` | Show LLM Models Manager |
-| `/model <name>` | Switch active model (fuzzy match) |
-| `/model <provider> <name>` | Set active provider and model |
-| `/model refresh` | Refresh model list from OpenRouter |
-| `/model add <name>` | Add a custom model ID |
-| `/model remove <name>` | Remove a custom model |
-| `/provider` | Show or change active provider |
-| `/effort <level>` | Set reasoning effort (`low`, `medium`, `high`, `max`) |
-| `/cost` | Display token usage and cost analytics |
-| `/dashboard` | Toggle live agent dashboard sidebar (`Ctrl+D`) |
-| `/tasks` | Show running background tasks (`Ctrl+T`) |
-| `/cancel <id\|all>` | Cancel running background task (`Ctrl+C`) |
-
-### Developer Diagnostics & Telemetry
+### 3. Code Intelligence, Map & Version Control
 
 | Command | Description |
 |---------|-------------|
-| `/developer [on\|off\|toggle]` | Toggle Developer Mode (`/dev [on\|off\|toggle]`) |
-| `/dev logs` | Stream real-time function execution and LLM trace logs |
-| `/dev traces` | Inspect function latency and execution durations |
-| `/dev export [file]` | Export deep traces and payloads to JSON (`.json`) or Markdown (`.md`) |
-| `/dev clear` | Clear the developer trace telemetry buffer |
+| `/graph [summary\|arch\|process\|models\|flow]` | Generate architecture diagrams, process pipelines, data schemas, or flowcharts |
+| `/map [query]` | Generate compact AST symbol repository map (classes, functions, signatures) |
+| `/verify` | Run multi-language linters, type checks, and test suites |
+| `/git [status\|diff\|commit\|log]` | Fast git operations and status inspection |
+| `/diff [file]` | View workspace diffs of modified files |
+| `/undo` | Roll back the most recent file change |
+| `/checkpoint [create\|list\|restore\|prune]` | Manage atomic point-in-time workspace snapshot rollbacks |
 
-### Themes & UI Controls
-
-| Command | Description |
-|---------|-------------|
-| `/theme <name>` | Switch color theme (11 themes available: `obsidian`, `nord`, `dracula`, `monokai`, `tokyo-night`, `solarized-dark`, `cyberpunk`, `catppuccin-mocha`, `gruvbox-dark`, `rose-pine`, `light`) |
-| `/themes` | List all available color themes with active status indicator |
-| `/collapse [all\|expand]` | Collapse or expand all conversational turns and tool cards |
-
-### Version Control, Checkpoints & Rollbacks
+### 4. Settings & Runtime
 
 | Command | Description |
 |---------|-------------|
-| `/checkpoint create [desc]` | Create an atomic point-in-time workspace snapshot |
-| `/checkpoint list` | List available workspace checkpoints |
-| `/checkpoint restore <id>` | Instantly restore workspace to a previous checkpoint |
-| `/git` | Show git status |
-| `/diff [file]` | View diff of modified files |
-| `/commit <message>` | Commit changes to git |
-| `/changes` | Show session file modification log |
-| `/undo` | Roll back the last file change |
-
-### Sessions & Security
-
-| Command | Description |
-|---------|-------------|
-| `/sessions` | List all saved sessions |
-| `/session <id>` | Switch to a specific session |
-| `/save [name]` | Save current session context |
-| `/load <id>` | Load a saved session |
-| `/export` | Export session conversation to Markdown |
-| `/yolo` | Toggle YOLO mode (auto-approve all tool calls globally) |
-| `/permissions` | Show tool permissions (`/permissions [blocked|allowed]`) |
-| `/allow <tool>` | Unblock or auto-approve a tool |
-| `/block <tool>` | Block a tool |
+| `/model [name\|add\|remove]` | Switch active model, add custom models, or refresh OpenRouter catalog |
+| `/provider <name>` | Change LLM backend provider (`openrouter`, `openai`, `gemini`, `anthropic`, `ollama`) |
+| `/effort <level>` | Adjust reasoning effort (`low`, `medium`, `high`, `max`) |
+| `/cost` | Display session token usage analytics and spend metrics |
+| `/perms [list\|allow\|block\|reset]` | Manage tool execution permissions |
+| `/todo [list\|done <id>]` | Task checklist and plan manager |
+| `/theme [name]` | Switch between 11 built-in TUI themes (`obsidian`, `nord`, `dracula`, etc.) |
+| `/buttons [toggle\|on\|off]` | Toggle bottom quick action buttons bar |
+| `/dev [on\|off\|logs\|traces]` | Real-time developer execution tracing and microsecond latency inspection |
+| `/yolo` | Toggle YOLO mode (auto-approve safe tool executions globally) |
 
 ---
 

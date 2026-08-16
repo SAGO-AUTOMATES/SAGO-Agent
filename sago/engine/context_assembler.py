@@ -127,6 +127,39 @@ class ContextAssembler:
                 summary_lines.append(f"Languages: {', '.join(ctx.languages)}")
             if ctx.frameworks:
                 summary_lines.append(f"Frameworks: {', '.join(ctx.frameworks)}")
+
+            # Check if query is architectural or codebase structure-oriented
+            arch_keywords = {
+                "architecture",
+                "arch",
+                "graph",
+                "map",
+                "topology",
+                "structure",
+                "subsystem",
+                "pipeline",
+                "flow",
+                "models",
+                "dependencies",
+                "overview",
+                "explain",
+                "codebase",
+                "layout",
+            }
+            task_words = set(re.findall(r"[a-zA-Z]{3,}", task.lower()))
+            if task_words & arch_keywords:
+                try:
+                    from sago.memory.project_graph import get_cached_project_graph
+
+                    pg = get_cached_project_graph(root_dir=self.cwd, max_files=400)
+                    hub_summary = pg.to_llm_context()
+                    if hub_summary:
+                        summary_lines.append(
+                            f"\nCodebase Topology ({len(pg.nodes)} components, {len(pg.edges)} relations):\n{hub_summary[:800]}"
+                        )
+                except Exception:
+                    pass
+
             ctx.project_summary = "\n".join(summary_lines)
         except Exception as e:
             log_error("ContextAssembler: project summary failed", e)

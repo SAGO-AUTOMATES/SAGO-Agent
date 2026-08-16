@@ -235,10 +235,12 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         """Extract #file references from message and return their contents as context."""
         from pathlib import Path
 
-        # Find all #filepath references (support #file, #./file, #~/.file, etc.)
-        file_refs = re.findall(r"#([^\s,#@/]+(?:/[^\s,#@/]+)*)", message)
+        # Find all #filepath references (support #file, #./file, #~/.file, #dir/file.py)
+        file_refs = re.findall(r"#([^\s,#@]+)", message)
 
         context_parts = []
+        seen_paths = set()
+
         for ref in file_refs:
             try:
                 # Expand path
@@ -249,10 +251,33 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 else:
                     path = Path(ref)
 
+                if not (path.exists() and path.is_file()):
+                    # Fallback: search workspace recursively for matching relative path or basename
+                    for p in Path.cwd().rglob(path.name):
+                        if p.is_file() and not any(
+                            part.startswith(".")
+                            or part in ("node_modules", "venv", "__pycache__", "dist", "build")
+                            for part in p.parts
+                        ):
+                            path = p
+                            break
+
                 if path.exists() and path.is_file():
-                    # Read file content (limit to 10KB per file)
-                    content = path.read_text(errors="replace")[:10240]
-                    context_parts.append(f"--- {path.name} ---\n{content}")
+                    resolved_str = str(path.resolve())
+                    if resolved_str in seen_paths:
+                        continue
+                    seen_paths.add(resolved_str)
+
+                    # Read file content (limit to 12KB per file)
+                    rel_label = (
+                        str(path.relative_to(Path.cwd()))
+                        if path.is_relative_to(Path.cwd())
+                        else str(path)
+                    )
+                    content = path.read_text(errors="replace")[:12288]
+                    context_parts.append(
+                        f"--- File: {rel_label} ---\n```{path.suffix.lstrip('.')}\n{content}\n```"
+                    )
             except Exception:
                 pass
 
@@ -466,7 +491,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             self._hide_suggestions()
 
             # Commands that still require additional arguments from the user
-            # (e.g. bare /delegate without an agent or /chain without task)
+            # (e.g. bare /delegate without an agent or /chain without task or /plan)
             requires_more_args = (
                 val.startswith("/delegate")
                 or val.startswith("@delegate")
@@ -474,6 +499,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 or val.startswith("@chain")
                 or (val.startswith("/agent") and len(val.split()) == 1)
                 or (val.startswith("@agent") and len(val.split()) == 1)
+                or val in ("/plan", "/plan <task>")
             )
 
             # If user explicitly selected a complete suggestion like "/dev on", "/model openrouter/free", "/effort max", "/theme nord", execute right away!
@@ -823,15 +849,22 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         self.action_quit()
 
     def _show_shortcuts_suggestions(self, query: str = "") -> None:
-        """Show shortcuts and quick help suggestions."""
-        items = [
-            "[bold cyan]⌨️  ?[/bold cyan] [dim]Open interactive shortcuts & quick reference sheet (F1)[/dim]",
-            "[bold yellow]⚡ /dev on[/bold yellow] [dim]Enable live developer telemetry & LLM traces[/dim]",
-            "[bold magenta]● /theme <name>[/bold magenta] [dim]Switch between 11 terminal color themes[/dim]",
-            "[bold green]● /checkpoint[/bold green] [dim]Atomic snapshot & workspace rollback[/dim]",
-            "[bold blue]● /collapse all[/bold blue] [dim]Collapse/expand conversational turns[/dim]",
+        """Show shortcuts and quick help suggestions with clean monospace alignment."""
+        shortcuts_list = [
+            ("?", "Open interactive shortcuts & quick reference modal (F1)"),
+            ("Ctrl+D", "Toggle agent & metrics dashboard sidebar"),
+            ("Ctrl+T", "Toggle background tasks panel"),
+            ("Ctrl+C", "Cancel active agent task or thinking stream"),
+            ("@<agent>", "Mention & route task to specialist agent (@python-engineer)"),
+            ("#<file>", "Smart workspace file path autocomplete"),
+            ("/help", "View complete command reference"),
         ]
-        values = ["?", "/dev on", "/theme obsidian", "/checkpoint list", "/collapse all"]
+        items = [
+            f"[bold cyan]{key:<12}[/bold cyan] [dim]{desc}[/dim]"
+            for key, desc in shortcuts_list
+            if not query or query.lower() in key.lower() or query.lower() in desc.lower()
+        ]
+        values = ["?", "/dashboard", "/tasks", "/cancel", "@", "#", "/help"]
         self._show_suggestions(items, values)
 
     def _show_cmd_suggestions(self, prefix: str) -> None:
@@ -1186,10 +1219,11 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/deny": lambda: self._deny_action(),
             "/version": lambda: self._show_version(),
             "/yolo": lambda: self._toggle_yolo(),
-            "/permissions": lambda: self._show_permissions(args),
+            "/perms": lambda: self._handle_perms_command(args),
+            "/permissions": lambda: self._handle_perms_command(args),
             "/allow": lambda: self._allow_tool(args),
             "/block": lambda: self._block_tool(args),
-            "/todo": lambda: self._show_todo(args),
+            "/todo": lambda: self._handle_todo_command(args),
             "/todos": lambda: self._show_all_todos(),
             "/done": lambda: self._mark_todo_done(args),
             "/ask": lambda: self._ask_user(args),
@@ -1200,7 +1234,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/resume": lambda: self._list_sessions(),
             "/parallel": lambda: self._run_parallel(args),
             "/dashboard": lambda: self._toggle_dashboard(),
-            "/tasks": lambda: self._show_tasks(),
+            "/tasks": lambda: self._handle_tasks_command(args),
             "/cancel": lambda: self._cancel_task(args),
             "/handoff": lambda: self._show_handoff(),
             "/agents-color": lambda: self._list_agents_color(),

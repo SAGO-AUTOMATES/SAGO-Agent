@@ -171,12 +171,32 @@ class ShortcutsScreen(ModalScreen[None]):
                     markup=True,
                 )
                 yield Static(
-                    "  [bold magenta]/graph [view][/bold magenta]     : Architecture & Data Flow Graph (arch, process, er, flow, tree)",
+                    "  [bold magenta]/graph [view][/bold magenta]     : Architecture & data graph (arch, process, models, flow)",
                     classes="shortcut-row",
                     markup=True,
                 )
                 yield Static(
-                    "  [bold magenta]/detach[/bold magenta]           : Detach from session safely leaving background jobs active",
+                    "  [bold magenta]/map [query][/bold magenta]      : AST symbol map & outline for current workspace",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold magenta]/session [action][/bold magenta] : Manage sessions (list, switch, save, load, reset)",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold magenta]/checkpoint[/bold magenta]       : Save, restore, or prune workspace snapshot rollback",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold magenta]/perms [action][/bold magenta]   : Tool permissions manager (list, allow, block)",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold magenta]/todo [action][/bold magenta]    : Task checklist tracker (list, done <id>)",
                     classes="shortcut-row",
                     markup=True,
                 )
@@ -186,27 +206,7 @@ class ShortcutsScreen(ModalScreen[None]):
                     markup=True,
                 )
                 yield Static(
-                    "  [bold magenta]/dev export[/bold magenta]       : Export full trace payloads to JSON or Markdown",
-                    classes="shortcut-row",
-                    markup=True,
-                )
-                yield Static(
                     "  [bold magenta]/theme <name>[/bold magenta]     : Switch color theme (11 built-in themes)",
-                    classes="shortcut-row",
-                    markup=True,
-                )
-                yield Static(
-                    "  [bold magenta]/collapse all[/bold magenta]     : Collapse/expand all conversational turns",
-                    classes="shortcut-row",
-                    markup=True,
-                )
-                yield Static(
-                    "  [bold magenta]/checkpoint[/bold magenta]       : Save, restore, or prune complete session & workspace snapshots",
-                    classes="shortcut-row",
-                    markup=True,
-                )
-                yield Static(
-                    "  [bold magenta]/clean [all|cache|db][/bold magenta] : Safely purge regenerable caches, backups, and empty DB sessions",
                     classes="shortcut-row",
                     markup=True,
                 )
@@ -221,7 +221,7 @@ class ShortcutsScreen(ModalScreen[None]):
                     markup=True,
                 )
                 yield Static(
-                    "  [bold magenta]/cost[/bold magenta]            : Token usage analytics & session spend breakdown",
+                    "  [bold magenta]/cost[/bold magenta]            : Token usage analytics & spend breakdown",
                     classes="shortcut-row",
                     markup=True,
                 )

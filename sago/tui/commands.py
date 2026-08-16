@@ -21,46 +21,44 @@ class CommandHandlers:
         container = self.query_one("#messages")
 
         categories = {
-            "CORE": [
+            "CORE & WORKFLOW": [
                 "/help",
-                "/map",
-                "/project_graph",
-                "/verify",
-                "/plan",
-                "/todos",
-                "/done",
+                "/status",
+                "/session",
                 "/compact",
-                "/reset",
+                "/clear",
+                "/export",
+                "/exit",
             ],
             "AGENT ORCHESTRATION": [
-                "/agents",
                 "/agent",
                 "/delegate",
                 "/chain",
                 "/orchestrate",
                 "/parallel",
-                "/handoff",
+                "/tasks",
             ],
-            "MODEL & RUNTIME": ["/model", "/provider", "/effort", "/cost", "/yolo", "/dashboard"],
-            "VERSION CONTROL & SNAPSHOTS": [
+            "CODE INTELLIGENCE & VCS": [
+                "/graph",
+                "/map",
+                "/verify",
                 "/git",
                 "/diff",
-                "/commit",
-                "/changes",
                 "/undo",
                 "/checkpoint",
             ],
-            "SESSION & MAINTENANCE": [
-                "/sessions",
-                "/save",
-                "/load",
-                "/export",
-                "/clean",
-                "/permissions",
-                "/allow",
-                "/block",
+            "SETTINGS & RUNTIME": [
+                "/model",
+                "/provider",
+                "/effort",
+                "/cost",
+                "/perms",
+                "/todo",
+                "/theme",
+                "/buttons",
+                "/dev",
+                "/yolo",
             ],
-            "DEBUGGING": ["/dev", "/dev view", "/dev logs", "/dev export"],
         }
 
         lines = ["[bold cyan]COMMAND REFERENCE[/bold cyan]\n"]
@@ -1213,6 +1211,59 @@ class CommandHandlers:
         else:
             self._add_system_message("YOLO MODE OFF - Permissions restored")
 
+    def _handle_perms_command(self: SagoApp, args: str = "") -> None:
+        """Handle /perms subcommand dispatch."""
+        parts = args.strip().split(None, 1)
+        action = parts[0].lower() if parts else "list"
+        param = parts[1].strip() if len(parts) > 1 else ""
+
+        if action in ("allow", "unblock"):
+            self._allow_tool(param)
+        elif action in ("block", "deny"):
+            self._block_tool(param)
+        elif action == "blocked":
+            self._show_permissions("blocked")
+        elif action == "allowed":
+            self._show_permissions("allowed")
+        elif action == "reset":
+            from sago.permissions import get_permission_manager
+
+            pm = get_permission_manager()
+            pm.config.blocked_tools.clear()
+            pm.config.allowed_tools.clear()
+            pm._save_config()
+            self._add_system_message("Tool permissions reset to default.")
+        else:
+            self._show_permissions("")
+
+    def _handle_todo_command(self: SagoApp, args: str = "") -> None:
+        """Handle /todo subcommand dispatch."""
+        parts = args.strip().split(None, 1)
+        action = parts[0].lower() if parts else "list"
+        param = parts[1].strip() if len(parts) > 1 else ""
+
+        if action == "done" and param:
+            self._mark_todo_done(param)
+        elif action == "show" and param:
+            self._show_todo(param)
+        elif action == "done" and not param:
+            self._add_system_message("Usage: /todo done <id>")
+        elif action and action not in ("list", "all"):
+            self._show_todo(action)
+        else:
+            self._show_plan("")
+
+    def _handle_tasks_command(self: SagoApp, args: str = "") -> None:
+        """Handle /tasks subcommand dispatch."""
+        parts = args.strip().split(None, 1)
+        action = parts[0].lower() if parts else "list"
+        param = parts[1].strip() if len(parts) > 1 else ""
+
+        if action == "cancel":
+            self._cancel_task(param)
+        else:
+            self._show_tasks()
+
     def _show_permissions(self: SagoApp, args: str) -> None:
         from sago.permissions import TOOL_RISK_LEVELS, get_permission_manager
 
@@ -1289,12 +1340,40 @@ class CommandHandlers:
             self._add_system_message(f"Already blocked: {tool_name}")
 
     def _show_plan(self: SagoApp, args: str) -> None:
+        raw = args.strip()
+        if raw and raw.lower() not in ("status", "list", "show"):
+            # Interactive planning mode for user task!
+            self._hide_welcome_screen()
+            self._add_to_history(f"/plan {raw}")
+            self._add_user_message(f"/plan {raw}")
+
+            planning_prompt = (
+                f"You are operating in rigorous PLANNING MODE. Create a comprehensive implementation plan for the following task before making any changes:\n\n"
+                f"**Task**: {raw}\n\n"
+                f"Please research the codebase thoroughly and format the plan as follows:\n"
+                f"### 1. Goal & Requirements\n"
+                f"- Clear summary of what will be implemented or resolved.\n\n"
+                f"### 2. Architecture & Proposed File Changes\n"
+                f"- Specific files to create, modify, or delete, including key functions, classes, and logic flow.\n\n"
+                f"### 3. Step-by-Step Execution Plan\n"
+                f"- Numbered, ordered implementation checklist.\n\n"
+                f"### 4. Verification & Testing Plan\n"
+                f"- Exact commands and automated tests to run to verify the solution.\n\n"
+                f"---\n"
+                f"**CRITICAL INSTRUCTION**: Do NOT make code changes or run modifying commands yet. "
+                f"Conclude by asking for the user's review and explicit confirmation (e.g. `Type 'y' or 'proceed' to execute this plan, or provide feedback to refine.`)."
+            )
+            self._process_message(planning_prompt)
+            return
+
         from sago.tasks import TaskStatus, get_task_manager
 
         tm = get_task_manager()
         plan = tm.get_active_plan()
         if not plan:
-            self._add_system_message("No active plan")
+            self._add_system_message(
+                "No active plan in memory.\nUsage: `/plan <task description>` — Researches codebase and generates a step-by-step implementation plan for your review before executing."
+            )
             return
 
         container = self.query_one("#messages")
@@ -1551,22 +1630,31 @@ class CommandHandlers:
             self._add_system_message("Summary: OFF")
 
     def _show_repo_map(self: SagoApp, query: str = "") -> None:
-        """Generate and display compact AST symbol repo map."""
+        """Generate and display compact, structured AST symbol repo map."""
+        from rich.markdown import Markdown
+
         from sago.memory.symbol_graph import SymbolGraph
+        from sago.tui.helpers import create_collapsible
 
         try:
             graph = SymbolGraph()
-            rmap = graph.generate_repo_map(filter_query=query.strip() or None)
-            from sago.tui.helpers import create_collapsible
+            clean_map = graph.generate_clean_tui_map(filter_query=query.strip() or None)
 
             container = self.query_one("#messages")
+            md_widget = Markdown(clean_map, code_theme="monokai")
+            title = (
+                f"Symbol Repo Map ({graph.root_dir.name})"
+                if not query
+                else f"Symbol Repo Map (filter: {query})"
+            )
             container.mount(
                 create_collapsible(
-                    Static(f"```text\n{rmap}\n```"),
-                    title="Symbol Repo Map",
+                    Static(md_widget),
+                    title=title,
                     collapsed=False,
                 )
             )
+            container.scroll_end(animate=False)
         except Exception as e:
             self._add_system_message(f"Error generating repo map: {e}")
 

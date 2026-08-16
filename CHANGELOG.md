@@ -4,6 +4,23 @@ All notable changes to the SAGO project are documented in this file.
 
 ## [0.1.7] - 2026-08-16
 
+- **Interactive Implementation Planning Workflow (`/plan <task>`)**:
+  - Upgraded `/plan <task>` from a static task viewer into a full interactive planning and confirmation workflow.
+  - Generates comprehensive technical designs, goals, proposed file changes, ordered checklists, and verification test strategies without making code edits until explicit user approval (`y` / `proceed`).
+- **Deduplicated & Streamlined TUI Slash Command Suite**:
+  - Consolidated 50+ scattered commands into 4 clean, focused categories: Core & Workflow, Agent Orchestration, Code Intelligence & VCS, and Settings & Runtime.
+  - Merged single-action commands into clean subcommands: `/perms [list|allow|block|reset]`, `/todo [list|done]`, `/session [list|save|load|reset]`, `/tasks [list|cancel]`, `/buttons [toggle|on|off]`, and `/graph [arch|process|models|flow|summary]`.
+  - Updated `/help` command reference and interactive shortcuts modal (`F1` / `?`).
+- **Strict Monospace Column Alignment & Zero Emoji Breakage**:
+  - Eliminated variable-width emoji glyphs from autocompletion menus and shortcut sheets.
+  - Standardized fixed-width monospace column padding (`{key:<12}`) for razor-sharp rendering across all terminal emulators and fonts.
+- **Deep Recursive Fuzzy File Autocomplete & Context Injection (`#<file>`)**:
+  - Upgraded `rank_files_smart` with recursive workspace file tree indexing and fast in-memory TTL caching.
+  - Prioritizes Git-modified files (`[mod]`) and displays human-readable file sizes (`53 KB`).
+  - Automatically resolves referenced file paths recursively and injects their code content directly into the LLM prompt context.
+- **Structured AST Repo Map & Automated Topology Priming**:
+  - Implemented `generate_clean_tui_map` in `SymbolGraph` to render structured Markdown cards with line counts and query filtering (`/map [query]`).
+  - Injected topological project graph summaries into `ContextAssembler` when queries touch architecture, dependencies, or data models.
 - **Comprehensive Garbage Collection & Cleanup System (`sago clean`)**:
   - Implemented `sago.cleanup` module to safely purge stale, unneeded, and regenerable files across `~/.sago` and project `.sago` directories.
   - Added `sago clean` CLI command (defaulting to `--all`) with rich summary reporting of scanned items, deleted files, and bytes of disk space reclaimed.
@@ -15,7 +32,6 @@ All notable changes to the SAGO project are documented in this file.
   - **`ChangeTracker`**: Automatically caps session backup files to 50 files per session and auto-prunes older session backup folders beyond the 10 most recent sessions.
   - **`CheckpointManager`**: Added `prune_checkpoints()` method and automatic retention capping (retains newest 20 snapshots upon creation).
 - **TUI Maintenance Commands**:
-  - Added `/clean` and `/gc` slash commands in the interactive terminal interface (`/clean [all|cache|db|backups]`).
   - Added `/checkpoint prune [keep]` and `sago checkpoint prune` to easily trim older workspace snapshots.
 
 ## [0.1.6] - 2026-08-15

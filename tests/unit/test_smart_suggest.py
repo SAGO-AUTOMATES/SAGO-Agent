@@ -75,16 +75,52 @@ def test_subcommand_completions():
 
 
 def test_rank_files_smart():
-    """Verify file ranking with Git status and fuzzy search."""
+    """Verify file ranking with Git status, nested subfolders, and fuzzy search."""
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
         (root / "app.py").write_text("print(1)")
-        (root / "settings.py").write_text("x = 1")
+        nested = root / "sago" / "tui"
+        nested.mkdir(parents=True)
+        (nested / "models.py").write_text("x = 1")
+        (nested / "processor.py").write_text("y = 2")
         (root / "README.md").write_text("# Test")
 
-        items, values = rank_files_smart("sett", base_dir=root)
+        # Test nested file discovery from root without typing subpath
+        items, values = rank_files_smart("proc", base_dir=root)
         assert len(items) > 0
-        assert any("#settings.py" in v for v in values)
+        assert any("#sago/tui/processor.py" in v for v in values)
+
+        # Test nested file discovery with exact name
+        items_mod, values_mod = rank_files_smart("models", base_dir=root)
+        assert len(items_mod) > 0
+        assert any("#sago/tui/models.py" in v for v in values_mod)
+
+
+def test_new_subcommand_completions():
+    """Verify /graph, /map, /perms, /todo subcommands have clean suggestions."""
+    res_graph = get_subcommand_completions("/graph")
+    assert res_graph is not None
+    _, graph_vals = res_graph
+    assert any("/graph arch" in v for v in graph_vals)
+    assert any("/graph models" in v for v in graph_vals)
+
+    res_perms = get_subcommand_completions("/perms")
+    assert res_perms is not None
+    _, perms_vals = res_perms
+    assert any("/perms allow" in v for v in perms_vals)
+    assert any("/perms block" in v for v in perms_vals)
+
+    res_plan = get_subcommand_completions("/plan")
+    assert res_plan is not None
+    _, plan_vals = res_plan
+    assert any("/plan <task>" in v for v in plan_vals)
+    assert any("/plan status" in v for v in plan_vals)
+
+    res_todo = get_subcommand_completions("/todo")
+    assert res_todo is not None
+    _, todo_vals = res_todo
+    assert any("/todo list" in v for v in todo_vals)
+    assert any("/todo done" in v for v in todo_vals)
 
 
 @pytest.mark.anyio
