@@ -252,6 +252,9 @@ class CommandHandlers:
             tag_label="DELEGATE",
             tag_color="#bc8cff",
         )
+        if enhancement.was_modified:
+            self._add_prompt_enhancement_card(enhancement)
+
         self._process_delegation(agent_name, task)
 
     def _chain_agents(self: SagoApp, args: str) -> None:

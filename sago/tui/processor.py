@@ -266,6 +266,10 @@ class MessageProcessorMixin:
                         self._update_spinner,
                         f"✨ Enhanced: {enhancement.intent_summary}",
                     )
+                    self.call_from_thread(
+                        self._add_prompt_enhancement_card,
+                        enhancement,
+                    )
 
                 # Use enhanced structured prompt for substantive engineering requests
                 user_msg_content = (

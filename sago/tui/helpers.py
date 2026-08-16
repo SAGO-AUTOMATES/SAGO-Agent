@@ -294,6 +294,51 @@ class UIHelpers:
         msg_container.mount(turn_card)
         msg_container.scroll_end(animate=False)
 
+    def _add_prompt_enhancement_card(self: SagoApp, enhancement: Any) -> None:
+        """Display a dedicated, transparent Prompt Enhancement Card in the active exchange turn."""
+        if not enhancement or not getattr(enhancement, "was_modified", False):
+            return
+
+        from textual.widgets import Collapsible, Static
+
+        tags = " • ".join(getattr(enhancement, "improvements", [])[:4])
+        intent_summary = getattr(enhancement, "intent_summary", "")
+        enhanced_prompt = getattr(enhancement, "enhanced_prompt", "")
+        crit_lines = "\n".join(
+            f"  {i + 1}. {c}" for i, c in enumerate(getattr(enhancement, "acceptance_criteria", []))
+        )
+        targets = ", ".join(getattr(enhancement, "target_scope", []))
+
+        card_lines = [
+            f"[bold cyan]🎯 Goal:[/] [white]{intent_summary}[/white]",
+        ]
+        if targets:
+            card_lines.append(f"[dim]📁 Targets:[/] [cyan]{targets}[/cyan]")
+        if tags:
+            card_lines.append(f"[dim]⚡ Additions:[/] [green]{tags}[/green]")
+        if crit_lines:
+            card_lines.append(f"\n[bold]Acceptance & Verification Criteria:[/]\n{crit_lines}")
+
+        card_lines.append(
+            f"\n[dim]── Injected Structured Prompt ──[/dim]\n[dim]{enhanced_prompt[:600]}{'...' if len(enhanced_prompt) > 600 else ''}[/dim]"
+        )
+
+        title_preview = intent_summary[:60] if intent_summary else "Goal Clarified"
+        card = Collapsible(
+            Static("\n".join(card_lines), markup=True),
+            title=f"✨ Prompt Automatically Enhanced  [dim]({title_preview})[/dim]",
+            collapsed=False,
+        )
+
+        target_card = getattr(self, "_active_exchange_card", None)
+        if target_card is not None and hasattr(target_card, "mount_child"):
+            target_card.mount_child(card)
+        elif target_card is not None:
+            target_card.mount(card)
+        else:
+            self.query_one("#messages").mount(card)
+        self.query_one("#messages").scroll_end(animate=False)
+
     def _add_assistant_message(
         self: SagoApp, content: str, meta: str = "", agent_name: str = ""
     ) -> None:

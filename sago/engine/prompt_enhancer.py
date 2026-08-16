@@ -65,16 +65,8 @@ class PromptEnhancer:
 
     # Action intent patterns
     _INTENT_MAP = {
-        "casual_chat": (
-            r"\b(hello|hi|hoi|hey|sup|yo|howdy|greetings|good\s+(?:morning|afternoon|evening)|thanks|thank\s+you|who\s+are\s+you|how\s+are\s+you|what\'?s\s+up|weather|forecast|temperature|joke|jokes|pun|riddle|story|poem)\b",
-            "Conversational interaction and pleasantries",
-        ),
-        "general_qa": (
-            r"^(what\s+is|who\s+is|where\s+is|when\s+is|why\s+is|how\s+does|can\s+you\s+explain|tell\s+me\s+about)\b",
-            "General knowledge inquiry and question answering",
-        ),
         "bug_fix": (
-            r"\b(fix|bug|error|broken|crash|issue|patch|resolve|fail|failing|exception|traceback)\b",
+            r"\b(fix|bug|error|broken|crash|issue|patch|resolve|fail|failing|exception|traceback|leak)\b",
             "Diagnose, isolate root cause, and implement robust fix with regression prevention",
         ),
         "feature_create": (
@@ -86,7 +78,7 @@ class PromptEnhancer:
             "Refactor code structure for improved modularity, maintainability, and readability without breaking API contracts",
         ),
         "test_verify": (
-            r"\b(test|verify|check|lint|typecheck|coverage|assert|benchmark|audit)\b",
+            r"\b(test|tests|pytest|verify|check|lint|typecheck|coverage|assert|benchmark|audit)\b",
             "Execute thorough multi-tier verification, assertions, and edge-case testing",
         ),
         "doc_explain": (
@@ -94,8 +86,16 @@ class PromptEnhancer:
             "Provide accurate, clear, and comprehensive technical documentation and explanations",
         ),
         "optimize": (
-            r"\b(optimize|speed|fast|perf|performance|memory|latency|cache|reduce)\b",
+            r"\b(optimize|speed|fast|perf|performance|memory|latency|cache|reduce|benchmark|profile)\b",
             "Profile, identify bottlenecks, and apply efficient optimizations while maintaining correctness",
+        ),
+        "casual_chat": (
+            r"\b(hello|hi|hoi|hey|sup|yo|howdy|greetings|good\s+(?:morning|afternoon|evening)|thanks|thank\s+you|who\s+are\s+you|how\s+are\s+you|what\'?s\s+up|weather|forecast|temperature|joke|jokes|pun|riddle|story|poem)\b",
+            "Conversational interaction and pleasantries",
+        ),
+        "general_qa": (
+            r"^(what\s+is|who\s+is|where\s+is|when\s+is|why\s+is|how\s+does|can\s+you\s+explain|tell\s+me\s+about)\b",
+            "General knowledge inquiry and question answering",
         ),
     }
 

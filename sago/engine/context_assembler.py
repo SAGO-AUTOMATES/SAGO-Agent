@@ -155,6 +155,11 @@ class ContextAssembler:
     ) -> AssembledContext:
         """Assemble comprehensive context for a task following the 5-layer pipeline."""
         ctx = AssembledContext()
+        if task_type == "chat":
+            # For casual conversation, greetings, weather, non-coding queries:
+            # Skip massive project instructions, symbol graphs, RAG code snippets, and directory trees
+            return ctx
+
         token_budget = _TokenBudget(max_tokens)
 
         # 1. Detect project structure, languages, frameworks

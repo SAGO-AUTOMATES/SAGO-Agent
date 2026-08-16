@@ -238,6 +238,38 @@ class IntentClassifier:
             "npm",
             "pip",
             "cargo",
+            "fix",
+            "bug",
+            "error",
+            "exception",
+            "issue",
+            "patch",
+            "broken",
+            "crash",
+            "leak",
+            "create",
+            "implement",
+            "scaffold",
+            "optimize",
+            "lint",
+            "typecheck",
+            "deploy",
+            "docker",
+            "k8s",
+            "kubernetes",
+            "commit",
+            "pr",
+            "pull request",
+            "branch",
+            "benchmark",
+            "profile",
+        )
+
+        has_file_pattern = bool(
+            re.search(
+                r"\b[\w\-\./]+\.(?:py|js|ts|tsx|jsx|rs|go|c|cpp|h|java|kt|rb|php|html|css|json|yaml|yml|toml|sql|sh|md)\b",
+                task_lower,
+            )
         )
 
         # Detect conversational requests (weather, greetings, jokes, general knowledge)
@@ -245,7 +277,7 @@ class IntentClassifier:
             re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in chat_words
         ) or bool(re.search(r"^\d+(?:-\d+)?\s+more", task_lower))
 
-        has_code = any(
+        has_code = has_file_pattern or any(
             re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in code_intent_words
         )
 

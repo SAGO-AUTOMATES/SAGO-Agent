@@ -63,3 +63,20 @@ def test_casual_chat_and_weather_not_overwritten(tmp_path):
         res = enhance_prompt(chat_query, agent_role="python-engineer", cwd=tmp_path)
         assert res.was_modified is False, f"Query '{chat_query}' should not be modified with code templates"
         assert res.enhanced_prompt == chat_query
+
+
+def test_mixed_greeting_with_engineering_task(tmp_path):
+    from sago.engine.intent_classifier import get_intent_classifier
+
+    (tmp_path / "auth.py").write_text("def authenticate(): pass", encoding="utf-8")
+
+    classifier = get_intent_classifier()
+    task = "Hey there! Can you fix the auth bug in auth.py?"
+
+    intent = classifier.classify(task)
+    assert intent.task_type == "fix"
+
+    res = enhance_prompt(task, agent_role="security-engineer", cwd=tmp_path)
+    assert res.was_modified is True
+    assert "auth.py" in res.target_scope
+    assert "bug" in res.intent_summary.lower() or "fix" in res.intent_summary.lower()
