@@ -32,6 +32,7 @@ class MCPServerConfig(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
     enabled: bool = True
     timeout: float = 30.0
+    isolate_env: bool = True  # Isolate environment variables from global process
 
 
 def _build_pydantic_model_from_json_schema(name: str, schema: dict[str, Any]) -> type[BaseModel]:
@@ -142,7 +143,11 @@ class MCPManager:
         return list(self._servers.values())
 
     def get_client(self, name: str) -> MCPClient | None:
-        """Get or initialize an MCP client for a named server."""
+        """Get or initialize an MCP client for a named server.
+
+        Environment variables are isolated per-server by default to prevent
+        leaking credentials between different MCP servers and the parent process.
+        """
         if name in self._clients:
             return self._clients[name]
 
@@ -159,8 +164,21 @@ class MCPManager:
             return None
 
         client = MCPClient(server_url=server_url, timeout=cfg.timeout, headers=cfg.headers)
+
+        # Store environment variables for this server instead of polluting global env
+        # The MCPClient will use these when spawning subprocesses
         if cfg.env:
-            os.environ.update(cfg.env)
+            if cfg.isolate_env:
+                # Store isolated environment for this client
+                client._isolated_env = cfg.env
+            else:
+                # Legacy behavior: update global environment (deprecated)
+                logger.warning(
+                    "MCP server '%s' has isolate_env=False, leaking env vars globally. "
+                    "This is deprecated and will be removed in a future version.",
+                    name,
+                )
+                os.environ.update(cfg.env)
 
         self._clients[name] = client
         return client

@@ -242,7 +242,7 @@ def clean_backups(
 
         to_delete: list[Path] = []
 
-        if max_age_days is not None:
+        if max_age_days is not None and cutoff_ts is not None:
             for sdir in session_dirs:
                 if sdir.stat().st_mtime <= cutoff_ts:
                     to_delete.append(sdir)
@@ -305,7 +305,7 @@ def clean_checkpoints(
             total_scanned += len(snapshots)
 
             to_delete: list[Path] = []
-            if max_age_days is not None:
+            if max_age_days is not None and cutoff_ts is not None:
                 for snap in snapshots:
                     if snap.stat().st_mtime <= cutoff_ts:
                         to_delete.append(snap)
@@ -389,15 +389,20 @@ def clean_database(
     remove_empty_only: bool = False,
     keep_recent_sessions: int = 10,
     max_age_days: float | None = None,
+    min_session_age_days: float = 7.0,  # Only delete sessions older than this
 ) -> CleanResult:
     """Clean empty and stale test sessions from ~/.sago/data/sago.db and VACUUM.
 
     Finds and removes:
-    1. Empty sessions (0 messages or all blank content)
-    2. Abandoned test runs (generic 'Session <hex>' or 'Test...' titles with <= 2 messages beyond keep_recent)
+    1. Empty sessions (0 messages or all blank content) older than min_session_age_days
+    2. Abandoned test runs (generic 'Session <hex>' or 'Test...' titles with <= 2 messages)
+       only if older than min_session_age_days and beyond keep_recent
     3. Stale sessions older than max_age_days or beyond keep_recent_sessions
     4. Orphaned records referencing non-existent sessions
     5. Runs VACUUM and PRAGMA optimize to defragment SQLite and reclaim physical disk space.
+
+    Safety: By default, only sessions older than min_session_age_days (7 days) are considered
+    for deletion. Set min_session_age_days=0 to disable this safety check.
     """
     res = CleanResult(category="Database Sessions & Integrity (sago.db)")
     target_db = db_path or get_db_path()
@@ -407,6 +412,13 @@ def clean_database(
         return res
 
     size_before = target_db.stat().st_size
+
+    # Calculate cutoff timestamp for minimum session age
+    min_age_cutoff = (
+        datetime.fromtimestamp(time.time() - min_session_age_days * 86400, tz=UTC).isoformat()
+        if min_session_age_days > 0
+        else None
+    )
 
     try:
         conn = sqlite3.connect(str(target_db), timeout=30.0)
@@ -419,19 +431,37 @@ def clean_database(
         total_sessions = cur.fetchone()[0]
         res.items_scanned = total_sessions
 
-        # 2. Empty / ghost sessions (no valid messages and no tasks)
-        cur.execute("""
-            SELECT s.id FROM sessions s
-            WHERE (
-                SELECT COUNT(*) FROM messages m
-                WHERE m.session_id = s.id
-                AND TRIM(m.content, ' ' || CHAR(9) || CHAR(10) || CHAR(13)) != ''
-            ) = 0
-            AND (
-                SELECT COUNT(*) FROM tasks t
-                WHERE t.session_id = s.id
-            ) = 0
-        """)
+        # 2. Empty / ghost sessions (no valid messages and no tasks) - only old ones
+        if min_age_cutoff:
+            cur.execute(
+                """
+                SELECT s.id FROM sessions s
+                WHERE (
+                    SELECT COUNT(*) FROM messages m
+                    WHERE m.session_id = s.id
+                    AND TRIM(m.content, ' ' || CHAR(9) || CHAR(10) || CHAR(13)) != ''
+                ) = 0
+                AND (
+                    SELECT COUNT(*) FROM tasks t
+                    WHERE t.session_id = s.id
+                ) = 0
+                AND s.created_at < ?
+            """,
+                (min_age_cutoff,),
+            )
+        else:
+            cur.execute("""
+                SELECT s.id FROM sessions s
+                WHERE (
+                    SELECT COUNT(*) FROM messages m
+                    WHERE m.session_id = s.id
+                    AND TRIM(m.content, ' ' || CHAR(9) || CHAR(10) || CHAR(13)) != ''
+                ) = 0
+                AND (
+                    SELECT COUNT(*) FROM tasks t
+                    WHERE t.session_id = s.id
+                ) = 0
+            """)
         empty_session_ids = [row[0] for row in cur.fetchall()]
 
         # 3. Abandoned / test sessions and stale sessions beyond retention
@@ -439,7 +469,7 @@ def clean_database(
         if not remove_empty_only:
             # Fetch all sessions ordered by updated_at / created_at desc
             cur.execute("""
-                SELECT s.id, s.title, s.created_at,
+                SELECT s.id, s.title, s.created_at, s.updated_at,
                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count
                 FROM sessions s
                 ORDER BY s.created_at DESC
@@ -450,11 +480,21 @@ def clean_database(
             for idx, r in enumerate(all_rows):
                 sid = r[0]
                 title = (r[1] or "").lower()
-                msg_count = r[3]
+                msg_count = r[4]
+                created_at = r[2]
+                updated_at = r[3]
+
+                # Skip recent sessions (within min_session_age_days)
+                if min_age_cutoff and created_at and created_at >= min_age_cutoff:
+                    continue
+                if min_age_cutoff and updated_at and updated_at >= min_age_cutoff:
+                    continue
 
                 # If beyond the recent sessions threshold
                 if idx >= keep_recent_sessions:
-                    stale_session_ids.append(sid)
+                    # Only mark as stale if it's actually old
+                    if not min_age_cutoff or (created_at and created_at < min_age_cutoff):
+                        stale_session_ids.append(sid)
                 elif (
                     msg_count <= 2
                     and (
@@ -464,8 +504,9 @@ def clean_database(
                     )
                     and idx >= 3
                 ):
-                    # Minor test/abandoned sessions kept only if in top 3
-                    stale_session_ids.append(sid)
+                    # Minor test/abandoned sessions kept only if in top 3 and old enough
+                    if not min_age_cutoff or (created_at and created_at < min_age_cutoff):
+                        stale_session_ids.append(sid)
 
         if max_age_days is not None:
             cutoff_iso = datetime.fromtimestamp(
@@ -523,6 +564,8 @@ def clean_database(
         res.details.append(
             f"Pruned {len(all_target_ids)} empty/stale sessions (retained top {min(keep_recent_sessions, total_sessions - len(all_target_ids))}), {orphaned_total} orphaned records ({res.human_bytes} reclaimed)"
         )
+        if dry_run:
+            res.details.append("DRY RUN - no changes made")
     except Exception as e:
         res.error = str(e)
         logger.error("Error during database cleanup: %s", e)

@@ -71,21 +71,57 @@ def create_pr_workflow(
         clean_slug = "".join(c for c in slug if c.isalnum() or c == "-")
         branch = f"feat/{clean_slug}"
 
-    # 4. Check status & stage changes
+    # 4. Check if branch already exists
+    rc_branch, branch_out = _run_git(["branch", "--list", branch])
+    branch_exists = bool(branch_out.strip())
+
+    # 5. Checkout target branch first to ensure clean state
+    rc_checkout, checkout_out = _run_git(["checkout", target_branch])
+    if rc_checkout != 0:
+        return {
+            "success": False,
+            "error": f"Failed to checkout target branch '{target_branch}': {checkout_out}",
+        }
+
+    # 6. Create or checkout the feature branch
+    if branch_exists:
+        # Branch exists, checkout existing branch
+        rc_switch, switch_out = _run_git(["checkout", branch])
+        if rc_switch != 0:
+            return {
+                "success": False,
+                "error": f"Failed to checkout existing branch '{branch}': {switch_out}",
+            }
+    else:
+        # Create new branch from target
+        rc_create, create_out = _run_git(["checkout", "-b", branch, target_branch])
+        if rc_create != 0:
+            return {"success": False, "error": f"Failed to create branch '{branch}': {create_out}"}
+
+    # 7. Check status & stage changes
     rc, status_out = _run_git(["status", "--porcelain"])
     has_changes = bool(status_out.strip())
 
     if has_changes:
-        # Create branch
-        _run_git(["checkout", "-b", branch])
         # Add and commit
         _run_git(["add", "-A"])
         commit_msg = f"feat: {title}\n\n{body}".strip()
         rc_c, commit_out = _run_git(["commit", "-m", commit_msg])
         if rc_c != 0:
             return {"success": False, "error": f"Git commit failed: {commit_out}"}
+    else:
+        # No changes to commit, ensure we're on the correct branch
+        rc_current, current_out = _run_git(["branch", "--show-current"])
+        if current_out.strip() != branch:
+            # Switch to the feature branch even if no changes
+            rc_switch, switch_out = _run_git(["checkout", branch])
+            if rc_switch != 0:
+                return {
+                    "success": False,
+                    "error": f"Failed to checkout branch '{branch}': {switch_out}",
+                }
 
-    # 5. Check if GitHub CLI 'gh' is available
+    # 8. Check if GitHub CLI 'gh' is available
     gh_path = shutil.which("gh")
     if gh_path:
         pr_args = [
@@ -113,7 +149,7 @@ def create_pr_workflow(
                 "message": f"Successfully created PR on GitHub: {pr_url}",
             }
 
-    # 6. Fallback: formatted markdown for manual PR creation
+    # 9. Fallback: formatted markdown for manual PR creation
     pr_template = f"""# Pull Request: {title}
 
 ## Summary

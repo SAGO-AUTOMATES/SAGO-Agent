@@ -1,4 +1,8 @@
-"""Sandboxed Execution Environment for running untrusted code and commands safely."""
+"""Sandboxed Execution Environment for running untrusted code and commands safely.
+
+Uses Linux namespaces (unshare) for process isolation, resource limits for memory/CPU,
+and network namespace blocking to provide actual security boundaries.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +29,7 @@ class SandboxConfig:
     allow_network: bool = False
     read_only_root: bool = True
     copy_workspace: bool = True
+    use_namespaces: bool = True  # Use Linux namespaces for isolation
     allowed_env_vars: list[str] = field(
         default_factory=lambda: [
             "PATH",
@@ -36,6 +41,51 @@ class SandboxConfig:
             "USER",
         ]
     )
+
+
+def _check_namespace_support() -> bool:
+    """Check if Linux namespace isolation is available."""
+    try:
+        result = subprocess.run(
+            ["unshare", "--help"],
+            capture_output=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _build_unshare_args(config: SandboxConfig) -> list[str]:
+    """Build unshare command arguments for namespace isolation."""
+    args = ["unshare"]
+
+    # Always use mount namespace for filesystem isolation
+    args.append("--mount")
+
+    # Use PID namespace to limit process visibility
+    args.append("--pid")
+
+    # Use IPC namespace to isolate shared memory
+    args.append("--ipc")
+
+    # Use UTS namespace for hostname isolation
+    args.append("--uts")
+
+    # Network namespace for network isolation (unless explicitly allowed)
+    if not config.allow_network:
+        args.append("--net")
+
+    # User namespace for privilege de-escalation (if available)
+    try:
+        # Check if user namespaces are enabled
+        with open("/proc/sys/kernel/unprivileged_userns_clone") as f:
+            if f.read().strip() == "1":
+                args.append("--user")
+    except (FileNotFoundError, PermissionError):
+        pass
+
+    return args
 
 
 class SandboxedExecutor:
@@ -53,8 +103,13 @@ class SandboxedExecutor:
         timeout: int | None = None,
         extra_env: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Execute a command in an isolated temporary directory sandbox."""
+        """Execute a command in an isolated temporary directory sandbox.
+
+        Uses Linux namespaces for process isolation when available, falling back
+        to resource limits and restricted environment for basic protection.
+        """
         timeout = timeout or self.config.max_cpu_seconds
+        use_namespaces = self.config.use_namespaces and _check_namespace_support()
 
         with tempfile.TemporaryDirectory(prefix="sago_sandbox_") as temp_dir:
             sandbox_path = Path(temp_dir)
@@ -79,15 +134,29 @@ class SandboxedExecutor:
             }
             safe_env["HOME"] = str(sandbox_path)
             safe_env["TMPDIR"] = str(sandbox_path)
+            # Prevent environment leakage from parent process
+            safe_env.pop("PYTHONPATH", None)
+            safe_env.pop("LD_PRELOAD", None)
+            safe_env.pop("LD_LIBRARY_PATH", None)
             if extra_env:
                 safe_env.update(extra_env)
 
             cmd_args = command if isinstance(command, list) else command
 
+            # Build the execution command with optional namespace isolation
+            if use_namespaces:
+                unshare_args = _build_unshare_args(self.config)
+                # Wrap command to apply resource limits inside namespace
+                inner_cmd = self._build_resource_limited_cmd(cmd_args, sandbox_path)
+                full_cmd = unshare_args + ["--"] + inner_cmd
+            else:
+                # Fallback: use resource limits without namespaces
+                full_cmd = self._build_resource_limited_cmd(cmd_args, sandbox_path)
+
             try:
                 proc = subprocess.run(
-                    cmd_args,
-                    shell=isinstance(command, str),
+                    full_cmd,
+                    shell=False,  # Never use shell with sandboxed commands
                     cwd=str(sandbox_path),
                     env=safe_env,
                     capture_output=True,
@@ -100,6 +169,7 @@ class SandboxedExecutor:
                     "stderr": proc.stderr,
                     "exit_code": proc.returncode,
                     "sandbox_dir": str(sandbox_path),
+                    "isolated": use_namespaces,
                 }
             except subprocess.TimeoutExpired:
                 return {
@@ -108,6 +178,7 @@ class SandboxedExecutor:
                     "stderr": f"Execution timed out after {timeout} seconds.",
                     "exit_code": -1,
                     "sandbox_dir": str(sandbox_path),
+                    "isolated": use_namespaces,
                 }
             except Exception as e:
                 return {
@@ -116,7 +187,37 @@ class SandboxedExecutor:
                     "stderr": f"Sandbox execution failed: {e}",
                     "exit_code": -1,
                     "sandbox_dir": str(sandbox_path),
+                    "isolated": use_namespaces,
                 }
+
+    def _build_resource_limited_cmd(
+        self, cmd_args: list[str] | str, sandbox_path: Path
+    ) -> list[str]:
+        """Build command with resource limits applied.
+
+        Uses bash -c wrapper to apply ulimit restrictions when running
+        with namespaces, or applies limits directly via preexec_fn equivalent.
+        """
+        # Create a wrapper script that applies resource limits
+        limits_script = f"""#!/bin/bash
+# Apply resource limits
+ulimit -v {self.config.max_memory_mb * 1024}  # Virtual memory limit
+ulimit -u {self.config.max_processes}  # Process limit
+ulimit -t {self.config.max_cpu_seconds}  # CPU time limit
+
+# Execute the actual command
+exec "$@"
+"""
+        limits_path = sandbox_path / ".sandbox_limits.sh"
+        limits_path.write_text(limits_script)
+        os.chmod(str(limits_path), 0o755)
+
+        if isinstance(cmd_args, str):
+            # For shell commands, wrap in bash -c with limits
+            return ["bash", str(limits_path), "bash", "-c", cmd_args]
+        else:
+            # For list commands, pass directly
+            return ["bash", str(limits_path)] + cmd_args
 
 
 class SandboxRunArgs(BaseModel):
@@ -129,8 +230,9 @@ class SandboxRunTool(BaseTool):
 
     name = "sandbox_run"
     description = (
-        "Execute a shell command inside an isolated temporary sandbox directory. "
-        "Protects the host system from untrusted scripts, infinite loops, and disk pollution."
+        "Execute a shell command inside an isolated temporary sandbox directory with process isolation. "
+        "Uses Linux namespaces for network/process isolation, resource limits for memory/CPU, "
+        "and restricted environment to protect the host system. Network access is blocked by default."
     )
     category = ToolCategory.SYSTEM
     args_model = SandboxRunArgs
@@ -143,8 +245,10 @@ class SandboxRunTool(BaseTool):
         executor = SandboxedExecutor()
         res = executor.run_command(command, timeout=timeout)
         output = res["stdout"] if res["success"] else (res["stderr"] or res["stdout"])
+        isolation_info = " (namespace isolated)" if res.get("isolated") else " (resource limited)"
         return ToolResult(
-            output=output.strip() or f"Command finished with exit code {res['exit_code']}",
+            output=output.strip()
+            or f"Command finished with exit code {res['exit_code']}{isolation_info}",
             success=res["success"],
             error=res["stderr"] if not res["success"] else None,
             metadata=res,

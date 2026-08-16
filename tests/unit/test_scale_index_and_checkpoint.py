@@ -101,6 +101,8 @@ def test_checkpoint_cross_project_external_paths(tmp_path: Path):
 
     # Checkpoint manager rooted in project_a
     mgr_a = CheckpointManager(workspace_root=proj_a)
+    # Allow restoring external files to project_b
+    mgr_a.add_allowed_restore_path(proj_b)
     meta = mgr_a.create_checkpoint("Multi-project snapshot", files=[file_a, file_b])
 
     # Corrupt both files

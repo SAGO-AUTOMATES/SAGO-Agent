@@ -189,17 +189,17 @@ def test_clean_database_empty_and_noise_sessions(temp_sago_env):
         "INSERT INTO messages (id, session_id, created_at, role, content) VALUES ('m1', 's_good', '2026-08-16T00:00:00', 'user', 'Hello assistant!')"
     )
 
-    # 2. Empty session (0 messages)
+    # 2. Empty session (0 messages) - old enough to be cleaned
     conn.execute(
-        "INSERT INTO sessions (id, created_at, updated_at, title) VALUES ('s_empty', '2026-08-16T00:00:00', '2026-08-16T00:00:00', 'Empty TUI')"
+        "INSERT INTO sessions (id, created_at, updated_at, title) VALUES ('s_empty', '2026-08-01T00:00:00', '2026-08-01T00:00:00', 'Empty TUI')"
     )
 
-    # 3. Blank noise session (whitespace only)
+    # 3. Blank noise session (whitespace only) - old enough to be cleaned
     conn.execute(
-        "INSERT INTO sessions (id, created_at, updated_at, title) VALUES ('s_blank', '2026-08-16T00:00:00', '2026-08-16T00:00:00', 'Blank Session')"
+        "INSERT INTO sessions (id, created_at, updated_at, title) VALUES ('s_blank', '2026-08-01T00:00:00', '2026-08-01T00:00:00', 'Blank Session')"
     )
     conn.execute(
-        "INSERT INTO messages (id, session_id, created_at, role, content) VALUES ('m2', 's_blank', '2026-08-16T00:00:00', 'user', '   \n  ')"
+        "INSERT INTO messages (id, session_id, created_at, role, content) VALUES ('m2', 's_blank', '2026-08-01T00:00:00', 'user', '   \n  ')"
     )
 
     # 4. Orphaned message (references non-existent session)

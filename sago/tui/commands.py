@@ -2449,10 +2449,19 @@ class CommandHandlers:
             self._add_system_message("\n".join(lines))
 
     def _handle_clean_command(self: SagoApp, args: str = "") -> None:
-        """Handle /clean and /gc garbage collection command."""
+        """Handle /clean and /gc garbage collection command.
+
+        Usage: /clean [mode] [--confirm]
+        Modes: all, cache, backups, checkpoints, db, logs
+        Default: dry-run showing what would be deleted
+        Add --confirm to actually delete
+        """
         from sago.cleanup import run_cleanup
 
-        mode = args.strip().lower() if args else "all"
+        args_lower = args.strip().lower() if args else ""
+        confirm = "--confirm" in args_lower
+        mode = args_lower.replace("--confirm", "").strip() or "all"
+
         clean_cache = mode in ("all", "cache", "caches")
         clean_backup = mode in ("all", "backups", "backup")
         clean_chkpt = mode in ("all", "checkpoints", "checkpoint")
@@ -2462,12 +2471,53 @@ class CommandHandlers:
         if not any([clean_cache, clean_backup, clean_chkpt, clean_db, clean_log]):
             clean_cache = clean_backup = clean_chkpt = clean_db = clean_log = True
 
+        # Always do dry-run first to show what would be deleted
+        dry_run_results = run_cleanup(
+            clean_cache=clean_cache,
+            clean_backup=clean_backup,
+            clean_chkpt=clean_chkpt,
+            clean_db=clean_db,
+            clean_log=clean_log,
+            dry_run=True,
+        )
+
+        total_would_delete = sum(r.items_deleted for r in dry_run_results)
+        total_would_reclaim = sum(r.bytes_reclaimed for r in dry_run_results)
+
+        lines = ["[bold cyan]═══ SAGO GARBAGE COLLECTION (DRY RUN) ═══[/bold cyan]"]
+        for r in dry_run_results:
+            if r.items_deleted > 0:
+                lines.append(
+                    f"  • [bold]{r.category}:[/bold] {', '.join(r.details) if r.details else 'No items to clean'}"
+                )
+
+        if total_would_reclaim < 1024 * 1024:
+            rec_str = f"{total_would_reclaim / 1024:.1f} KB"
+        else:
+            rec_str = f"{total_would_reclaim / (1024 * 1024):.2f} MB"
+
+        if total_would_delete == 0:
+            lines.append("\n[bold green]✓ Nothing to clean[/] - database is already optimized.")
+            self._add_system_message("\n".join(lines))
+            return
+
+        lines.append(
+            f"\n[bold yellow]Would delete:[/] {total_would_delete} items, {rec_str} disk space"
+        )
+
+        if not confirm:
+            lines.append("\n[bold]To execute cleanup:[/] /clean {mode} --confirm")
+            self._add_system_message("\n".join(lines))
+            return
+
+        # Execute actual cleanup
         results = run_cleanup(
             clean_cache=clean_cache,
             clean_backup=clean_backup,
             clean_chkpt=clean_chkpt,
             clean_db=clean_db,
             clean_log=clean_log,
+            dry_run=False,
         )
 
         total_reclaimed = sum(r.bytes_reclaimed for r in results)
