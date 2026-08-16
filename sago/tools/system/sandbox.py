@@ -168,7 +168,14 @@ class SandboxedExecutor:
                 if (
                     use_namespaces
                     and proc.returncode != 0
-                    and "operation not permitted" in (proc.stderr or "").lower()
+                    and any(
+                        msg in (proc.stderr or "").lower()
+                        for msg in [
+                            "operation not permitted",
+                            "permission denied",
+                            "cannot change root filesystem",
+                        ]
+                    )
                 ):
                     # Fall back to non-namespace approach
                     full_cmd = self._build_resource_limited_cmd(cmd_args, sandbox_path)
