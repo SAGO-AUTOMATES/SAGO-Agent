@@ -827,6 +827,28 @@ class CommandHandlers:
             s.close()
         except Exception:
             pass
+        # Auto-export developer mode session artifacts if dev mode is enabled
+        dev_artifacts_info: list[str] = []
+        if getattr(self, "developer_mode", False):
+            try:
+                import os
+                from pathlib import Path
+
+                from sago.tracking.dev_tracer import export_session_dev_artifacts
+
+                artifacts = export_session_dev_artifacts(
+                    session_id=self.current_session_id,
+                    messages=self.messages,
+                    cwd=Path.cwd(),
+                )
+                if artifacts:
+                    dev_artifacts_info.append("📁 [Dev Mode] Session artifacts generated:")
+                    for _, p in artifacts.items():
+                        rel = os.path.relpath(p, os.getcwd()) if os.path.exists(p) else p
+                        dev_artifacts_info.append(f"   ↳ {rel}")
+            except Exception:
+                pass
+
         sid = self.current_session_id[:8]
         msg_count = len(self.messages)
         # Print to stdout before exit so user sees the info
@@ -835,6 +857,8 @@ class CommandHandlers:
         print(f"\nSession saved: {sid} ({msg_count} messages)", file=sys.stderr)
         print(f"Resume: sago tui --resume {sid}", file=sys.stderr)
         print(f"Or: /load {sid}", file=sys.stderr)
+        if dev_artifacts_info:
+            print("\n" + "\n".join(dev_artifacts_info), file=sys.stderr)
         self.exit()
 
     def _detach_session(self: SagoApp) -> None:

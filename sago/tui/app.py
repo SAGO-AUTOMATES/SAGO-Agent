@@ -218,6 +218,14 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         welcome.mount(
             Static(f"v{__version__} — Multi-Agent Orchestration", classes="welcome-version")
         )
+        if getattr(self, "developer_mode", False):
+            welcome.mount(
+                Static(
+                    "[bold #3fb950]● Dev Mode ON[/bold #3fb950]  [dim]─ F2 Dev Traces Active[/dim]",
+                    classes="welcome-dev-badge",
+                    markup=True,
+                )
+            )
         welcome.mount(Static("AI-Powered Software Engineering Agent", classes="welcome-subtitle"))
         welcome.mount(Static("Type a message or use /help for commands", classes="welcome-hint"))
 
@@ -286,9 +294,11 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     _loading_settings: bool = True
 
     def _load_settings(self) -> None:
-        """Load persisted settings (model, provider, effort, yolo, agent)."""
+        """Load persisted settings (model, provider, effort, yolo, agent, dev_mode)."""
         try:
+            from sago.config.loader import is_dev_mode_enabled
             from sago.settings import load_setting
+            from sago.tracking.dev_tracer import get_dev_tracer
 
             self._loading_settings = True
             self.current_model = load_setting("model", self.current_model)
@@ -300,6 +310,14 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             self.show_action_bar = load_setting("show_action_bar", self.show_action_bar)
             if not self.show_action_bar:
                 self.add_class("hide-action-bar")
+
+            # Load dev_mode from ~/.sago config or settings
+            dev_config = is_dev_mode_enabled()
+            persisted_dev = load_setting("dev_mode", dev_config)
+            self.developer_mode = bool(persisted_dev or dev_config)
+            if self.developer_mode:
+                get_dev_tracer().set_enabled(True)
+                self.add_class("dev-mode-enabled")
         except Exception as e:
             logger.warning("Failed to load settings: %s", e)
         finally:
@@ -319,6 +337,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             save_setting("yolo", self.yolo_mode)
             save_setting("show_summary", self.show_summary)
             save_setting("show_action_bar", self.show_action_bar)
+            save_setting("dev_mode", self.developer_mode)
         except Exception as e:
             logger.warning("Failed to save settings: %s", e)
 

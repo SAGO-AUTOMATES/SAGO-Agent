@@ -134,6 +134,47 @@ def _load_profiles() -> None:
 _load_profiles()
 
 
+# Load plugin-provided agents
+def _load_plugin_agents() -> None:
+    """Load agent profiles provided by plugins."""
+    try:
+        from sago.plugins.base import get_plugin_manager
+
+        pm = get_plugin_manager()
+        for plugin in pm.discover_plugins():
+            if not plugin.meta.enabled:
+                continue
+            try:
+                for agent_data in plugin.provide_agents():
+                    if not isinstance(agent_data, dict) or "name" not in agent_data:
+                        continue
+                    name = agent_data["name"]
+                    if name in AGENTS:
+                        continue  # Don't override built-in agents
+                    agent = AgentDefinition(
+                        name=name,
+                        codename=agent_data.get("codename", name),
+                        role=agent_data.get("role", "Plugin Agent"),
+                        description=agent_data.get("description", ""),
+                        system_prompt=agent_data.get("system_prompt", ""),
+                        skills=agent_data.get("skills", []),
+                        tools=agent_data.get("tools", []),
+                        category=agent_data.get("category", "plugin"),
+                        handoff_to=agent_data.get("handoff_to", []),
+                        model_preference=agent_data.get("model_preference"),
+                        max_iterations=agent_data.get("max_iterations", 15),
+                        temperature=agent_data.get("temperature", 0.7),
+                    )
+                    AGENTS[agent.name] = agent
+            except Exception as e:
+                print(f"Warning: Plugin {plugin.meta.name} failed to provide agents: {e}")
+    except Exception:
+        pass
+
+
+_load_plugin_agents()
+
+
 AGENT_ALIASES: dict[str, str] = {
     "system-architect": "architect",
     "test-runner": "tester",

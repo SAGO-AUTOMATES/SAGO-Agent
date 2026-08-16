@@ -11,8 +11,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from openai import OpenAI
-
 from sago.tools.base import BaseTool
 
 # Auto-discover all tools
@@ -452,7 +450,7 @@ def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
 
 def _generate_plan_with_llm(
     task: str,
-    client: OpenAI,
+    client: Any,
     model: str,
     tools_desc: str,
 ) -> list[str]:
@@ -697,6 +695,68 @@ def execute_agent_task(
     """
     tools = _discover_tools()
 
+    # --- Plugin: on_init hook (once per execution lifecycle) ---
+    try:
+        from sago.plugins.base import get_plugin_manager
+
+        _plugin_ctx = {
+            "task": task,
+            "model": model,
+            "agent_role": agent_role,
+            "cwd": cwd,
+            "session_id": session_id,
+            "tools": list(tools.keys()),
+        }
+        for plugin in get_plugin_manager().discover_plugins():
+            if plugin.meta.enabled:
+                try:
+                    plugin.on_init(_plugin_ctx)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # --- Skill: discover matching skills for this task ---
+    matched_skills = []
+    custom_skills_context = ""
+    try:
+        from sago.skills.loader import SkillLoader
+        from sago.skills.registry import get_skill_registry
+
+        registry = get_skill_registry()
+        matched_skills = registry.find_skills_for_task(task)
+
+        # Also discover custom skills from disk
+        custom_skills = SkillLoader.discover_skills()
+        # Match custom skills by keyword overlap with task
+        task_words = set(task.lower().split())
+        for cs in custom_skills.values():
+            cs_words = set(cs.description.lower().split())
+            name_words = set(cs.name.lower().replace("-", " ").replace("_", " ").split())
+            if task_words & cs_words or task_words & name_words:
+                matched_skills_custom = cs
+                custom_skills_context += f"\n\n{matched_skills_custom.to_prompt_context()}"
+            elif not task_words.isdisjoint(cs_words | name_words):
+                custom_skills_context += f"\n\n{cs.to_prompt_context()}"
+    except Exception:
+        pass
+
+    # --- Plugin: hook_user_message (transform/enrich the prompt) ---
+    try:
+        from sago.plugins.base import get_plugin_manager
+
+        _hook_ctx = {
+            "task_type": _detect_task_type(task),
+            "model": model,
+            "agent_role": agent_role,
+            "cwd": cwd,
+            "matched_skills": [s.name for s in matched_skills],
+        }
+        task = get_plugin_manager().hook_user_message(task, _hook_ctx)
+        enhanced_task = task  # re-sync after plugin transformation
+    except Exception:
+        pass
+
     # Auto-resolve active model, key, and base_url if defaults or empty
     if not api_key or model == "openrouter/free":
         try:
@@ -724,6 +784,8 @@ def execute_agent_task(
             base_url = "https://api.openai.com/v1"
         else:
             base_url = "https://openrouter.ai/api/v1"
+
+    from openai import OpenAI
 
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
     start_time = time.time()
@@ -838,6 +900,48 @@ def execute_agent_task(
             agent_role=agent_role,
             project_ctx="",  # Context goes in user message
         )
+
+    # --- Skill: inject matched skill context into system prompt ---
+    if matched_skills and task_type != "chat":
+        skill_sections = []
+        for skill in matched_skills[:3]:  # Top 3 matching skills
+            skill_sections.append(f"### Active Skill: {skill.name}\n{skill.description}")
+            if skill.tools:
+                skill_sections.append(f"Recommended tools: {', '.join(skill.tools)}")
+            if skill.steps:
+                steps_text = "\n".join(f"  {i + 1}. {s}" for i, s in enumerate(skill.steps))
+                skill_sections.append(f"Suggested workflow:\n{steps_text}")
+        skill_block = "\n\n".join(skill_sections)
+        system_prompt += (
+            f"\n\n=== MATCHED SKILL(S) FOR THIS TASK ===\n"
+            f"{skill_block}\n"
+            f"Follow the skill workflow where appropriate, but adapt to the specific context."
+        )
+
+    # --- Custom skill: inject SKILL.md instructions ---
+    if custom_skills_context and task_type != "chat":
+        system_prompt += f"\n\n=== CUSTOM SKILL INSTRUCTIONS ===\n{custom_skills_context}"
+
+    # --- Skill-based tool filtering: restrict tools to skill-defined subset ---
+    if matched_skills and task_type != "chat":
+        # Union of all tools from matched skills
+        skill_tool_names: set[str] = set()
+        for skill in matched_skills:
+            skill_tool_names.update(skill.tools)
+        # Only filter if skill specifies tools and they exist in available tools
+        if skill_tool_names:
+            filtered = {t: tools[t] for t in skill_tool_names if t in tools}
+            if filtered:
+                # Always keep core tools available
+                core_tools = {
+                    "read_file",
+                    "write_file",
+                    "edit_file",
+                    "execute_shell",
+                    "grep_content",
+                }
+                filtered.update({t: tools[t] for t in core_tools if t in tools})
+                tools = filtered
 
     # Inject system-level enhancements (learning approach, known fixes, project instructions)
     if assembled and task_type != "chat":
@@ -1468,6 +1572,16 @@ def execute_agent_task(
                             }
                         )
                         continue
+            # --- Plugin: hook_response (transform final response) ---
+            try:
+                from sago.plugins.base import get_plugin_manager
+
+                content = get_plugin_manager().hook_response(
+                    content, {"task": task, "model": model}
+                )
+            except Exception:
+                pass
+
             # ---- Post-execution quality review ----
             quality_issues = _review_output_quality(content, files_created, tool_history)
 
@@ -1577,6 +1691,14 @@ def execute_agent_task(
                         "content": f"[HINT] You've called {name} with similar args {circular_thresh} times in a row.",
                     }
 
+            # --- Plugin: hook_tool_call (intercept/modify args before execution) ---
+            try:
+                from sago.plugins.base import get_plugin_manager
+
+                args = get_plugin_manager().hook_tool_call(name, args)
+            except Exception:
+                pass
+
             if on_tool_call:
                 on_tool_call(name, args)
 
@@ -1653,6 +1775,14 @@ def execute_agent_task(
 
             if on_tool_result:
                 on_tool_result(name, args, result_str, not is_error)
+
+            # --- Plugin: hook_tool_result (transform result after execution) ---
+            try:
+                from sago.plugins.base import get_plugin_manager
+
+                result_str = str(get_plugin_manager().hook_tool_result(name, result_str))
+            except Exception:
+                pass
 
             content = (
                 f"[ERROR] {name}:\n{result_str}\nTry a different approach."
@@ -1988,6 +2118,14 @@ def execute_agent_task(
                 ["edit_file", "write_file"],
                 f"Fixed tests in {test_fix_attempts} attempts",
             )
+    except Exception:
+        pass
+
+    # --- Plugin: hook_response (transform final response at end of execution) ---
+    try:
+        from sago.plugins.base import get_plugin_manager
+
+        content = get_plugin_manager().hook_response(content, {"task": task, "model": model})
     except Exception:
         pass
 

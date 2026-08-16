@@ -56,6 +56,7 @@ class SettingsConfig(BaseModel):
     verbose_output: bool = False
     color_output: bool = True
     markdown_output: bool = True
+    dev_mode: bool = False
 
 
 class AgentOverride(BaseModel):
@@ -297,3 +298,77 @@ def invalidate_config_cache() -> None:
     with _config_lock:
         _config_cache = None
         _config_cache_key = None
+
+
+def is_dev_mode_enabled() -> bool:
+    """Check if developer mode is enabled via ~/.sago/ config or environment.
+
+    Checks:
+    1. Environment variable SAGO_DEV_MODE or DEV_MODE (1, true, yes, on)
+    2. ~/.sago/config.json or ~/.sago/settings.json or ~/.sago/config.yaml or ~/.sago/config
+    3. Project-level .sago/config.json or .sago.yaml
+    4. SagoConfig.settings.dev_mode
+    """
+    env_val = os.environ.get("SAGO_DEV_MODE") or os.environ.get("DEV_MODE")
+    if env_val is not None:
+        return env_val.strip().lower() in ("1", "true", "yes", "on")
+
+    # Inspect ~/.sago/ and workspace configs directly
+    candidates = [
+        Path.home() / ".sago" / "config.json",
+        Path.home() / ".sago" / "settings.json",
+        Path.home() / ".sago" / "config.yaml",
+        Path.home() / ".sago" / "config",
+        Path.cwd() / ".sago" / "config.json",
+        Path.cwd() / ".sago" / "settings.json",
+        Path.cwd() / ".sago.yaml",
+    ]
+
+    for p in candidates:
+        if p.exists() and p.is_file():
+            try:
+                txt = p.read_text(encoding="utf-8").strip()
+                if not txt:
+                    continue
+                if p.suffix == ".json" or txt.startswith("{"):
+                    import json
+
+                    data = json.loads(txt)
+                else:
+                    data = yaml.safe_load(txt) or {}
+
+                if isinstance(data, dict):
+                    if data.get("dev_mode") is True:
+                        return True
+                    if (
+                        isinstance(data.get("settings"), dict)
+                        and data["settings"].get("dev_mode") is True
+                    ):
+                        return True
+            except Exception:
+                pass
+
+    try:
+        cfg = get_config()
+        return bool(cfg.settings.dev_mode)
+    except Exception:
+        return False
+
+
+def set_dev_mode(enabled: bool, persist: bool = True) -> None:
+    """Enable or disable developer mode in ~/.sago/settings.json."""
+    if persist:
+        import json
+
+        cfg_dir = Path.home() / ".sago"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        settings_file = cfg_dir / "settings.json"
+        data: dict[str, Any] = {}
+        if settings_file.exists():
+            try:
+                data = json.loads(settings_file.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        data["dev_mode"] = enabled
+        settings_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        invalidate_config_cache()

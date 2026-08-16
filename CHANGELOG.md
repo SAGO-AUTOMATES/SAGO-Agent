@@ -2,6 +2,23 @@
 
 All notable changes to the SAGO project are documented in this file.
 
+## [0.1.10] - 2026-08-16
+
+### Added (Hidden Dev Mode, Home Indicator, Session Export & Dynamic Specialist Resolution)
+- **Hidden Developer Mode Configuration (`~/.sago/`)**:
+  - Configurable via `~/.sago/config.json`, `~/.sago/settings.json`, `~/.sago/config.yaml`, or environment variable `SAGO_DEV_MODE=1` / `SAGO_DEV_MODE=true`.
+  - When enabled, TUI and CLI start with Developer Mode active by default; `F2` live trace inspection and deep telemetry are immediately available.
+- **TUI Home Screen Dev Mode Green Dot Indicator**:
+  - Prominent visual badge (`● Dev Mode ON ─ F2 Dev Traces Active`) displayed directly below the SAGO logo on the welcome home screen.
+- **Automatic Project-Specific Session Artifact Export on Exit**:
+  - Automatically exports full session artifacts to `.sago/data/<session_id>/`:
+    - `chat_export.md`: Complete Markdown formatted transcript with all user, assistant, agent messages, and tool outputs.
+    - `trace.md`: Formatted execution trace with Mermaid interaction graph, call hierarchy, and latency breakdown.
+    - `trace.json`: Full machine-readable event stream and graph nodes/edges.
+  - Informs the user on exit with resume instructions: `sago tui --resume <session_id>` along with paths to all generated artifacts.
+- **Dynamic Multi-Factor Specialist Agent Resolution (`sago/agents/registry.py`)**:
+  - Eliminated hardcoded generic agent defaults; dynamically resolves the optimal specialist from 340+ built-in profiles (e.g. Next.js $\rightarrow$ `nextjs-engineer`, Spring Boot $\rightarrow$ `spring-boot-engineer`, Azure $\rightarrow$ `azure-engineer`, Rust $\rightarrow$ `rust-engineer`, Go $\rightarrow$ `go-engineer`, Terraform $\rightarrow$ `terraform-engineer`, etc.) based on keywords, referenced file extensions (`.tsx`, `.java`, `.rs`, `.go`, `.tf`), and workspace project context.
+
 ## [0.1.9] - 2026-08-16
 
 ### Added (Dynamic Registry & Intelligent Transparent Prompt Enhancement)

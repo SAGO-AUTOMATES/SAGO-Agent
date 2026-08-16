@@ -220,3 +220,18 @@ async def test_tui_command_turn_cards():
         assert card.card_type == "delegate"
         assert card.tag_label == "DELEGATE"
         assert "exchange-box--delegate" in card.classes
+
+
+@pytest.mark.anyio
+async def test_tui_dev_mode_welcome_screen(monkeypatch):
+    """Verify welcome screen displays green Dev Mode ON indicator when enabled."""
+
+    monkeypatch.setenv("SAGO_DEV_MODE", "true")
+    app = SagoApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.developer_mode is True
+
+        welcome = app.query_one("#welcome-screen")
+        dev_badge = welcome.query(".welcome-dev-badge")
+        assert len(dev_badge) >= 1

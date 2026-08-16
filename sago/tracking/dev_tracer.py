@@ -458,3 +458,55 @@ def get_dev_tracer() -> DevTracer:
 def get_tracer() -> DevTracer:
     """Alias for get_dev_tracer() — backward compatibility."""
     return get_dev_tracer()
+
+
+def export_session_dev_artifacts(
+    session_id: str,
+    messages: list[dict[str, Any]],
+    cwd: str | Path | None = None,
+) -> dict[str, str]:
+    """Export chat_export.md, trace.md, and trace.json to project-specific .sago/data/<session_id>/."""
+
+    project_root = Path(cwd) if cwd else Path.cwd()
+    data_dir = project_root / ".sago" / "data" / session_id
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    created_files: dict[str, str] = {}
+
+    # 1. Generate chat_export.md
+    chat_file = data_dir / "chat_export.md"
+    chat_lines = [
+        "# SAGO Session Chat Export",
+        f"- **Session ID**: `{session_id}`",
+        f"- **Export Time**: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- **Total Messages**: {len(messages)}",
+        "",
+        "---",
+        "",
+    ]
+    for idx, msg in enumerate(messages, 1):
+        role = msg.get("role", "unknown").upper()
+        agent = msg.get("agent_name", "")
+        content = msg.get("content", "")
+        agent_tag = f" (Agent: @{agent})" if agent else ""
+        chat_lines.append(f"## [{idx}] {role}{agent_tag}\n")
+        chat_lines.append(content)
+        chat_lines.append("\n---\n")
+
+    chat_file.write_text("\n".join(chat_lines), encoding="utf-8")
+    created_files["chat_export"] = str(chat_file.resolve())
+
+    # 2. Export trace.md and trace.json
+    tracer = get_dev_tracer()
+    trace_md_file = data_dir / "trace.md"
+    trace_json_file = data_dir / "trace.json"
+
+    ok_md, res_md = tracer.export_traces(trace_md_file, format="md")
+    if ok_md:
+        created_files["trace_md"] = res_md
+
+    ok_json, res_json = tracer.export_traces(trace_json_file, format="json")
+    if ok_json:
+        created_files["trace_json"] = res_json
+
+    return created_files
