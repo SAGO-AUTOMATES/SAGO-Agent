@@ -466,6 +466,7 @@ def export_session_dev_artifacts(
     cwd: str | Path | None = None,
 ) -> dict[str, str]:
     """Export chat_export.md, trace.md, and trace.json to project-specific .sago/data/<session_id>/."""
+    import re
 
     project_root = Path(cwd) if cwd else Path.cwd()
     data_dir = project_root / ".sago" / "data" / session_id
@@ -473,13 +474,18 @@ def export_session_dev_artifacts(
 
     created_files: dict[str, str] = {}
 
-    # 1. Generate chat_export.md
+    # Extract distinct agents involved in session
+    agents_involved = sorted({msg.get("agent_name") for msg in messages if msg.get("agent_name")})
+    agents_summary = ", ".join(f"`@{a}`" for a in agents_involved) if agents_involved else "`@sago`"
+
+    # 1. Generate rich chat_export.md
     chat_file = data_dir / "chat_export.md"
     chat_lines = [
-        "# SAGO Session Chat Export",
+        "# 💬 SAGO Session Transcript Export",
         f"- **Session ID**: `{session_id}`",
-        f"- **Export Time**: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- **Export Timestamp**: {time.strftime('%Y-%m-%d %H:%M:%S')}",
         f"- **Total Messages**: {len(messages)}",
+        f"- **Engaged Agents**: {agents_summary}",
         "",
         "---",
         "",
@@ -488,10 +494,31 @@ def export_session_dev_artifacts(
         role = msg.get("role", "unknown").upper()
         agent = msg.get("agent_name", "")
         content = msg.get("content", "")
-        agent_tag = f" (Agent: @{agent})" if agent else ""
-        chat_lines.append(f"## [{idx}] {role}{agent_tag}\n")
-        chat_lines.append(content)
-        chat_lines.append("\n---\n")
+        t_stamp = msg.get("timestamp")
+        time_str = f" • {time.strftime('%H:%M:%S', time.localtime(t_stamp))}" if t_stamp else ""
+        agent_tag = f" (Agent: `@{agent}`)" if agent else ""
+
+        chat_lines.append(f"### Turn {idx}: {role}{agent_tag}{time_str}\n")
+
+        # Format reasoning / thinking process
+        thinking_match = re.search(
+            r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>", content, re.DOTALL
+        )
+        body = content
+        if thinking_match:
+            thinking_text = thinking_match.group(1).strip()
+            if thinking_text:
+                chat_lines.append(
+                    "<details>\n<summary>🧠 <b>Technical Reasoning & Architectural Analysis</b></summary>\n\n"
+                )
+                chat_lines.append(thinking_text)
+                chat_lines.append("\n\n</details>\n")
+            body = re.sub(
+                r"<(?:thinking|thought)>.*?</(?:thinking|thought)>", "", content, flags=re.DOTALL
+            ).strip()
+
+        chat_lines.append(body)
+        chat_lines.append("\n\n---\n")
 
     chat_file.write_text("\n".join(chat_lines), encoding="utf-8")
     created_files["chat_export"] = str(chat_file.resolve())

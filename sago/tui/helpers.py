@@ -506,6 +506,22 @@ class UIHelpers:
 
                 self.call_after_refresh(_mount_trace_bar)
 
+        # If developer mode is active, continuously and automatically update session dev artifacts
+        if getattr(self, "developer_mode", False):
+            try:
+                import threading
+                from pathlib import Path
+
+                from sago.tracking.dev_tracer import export_session_dev_artifacts
+
+                threading.Thread(
+                    target=export_session_dev_artifacts,
+                    args=(self.current_session_id, list(self.messages), Path.cwd()),
+                    daemon=True,
+                ).start()
+            except Exception:
+                pass
+
         # Turn finished -> clear active exchange card
         self._active_exchange_card = None
         self.query_one("#messages").scroll_end(animate=False)

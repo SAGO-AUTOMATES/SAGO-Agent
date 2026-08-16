@@ -11,6 +11,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from openai import OpenAI  # noqa: F401
+
 from sago.tools.base import BaseTool
 
 # Auto-discover all tools
@@ -784,8 +786,6 @@ def execute_agent_task(
             base_url = "https://api.openai.com/v1"
         else:
             base_url = "https://openrouter.ai/api/v1"
-
-    from openai import OpenAI
 
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
     start_time = time.time()
