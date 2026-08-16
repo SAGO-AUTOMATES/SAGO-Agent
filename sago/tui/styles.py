@@ -657,6 +657,12 @@ Collapsible .collapsible-body {
     height: 1;
     margin: 1 0 0 0;
 }
+.prompt-enhancement-inline {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+    margin: 0 0 1 0;
+}
 
 #approval-bar {
     display: none;

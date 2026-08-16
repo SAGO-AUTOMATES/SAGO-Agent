@@ -1803,6 +1803,8 @@ def tui(resume: str | None) -> None:
     if resume:
         app._pending_resume = resume
     app.run()
+    if hasattr(app, "print_exit_summary"):
+        app.print_exit_summary()
 
 
 @cli.command("attach")
@@ -1888,6 +1890,8 @@ def attach_cmd(target: str | None) -> None:
     app = SagoApp()
     app._pending_resume = target
     app.run()
+    if hasattr(app, "print_exit_summary"):
+        app.print_exit_summary()
 
 
 @cli.command()

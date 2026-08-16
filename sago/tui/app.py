@@ -293,6 +293,97 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
         return "\n\n".join(context_parts)
 
+    def print_exit_summary(self) -> None:
+        """Print clean session highlights summary banner to stdout after TUI terminal buffer is restored."""
+        messages = list(getattr(self, "messages", []))
+        user_queries = sum(1 for m in messages if m.get("role") == "user")
+        if user_queries == 0:
+            return
+
+        sid = getattr(self, "current_session_id", "default")[:8]
+        full_sid = getattr(self, "current_session_id", "default")
+        total_messages = len(messages)
+
+        # Tool calls stats
+        tool_calls = getattr(self, "session_tool_calls", [])
+        total_tools = len(tool_calls)
+        tool_counts: dict[str, int] = {}
+        for tc in tool_calls:
+            t_name = tc.get("tool", "tool")
+            tool_counts[t_name] = tool_counts.get(t_name, 0) + 1
+
+        if not tool_counts:
+            try:
+                from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                events = get_dev_tracer().get_recent_traces()
+                for e in events:
+                    if e.event_type == TraceEventType.TOOL_DISPATCH:
+                        t_name = e.data.get("tool_name", e.action)
+                        tool_counts[t_name] = tool_counts.get(t_name, 0) + 1
+                total_tools = sum(tool_counts.values())
+            except Exception:
+                pass
+
+        # Token stats
+        t_in = getattr(self, "total_input_tokens", 0)
+        t_out = getattr(self, "total_output_tokens", 0)
+        total_tokens = t_in + t_out
+
+        # Engaged agents
+        agents = sorted({m.get("agent_name") for m in messages if m.get("agent_name")})
+        agents_str = (
+            ", ".join(f"@{a}" for a in agents)
+            if agents
+            else f"@{getattr(self, 'current_agent', 'sago')}"
+        )
+
+        # Tool breakdown
+        if tool_counts:
+            sorted_tools = sorted(tool_counts.items(), key=lambda x: x[1], reverse=True)[:4]
+            tools_breakdown = ", ".join(f"{t} ({cnt})" for t, cnt in sorted_tools)
+            if len(tool_counts) > 4:
+                tools_breakdown += f", +{len(tool_counts) - 4} more"
+        else:
+            tools_breakdown = "0 calls"
+
+        dev_artifacts_info = []
+        if getattr(self, "developer_mode", False):
+            import os
+            from pathlib import Path
+
+            data_dir = Path.cwd() / ".sago" / "data" / full_sid
+            if data_dir.exists():
+                dev_artifacts_info.append("📁 DEV MODE ARTIFACTS SAVED:")
+                for fname in ("chat_export.md", "trace.md", "trace.json"):
+                    fpath = data_dir / fname
+                    if fpath.exists():
+                        rel = os.path.relpath(fpath, Path.cwd())
+                        dev_artifacts_info.append(f"   ↳ {rel}")
+
+        import sys
+
+        print("\n" + "━" * 60, file=sys.stderr)
+        print(f"📊 SAGO SESSION SUMMARY ({sid})", file=sys.stderr)
+        print("━" * 60, file=sys.stderr)
+        print(
+            f"• Total Queries  : {user_queries} user turns ({total_messages} messages)",
+            file=sys.stderr,
+        )
+        print(f"• Specialist(s)  : {agents_str}", file=sys.stderr)
+        print(f"• Tool Calls     : {total_tools} total [{tools_breakdown}]", file=sys.stderr)
+        print(
+            f"• Token Usage    : {total_tokens:,} tokens ({t_in:,} in, {t_out:,} out)",
+            file=sys.stderr,
+        )
+        print(f"• Resume Command : sago tui --resume {sid}  (or /load {sid})", file=sys.stderr)
+
+        if dev_artifacts_info:
+            print("━" * 60, file=sys.stderr)
+            print("\n".join(dev_artifacts_info), file=sys.stderr)
+
+        print("━" * 60 + "\n", file=sys.stderr)
+
     _loading_settings: bool = True
 
     def _load_settings(self) -> None:
