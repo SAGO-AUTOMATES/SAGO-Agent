@@ -4,7 +4,18 @@ All notable changes to the SAGO project are documented in this file.
 
 ## [0.1.10] - 2026-08-16
 
-### Added (Hidden Dev Mode, Home Indicator, Session Export & Dynamic Specialist Resolution)
+### Added (Hidden Dev Mode, Auto Session Title, Collapsible Enhancement & Highlights Summary)
+- **Intelligent One-Liner Session Title Synthesis (`sago/engine/prompt_enhancer.py`)**:
+  - Automatically synthesizes concise, high-impact session titles based on the user's initial objective and intent (e.g. `Fix authentication token refresh bug in auth.py`, `Explore codebase module topology`, `General greeting & capabilities inquiry`).
+  - Persisted directly to SQLite session database, `chat_export.md`, `trace.md`, `/sessions` list, and terminal summary banners.
+- **Clean Inline Collapsible Prompt Enhancement (`sago/tui/helpers.py`)**:
+  - Rendered directly inside the exchange turn box as a sleek collapsible card with clean typography and minimal emoji clutter, maintaining clear visual hierarchy with user prompt, tool executions, and assistant responses.
+- **Structured Execution Trace Reports (`sago/tracking/dev_tracer.py`)**:
+  - Replaced heavy unformatted JSON dumps in `trace.md` with structured Markdown summaries, latency metrics, and collapsible `<details><summary>View Raw Payload</summary>` inspection blocks.
+- **Robust Typo-Tolerant Greeting & Capability Resolution (`sago/engine/intent_classifier.py`, `sago/engine/prompt_enhancer.py`)**:
+  - Fast-paths conversational greetings (`hellos`, `heya`, `howdy`), capability questions (`what can you do`, `wehta can yiu do`, `skills`), and small talk into lightweight chat context without dumping 30,000-character project instruction files or triggering code synthesis.
+- **Post-Exit Session Highlights Summary Banner (`sago/tui/app.py`, `sago/main.py`)**:
+  - Displays comprehensive session statistics (Session ID, One-Liner Title, Total Queries, Messages, Tool Calls breakdown, In/Out Tokens, Specialist Agents, Resume command, and Dev Mode artifact paths) cleanly to the terminal upon exit or detach.
 - **Hidden Developer Mode Configuration (`~/.sago/`)**:
   - Configurable via `~/.sago/config.json`, `~/.sago/settings.json`, `~/.sago/config.yaml`, or environment variable `SAGO_DEV_MODE=1` / `SAGO_DEV_MODE=true`.
   - When enabled, TUI and CLI start with Developer Mode active by default; `F2` live trace inspection and deep telemetry are immediately available.

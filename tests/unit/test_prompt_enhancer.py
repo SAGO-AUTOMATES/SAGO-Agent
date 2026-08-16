@@ -160,3 +160,45 @@ def test_zero_token_local_execution(tmp_path):
     assert res.was_modified is True
     assert duration < 0.05  # Sub-50ms local execution
     assert "Primary Objective" in res.enhanced_prompt
+
+
+def test_generate_session_title():
+    from sago.engine.prompt_enhancer import generate_session_title
+
+    # Coding task
+    t1 = generate_session_title(
+        [{"role": "user", "content": "Fix the authentication token refresh bug in auth.py"}]
+    )
+    assert "auth" in t1.lower() or "token" in t1.lower()
+
+    # Architecture query
+    t2 = generate_session_title("explain the multi-agent orchestration architecture")
+    assert "architecture" in t2.lower() or "orchestration" in t2.lower()
+
+    # Greeting & capability query
+    t3 = generate_session_title("hellos wehta can yiu do ?>")
+    assert len(t3) > 0
+    assert not t3.startswith("Empty")
+
+
+def test_typo_greeting_and_capabilities_queries():
+    from sago.engine.intent_classifier import get_intent_classifier
+
+    classifier = get_intent_classifier()
+
+    # User typos and greeting capability questions
+    queries = [
+        "hellos wehta can yiu do ?>",
+        "hello what can you do",
+        "heyy what are your capabilities",
+        "howdy what skills do you have",
+        "yo what can u do",
+        "whats up today",
+    ]
+    for q in queries:
+        enh = enhance_prompt(q)
+        assert enh.was_modified is False
+
+        intent = classifier.classify(q, use_llm=False)
+        assert intent.task_type == "chat"
+        assert intent.needs_tools is False

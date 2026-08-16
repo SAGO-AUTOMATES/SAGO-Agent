@@ -546,11 +546,16 @@ def export_session_dev_artifacts(
     agents_involved = sorted({msg.get("agent_name") for msg in messages if msg.get("agent_name")})
     agents_summary = ", ".join(f"`@{a}`" for a in agents_involved) if agents_involved else "`@sago`"
 
+    from sago.engine.prompt_enhancer import generate_session_title
+
+    session_title = generate_session_title(messages)
+
     # 1. Generate rich chat_export.md
     chat_file = data_dir / "chat_export.md"
     chat_lines = [
-        "# 💬 SAGO Session Transcript Export",
+        f"# 💬 SAGO Session Transcript Export: {session_title}",
         f"- **Session ID**: `{session_id}`",
+        f"- **Title**: {session_title}",
         f"- **Export Timestamp**: {time.strftime('%Y-%m-%d %H:%M:%S')}",
         f"- **Total Messages**: {len(messages)}",
         f"- **Engaged Agents**: {agents_summary}",

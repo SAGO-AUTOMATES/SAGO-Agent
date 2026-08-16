@@ -262,6 +262,21 @@ class UIHelpers:
         self.messages.append({"role": "user", "content": content})
         self._save_message("user", content)
 
+        # Synthesize smart one-liner session title
+        from sago.engine.prompt_enhancer import generate_session_title
+
+        current_title = getattr(self, "current_session_title", "")
+        if not current_title or current_title in ("TUI Session", "Interactive Session"):
+            self.current_session_title = generate_session_title(content)
+            try:
+                from sago.database import Session
+
+                s = Session(self.current_session_id)
+                s.update(title=self.current_session_title)
+                s.close()
+            except Exception:
+                pass
+
         # Create unified ExchangeTurnCard
         turn_card = ExchangeTurnCard(prompt=content, card_type="user")
         self._active_exchange_card = turn_card

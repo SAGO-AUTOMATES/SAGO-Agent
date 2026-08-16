@@ -361,11 +361,18 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                         rel = os.path.relpath(fpath, Path.cwd())
                         dev_artifacts_info.append(f"   ↳ {rel}")
 
+        from sago.engine.prompt_enhancer import generate_session_title
+
+        title = getattr(self, "current_session_title", "")
+        if not title or title in ("TUI Session", "Interactive Session"):
+            title = generate_session_title(messages)
+
         import sys
 
         print("\n" + "━" * 60, file=sys.stderr)
         print(f"📊 SAGO SESSION SUMMARY ({sid})", file=sys.stderr)
         print("━" * 60, file=sys.stderr)
+        print(f"• Title          : {title}", file=sys.stderr)
         print(
             f"• Total Queries  : {user_queries} user turns ({total_messages} messages)",
             file=sys.stderr,

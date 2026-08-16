@@ -810,6 +810,12 @@ class CommandHandlers:
                 self._message_store.flush()
             except Exception:
                 pass
+        from sago.engine.prompt_enhancer import generate_session_title
+
+        current_title = getattr(self, "current_session_title", "")
+        if not current_title or current_title in ("TUI Session", "Interactive Session"):
+            self.current_session_title = generate_session_title(self.messages)
+
         try:
             from sago.database import Session, init_db
 
@@ -822,8 +828,8 @@ class CommandHandlers:
                 self.exit()
                 return
 
-            # Save current session
-            s.update(title=f"Session {self.current_session_id[:8]}", status="closed")
+            # Save current session with smart title
+            s.update(title=self.current_session_title, status="closed")
             s.close()
         except Exception:
             pass
@@ -929,12 +935,18 @@ class CommandHandlers:
                 self._message_store.flush()
             except Exception:
                 pass
+        from sago.engine.prompt_enhancer import generate_session_title
+
+        current_title = getattr(self, "current_session_title", "")
+        if not current_title or current_title in ("TUI Session", "Interactive Session"):
+            self.current_session_title = generate_session_title(self.messages)
+
         try:
             from sago.database import Session, init_db
 
             init_db()
             s = Session(self.current_session_id)
-            s.update(title=f"Session {self.current_session_id[:8]}", status="detached")
+            s.update(title=self.current_session_title, status="detached")
             s.close()
         except Exception:
             pass

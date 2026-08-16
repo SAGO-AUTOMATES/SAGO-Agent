@@ -412,3 +412,49 @@ def enhance_prompt(
         cwd=cwd,
         extra_context=extra_context,
     )
+
+
+def generate_session_title(messages: list[dict[str, Any]] | str) -> str:
+    """Generate a clean, high-impact one-liner title for a session based on user intent."""
+    first_user_text = ""
+    if isinstance(messages, str):
+        first_user_text = messages.strip()
+    elif isinstance(messages, list):
+        for m in messages:
+            if m.get("role") == "user" and m.get("content"):
+                first_user_text = str(m.get("content")).strip()
+                break
+
+    if not first_user_text:
+        return "Interactive Session"
+
+    try:
+        enh = enhance_prompt(first_user_text)
+        if enh.intent_summary and not enh.intent_summary.startswith("Empty"):
+            title = enh.intent_summary
+            title = re.sub(
+                r"^(?:Conversational inquiry:\s*|Diagnose and resolve the reported issue(?:\s+in\s+[^:]+)?:\s*|Explore and analyze codebase architecture and layout(?:\s+in\s+[^:]+)?:\s*|Implement requested capability(?:\s+in\s+[^:]+)?:\s*|Refactor and modernize code architecture(?:\s+in\s+[^:]+)?:\s*|Profile and optimize performance\s*/\s*efficiency(?:\s+in\s+[^:]+)?:\s*)",
+                "",
+                title,
+                flags=re.IGNORECASE,
+            ).strip()
+        else:
+            title = first_user_text
+    except Exception:
+        title = first_user_text
+
+    # Strip filler conversational phrasing
+    title = re.sub(
+        r"^(?:please\s+|can\s+you\s+|could\s+you\s+|i\s+need\s+you\s+to\s+|help\s+me\s+)",
+        "",
+        title,
+        flags=re.IGNORECASE,
+    ).strip()
+    title = " ".join(title.splitlines())
+    if len(title) > 60:
+        title = title[:57] + "..."
+
+    title = title.strip().rstrip(".:;!?")
+    if title:
+        title = title[0].upper() + title[1:]
+    return title or "Interactive Session"
