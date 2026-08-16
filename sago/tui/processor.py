@@ -268,6 +268,7 @@ class MessageProcessorMixin:
                 failed_calls: set[str] = set()
                 executed_calls: set[str] = set()
                 MAX_CUMULATIVE_TOKENS = 40000  # hard cap per message
+                has_created_checkpoint = False
 
                 # Initialize DB stores for this session
                 _tool_usage_store = None
@@ -840,6 +841,41 @@ class MessageProcessorMixin:
                                     and name in ("grep_content", "grep_search")
                                 ):
                                     clean_args["pattern"] = clean_args["query"]
+
+                                # Proactive pre-modification workspace checkpointing with user notification
+                                if not has_created_checkpoint and name in (
+                                    "write_file",
+                                    "edit_file",
+                                    "multi_edit_file",
+                                    "apply_patch",
+                                    "delete_file",
+                                ):
+                                    try:
+                                        from sago.engine.checkpoint import (
+                                            get_checkpoint_manager,
+                                        )
+
+                                        mgr = get_checkpoint_manager()
+                                        target_fp = clean_args.get("file_path") or clean_args.get(
+                                            "path"
+                                        )
+                                        target_list = (
+                                            [target_fp]
+                                            if target_fp and os.path.exists(target_fp)
+                                            else None
+                                        )
+                                        cp_meta = mgr.create_checkpoint(
+                                            description=f"Snapshot before {name}",
+                                            files=target_list,
+                                        )
+                                        self.call_from_thread(
+                                            self._add_system_message,
+                                            f"🛡️ [bold green]Workspace Snapshot Saved[/bold green]: `{cp_meta.checkpoint_id}` ({len(cp_meta.file_paths)} files)\n"
+                                            f"[dim]Rollback at any time with: `/checkpoint restore {cp_meta.checkpoint_id}` or `/undo`[/dim]",
+                                        )
+                                        has_created_checkpoint = True
+                                    except Exception as e:
+                                        logger.debug("Auto checkpoint failed: %s", e)
 
                                 tool_instance = tool_cls()
                                 result = tool_instance.run(**clean_args)

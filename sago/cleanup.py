@@ -282,46 +282,58 @@ def clean_checkpoints(
     """
     res = CleanResult(category="Workspace Checkpoints (.sago/checkpoints)")
     root = Path(workspace_root) if workspace_root else Path.cwd()
-    chk_dir = root / ".sago" / "checkpoints"
+    candidate_dirs = [
+        root / ".sago" / "checkpoints",
+        get_sago_home() / "checkpoints",
+    ]
 
-    if not chk_dir.exists():
-        res.details.append("No project checkpoints directory found.")
-        return res
-
+    seen_dirs: set[Path] = set()
     now = time.time()
     cutoff_ts = (now - max_age_days * 86400) if max_age_days is not None else None
 
-    try:
-        snapshots = [d for d in chk_dir.iterdir() if d.is_dir()]
-        snapshots.sort(key=lambda p: p.name, reverse=True)
-        res.items_scanned = len(snapshots)
+    total_scanned = 0
+    total_purged = 0
 
-        to_delete: list[Path] = []
+    for chk_dir in candidate_dirs:
+        if not chk_dir.exists() or chk_dir in seen_dirs:
+            continue
+        seen_dirs.add(chk_dir)
 
-        if max_age_days is not None:
-            for snap in snapshots:
-                if snap.stat().st_mtime <= cutoff_ts:
-                    to_delete.append(snap)
-        else:
-            to_delete = snapshots[keep_latest:]
+        try:
+            snapshots = [d for d in chk_dir.iterdir() if d.is_dir()]
+            snapshots.sort(key=lambda p: p.name, reverse=True)
+            total_scanned += len(snapshots)
 
-        for snap in to_delete:
-            sz, count = _get_dir_size_and_count(snap)
-            if not dry_run:
-                try:
-                    _force_rmtree(snap)
-                except OSError as e:
-                    logger.debug("Failed to remove snapshot %s: %s", snap, e)
-                    continue
-            res.items_deleted += 1
-            res.bytes_reclaimed += sz
+            to_delete: list[Path] = []
+            if max_age_days is not None:
+                for snap in snapshots:
+                    if snap.stat().st_mtime <= cutoff_ts:
+                        to_delete.append(snap)
+            else:
+                to_delete = snapshots[keep_latest:]
 
+            for snap in to_delete:
+                sz, count = _get_dir_size_and_count(snap)
+                if not dry_run:
+                    try:
+                        _force_rmtree(snap)
+                    except OSError as e:
+                        logger.debug("Failed to remove snapshot %s: %s", snap, e)
+                        continue
+                res.items_deleted += 1
+                res.bytes_reclaimed += sz
+                total_purged += 1
+        except Exception as e:
+            res.error = str(e)
+            logger.error("Error during checkpoint cleanup in %s: %s", chk_dir, e)
+
+    res.items_scanned = total_scanned
+    if total_scanned == 0:
+        res.details.append("No checkpoint directories found.")
+    else:
         res.details.append(
-            f"Purged {len(to_delete)} checkpoints, kept newest {len(snapshots) - len(to_delete)} ({res.human_bytes} reclaimed)"
+            f"Purged {total_purged} checkpoints across {len(seen_dirs)} locations, kept newest {total_scanned - total_purged} ({res.human_bytes} reclaimed)"
         )
-    except Exception as e:
-        res.error = str(e)
-        logger.error("Error during checkpoint cleanup: %s", e)
 
     return res
 
