@@ -3,31 +3,6 @@
 TUI_CSS = """
 Screen { background: #0a0d12; }
 
-#top-status-bar {
-    height: 1;
-    background: #111418;
-    border-bottom: solid #21262d;
-    padding: 0 1;
-}
-#brand-label {
-    width: auto;
-    color: #58a6ff;
-    padding: 0 1;
-}
-.btn-top-bar {
-    height: 1;
-    min-width: 12;
-    border: none;
-    background: #161b22;
-    color: #8b949e;
-    margin: 0 0 0 1;
-    padding: 0 1;
-}
-.btn-top-bar:hover {
-    background: #21262d;
-    color: #58a6ff;
-}
-
 #main-layout {
     height: 1fr;
 }
@@ -86,19 +61,19 @@ Screen { background: #0a0d12; }
 }
 
 .msg-user {
-    background: #111418;
-    border: solid #21262d;
+    background: transparent;
+    border: none;
     border-left: solid #388bfd;
     color: #58a6ff;
-    padding: 1 1;
-    margin: 1 0;
+    padding: 0 1;
+    margin: 0;
 }
 .msg-assistant {
-    background: #0d1117;
-    border: solid #21262d;
+    background: transparent;
+    border: none;
     color: #e6edf3;
-    padding: 1 1;
-    margin: 1 0;
+    padding: 0;
+    margin: 0;
 }
 .msg-system {
     background: transparent;
@@ -107,31 +82,66 @@ Screen { background: #0a0d12; }
     margin: 0;
     border: none;
 }
+.msg-error-inline {
+    background: transparent;
+    color: #f85149;
+    padding: 0 1;
+    margin: 1 0 0 0;
+    border: none;
+    border-left: solid #f85149;
+}
+.msg-notice-inline {
+    background: transparent;
+    color: #e3b341;
+    padding: 0 1;
+    margin: 1 0 0 0;
+    border: none;
+    border-left: solid #e3b341;
+}
 .msg-meta { color: #6e7681; padding: 0; }
 .msg-parallel {
-    background: #111418;
+    background: transparent;
     color: #d2a8ff;
-    border: solid #21262d;
+    border: none;
     border-left: solid #d2a8ff;
-    padding: 1 1;
+    padding: 0 1;
     margin: 1 0;
 }
 
 .exchange-box {
-    background: #0d1117;
-    border: solid #21262d;
-    border-left: solid #388bfd;
+    background: transparent;
+    border: solid #30363d;
     padding: 0;
     margin: 1 0;
     height: auto;
 }
+.exchange-box--user {
+    border-left: solid #388bfd;
+}
+.exchange-box--delegate {
+    border-left: solid #8957e5;
+}
+.exchange-box--chain {
+    border-left: solid #1f6feb;
+}
+.exchange-box--orchestrate {
+    border-left: solid #2ea043;
+}
+.exchange-box--plan {
+    border-left: solid #d29922;
+}
+.exchange-box--command {
+    border-left: solid #58a6ff;
+}
+
 .exchange-prompt-header {
-    background: #0d1117;
-    color: #58a6ff;
+    background: transparent;
+    color: #c9d1d9;
     padding: 0 1;
-    border-bottom: solid #21262d;
+    border-bottom: solid #30363d;
 }
 .exchange-body {
+    background: transparent;
     padding: 1 1;
     height: auto;
     color: #e6edf3;
@@ -145,7 +155,7 @@ Screen { background: #0a0d12; }
     color: #58a6ff;
     text-style: bold;
     padding: 0;
-    border-bottom: solid #21262d;
+    border-bottom: solid #30363d;
 }
 .exchange-assistant {
     color: #e6edf3;
@@ -153,12 +163,12 @@ Screen { background: #0a0d12; }
     padding: 0;
 }
 .thinking-text {
-    color: #c9d1d9;
+    color: #8b949e;
     text-style: italic;
-    padding: 1 1;
-    background: #080c14;
-    border: solid #21262d;
-    border-left: solid #d2a8ff;
+    padding: 0 1;
+    background: transparent;
+    border: none;
+    border-left: solid #6e40c9;
     margin: 1 0;
 }
 .trace-badge {
@@ -191,26 +201,26 @@ Screen { background: #0a0d12; }
 
 .plan-text {
     color: #7ee787;
-    padding: 1 1;
-    background: #080c14;
-    border: solid #21262d;
-    border-left: solid #3fb950;
+    padding: 0 1;
+    background: transparent;
+    border: none;
+    border-left: solid #2ea043;
     margin: 1 0;
 }
 
 .collapsible-card-box {
-    background: #0d1117;
-    border: solid #21262d;
-    border-left: solid #388bfd;
+    background: transparent;
+    border: solid #30363d;
     padding: 0;
     margin: 1 0;
     height: auto;
     color: #e6edf3;
 }
 .card-header {
-    background: #0d1117;
-    color: #58a6ff;
+    background: transparent;
+    color: #c9d1d9;
     padding: 0 1;
+    border-bottom: solid #30363d;
 }
 .card-body {
     padding: 1 1;
@@ -221,19 +231,41 @@ Screen { background: #0a0d12; }
 /* Textual built-in Collapsible widget */
 Collapsible {
     border: solid #21262d;
-    border-left: solid #388bfd;
-    background: #0d1117;
+    background: transparent;
     color: #e6edf3;
     margin: 1 0;
     padding: 0;
 }
+Collapsible:focus {
+    border: solid #30363d;
+    background: transparent;
+}
 CollapsibleTitle {
-    background: #0d1117;
-    color: #58a6ff;
+    background: transparent;
+    color: #c9d1d9;
     padding: 0 1;
+    border-bottom: solid #21262d;
+    text-style: none;
+}
+CollapsibleTitle:hover {
+    background: transparent;
+    color: #ffffff;
+}
+CollapsibleTitle:focus {
+    background: transparent;
+    color: #ffffff;
+    text-style: none;
+}
+CollapsibleTitle:focus > .collapsible-title--text {
+    background: transparent;
+    color: #ffffff;
+}
+CollapsibleTitle:focus > .collapsible-title--symbol {
+    background: transparent;
+    color: #58a6ff;
 }
 Collapsible > Contents {
-    background: #0d1117;
+    background: transparent;
     color: #e6edf3;
     padding: 1 1;
     height: auto;
@@ -268,12 +300,12 @@ Collapsible > Contents Static {
 /* Nord Theme */
 .theme-nord { background: #242933; }
 .theme-nord #agent-dashboard { background: #2e3440; border-left: solid #434c5e; }
-.theme-nord .exchange-box { background: #2e3440; border: solid #434c5e; border-left: solid #88c0d0; }
-.theme-nord .exchange-prompt-header { background: #2e3440; color: #88c0d0; border-bottom: solid #434c5e; }
+.theme-nord .exchange-box { border: solid #434c5e; border-left: solid #88c0d0; }
+.theme-nord .exchange-prompt-header { color: #88c0d0; border-bottom: solid #434c5e; }
 .theme-nord .exchange-user-prompt { color: #eceff4; }
 .theme-nord .exchange-divider { color: #434c5e; }
 .theme-nord .exchange-assistant { color: #eceff4; }
-.theme-nord .msg-system { background: #2e3440; border: solid #434c5e; border-left: solid #ebcb8b; }
+.theme-nord .msg-system { border-left: solid #ebcb8b; }
 .theme-nord #input-area { background: #242933; border-top: solid #434c5e; }
 .theme-nord #msg-input { background: #2e3440; border: solid #434c5e; color: #eceff4; }
 .theme-nord #msg-input:focus { border: solid #88c0d0; }
@@ -281,12 +313,12 @@ Collapsible > Contents Static {
 /* Dracula Theme */
 .theme-dracula { background: #1e1f29; }
 .theme-dracula #agent-dashboard { background: #282a36; border-left: solid #44475a; }
-.theme-dracula .exchange-box { background: #282a36; border: solid #44475a; border-left: solid #bd93f9; }
-.theme-dracula .exchange-prompt-header { background: #282a36; color: #bd93f9; border-bottom: solid #6272a4; }
+.theme-dracula .exchange-box { border: solid #44475a; border-left: solid #bd93f9; }
+.theme-dracula .exchange-prompt-header { color: #bd93f9; border-bottom: solid #6272a4; }
 .theme-dracula .exchange-user-prompt { color: #f8f8f2; }
 .theme-dracula .exchange-divider { color: #44475a; }
 .theme-dracula .exchange-assistant { color: #f8f8f2; }
-.theme-dracula .msg-system { background: #282a36; border: solid #44475a; border-left: solid #f1fa8c; }
+.theme-dracula .msg-system { border-left: solid #f1fa8c; }
 .theme-dracula #input-area { background: #1e1f29; border-top: solid #44475a; }
 .theme-dracula #msg-input { background: #282a36; border: solid #44475a; color: #f8f8f2; }
 .theme-dracula #msg-input:focus { border: solid #bd93f9; }
@@ -294,12 +326,12 @@ Collapsible > Contents Static {
 /* Monokai Theme */
 .theme-monokai { background: #1e1f1c; }
 .theme-monokai #agent-dashboard { background: #272822; border-left: solid #3e3d32; }
-.theme-monokai .exchange-box { background: #272822; border: solid #3e3d32; border-left: solid #a6e22e; }
-.theme-monokai .exchange-prompt-header { background: #272822; color: #a6e22e; border-bottom: solid #49483e; }
+.theme-monokai .exchange-box { border: solid #3e3d32; border-left: solid #a6e22e; }
+.theme-monokai .exchange-prompt-header { color: #a6e22e; border-bottom: solid #49483e; }
 .theme-monokai .exchange-user-prompt { color: #f8f8f2; }
 .theme-monokai .exchange-divider { color: #3e3d32; }
 .theme-monokai .exchange-assistant { color: #f8f8f2; }
-.theme-monokai .msg-system { background: #272822; border: solid #3e3d32; border-left: solid #e6db74; }
+.theme-monokai .msg-system { border-left: solid #e6db74; }
 .theme-monokai #input-area { background: #1e1f1c; border-top: solid #3e3d32; }
 .theme-monokai #msg-input { background: #272822; border: solid #3e3d32; color: #f8f8f2; }
 .theme-monokai #msg-input:focus { border: solid #a6e22e; }
@@ -307,12 +339,12 @@ Collapsible > Contents Static {
 /* Tokyo Night Theme */
 .theme-tokyo-night { background: #16161e; }
 .theme-tokyo-night #agent-dashboard { background: #1a1b26; border-left: solid #292e42; }
-.theme-tokyo-night .exchange-box { background: #1a1b26; border: solid #292e42; border-left: solid #7aa2f7; }
-.theme-tokyo-night .exchange-prompt-header { background: #1a1b26; color: #7aa2f7; border-bottom: solid #3b4261; }
+.theme-tokyo-night .exchange-box { border: solid #292e42; border-left: solid #7aa2f7; }
+.theme-tokyo-night .exchange-prompt-header { color: #7aa2f7; border-bottom: solid #3b4261; }
 .theme-tokyo-night .exchange-user-prompt { color: #c0caf5; }
 .theme-tokyo-night .exchange-divider { color: #292e42; }
 .theme-tokyo-night .exchange-assistant { color: #c0caf5; }
-.theme-tokyo-night .msg-system { background: #1a1b26; border: solid #292e42; border-left: solid #e0af68; }
+.theme-tokyo-night .msg-system { border-left: solid #e0af68; }
 .theme-tokyo-night #input-area { background: #16161e; border-top: solid #292e42; }
 .theme-tokyo-night #msg-input { background: #1a1b26; border: solid #292e42; color: #c0caf5; }
 .theme-tokyo-night #msg-input:focus { border: solid #7aa2f7; }
@@ -320,12 +352,12 @@ Collapsible > Contents Static {
 /* Solarized Dark Theme */
 .theme-solarized-dark { background: #00212b; }
 .theme-solarized-dark #agent-dashboard { background: #002b36; border-left: solid #073642; }
-.theme-solarized-dark .exchange-box { background: #002b36; border: solid #073642; border-left: solid #268bd2; }
-.theme-solarized-dark .exchange-prompt-header { background: #002b36; color: #268bd2; border-bottom: solid #586e75; }
+.theme-solarized-dark .exchange-box { border: solid #073642; border-left: solid #268bd2; }
+.theme-solarized-dark .exchange-prompt-header { color: #268bd2; border-bottom: solid #586e75; }
 .theme-solarized-dark .exchange-user-prompt { color: #839496; }
 .theme-solarized-dark .exchange-divider { color: #073642; }
 .theme-solarized-dark .exchange-assistant { color: #839496; }
-.theme-solarized-dark .msg-system { background: #002b36; border: solid #073642; border-left: solid #b58900; }
+.theme-solarized-dark .msg-system { border-left: solid #b58900; }
 .theme-solarized-dark #input-area { background: #00212b; border-top: solid #073642; }
 .theme-solarized-dark #msg-input { background: #002b36; border: solid #073642; color: #839496; }
 .theme-solarized-dark #msg-input:focus { border: solid #268bd2; }
@@ -333,12 +365,12 @@ Collapsible > Contents Static {
 /* Cyberpunk Theme */
 .theme-cyberpunk { background: #08090f; }
 .theme-cyberpunk #agent-dashboard { background: #10121d; border-left: solid #00f0ff; }
-.theme-cyberpunk .exchange-box { background: #10121d; border: solid #202637; border-left: solid #ffee00; }
-.theme-cyberpunk .exchange-prompt-header { background: #10121d; color: #00f0ff; border-bottom: solid #00f0ff; }
+.theme-cyberpunk .exchange-box { border: solid #202637; border-left: solid #ffee00; }
+.theme-cyberpunk .exchange-prompt-header { color: #00f0ff; border-bottom: solid #00f0ff; }
 .theme-cyberpunk .exchange-user-prompt { color: #00f0ff; }
 .theme-cyberpunk .exchange-divider { color: #202637; }
 .theme-cyberpunk .exchange-assistant { color: #00f0ff; }
-.theme-cyberpunk .msg-system { background: #10121d; border: solid #202637; border-left: solid #00f0ff; }
+.theme-cyberpunk .msg-system { border-left: solid #00f0ff; }
 .theme-cyberpunk #input-area { background: #08090f; border-top: solid #202637; }
 .theme-cyberpunk #msg-input { background: #10121d; border: solid #202637; color: #00f0ff; }
 .theme-cyberpunk #msg-input:focus { border: solid #00f0ff; }
@@ -346,12 +378,12 @@ Collapsible > Contents Static {
 /* Catppuccin Mocha Theme */
 .theme-catppuccin-mocha { background: #1e1e2e; }
 .theme-catppuccin-mocha #agent-dashboard { background: #181825; border-left: solid #313244; }
-.theme-catppuccin-mocha .exchange-box { background: #181825; border: solid #313244; border-left: solid #cba6f7; }
-.theme-catppuccin-mocha .exchange-prompt-header { background: #181825; color: #cba6f7; border-bottom: solid #45475a; }
+.theme-catppuccin-mocha .exchange-box { border: solid #313244; border-left: solid #cba6f7; }
+.theme-catppuccin-mocha .exchange-prompt-header { color: #cba6f7; border-bottom: solid #45475a; }
 .theme-catppuccin-mocha .exchange-user-prompt { color: #cdd6f4; }
 .theme-catppuccin-mocha .exchange-divider { color: #313244; }
 .theme-catppuccin-mocha .exchange-assistant { color: #cdd6f4; }
-.theme-catppuccin-mocha .msg-system { background: #181825; border: solid #313244; border-left: solid #f9e2af; }
+.theme-catppuccin-mocha .msg-system { border-left: solid #f9e2af; }
 .theme-catppuccin-mocha #input-area { background: #1e1e2e; border-top: solid #313244; }
 .theme-catppuccin-mocha #msg-input { background: #181825; border: solid #313244; color: #cdd6f4; }
 .theme-catppuccin-mocha #msg-input:focus { border: solid #cba6f7; }
@@ -359,12 +391,12 @@ Collapsible > Contents Static {
 /* Gruvbox Dark Theme */
 .theme-gruvbox-dark { background: #1d2021; }
 .theme-gruvbox-dark #agent-dashboard { background: #282828; border-left: solid #3c3836; }
-.theme-gruvbox-dark .exchange-box { background: #282828; border: solid #3c3836; border-left: solid #fabd2f; }
-.theme-gruvbox-dark .exchange-prompt-header { background: #282828; color: #fabd2f; border-bottom: solid #504945; }
+.theme-gruvbox-dark .exchange-box { border: solid #3c3836; border-left: solid #fabd2f; }
+.theme-gruvbox-dark .exchange-prompt-header { color: #fabd2f; border-bottom: solid #504945; }
 .theme-gruvbox-dark .exchange-user-prompt { color: #ebdbb2; }
 .theme-gruvbox-dark .exchange-divider { color: #3c3836; }
 .theme-gruvbox-dark .exchange-assistant { color: #ebdbb2; }
-.theme-gruvbox-dark .msg-system { background: #282828; border: solid #3c3836; border-left: solid #fabd2f; }
+.theme-gruvbox-dark .msg-system { border-left: solid #fabd2f; }
 .theme-gruvbox-dark #input-area { background: #1d2021; border-top: solid #3c3836; }
 .theme-gruvbox-dark #msg-input { background: #282828; border: solid #3c3836; color: #ebdbb2; }
 .theme-gruvbox-dark #msg-input:focus { border: solid #fabd2f; }
@@ -372,12 +404,12 @@ Collapsible > Contents Static {
 /* Rosé Pine Theme */
 .theme-rose-pine { background: #191724; }
 .theme-rose-pine #agent-dashboard { background: #1f1d2e; border-left: solid #26233a; }
-.theme-rose-pine .exchange-box { background: #1f1d2e; border: solid #26233a; border-left: solid #eb6f92; }
-.theme-rose-pine .exchange-prompt-header { background: #1f1d2e; color: #eb6f92; border-bottom: solid #393552; }
+.theme-rose-pine .exchange-box { border: solid #26233a; border-left: solid #eb6f92; }
+.theme-rose-pine .exchange-prompt-header { color: #eb6f92; border-bottom: solid #393552; }
 .theme-rose-pine .exchange-user-prompt { color: #e0def4; }
 .theme-rose-pine .exchange-divider { color: #26233a; }
 .theme-rose-pine .exchange-assistant { color: #e0def4; }
-.theme-rose-pine .msg-system { background: #1f1d2e; border: solid #26233a; border-left: solid #f6c177; }
+.theme-rose-pine .msg-system { border-left: solid #f6c177; }
 .theme-rose-pine #input-area { background: #191724; border-top: solid #26233a; }
 .theme-rose-pine #msg-input { background: #1f1d2e; border: solid #26233a; color: #e0def4; }
 .theme-rose-pine #msg-input:focus { border: solid #eb6f92; }
@@ -385,12 +417,12 @@ Collapsible > Contents Static {
 /* Clean Light Theme */
 .theme-light { background: #f6f8fa; }
 .theme-light #agent-dashboard { background: #ffffff; border-left: solid #d0d7de; }
-.theme-light .exchange-box { background: #ffffff; border: solid #d0d7de; border-left: solid #0969da; }
-.theme-light .exchange-prompt-header { background: #ffffff; color: #0969da; border-bottom: solid #d0d7de; }
+.theme-light .exchange-box { border: solid #d0d7de; border-left: solid #0969da; }
+.theme-light .exchange-prompt-header { color: #0969da; border-bottom: solid #d0d7de; }
 .theme-light .exchange-user-prompt { color: #24292f; }
 .theme-light .exchange-divider { color: #d0d7de; }
 .theme-light .exchange-assistant { color: #24292f; }
-.theme-light .msg-system { background: #ffffff; border: solid #d0d7de; border-left: solid #9a6700; color: #24292f; }
+.theme-light .msg-system { border-left: solid #9a6700; color: #24292f; }
 .theme-light #input-area { background: #f6f8fa; border-top: solid #d0d7de; }
 .theme-light #msg-input { background: #ffffff; border: solid #d0d7de; color: #24292f; }
 .theme-light #msg-input:focus { border: solid #0969da; }
@@ -510,13 +542,14 @@ Collapsible .collapsible-body {
     display: none;
     height: auto;
     max-height: 12;
-    overflow-y: auto;
+    overflow-y: scroll;
     background: #0a0d12;
     border: none;
     border-top: solid #21262d;
     margin: 0;
     padding: 0 1;
-    scrollbar-size: 0 0;
+    scrollbar-size-vertical: 1;
+    scrollbar-color: #388bfd #161b22;
 }
 #suggestions.visible { display: block; }
 
@@ -533,6 +566,32 @@ Collapsible .collapsible-body {
     padding: 1;
     margin: 0 0 1 0;
     border: tall #30363d;
+}
+
+.shell-escape-card {
+    background: #0d1117;
+    border: solid #21262d;
+    padding: 0;
+    margin: 0 0 1 0;
+    height: auto;
+}
+
+.shell-card-header {
+    background: #161b22;
+    color: #c9d1d9;
+    padding: 0 1;
+    text-style: bold;
+    border-bottom: solid #21262d;
+}
+
+.shell-card-body {
+    padding: 1 1;
+    height: auto;
+}
+
+.shell-output-text {
+    color: #c9d1d9;
+    text-style: none;
 }
 
 .spinner { color: #58a6ff; text-style: italic; padding: 0 0 1 0; }
@@ -571,6 +630,12 @@ Collapsible .collapsible-body {
     height: 1;
     margin: 1 0 0 0;
 }
+.welcome-dev-badge {
+    text-align: center;
+    width: 100%;
+    height: 1;
+    margin: 1 0 0 0;
+}
 .welcome-subtitle {
     color: #8b949e;
     text-align: center;
@@ -591,6 +656,12 @@ Collapsible .collapsible-body {
     width: 100%;
     height: 1;
     margin: 1 0 0 0;
+}
+.prompt-enhancement-inline {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+    margin: 0 0 1 0;
 }
 
 #approval-bar {

@@ -58,11 +58,80 @@ class TestAgentProfiles:
     def test_architect_exists(self):
         agent = get_agent("architect")
         assert agent is not None
-        assert "architect" in agent.role.lower() or "system" in agent.role.lower()
+        assert "architecture" in agent.role.lower() or "architect" in agent.role.lower()
 
-    def test_reviewer_exists(self):
-        agent = get_agent("reviewer")
+    def test_security_engineer_exists(self):
+        agent = get_agent("security-engineer")
         assert agent is not None
+
+
+class TestResolveSpecialistAgent:
+    def test_resolve_by_technology_keywords(self):
+        from sago.agents.registry import resolve_specialist_agent
+
+        # Next.js
+        assert (
+            resolve_specialist_agent("Build a modern dashboard using Next.js 15 app router")
+            == "nextjs-engineer"
+        )
+
+        # Java / Spring Boot
+        assert (
+            resolve_specialist_agent("Create a Spring Boot REST API with Hibernate")
+            == "spring-boot-engineer"
+        )
+
+        # Azure
+        assert (
+            resolve_specialist_agent("Deploy AKS cluster and Azure Functions with Bicep")
+            == "azure-engineer"
+        )
+
+        # Rust
+        assert (
+            resolve_specialist_agent("Implement async worker using Rust tokio and axum")
+            == "rust-engineer"
+        )
+
+        # Go
+        assert resolve_specialist_agent("Build microservice with Golang and gin") == "go-engineer"
+
+        # Dotnet
+        assert resolve_specialist_agent("Build ASP.NET Core web API in C#") == "dotnet-engineer"
+
+    def test_resolve_by_file_extensions(self):
+        from sago.agents.registry import resolve_specialist_agent
+
+        assert resolve_specialist_agent("fix bug in app/page.tsx") == "nextjs-engineer"
+        assert resolve_specialist_agent("refactor UserService.java") == "java-engineer"
+        assert resolve_specialist_agent("optimize main.rs") == "rust-engineer"
+        assert resolve_specialist_agent("update infra.tf") == "terraform-engineer"
+
+    def test_resolve_by_workspace_context(self, tmp_path):
+        from sago.agents.registry import resolve_specialist_agent
+
+        # Workspace with package.json containing Next.js
+        (tmp_path / "package.json").write_text(
+            '{"dependencies": {"next": "15.0.0", "react": "19.0.0"}}'
+        )
+        assert (
+            resolve_specialist_agent("add a new user profile component", cwd=str(tmp_path))
+            == "nextjs-engineer"
+        )
+
+        # Workspace with pom.xml
+        tmp_java = tmp_path / "java_project"
+        tmp_java.mkdir()
+        (tmp_java / "pom.xml").write_text("<project></project>")
+        assert (
+            resolve_specialist_agent("add authentication filter", cwd=str(tmp_java))
+            == "spring-boot-engineer"
+        )
+
+    def test_resolve_chat_fallback(self):
+        from sago.agents.registry import resolve_specialist_agent
+
+        assert resolve_specialist_agent("hello, how are you today?") == "general-assistant"
 
     def test_agents_have_roles(self, agents):
         for agent in agents:

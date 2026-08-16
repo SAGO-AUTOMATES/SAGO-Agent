@@ -85,3 +85,32 @@ def test_checkpoint_tool(tmp_path: Path):
     assert tool.name == "checkpoint_ops"
     res = tool.run(action="list")
     assert "checkpoints" in res.lower()
+
+
+def test_checkpoint_cross_project_external_paths(tmp_path: Path):
+    proj_a = tmp_path / "project_a"
+    proj_b = tmp_path / "project_b"
+    proj_a.mkdir()
+    proj_b.mkdir()
+
+    file_a = proj_a / "service.py"
+    file_b = proj_b / "external_api.py"
+
+    file_a.write_text("def a(): return 'original_a'")
+    file_b.write_text("def b(): return 'original_b'")
+
+    # Checkpoint manager rooted in project_a
+    mgr_a = CheckpointManager(workspace_root=proj_a)
+    # Allow restoring external files to project_b
+    mgr_a.add_allowed_restore_path(proj_b)
+    meta = mgr_a.create_checkpoint("Multi-project snapshot", files=[file_a, file_b])
+
+    # Corrupt both files
+    file_a.write_text("def a(): return 'broken_a'")
+    file_b.write_text("def b(): return 'broken_b'")
+
+    # Restore from project_a's checkpoint manager
+    res = mgr_a.restore_checkpoint(meta.checkpoint_id)
+    assert res["success"] is True
+    assert file_a.read_text() == "def a(): return 'original_a'"
+    assert file_b.read_text() == "def b(): return 'original_b'"

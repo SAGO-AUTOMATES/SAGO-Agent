@@ -163,58 +163,15 @@ class SagoOrchestrator:
         return "coder"  # Default agent
 
     def _load_tools(self) -> None:
-        """Load all available tools from the tool registry."""
-        import importlib
+        """Load all available tools from the dynamic tool registry."""
+        try:
+            from sago.tools.registry import discover_tools
 
-        tool_modules = {
-            "read_file": "sago.tools.file.read_file",
-            "write_file": "sago.tools.file.write_file",
-            "edit_file": "sago.tools.file.edit_file",
-            "glob_files": "sago.tools.file.glob_files",
-            "grep_content": "sago.tools.file.grep_content",
-            "file_operations": "sago.tools.file.file_ops",
-            "execute_shell": "sago.tools.shell.execute",
-            "background_process": "sago.tools.shell.background",
-            "ssh_connect": "sago.tools.ssh.ssh_connect",
-            "ssh_command": "sago.tools.ssh.ssh_command",
-            "ssh_transfer": "sago.tools.ssh.ssh_transfer",
-            "session_manager": "sago.tools.session.session_manager",
-            "clipboard": "sago.tools.session.clipboard",
-            "code_analyzer": "sago.tools.coding.code_analyzer",
-            "linter": "sago.tools.coding.linter",
-            "formatter": "sago.tools.coding.formatter",
-            "test_runner": "sago.tools.coding.test_runner",
-            "debugger": "sago.tools.coding.debugger",
-            "log_analyzer": "sago.tools.coding.log_analyzer",
-            "http_client": "sago.tools.network.http_client",
-            "dns_lookup": "sago.tools.network.dns_lookup",
-            "port_scan": "sago.tools.network.port_scan",
-            "network_config": "sago.tools.network.config_manager",
-            "software_install": "sago.tools.admin.software_install",
-            "permission_manager": "sago.tools.admin.permission_manager",
-            "sudo_executor": "sago.tools.admin.sudo_executor",
-            "prompt_generator": "sago.tools.admin.prompt_generator",
-            "os_detector": "sago.tools.system.os_detector",
-            "process_manager": "sago.tools.system.process_manager",
-            "env_manager": "sago.tools.system.env_manager",
-        }
-
-        for tool_name, module_path in tool_modules.items():
-            try:
-                module = importlib.import_module(module_path)
-                # Find the tool class (non-BaseTool subclasses)
-                for attr_name in dir(module):
-                    attr = getattr(module, attr_name)
-                    if (
-                        isinstance(attr, type)
-                        and hasattr(attr, "name")
-                        and hasattr(attr, "_run")
-                        and attr_name != "BaseTool"
-                    ):
-                        self._tools[tool_name] = attr
-                        break
-            except ImportError as e:
-                logger.warning(f"Could not load tool {tool_name}: {e}")
+            discovered = discover_tools()
+            for tool_name, tool_def in discovered.items():
+                self._tools[tool_name] = tool_def.tool_class
+        except Exception as e:
+            logger.warning(f"Error discovering tools in orchestrator: {e}")
 
     def _resolve_tools(self, tool_names: list[str]) -> list[Any]:
         """Resolve tool names to CrewAI tool instances."""

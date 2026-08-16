@@ -46,6 +46,8 @@ class ChangeTracker:
     # Paths to exclude from tracking (virtual filesystems and internal caches)
     _EXCLUDED_PREFIXES = ("/dev/", "/proc/", "/sys/", "/run/")
     _EXCLUDED_SUBSTRINGS = ("/.git/objects/", "/__pycache__/")
+    _MAX_SESSION_BACKUPS = 50
+    _MAX_SESSIONS_TO_KEEP = 10
 
     def __init__(self, session_id: str | None = None) -> None:
         self.session_id = session_id or "default"
@@ -53,15 +55,49 @@ class ChangeTracker:
         self._backup_dir = get_sago_home() / "backups" / self.session_id
         self._backup_dir.mkdir(parents=True, exist_ok=True)
         self._load_index()
+        self._auto_prune_old_sessions()
+
+    def _auto_prune_old_sessions(self) -> None:
+        """Prune older backup session directories to prevent unbounded accumulation."""
+        try:
+            backups_root = get_sago_home() / "backups"
+            if not backups_root.exists():
+                return
+            session_dirs = [d for d in backups_root.iterdir() if d.is_dir()]
+            if len(session_dirs) > self._MAX_SESSIONS_TO_KEEP:
+                session_dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                for old_dir in session_dirs[self._MAX_SESSIONS_TO_KEEP :]:
+                    if old_dir != self._backup_dir:
+                        try:
+                            shutil.rmtree(old_dir, ignore_errors=True)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    def _prune_session_backups(self) -> None:
+        """Limit the number of backup files within the current session."""
+        try:
+            if not self._backup_dir.exists():
+                return
+            bak_files = [f for f in self._backup_dir.glob("*.bak") if f.is_file()]
+            if len(bak_files) > self._MAX_SESSION_BACKUPS:
+                bak_files.sort(key=lambda p: p.stat().st_mtime)
+                to_remove = len(bak_files) - self._MAX_SESSION_BACKUPS
+                for f in bak_files[:to_remove]:
+                    f.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     def _should_track(self, file_path: str) -> bool:
-        """Check if a file path should be tracked."""
+        """Check if a file path should be tracked cross-platform."""
         real_path = os.path.realpath(file_path)
+        normalized_path = real_path.replace("\\", "/")
         for prefix in self._EXCLUDED_PREFIXES:
-            if real_path.startswith(prefix):
+            if normalized_path.startswith(prefix):
                 return False
         for sub in self._EXCLUDED_SUBSTRINGS:
-            if sub in real_path:
+            if sub in normalized_path:
                 return False
         return True
 
@@ -90,6 +126,7 @@ class ChangeTracker:
             backup_path = str(self._backup_dir / backup_name)
             try:
                 shutil.copy2(real_path, backup_path)
+                self._prune_session_backups()
             except Exception:
                 backup_path = None
 
@@ -116,6 +153,7 @@ class ChangeTracker:
             backup_path = str(self._backup_dir / backup_name)
             try:
                 shutil.copy2(real_path, backup_path)
+                self._prune_session_backups()
             except Exception:
                 backup_path = None
 

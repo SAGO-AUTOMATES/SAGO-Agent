@@ -185,12 +185,15 @@ from sago.mcp.server import MCPServer
 
 server = MCPServer(name="sago")
 
+
 # Tools raise specific exceptions
 class MCPToolError(Exception):
     pass
 
+
 class MCPToolNotFound(MCPToolError):
     pass
+
 
 class MCPToolExecutionError(MCPToolError):
     pass

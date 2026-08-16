@@ -107,9 +107,11 @@ from sago.errors.handler import get_error_handler
 
 handler = get_error_handler()
 
+
 def on_error(context):
     print(f"Error in {context.tool_name}: {context.error}")
     print(f"Attempt {context.attempt}/{context.max_attempts}")
+
 
 handler.on_error = on_error
 ```
@@ -265,8 +267,9 @@ tail -f ~/.sago/logs/sago.log
 5. **Check cache**: `ls ~/.sago/cache.json`
 6. **Check logs**: `cat ~/.sago/logs/sago.log`
 7. **Check recursion guard**: `from sago.agents.handoff import get_recursion_guard; print(get_recursion_guard().history)`
-8. **Reset state**: `rm -rf ~/.sago/`
-9. **Reinitialize**: `sago setup`
+8. **Clean stale caches/backups/db**: `sago clean` (or `sago clean --dry-run` to preview)
+9. **Full reset**: `rm -rf ~/.sago/`
+10. **Reinitialize**: `sago setup`
 
 ## Getting Help
 

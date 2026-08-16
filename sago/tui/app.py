@@ -8,6 +8,7 @@ import os
 import re
 import threading
 import time
+from typing import Any
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -97,14 +98,6 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     _parallel_lock: threading.Lock | None = None
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="top-status-bar"):
-            yield Static(
-                "[bold green]SAGO[/bold green] [dim]Agent[/dim]", id="brand-label", markup=True
-            )
-            yield Static("", id="top-bar-spacer", classes="spacer")
-            yield Button("⚡ Traces [F2]", id="btn-top-traces", classes="btn-top-bar dev-only-btn")
-            yield Button("⌨  Help [F1]", id="btn-top-help", classes="btn-top-bar")
-
         with Horizontal(id="main-layout"):
             with Vertical(id="messages-parent"):
                 yield ScrollableContainer(id="messages")
@@ -169,6 +162,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         self._pending_resume = getattr(self, "_pending_resume", None)
         self.command_history: list[str] = []
         self.history_index: int = -1
+        self.session_tool_calls: list[dict[str, Any]] = []
         self._orchestration_lock = threading.Lock()
         self._parallel_lock = threading.Lock()
         self._init_db()
@@ -196,6 +190,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             self.add_class("dev-mode-enabled")
         else:
             self.remove_class("dev-mode-enabled")
+        self._save_settings()
 
     def watch_show_action_bar(self, value: bool) -> None:
         """Dynamically add or remove .hide-action-bar class when action bar toggle changes."""
@@ -226,6 +221,14 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         welcome.mount(
             Static(f"v{__version__} — Multi-Agent Orchestration", classes="welcome-version")
         )
+        if getattr(self, "developer_mode", False):
+            welcome.mount(
+                Static(
+                    "[bold #3fb950]● Dev Mode ON[/bold #3fb950]  [dim]─ F2 Dev Traces Active[/dim]",
+                    classes="welcome-dev-badge",
+                    markup=True,
+                )
+            )
         welcome.mount(Static("AI-Powered Software Engineering Agent", classes="welcome-subtitle"))
         welcome.mount(Static("Type a message or use /help for commands", classes="welcome-hint"))
 
@@ -243,10 +246,12 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         """Extract #file references from message and return their contents as context."""
         from pathlib import Path
 
-        # Find all #filepath references (support #file, #./file, #~/.file, etc.)
-        file_refs = re.findall(r"#([^\s,#@/]+(?:/[^\s,#@/]+)*)", message)
+        # Find all #filepath references (support #file, #./file, #~/.file, #dir/file.py)
+        file_refs = re.findall(r"#([^\s,#@]+)", message)
 
         context_parts = []
+        seen_paths = set()
+
         for ref in file_refs:
             try:
                 # Expand path
@@ -257,21 +262,144 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 else:
                     path = Path(ref)
 
+                if not (path.exists() and path.is_file()):
+                    # Fallback: search workspace recursively for matching relative path or basename
+                    for p in Path.cwd().rglob(path.name):
+                        if p.is_file() and not any(
+                            part.startswith(".")
+                            or part in ("node_modules", "venv", "__pycache__", "dist", "build")
+                            for part in p.parts
+                        ):
+                            path = p
+                            break
+
                 if path.exists() and path.is_file():
-                    # Read file content (limit to 10KB per file)
-                    content = path.read_text(errors="replace")[:10240]
-                    context_parts.append(f"--- {path.name} ---\n{content}")
+                    resolved_str = str(path.resolve())
+                    if resolved_str in seen_paths:
+                        continue
+                    seen_paths.add(resolved_str)
+
+                    # Read file content (limit to 12KB per file)
+                    rel_label = (
+                        str(path.relative_to(Path.cwd()))
+                        if path.is_relative_to(Path.cwd())
+                        else str(path)
+                    )
+                    content = path.read_text(errors="replace")[:12288]
+                    context_parts.append(
+                        f"--- File: {rel_label} ---\n```{path.suffix.lstrip('.')}\n{content}\n```"
+                    )
             except Exception:
                 pass
 
         return "\n\n".join(context_parts)
 
+    def print_exit_summary(self) -> None:
+        """Print clean session highlights summary banner to stdout after TUI terminal buffer is restored."""
+        messages = list(getattr(self, "messages", []))
+        user_queries = sum(1 for m in messages if m.get("role") == "user")
+        if user_queries == 0:
+            return
+
+        sid = getattr(self, "current_session_id", "default")[:8]
+        full_sid = getattr(self, "current_session_id", "default")
+        total_messages = len(messages)
+
+        # Tool calls stats
+        tool_calls = getattr(self, "session_tool_calls", [])
+        total_tools = len(tool_calls)
+        tool_counts: dict[str, int] = {}
+        for tc in tool_calls:
+            t_name = tc.get("tool", "tool")
+            tool_counts[t_name] = tool_counts.get(t_name, 0) + 1
+
+        if not tool_counts:
+            try:
+                from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                events = get_dev_tracer().get_recent_traces()
+                for e in events:
+                    if e.event_type == TraceEventType.TOOL_DISPATCH:
+                        t_name = e.data.get("tool_name", e.action)
+                        tool_counts[t_name] = tool_counts.get(t_name, 0) + 1
+                total_tools = sum(tool_counts.values())
+            except Exception:
+                pass
+
+        # Token stats
+        t_in = getattr(self, "total_input_tokens", 0)
+        t_out = getattr(self, "total_output_tokens", 0)
+        total_tokens = t_in + t_out
+
+        # Engaged agents
+        agents = sorted({m.get("agent_name") for m in messages if m.get("agent_name")})
+        agents_str = (
+            ", ".join(f"@{a}" for a in agents)
+            if agents
+            else f"@{getattr(self, 'current_agent', 'sago')}"
+        )
+
+        # Tool breakdown
+        if tool_counts:
+            sorted_tools = sorted(tool_counts.items(), key=lambda x: x[1], reverse=True)[:4]
+            tools_breakdown = ", ".join(f"{t} ({cnt})" for t, cnt in sorted_tools)
+            if len(tool_counts) > 4:
+                tools_breakdown += f", +{len(tool_counts) - 4} more"
+        else:
+            tools_breakdown = "0 calls"
+
+        dev_artifacts_info = []
+        if getattr(self, "developer_mode", False):
+            import os
+            from pathlib import Path
+
+            data_dir = Path.cwd() / ".sago" / "data" / full_sid
+            if data_dir.exists():
+                dev_artifacts_info.append("📁 DEV MODE ARTIFACTS SAVED:")
+                for fname in ("chat_export.md", "trace.md", "trace.json"):
+                    fpath = data_dir / fname
+                    if fpath.exists():
+                        rel = os.path.relpath(fpath, Path.cwd())
+                        dev_artifacts_info.append(f"   ↳ {rel}")
+
+        from sago.engine.prompt_enhancer import generate_session_title
+
+        title = getattr(self, "current_session_title", "")
+        if not title or title in ("TUI Session", "Interactive Session"):
+            title = generate_session_title(messages)
+
+        import sys
+
+        print("\n" + "━" * 60, file=sys.stderr)
+        print(f"📊 SAGO SESSION SUMMARY ({sid})", file=sys.stderr)
+        print("━" * 60, file=sys.stderr)
+        print(f"• Title          : {title}", file=sys.stderr)
+        print(
+            f"• Total Queries  : {user_queries} user turns ({total_messages} messages)",
+            file=sys.stderr,
+        )
+        print(f"• Specialist(s)  : {agents_str}", file=sys.stderr)
+        print(f"• Tool Calls     : {total_tools} total [{tools_breakdown}]", file=sys.stderr)
+        print(
+            f"• Token Usage    : {total_tokens:,} tokens ({t_in:,} in, {t_out:,} out)",
+            file=sys.stderr,
+        )
+        print(f"• Resume Command : sago tui --resume {sid}  (or /load {sid})", file=sys.stderr)
+
+        if dev_artifacts_info:
+            print("━" * 60, file=sys.stderr)
+            print("\n".join(dev_artifacts_info), file=sys.stderr)
+
+        print("━" * 60 + "\n", file=sys.stderr)
+
     _loading_settings: bool = True
 
     def _load_settings(self) -> None:
-        """Load persisted settings (model, provider, effort, yolo, agent)."""
+        """Load persisted settings (model, provider, effort, yolo, agent, dev_mode)."""
         try:
+            from sago.config.loader import is_dev_mode_enabled
             from sago.settings import load_setting
+            from sago.tracking.dev_tracer import get_dev_tracer
 
             self._loading_settings = True
             self.current_model = load_setting("model", self.current_model)
@@ -283,6 +411,14 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             self.show_action_bar = load_setting("show_action_bar", self.show_action_bar)
             if not self.show_action_bar:
                 self.add_class("hide-action-bar")
+
+            # Load dev_mode from ~/.sago config or settings
+            dev_config = is_dev_mode_enabled()
+            persisted_dev = load_setting("dev_mode", dev_config)
+            self.developer_mode = bool(persisted_dev or dev_config)
+            if self.developer_mode:
+                get_dev_tracer().set_enabled(True)
+                self.add_class("dev-mode-enabled")
         except Exception as e:
             logger.warning("Failed to load settings: %s", e)
         finally:
@@ -302,6 +438,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             save_setting("yolo", self.yolo_mode)
             save_setting("show_summary", self.show_summary)
             save_setting("show_action_bar", self.show_action_bar)
+            save_setting("dev_mode", self.developer_mode)
         except Exception as e:
             logger.warning("Failed to save settings: %s", e)
 
@@ -474,7 +611,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             self._hide_suggestions()
 
             # Commands that still require additional arguments from the user
-            # (e.g. bare /delegate without an agent or /chain without task)
+            # (e.g. bare /delegate without an agent or /chain without task or /plan)
             requires_more_args = (
                 val.startswith("/delegate")
                 or val.startswith("@delegate")
@@ -482,6 +619,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 or val.startswith("@chain")
                 or (val.startswith("/agent") and len(val.split()) == 1)
                 or (val.startswith("@agent") and len(val.split()) == 1)
+                or val in ("/plan", "/plan <task>")
             )
 
             # If user explicitly selected a complete suggestion like "/dev on", "/model openrouter/free", "/effort max", "/theme nord", execute right away!
@@ -539,6 +677,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/n",
         ):
             self._deny_action()
+        elif msg.startswith("!") and len(msg) > 1:
+            self._execute_shell_escape(msg[1:].strip())
         elif msg.startswith("/"):
             if msg != "/history":
                 self._add_to_history(msg)
@@ -547,6 +687,53 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             self._add_to_history(msg)
             self._add_user_message(msg)
             self._process_message(msg)
+
+    def _execute_shell_escape(self, cmd: str) -> None:
+        """Execute !<cmd> shell escape and mount standard Collapsible output like other commands."""
+        self._hide_welcome_screen()
+        self._add_to_history(f"!{cmd}")
+        container = self.query_one("#messages")
+
+        def _worker() -> None:
+            t0 = time.time()
+            try:
+                import subprocess
+
+                res = subprocess.run(
+                    cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                out = (res.stdout or "") + ("\n" + res.stderr if res.stderr else "")
+                dur = time.time() - t0
+                status_tag = (
+                    f"[green]✓ exit 0[/green] [dim]({dur:.2f}s)[/dim]"
+                    if res.returncode == 0
+                    else f"[red]✗ exit {res.returncode}[/red] [dim]({dur:.2f}s)[/dim]"
+                )
+                content = out.strip() if out.strip() else "[dim](no output)[/dim]"
+            except Exception as e:
+                dur = time.time() - t0
+                status_tag = f"[red]✗ error[/red] [dim]({dur:.2f}s)[/dim]"
+                content = f"[red]Error executing command:[/red] {e}"
+
+            def _mount() -> None:
+                from textual.widgets import Collapsible, Static
+
+                container.mount(
+                    Collapsible(
+                        Static(content),
+                        title=f"$ {cmd}  {status_tag}",
+                        collapsed=False,
+                    )
+                )
+                container.scroll_end(animate=False)
+
+            self.call_from_thread(_mount)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def on_key(self, event) -> None:
         if self.show_suggestions:
@@ -621,13 +808,16 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             self._hide_suggestions()
 
     def _update_highlight(self) -> None:
-        items = self.query(".suggestion-item")
+        items = list(self.query(".suggestion-item"))
         for i, item in enumerate(items):
             is_highlighted = i == self.suggestion_index
             item.set_class(is_highlighted, "highlighted")
             # Auto-scroll highlighted item into view
             if is_highlighted:
-                item.scroll_visible()
+                try:
+                    item.scroll_visible(animate=False)
+                except Exception:
+                    pass
 
     def _add_to_history(self, cmd: str) -> None:
         if cmd and (not self.command_history or self.command_history[-1] != cmd):
@@ -779,15 +969,22 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         self.action_quit()
 
     def _show_shortcuts_suggestions(self, query: str = "") -> None:
-        """Show shortcuts and quick help suggestions."""
-        items = [
-            "[bold cyan]⌨️  ?[/bold cyan] [dim]Open interactive shortcuts & quick reference sheet (F1)[/dim]",
-            "[bold yellow]⚡ /dev on[/bold yellow] [dim]Enable live developer telemetry & LLM traces[/dim]",
-            "[bold magenta]● /theme <name>[/bold magenta] [dim]Switch between 11 terminal color themes[/dim]",
-            "[bold green]● /checkpoint[/bold green] [dim]Atomic snapshot & workspace rollback[/dim]",
-            "[bold blue]● /collapse all[/bold blue] [dim]Collapse/expand conversational turns[/dim]",
+        """Show shortcuts and quick help suggestions with clean monospace alignment."""
+        shortcuts_list = [
+            ("?", "Open interactive shortcuts & quick reference modal (F1)"),
+            ("Ctrl+D", "Toggle agent & metrics dashboard sidebar"),
+            ("Ctrl+T", "Toggle background tasks panel"),
+            ("Ctrl+C", "Cancel active agent task or thinking stream"),
+            ("@<agent>", "Mention & route task to specialist agent (@python-engineer)"),
+            ("#<file>", "Smart workspace file path autocomplete"),
+            ("/help", "View complete command reference"),
         ]
-        values = ["?", "/dev on", "/theme obsidian", "/checkpoint list", "/collapse all"]
+        items = [
+            f"[bold cyan]{key:<12}[/bold cyan] [dim]{desc}[/dim]"
+            for key, desc in shortcuts_list
+            if not query or query.lower() in key.lower() or query.lower() in desc.lower()
+        ]
+        values = ["?", "/dashboard", "/tasks", "/cancel", "@", "#", "/help"]
         self._show_suggestions(items, values)
 
     def _show_cmd_suggestions(self, prefix: str) -> None:
@@ -915,24 +1112,24 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             except Exception:
                 pass
 
-        # 8. /checkpoint suggestions
-        if raw.startswith("/checkpoint"):
-            query = raw.split(None, 1)[1].strip() if " " in raw else ""
-            opts = {
-                "create": "Create a new atomic point-in-time snapshot",
-                "list": "List available workspace checkpoints",
-                "restore": "Restore workspace to a checkpoint (/checkpoint restore <id>)",
-            }
-            matches = [k for k in opts if query.lower() in k.lower()] or list(opts.keys())
-            items = [f"[bold blue]● {k:<10}[/bold blue] [dim]{opts[k]}[/dim]" for k in matches]
-            values = [f"/checkpoint {k}" for k in matches]
+        # Dynamic subcommand completions (/git, /pr, /session, /checkpoint)
+        from sago.tui.smart_suggest import fuzzy_score, get_subcommand_completions
+
+        sub_res = get_subcommand_completions(raw)
+        if sub_res is not None:
+            items, values = sub_res
             self._show_suggestions(items, values)
             return
 
-        # 9. General command prefix matching
-        matches = [cmd for cmd in COMMANDS if cmd.startswith(raw.lower())]
-        if not matches:
-            matches = [cmd for cmd in COMMANDS if raw.lower().lstrip("/") in cmd]
+        # 9. General command fuzzy matching
+        scored_cmds = []
+        for cmd in COMMANDS:
+            s = fuzzy_score(raw, cmd)
+            if s > 0:
+                scored_cmds.append((s, cmd))
+
+        scored_cmds.sort(key=lambda x: x[0], reverse=True)
+        matches = [cmd for _, cmd in scored_cmds]
         values = matches
         items = [f"[bold cyan]{cmd:<14}[/bold cyan] [dim]{COMMANDS[cmd]}[/dim]" for cmd in matches]
         self._show_suggestions(items, values)
@@ -951,7 +1148,10 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             models = [m for m in models if m.lower().startswith(provider_filter.lower())]
 
         if query:
-            models = [m for m in models if query in m.lower()]
+            from sago.tui.smart_suggest import fuzzy_score
+
+            models = [m for m in models if fuzzy_score(query, m) > 0]
+            models.sort(key=lambda m: fuzzy_score(query, m), reverse=True)
 
         if not models:
             models = [m for m in BUILTIN_MODELS if query in m.lower()]
@@ -961,47 +1161,10 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         self._show_suggestions(items, values)
 
     def _rank_agent_matches(self, agents: list[dict], query: str) -> list[dict]:
-        """Rank agent matches so exact/prefix matches and core specialists appear first."""
-        if not query:
-            featured = [
-                "sago-orchestrator",
-                "python-engineer",
-                "frontend-engineer",
-                "backend-engineer",
-                "fullstack-developer",
-                "debugger",
-                "architect",
-                "devops-engineer",
-                "reviewer",
-                "qa-engineer",
-                "security-engineer",
-                "database-engineer",
-            ]
-            featured_set = set(featured)
-            top = [a for a in agents if a["name"] in featured_set]
-            top.sort(key=lambda a: featured.index(a["name"]) if a["name"] in featured else 999)
-            rest = [a for a in agents if a["name"] not in featured_set]
-            return top + rest
+        """Rank agent matches so exact/fuzzy/prefix matches and core specialists appear first."""
+        from sago.tui.smart_suggest import rank_agents_fuzzy
 
-        q = query.lower()
-        exact = []
-        prefix = []
-        sub_name = []
-        desc = []
-
-        for a in agents:
-            name = a["name"].lower()
-            description = a.get("description", "").lower()
-            if name == q:
-                exact.append(a)
-            elif name.startswith(q):
-                prefix.append(a)
-            elif q in name:
-                sub_name.append(a)
-            elif q in description:
-                desc.append(a)
-
-        return exact + prefix + sub_name + desc
+        return rank_agents_fuzzy(agents, query)
 
     def _show_agent_suggestions(self, prefix: str) -> None:
         try:
@@ -1034,51 +1197,21 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             pass
 
     def _show_file_suggestions(self, prefix: str, home: bool = False) -> None:
-        from pathlib import Path
+        from sago.tui.smart_suggest import rank_files_smart
 
-        if home:
-            base_path = Path.home()
-            search_prefix = prefix
-        elif "/" in prefix:
-            last_slash = prefix.rfind("/")
-            dir_part = prefix[:last_slash]
-            search_prefix = prefix[last_slash + 1 :]
-            base_path = Path.cwd() / dir_part if not os.path.isabs(dir_part) else Path(dir_part)
+        items, values = rank_files_smart(prefix, home=home)
+        if items:
+            self._show_suggestions(items, values)
         else:
-            base_path = Path.cwd()
-            search_prefix = prefix
-
-        if not base_path.exists() or not base_path.is_dir():
             self._hide_suggestions()
-            return
-
-        items = []
-        values = []
-        try:
-            entries = sorted(base_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
-        except PermissionError:
-            self._hide_suggestions()
-            return
-
-        for f in entries:
-            if not f.name.lower().startswith(search_prefix.lower()):
-                continue
-            if f.name.startswith(".") and not search_prefix.startswith("."):
-                continue  # Skip hidden files unless explicitly searching
-            name = f.name + "/" if f.is_dir() else f.name
-            items.append(name)
-            if home:
-                values.append(f"~{f.name}")
-            else:
-                values.append(f"#{f.name}")
-        self._show_suggestions(items, values)
 
     def _show_suggestions(self, items: list[str], values: list[str]) -> None:
         if not items:
             self._hide_suggestions()
             return
-        items = items[:8]
-        values = values[:8]
+        # Support full scrollable suggestion list without artificial 8-item pagination trap
+        items = items[:100]
+        values = values[:100]
         self.suggestion_items = items
         self.suggestion_values = values
         self.suggestion_index = 0
@@ -1199,17 +1332,18 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/reset": lambda: self._reset(),
             "/save": lambda: self._save_session(args),
             "/load": lambda: self._load_session(args),
-            "/git": lambda: self._git_status(),
+            "/git": lambda: self._handle_git_command(args),
             "/diff": lambda: self._git_diff(args),
             "/commit": lambda: self._git_commit(args),
             "/approve": lambda: self._approve_action(),
             "/deny": lambda: self._deny_action(),
             "/version": lambda: self._show_version(),
             "/yolo": lambda: self._toggle_yolo(),
-            "/permissions": lambda: self._show_permissions(args),
+            "/perms": lambda: self._handle_perms_command(args),
+            "/permissions": lambda: self._handle_perms_command(args),
             "/allow": lambda: self._allow_tool(args),
             "/block": lambda: self._block_tool(args),
-            "/todo": lambda: self._show_todo(args),
+            "/todo": lambda: self._handle_todo_command(args),
             "/todos": lambda: self._show_all_todos(),
             "/done": lambda: self._mark_todo_done(args),
             "/ask": lambda: self._ask_user(args),
@@ -1220,15 +1354,20 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/resume": lambda: self._list_sessions(),
             "/parallel": lambda: self._run_parallel(args),
             "/dashboard": lambda: self._toggle_dashboard(),
-            "/tasks": lambda: self._show_tasks(),
+            "/tasks": lambda: self._handle_tasks_command(args),
             "/cancel": lambda: self._cancel_task(args),
             "/handoff": lambda: self._show_handoff(),
             "/agents-color": lambda: self._list_agents_color(),
             "/summary": lambda: self._toggle_summary(),
             "/map": lambda: self._show_repo_map(args),
             "/verify": lambda: self._run_verify(),
+            "/tools": lambda: self._show_tools(args),
+            "/tool": lambda: self._show_tools(args),
             "/skills": lambda: self._show_skills(args),
+            "/skill": lambda: self._show_skills(args),
             "/plugins": lambda: self._show_plugins(),
+            "/plugin": lambda: self._show_plugins(),
+            "/mcp": lambda: self._handle_mcp_command(args),
             "/theme": lambda: self._set_theme(args),
             "/themes": lambda: self._set_theme(args),
             "/collapse": lambda: self._collapse_chats(args),
@@ -1240,12 +1379,15 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/search": lambda: self._handle_search_command(args),
             "/semantic": lambda: self._handle_search_command(args),
             "/detach": lambda: self._detach_session(),
+            "/clean": lambda: self._handle_clean_command(args),
+            "/gc": lambda: self._handle_clean_command(args),
             "/copy": lambda: self._handle_copy_command(args),
             "/clip": lambda: self._handle_copy_command(args),
             "/buttons": lambda: self._handle_buttons_command(args),
             "/bar": lambda: self._handle_buttons_command(args),
             "/show": lambda: self._handle_buttons_command("show " + args),
             "/hide": lambda: self._handle_buttons_command("hide " + args),
+            "/pr": lambda: self._handle_pr_command(args),
         }
 
         if cmd in handlers:

@@ -72,3 +72,20 @@ def test_intent_classifier_llm_flow() -> None:
         assert res.needs_tools is False
         assert res.source == "llm"
         assert res.confidence == 0.99
+
+
+def test_intent_classifier_edge_cases() -> None:
+    classifier = IntentClassifier()
+
+    # Empty / whitespace
+    res_empty = classifier.classify("")
+    assert res_empty.task_type == "chat"
+
+    # Multi-file query
+    res_multifile = classifier.classify("compare auth.py and token_validator.ts")
+    assert res_multifile.task_type == "analyze"
+    assert res_multifile.needs_tools is True
+
+    # Error code query
+    res_error = classifier.classify("getting 500 internal server error on /api/v1/checkout")
+    assert res_error.task_type == "fix"

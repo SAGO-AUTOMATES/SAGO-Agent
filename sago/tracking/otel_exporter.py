@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 from sago.tracking.dev_tracer import DevTraceEvent, get_dev_tracer
+from sago.version import __version__
 
 
 def _generate_id(seed: str, length: int = 16) -> str:
@@ -22,9 +23,11 @@ def _generate_id(seed: str, length: int = 16) -> str:
 class OTelExporter:
     """Exports SAGO developer trace telemetry into OpenTelemetry Trace JSON specification."""
 
-    def __init__(self, service_name: str = "sago-agent", service_version: str = "0.1.6") -> None:
+    def __init__(
+        self, service_name: str = "sago-agent", service_version: str | None = None
+    ) -> None:
         self.service_name = service_name
-        self.service_version = service_version
+        self.service_version = service_version or __version__
 
     def export_traces(self, events: list[DevTraceEvent] | None = None) -> dict[str, Any]:
         """Convert trace events into OTel ResourceSpans payload."""

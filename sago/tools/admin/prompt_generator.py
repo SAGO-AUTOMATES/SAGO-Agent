@@ -113,6 +113,15 @@ class PromptGeneratorTool(BaseTool):
     def _generate_prompt(self, template_type: str | None, custom_content: str | None) -> str:
         """Generate a prompt from template or custom content."""
         if custom_content:
+            from sago.engine.prompt_enhancer import enhance_prompt
+
+            res = enhance_prompt(custom_content, agent_role=template_type or "Specialist")
+            if res.was_modified:
+                return (
+                    f"Generated Enhanced Prompt:\n\n"
+                    f"Intent: {res.intent_summary}\n\n"
+                    f"{res.enhanced_prompt}"
+                )
             return f"Generated prompt:\n\n{custom_content}"
 
         if template_type and template_type in self._TEMPLATES:

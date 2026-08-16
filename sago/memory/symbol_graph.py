@@ -79,6 +79,83 @@ class SymbolGraph:
                 size_bytes=len(content),
             )
 
+        def _extract_class(node: ast.ClassDef, depth: int = 0) -> SymbolInfo:
+            """Recursively extract class symbols including nested classes."""
+            doc = ast.get_docstring(node) or ""
+            bases = [ast.unparse(b) for b in node.bases if hasattr(ast, "unparse")]
+            base_str = f"({', '.join(bases)})" if bases else ""
+            class_sym = SymbolInfo(
+                name=node.name + base_str,
+                symbol_type="class",
+                line_number=node.lineno,
+                docstring=doc,
+            )
+
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    # Detect decorator type
+                    decorators = []
+                    for d in item.decorator_list:
+                        if hasattr(ast, "unparse"):
+                            decorators.append(ast.unparse(d))
+                    decorator_names = [d.lower() for d in decorators]
+
+                    if any(
+                        "property" in d and "setter" not in d and "deleter" not in d
+                        for d in decorator_names
+                    ):
+                        m_type = "property"
+                    elif "staticmethod" in decorator_names:
+                        m_type = "staticmethod"
+                    elif "classmethod" in decorator_names:
+                        m_type = "classmethod"
+                    elif isinstance(item, ast.AsyncFunctionDef):
+                        m_type = "async_method"
+                    else:
+                        m_type = "method"
+
+                    # Include type annotations in signature
+                    args = []
+                    for a in item.args.args:
+                        arg_str = a.arg
+                        if a.annotation and hasattr(ast, "unparse"):
+                            arg_str += f": {ast.unparse(a.annotation)}"
+                        args.append(arg_str)
+                    if item.args.vararg and hasattr(ast, "unparse"):
+                        args.append(f"*{item.args.vararg.arg}")
+                    if item.args.kwarg and hasattr(ast, "unparse"):
+                        args.append(f"**{item.args.kwarg.arg}")
+                    sig = ", ".join(args)
+                    m_doc = ast.get_docstring(item) or ""
+                    class_sym.children.append(
+                        SymbolInfo(
+                            name=item.name,
+                            symbol_type=m_type,
+                            line_number=item.lineno,
+                            signature=sig,
+                            docstring=m_doc,
+                        )
+                    )
+                elif isinstance(item, ast.ClassDef):
+                    # Nested class support
+                    class_sym.children.append(_extract_class(item, depth + 1))
+                elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                    # @dataclass field support
+                    ann = ast.unparse(item.annotation) if hasattr(ast, "unparse") else ""
+                    default = ""
+                    if item.value and hasattr(ast, "unparse"):
+                        default = f" = {ast.unparse(item.value)}"
+                    class_sym.children.append(
+                        SymbolInfo(
+                            name=item.target.id,
+                            symbol_type="field",
+                            line_number=item.lineno,
+                            signature=f"{ann}{default}",
+                        )
+                    )
+
+            return class_sym
+
         for node in tree.body:
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 if isinstance(node, ast.Import):
@@ -93,7 +170,16 @@ class SymbolGraph:
                 sym_type = (
                     "async_function" if isinstance(node, ast.AsyncFunctionDef) else "function"
                 )
-                args = [a.arg for a in node.args.args]
+                args = []
+                for a in node.args.args:
+                    arg_str = a.arg
+                    if a.annotation and hasattr(ast, "unparse"):
+                        arg_str += f": {ast.unparse(a.annotation)}"
+                    args.append(arg_str)
+                if node.args.vararg and hasattr(ast, "unparse"):
+                    args.append(f"*{node.args.vararg.arg}")
+                if node.args.kwarg and hasattr(ast, "unparse"):
+                    args.append(f"**{node.args.kwarg.arg}")
                 sig = ", ".join(args)
                 doc = ast.get_docstring(node) or ""
                 symbols.append(
@@ -107,34 +193,7 @@ class SymbolGraph:
                 )
 
             elif isinstance(node, ast.ClassDef):
-                doc = ast.get_docstring(node) or ""
-                bases = [ast.unparse(b) for b in node.bases if hasattr(ast, "unparse")]
-                base_str = f"({', '.join(bases)})" if bases else ""
-                class_sym = SymbolInfo(
-                    name=node.name + base_str,
-                    symbol_type="class",
-                    line_number=node.lineno,
-                    docstring=doc,
-                )
-
-                for item in node.body:
-                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        m_type = (
-                            "async_method" if isinstance(item, ast.AsyncFunctionDef) else "method"
-                        )
-                        m_args = [a.arg for a in item.args.args]
-                        m_sig = ", ".join(m_args)
-                        m_doc = ast.get_docstring(item) or ""
-                        class_sym.children.append(
-                            SymbolInfo(
-                                name=item.name,
-                                symbol_type=m_type,
-                                line_number=item.lineno,
-                                signature=m_sig,
-                                docstring=m_doc,
-                            )
-                        )
-                symbols.append(class_sym)
+                symbols.append(_extract_class(node))
 
         return FileSymbols(
             file_path=str(
@@ -151,12 +210,13 @@ class SymbolGraph:
         )
 
     def extract_generic_symbols(self, file_path: Path, content: str, lang: str) -> FileSymbols:
-        """Regex-based symbol extractor for JS/TS/Go/Rust/Java/C++."""
+        """Regex-based symbol extractor for JS/TS/Go/Rust/Java/C++/Ruby/PHP/Kotlin/Swift/C#/Dart/Elixir/Lua."""
         symbols: list[SymbolInfo] = []
         lines = content.splitlines()
 
         # Comprehensive high-precision patterns across languages
         patterns = [
+            # JS/TS patterns
             (r"^(?:export\s+)?(?:default\s+)?class\s+([A-Za-z0-9_]+)", "class"),
             (r"^(?:export\s+)?interface\s+([A-Za-z0-9_]+)", "interface"),
             (r"^(?:export\s+)?(?:type|enum)\s+([A-Za-z0-9_]+)", "type"),
@@ -174,10 +234,58 @@ class SymbolGraph:
             # C/C++/Java patterns
             (r"^(?:public|private|protected)?\s*(?:static)?\s*class\s+([A-Za-z0-9_]+)", "class"),
             (r"^(?:struct|class)\s+([A-Za-z0-9_]+)\s*\{?", "class"),
+            # Ruby patterns
+            (r"^class\s+([A-Za-z0-9_:]+)", "class"),
+            (r"^module\s+([A-Za-z0-9_:]+)", "module"),
+            (r"^(?:def|define_method)\s+([A-Za-z0-9_?!]+)\s*(?:\((.*?)\))?", "function"),
+            # PHP patterns
+            (r"^(?:abstract\s+)?class\s+(\w+)", "class"),
+            (r"^interface\s+(\w+)", "interface"),
+            (r"^trait\s+(\w+)", "interface"),
+            (
+                r"^(?:public|protected|private)\s+(?:static\s+)?function\s+(\w+)\s*\((.*?)\)",
+                "function",
+            ),
+            # Kotlin patterns
+            (r"^(?:data\s+)?class\s+(\w+)", "class"),
+            (r"^interface\s+(\w+)", "interface"),
+            (r"^object\s+(\w+)", "class"),
+            (r"^(?:fun|suspend\s+fun)\s+(\w+)\s*\((.*?)\)", "function"),
+            # Swift patterns
+            (r"^class\s+(\w+)", "class"),
+            (r"^struct\s+(\w+)", "class"),
+            (r"^protocol\s+(\w+)", "interface"),
+            (r"^enum\s+(\w+)", "type"),
+            (r"^(?:func|init)\s+(?:<.*?>)?\s*(\w+)\s*\((.*?)\)", "function"),
+            # C# patterns
+            (r"^(?:public|private|protected|internal)?\s*(?:partial\s+)?class\s+(\w+)", "class"),
+            (r"^interface\s+(\w+)", "interface"),
+            (r"^enum\s+(\w+)", "type"),
+            (
+                r"^(?:public|private|protected)\s+(?:static\s+)?(?:async\s+)?(\w+)\s+(\w+)\s*\((.*?)\)",
+                "function",
+            ),
+            # Dart patterns
+            (r"^(?:abstract\s+)?class\s+(\w+)", "class"),
+            (r"^(?:mixin)\s+(\w+)", "interface"),
+            (
+                r"^(?:void|int|String|bool|double|Future|Stream|List|Map)?\s*(\w+)\s*\((.*?)\)\s*(?:async\s*)?\{?",
+                "function",
+            ),
+            # Elixir patterns
+            (r"^(?:defmodule|defprotocol)\s+([A-Za-z0-9_.]+)", "class"),
+            (r"^def(?:p)?\s+(\w+)(?:\((.*?)\))?", "function"),
+            (r"^(?:defmacro|defmacrop)\s+(\w+)(?:\((.*?)\))?", "function"),
+            # Lua patterns
+            (r"^function\s+([A-Za-z0-9_.:]+)\s*\((.*?)\)", "function"),
+            (r"^(?:local\s+)?function\s+([A-Za-z0-9_]+)\s*\((.*?)\)", "function"),
         ]
 
         for i, line in enumerate(lines, 1):
             line_str = line.strip()
+            # Skip comment-only lines
+            if line_str.startswith("//") or line_str.startswith("#") or line_str.startswith("--"):
+                continue
             for pat, sym_type in patterns:
                 m = re.search(pat, line_str)
                 if m:
@@ -276,6 +384,24 @@ class SymbolGraph:
                 fs = self.extract_generic_symbols(file_path, content, "c")
             elif suffix in (".cpp", ".hpp", ".cc", ".cxx"):
                 fs = self.extract_generic_symbols(file_path, content, "cpp")
+            elif suffix == ".rb":
+                fs = self.extract_generic_symbols(file_path, content, "ruby")
+            elif suffix == ".php":
+                fs = self.extract_generic_symbols(file_path, content, "php")
+            elif suffix == ".kt":
+                fs = self.extract_generic_symbols(file_path, content, "kotlin")
+            elif suffix == ".scala":
+                fs = self.extract_generic_symbols(file_path, content, "scala")
+            elif suffix == ".swift":
+                fs = self.extract_generic_symbols(file_path, content, "swift")
+            elif suffix == ".cs":
+                fs = self.extract_generic_symbols(file_path, content, "csharp")
+            elif suffix == ".dart":
+                fs = self.extract_generic_symbols(file_path, content, "dart")
+            elif suffix in (".ex", ".exs"):
+                fs = self.extract_generic_symbols(file_path, content, "elixir")
+            elif suffix == ".lua":
+                fs = self.extract_generic_symbols(file_path, content, "lua")
             elif suffix == ".sql":
                 fs = self.extract_sql_symbols(file_path, content)
             else:
@@ -351,3 +477,140 @@ class SymbolGraph:
         if len(full_map) > max_tokens * 4:
             full_map = full_map[: max_tokens * 4] + "\n\n... [Repo map truncated for brevity]"
         return full_map
+
+    def get_symbol_outline(self, max_files: int = 100) -> dict[str, list[dict[str, object]]]:
+        """Return a structured symbol outline suitable for context selection.
+
+        This is deliberately separate from :meth:`generate_repo_map`, whose
+        compact text output is intended for direct display in a prompt.
+        """
+        ignored_dirs = {
+            ".git",
+            "node_modules",
+            "__pycache__",
+            ".venv",
+            "venv",
+            "dist",
+            "build",
+            ".pytest_cache",
+            ".ruff_cache",
+            ".next",
+            ".cache",
+            "target",
+            "vendor",
+        }
+        outline: dict[str, list[dict[str, object]]] = {}
+        scanned = 0
+
+        for root, dirs, files in os.walk(self.root_dir):
+            dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
+            for filename in sorted(files):
+                if filename.startswith("."):
+                    continue
+                symbols = self.scan_file(Path(root) / filename)
+                if not symbols:
+                    continue
+                outline[symbols.file_path] = [
+                    {"name": symbol.name, "kind": symbol.symbol_type, "line": symbol.line_number}
+                    for symbol in symbols.symbols
+                ]
+                scanned += 1
+                if scanned >= max_files:
+                    return outline
+        return outline
+
+    def generate_clean_tui_map(
+        self,
+        max_files: int = 150,
+        filter_query: str | None = None,
+    ) -> str:
+        """Generate a clean, structured repository symbol map for TUI & LLM viewing."""
+        ignore_dirs = {
+            ".git",
+            "node_modules",
+            "__pycache__",
+            ".venv",
+            "venv",
+            "dist",
+            "build",
+            ".pytest_cache",
+            ".ruff_cache",
+            ".next",
+            ".cache",
+            "target",
+            "vendor",
+        }
+        total_files = 0
+        total_symbols = 0
+        file_sections: list[str] = []
+
+        q = (filter_query or "").strip().lower()
+
+        for root, dirs, files in os.walk(self.root_dir):
+            dirs[:] = [d for d in sorted(dirs) if d not in ignore_dirs and not d.startswith(".")]
+            for f in sorted(files):
+                if f.startswith(".") or f.endswith(
+                    (".pyc", ".min.js", ".map", ".lock", ".png", ".jpg", ".ico", ".svg")
+                ):
+                    continue
+                file_path = Path(root) / f
+                fs = self.scan_file(file_path)
+                if not fs or not fs.symbols:
+                    continue
+
+                # Filter matching
+                if q:
+                    path_match = q in fs.file_path.lower()
+                    matching_syms = [
+                        s
+                        for s in fs.symbols
+                        if q in s.name.lower() or any(q in c.name.lower() for c in s.children)
+                    ]
+                    if not path_match and not matching_syms:
+                        continue
+                    active_symbols = fs.symbols if path_match else matching_syms
+                else:
+                    active_symbols = fs.symbols
+
+                total_files += 1
+                total_symbols += len(active_symbols)
+
+                lines = [f"📂 **`{fs.file_path}`** `({fs.line_count} lines)`"]
+                for sym in active_symbols[:15]:
+                    kind_icon = "🔷" if sym.symbol_type == "class" else "⚡"
+                    sig = f"({sym.signature})" if sym.signature else ""
+                    doc_snippet = (
+                        f" — *{sym.docstring.strip().splitlines()[0][:45]}*"
+                        if sym.docstring
+                        else ""
+                    )
+                    lines.append(f"  {kind_icon} `{sym.name}{sig}`{doc_snippet}")
+                    for child in sym.children[:6]:
+                        child_sig = f"({child.signature})" if child.signature else ""
+                        lines.append(f"    └─ 🔹 `{child.name}{child_sig}`")
+                    if len(sym.children) > 6:
+                        lines.append(f"    └─ *... and {len(sym.children) - 6} more methods*")
+
+                if len(active_symbols) > 15:
+                    lines.append(f"  *... and {len(active_symbols) - 15} more symbols*")
+
+                file_sections.append("\n".join(lines))
+                if total_files >= max_files:
+                    break
+            if total_files >= max_files:
+                break
+
+        if not file_sections:
+            if q:
+                return f"🔍 **No symbols or files found matching:** `{filter_query}`\n*Try `/map` without filters to inspect all symbols.*"
+            return "📂 **No source code files or symbols found in current directory.**"
+
+        filter_note = f" (Filter: `{filter_query}`)" if q else ""
+        header = (
+            f"### 🗺️ Repository Symbol Map: `{self.root_dir.name}`{filter_note}\n"
+            f"📊 **Overview**: `{total_files}` Files │ `{total_symbols}` Core Symbols\n\n"
+            "---\n"
+        )
+        body = "\n\n".join(file_sections)
+        footer = "\n\n---\n*Tip: Run `/map <query>` to search specific symbols, or `/graph` for architecture diagrams.*"
+        return header + body + footer

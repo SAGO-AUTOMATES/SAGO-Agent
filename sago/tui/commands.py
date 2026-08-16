@@ -21,46 +21,58 @@ class CommandHandlers:
         container = self.query_one("#messages")
 
         categories = {
-            "CORE": [
+            "CORE & WORKFLOW": [
                 "/help",
-                "/map",
-                "/project_graph",
-                "/verify",
-                "/plan",
-                "/todos",
-                "/done",
+                "/?",
+                "/status",
+                "/session",
                 "/compact",
-                "/reset",
+                "/clear",
+                "/export",
+                "/exit",
             ],
             "AGENT ORCHESTRATION": [
-                "/agents",
                 "/agent",
                 "/delegate",
                 "/chain",
                 "/orchestrate",
                 "/parallel",
-                "/handoff",
+                "/tasks",
+                "/tools",
+                "/skills",
+                "/mcp",
+                "/plugins",
             ],
-            "MODEL & RUNTIME": ["/model", "/provider", "/effort", "/cost", "/yolo", "/dashboard"],
-            "VERSION CONTROL": ["/git", "/diff", "/commit", "/changes", "/undo"],
-            "SESSION & SECURITY": [
-                "/sessions",
-                "/save",
-                "/load",
-                "/export",
-                "/permissions",
-                "/allow",
-                "/block",
+            "CODE INTELLIGENCE & VCS": [
+                "/graph",
+                "/map",
+                "/verify",
+                "/git",
+                "/diff",
+                "/undo",
+                "/checkpoint",
+                "/search",
             ],
-            "DEBUGGING": ["/dev", "/dev view", "/dev logs", "/dev export"],
+            "SETTINGS & RUNTIME": [
+                "/model",
+                "/provider",
+                "/effort",
+                "/cost",
+                "/perms",
+                "/todo",
+                "/theme",
+                "/buttons",
+                "/dev",
+                "/yolo",
+            ],
         }
 
-        lines = ["[bold white on #21262d]  COMMAND REFERENCE  [/bold white on #21262d]\n"]
+        lines = ["[bold cyan]COMMAND REFERENCE[/bold cyan]\n"]
         for cat, cmds in categories.items():
-            lines.append(f"[bold cyan]{cat}[/bold cyan]")
+            lines.append(f"[bold]{cat}[/bold]")
             for cmd in cmds:
                 desc = COMMANDS.get(cmd, "")
-                lines.append(f"  [bold yellow]{cmd:<16}[/bold yellow] [white]{desc}[/white]")
+                lines.append(f"  [cyan]{cmd:<16}[/cyan] [white]{desc}[/white]")
             lines.append("")
 
         lines.append(
@@ -76,6 +88,88 @@ class CommandHandlers:
             )
         )
         container.scroll_end()
+
+    def _show_tools(self: SagoApp, query: str = "") -> None:
+        try:
+            from rich.markup import escape
+
+            from sago.tools.registry import get_tool, list_categories, list_tools
+
+            container = self.query_one("#messages")
+
+            # Case 1: Specific tool detailed inspection
+            if query and get_tool(query.strip()):
+                t = get_tool(query.strip())
+                assert t is not None
+                lines = [
+                    f"[bold cyan]Tool:[/] [bold yellow]{t.name}[/bold yellow]  [dim]Category: ({t.category}) | Source: {t.source}[/dim]\n",
+                    f"[bold]Description:[/]\n{escape(t.description)}\n",
+                    f"[dim]Module: {t.module_path}[/dim]\n",
+                ]
+                if t.args_schema:
+                    lines.append("[bold]Parameters:[/bold]")
+                    for pname, pinfo in t.args_schema.items():
+                        req = "[red]REQ[/red]" if pinfo.get("required") else "[dim]opt[/dim]"
+                        ptype = pinfo.get("type", "str")
+                        pdesc = pinfo.get("description", "-")
+                        lines.append(
+                            f"  • [yellow]{pname}[/yellow] [dim]({ptype}, {req})[/dim]: {escape(pdesc)}"
+                        )
+                body = "\n".join(lines)
+                container.mount(
+                    Collapsible(
+                        Static(body),
+                        title=f"Tool: {t.name}",
+                        collapsed=False,
+                    )
+                )
+                container.scroll_end()
+                return
+
+            # Case 2: Categories overview
+            if not query:
+                categories = list_categories()
+                total_tools = sum(len(v) for v in categories.values())
+                lines = [
+                    f"[bold]Dynamic Tool Registry ({total_tools} tools across {len(categories)} categories):[/bold]\n"
+                ]
+                for cat, tool_list in sorted(categories.items()):
+                    sample = ", ".join(t.name for t in tool_list[:4])
+                    if len(tool_list) > 4:
+                        sample += f", +{len(tool_list) - 4} more"
+                    lines.append(
+                        f"  [bold yellow]{cat:<18}[/bold yellow] [green]({len(tool_list):>2})[/green]  [dim]{escape(sample)}[/dim]"
+                    )
+                lines.append(
+                    "\n[dim]To view tools in a category or search: [/dim][bold cyan]/tools <category_or_query>[/bold cyan]"
+                )
+                lines.append(
+                    "[dim]Example: [/dim][bold]/tools coding[/bold]  or  [bold]/tools read_file[/bold]"
+                )
+                title = f"Tool Categories ({len(categories)} categories, {total_tools} tools)"
+            else:
+                # Case 3: Filtered tools search
+                matched = list_tools(query=query)
+                lines = [f"[bold]Tools matching '{query}' ({len(matched)}):[/bold]\n"]
+                for t in matched[:40]:
+                    lines.append(
+                        f"  [cyan]{t.name:<24}[/cyan] [yellow][{t.category}][/yellow] [dim]{escape(t.description[:60])}[/dim]"
+                    )
+                if len(matched) > 40:
+                    lines.append(f"\n  [dim]... and {len(matched) - 40} more[/dim]")
+                title = f"Tools matching '{query}' ({len(matched)})"
+
+            body = "\n".join(lines)
+            container.mount(
+                Collapsible(
+                    Static(body),
+                    title=title,
+                    collapsed=False,
+                )
+            )
+            container.scroll_end()
+        except Exception as e:
+            self._add_system_message(f"Error displaying tools: {e}")
 
     def _show_agents(self: SagoApp, f: str = "") -> None:
         try:
@@ -142,61 +236,74 @@ class CommandHandlers:
             self._add_system_message("Usage: /delegate <agent> <task>")
             return
         agent_name, task = parts
-        self._add_user_message(f"/delegate {args}")
+
+        from sago.engine.prompt_enhancer import enhance_prompt
+
+        enhancement = enhance_prompt(task=task, agent_role=agent_name)
+
+        self._add_command_turn(
+            "delegate",
+            task,
+            meta=f"@{agent_name}",
+            tag_label="DELEGATE",
+            tag_color="#bc8cff",
+        )
+        if enhancement.was_modified:
+            self._add_prompt_enhancement_card(enhancement)
+
         self._process_delegation(agent_name, task)
 
     def _chain_agents(self: SagoApp, args: str) -> None:
-        args = args.strip()
-        if not args:
+        raw_args = args.strip()
+        if not raw_args:
             self._add_system_message(
-                "Usage: /chain <task> (auto-route) or /chain agent1,agent2 <task>"
+                "⚡ [bold cyan]Multi-Agent Chain Usage[/bold cyan]:\n"
+                "  • [bold white]/chain <task>[/bold white] — Autonomous multi-agent pipeline routing\n"
+                "  • [bold white]/chain architect -> python-engineer -> test-engineer <task>[/bold white]\n"
+                "  • [bold white]/chain frontend-engineer,backend-engineer <task>[/bold white]"
             )
             return
 
+        # Normalize ASCII arrows to standard chain separator
+        args = raw_args.replace("->", "→").replace(">", "→")
+
         # Detect if args are just agent names (no real task text)
-        # Heuristic: if there's no comma/arrow and words look like agent names (contain hyphens)
         has_separator = "," in args or "→" in args
         words = args.split()
 
         if not has_separator and len(words) >= 2:
-            # Check if all words look like agent names (contain hyphens, no spaces in "task-like" text)
             all_look_like_agents = all("-" in w and len(w) < 40 for w in words)
             if all_look_like_agents:
-                # Treat all words as agents, use smart routing for task
                 try:
-                    # Use the agent names as hints for what kind of task to generate
                     agent_list = words
-                    self._add_system_message(
-                        f"Agents: {', '.join(agent_list)} — describe what you want them to do, or I'll auto-route"
-                    )
-                    self._add_user_message(f"/chain {args}")
-                    # Just run them as a chain with auto-routing on empty task
+                    self._add_system_message(f"Agents: {', '.join(agent_list)} — auto-routing task")
                     chain_steps = [[a] for a in agent_list]
-                    self._process_chain(chain_steps, f"Execute: {', '.join(agent_list)}")
+                    task_str = f"Execute: {', '.join(agent_list)}"
+                    self._add_command_turn(
+                        "chain",
+                        task_str,
+                        meta=f"[{' → '.join(agent_list)}]",
+                        tag_label="CHAIN",
+                        tag_color="#79c0ff",
+                    )
+                    self._process_chain(chain_steps, task_str)
                     return
                 except Exception:
                     pass
 
         # Parse with separator: "a,b → c,d" or "a,b task"
         if has_separator:
-            # Find where agents end and task begins
-            # If there's a "→", split on it; otherwise check if last part after comma is a task
             parts = args.split(None, 1)
             if len(parts) >= 2 and "→" not in args and "," not in parts[0]:
-                # "/chain agent1 task description here"
                 agent_chain_str = parts[0]
                 task = parts[1]
             else:
-                # "/chain agent1,agent2 → agent3 task" or "/chain agent1,agent2 task"
-                # Try to split task from agent chain
                 agent_chain_str = args
                 task = ""
-                # Check if last segment after arrow or comma looks like a task
                 for sep in ["→", ","]:
                     if sep in args:
                         last_sep_idx = args.rfind(sep)
                         after = args[last_sep_idx + 1 :].strip()
-                        # If after the last separator has no hyphen-heavy words, it's a task
                         after_words = after.split()
                         if after_words and not all("-" in w for w in after_words):
                             task = after
@@ -215,7 +322,13 @@ class CommandHandlers:
             if not task:
                 task = f"Execute chain: {' → '.join(a for step in chain_steps for a in step)}"
 
-            self._add_user_message(f"/chain {args}")
+            self._add_command_turn(
+                "chain",
+                task,
+                meta=f"[{agent_chain_str}]",
+                tag_label="CHAIN",
+                tag_color="#79c0ff",
+            )
             self._process_chain(chain_steps, task)
             return
 
@@ -231,14 +344,26 @@ class CommandHandlers:
         except Exception:
             agents = ["python-engineer"]
             self._add_system_message("Using default: python-engineer")
-        self._add_user_message(f"/chain {args}")
+
+        self._add_command_turn(
+            "chain",
+            task,
+            meta=f"[{' → '.join(agents)}]",
+            tag_label="CHAIN",
+            tag_color="#79c0ff",
+        )
         self._process_chain([[a] for a in agents], task)
 
     def _orchestrate_task(self: SagoApp, task: str) -> None:
         if not task:
             self._add_system_message("Usage: /orchestrate <task>")
             return
-        self._add_user_message(f"/orchestrate {task}")
+        self._add_command_turn(
+            "orchestrate",
+            task,
+            tag_label="ORCHESTRATE",
+            tag_color="#3fb950",
+        )
         self._process_orchestration(task)
 
     def _show_status(self: SagoApp) -> None:
@@ -276,8 +401,20 @@ class CommandHandlers:
         self._list_sessions()
 
     def _switch_session(self: SagoApp, sid: str) -> None:
-        if not sid:
-            self._add_system_message("Usage: /session <id>")
+        sid = (sid or "").strip()
+        if not sid or sid.lower() in ("list", "ls"):
+            self._show_sessions()
+            return
+        if sid.lower().startswith("switch "):
+            sid = sid[7:].strip()
+        if sid.lower().startswith("clean"):
+            self._handle_clean_command("sessions")
+            return
+        if sid.lower().startswith("export "):
+            self._export_session(sid[7:].strip())
+            return
+        if sid.lower().startswith("save"):
+            self._save_session(sid[5:].strip())
             return
         try:
             from sago.database import MessageStore, Session, init_db
@@ -669,6 +806,18 @@ class CommandHandlers:
                 self._message_store.flush()
             except Exception:
                 pass
+
+        # Safety net: persist all settings to disk before exit
+        try:
+            self._save_settings()
+        except Exception:
+            pass
+        from sago.engine.prompt_enhancer import generate_session_title
+
+        current_title = getattr(self, "current_session_title", "")
+        if not current_title or current_title in ("TUI Session", "Interactive Session"):
+            self.current_session_title = generate_session_title(self.messages)
+
         try:
             from sago.database import Session, init_db
 
@@ -681,19 +830,104 @@ class CommandHandlers:
                 self.exit()
                 return
 
-            # Save current session
-            s.update(title=f"Session {self.current_session_id[:8]}", status="closed")
+            # Save current session with smart title
+            s.update(title=self.current_session_title, status="closed")
             s.close()
         except Exception:
             pass
+        # Auto-export developer mode session artifacts if dev mode is enabled
+        dev_artifacts_info: list[str] = []
+        if getattr(self, "developer_mode", False):
+            try:
+                import os
+                from pathlib import Path
+
+                from sago.tracking.dev_tracer import export_session_dev_artifacts
+
+                artifacts = export_session_dev_artifacts(
+                    session_id=self.current_session_id,
+                    messages=self.messages,
+                    cwd=Path.cwd(),
+                )
+                if artifacts:
+                    dev_artifacts_info.append("📁 [Dev Mode] Session artifacts generated:")
+                    for _, p in artifacts.items():
+                        rel = os.path.relpath(p, os.getcwd()) if os.path.exists(p) else p
+                        dev_artifacts_info.append(f"   ↳ {rel}")
+            except Exception:
+                pass
+
+        # Build comprehensive session highlights summary banner
         sid = self.current_session_id[:8]
-        msg_count = len(self.messages)
-        # Print to stdout before exit so user sees the info
+        messages = list(getattr(self, "messages", []))
+        user_queries = sum(1 for m in messages if m.get("role") == "user")
+        total_messages = len(messages)
+
+        # Tool calls stats
+        tool_calls = getattr(self, "session_tool_calls", [])
+        total_tools = len(tool_calls)
+        tool_counts: dict[str, int] = {}
+        for tc in tool_calls:
+            t_name = tc.get("tool", "tool")
+            tool_counts[t_name] = tool_counts.get(t_name, 0) + 1
+
+        if not tool_counts:
+            try:
+                from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                events = get_dev_tracer().get_recent_traces()
+                for e in events:
+                    if e.event_type == TraceEventType.TOOL_DISPATCH:
+                        t_name = e.data.get("tool_name", e.action)
+                        tool_counts[t_name] = tool_counts.get(t_name, 0) + 1
+                total_tools = sum(tool_counts.values())
+            except Exception:
+                pass
+
+        # Token stats
+        t_in = getattr(self, "total_input_tokens", 0)
+        t_out = getattr(self, "total_output_tokens", 0)
+        total_tokens = t_in + t_out
+
+        # Engaged agents
+        agents = sorted({m.get("agent_name") for m in messages if m.get("agent_name")})
+        agents_str = (
+            ", ".join(f"@{a}" for a in agents)
+            if agents
+            else f"@{getattr(self, 'current_agent', 'sago')}"
+        )
+
+        # Tool breakdown
+        if tool_counts:
+            sorted_tools = sorted(tool_counts.items(), key=lambda x: x[1], reverse=True)[:4]
+            tools_breakdown = ", ".join(f"{t} ({cnt})" for t, cnt in sorted_tools)
+            if len(tool_counts) > 4:
+                tools_breakdown += f", +{len(tool_counts) - 4} more"
+        else:
+            tools_breakdown = "0 calls"
+
         import sys
 
-        print(f"\nSession saved: {sid} ({msg_count} messages)", file=sys.stderr)
-        print(f"Resume: sago tui --resume {sid}", file=sys.stderr)
-        print(f"Or: /load {sid}", file=sys.stderr)
+        print("\n" + "━" * 60, file=sys.stderr)
+        print(f"📊 SAGO SESSION SUMMARY ({sid})", file=sys.stderr)
+        print("━" * 60, file=sys.stderr)
+        print(
+            f"• Total Queries  : {user_queries} user turns ({total_messages} messages)",
+            file=sys.stderr,
+        )
+        print(f"• Specialist(s)  : {agents_str}", file=sys.stderr)
+        print(f"• Tool Calls     : {total_tools} total [{tools_breakdown}]", file=sys.stderr)
+        print(
+            f"• Token Usage    : {total_tokens:,} tokens ({t_in:,} in, {t_out:,} out)",
+            file=sys.stderr,
+        )
+        print(f"• Resume Command : sago tui --resume {sid}  (or /load {sid})", file=sys.stderr)
+
+        if dev_artifacts_info:
+            print("━" * 60, file=sys.stderr)
+            print("\n".join(dev_artifacts_info), file=sys.stderr)
+
+        print("━" * 60 + "\n", file=sys.stderr)
         self.exit()
 
     def _detach_session(self: SagoApp) -> None:
@@ -703,26 +937,72 @@ class CommandHandlers:
                 self._message_store.flush()
             except Exception:
                 pass
+        from sago.engine.prompt_enhancer import generate_session_title
+
+        current_title = getattr(self, "current_session_title", "")
+        if not current_title or current_title in ("TUI Session", "Interactive Session"):
+            self.current_session_title = generate_session_title(self.messages)
+
         try:
             from sago.database import Session, init_db
 
             init_db()
             s = Session(self.current_session_id)
-            s.update(title=f"Session {self.current_session_id[:8]}", status="detached")
+            s.update(title=self.current_session_title, status="detached")
             s.close()
         except Exception:
             pass
 
+        # Auto-export developer mode session artifacts if dev mode is enabled
+        dev_artifacts_info: list[str] = []
+        if getattr(self, "developer_mode", False):
+            try:
+                import os
+                from pathlib import Path
+
+                from sago.tracking.dev_tracer import export_session_dev_artifacts
+
+                artifacts = export_session_dev_artifacts(
+                    session_id=self.current_session_id,
+                    messages=self.messages,
+                    cwd=Path.cwd(),
+                )
+                if artifacts:
+                    dev_artifacts_info.append("📁 [Dev Mode] Session artifacts generated:")
+                    for _, p in artifacts.items():
+                        rel = os.path.relpath(p, os.getcwd()) if os.path.exists(p) else p
+                        dev_artifacts_info.append(f"   ↳ {rel}")
+            except Exception:
+                pass
+
         sid = self.current_session_id[:8]
+        messages = list(getattr(self, "messages", []))
+        user_queries = sum(1 for m in messages if m.get("role") == "user")
+        total_messages = len(messages)
+        t_in = getattr(self, "total_input_tokens", 0)
+        t_out = getattr(self, "total_output_tokens", 0)
+        total_tokens = t_in + t_out
+
         import sys
 
         print("\n" + "=" * 60, file=sys.stderr)
-        print(f"[bold green]✓ SAGO DETACHED SUCCESSFULLY[/] (Session: {sid})", file=sys.stderr)
+        print(f"✓ SAGO DETACHED SUCCESSFULLY (Session: {sid})", file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+        print(
+            f"• Total Queries  : {user_queries} user turns ({total_messages} messages)",
+            file=sys.stderr,
+        )
+        print(
+            f"• Token Usage    : {total_tokens:,} tokens ({t_in:,} in, {t_out:,} out)",
+            file=sys.stderr,
+        )
         print("All background agent tasks and processes remain running.", file=sys.stderr)
-        print("You can safely close this terminal tab.", file=sys.stderr)
         print("-" * 60, file=sys.stderr)
         print(f"To reattach anytime, run:  sago attach {sid}", file=sys.stderr)
         print(f"                      or:  sago tui --resume {sid}", file=sys.stderr)
+        if dev_artifacts_info:
+            print("-" * 60, file=sys.stderr)
+            print("\n".join(dev_artifacts_info), file=sys.stderr)
         print("=" * 60 + "\n", file=sys.stderr)
         self.exit()
 
@@ -1005,6 +1285,38 @@ class CommandHandlers:
         except Exception as e:
             self._add_system_message(f"Export failed: {e}")
 
+    def _handle_git_command(self: SagoApp, args: str = "") -> None:
+        """Handle /git [status|diff|log|branch|checkout|commit|...] commands."""
+        parts = args.strip().split(None, 1)
+        subcmd = parts[0].lower() if parts else "status"
+        subargs = parts[1] if len(parts) > 1 else ""
+
+        if subcmd == "status":
+            self._git_status()
+        elif subcmd == "diff":
+            self._git_diff(subargs)
+        elif subcmd == "commit":
+            self._git_commit(subargs)
+        else:
+            try:
+                cmd = ["git", subcmd] + (subargs.split() if subargs else [])
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                out = (r.stdout or "") + ("\n" + r.stderr if r.stderr else "")
+                from rich.markup import escape
+
+                body = f"[bold]git {args}:[/bold]\n{escape(out[:2000])}"
+                container = self.query_one("#messages")
+                container.mount(
+                    Collapsible(
+                        Static(body),
+                        title=f"Git {subcmd.capitalize()}",
+                        collapsed=False,
+                    )
+                )
+                container.scroll_end()
+            except Exception as e:
+                self._add_system_message(f"Git error: {e}")
+
     def _git_status(self: SagoApp) -> None:
         try:
             r = subprocess.run(
@@ -1138,6 +1450,59 @@ class CommandHandlers:
         else:
             self._add_system_message("YOLO MODE OFF - Permissions restored")
 
+    def _handle_perms_command(self: SagoApp, args: str = "") -> None:
+        """Handle /perms subcommand dispatch."""
+        parts = args.strip().split(None, 1)
+        action = parts[0].lower() if parts else "list"
+        param = parts[1].strip() if len(parts) > 1 else ""
+
+        if action in ("allow", "unblock"):
+            self._allow_tool(param)
+        elif action in ("block", "deny"):
+            self._block_tool(param)
+        elif action == "blocked":
+            self._show_permissions("blocked")
+        elif action == "allowed":
+            self._show_permissions("allowed")
+        elif action == "reset":
+            from sago.permissions import get_permission_manager
+
+            pm = get_permission_manager()
+            pm.config.blocked_tools.clear()
+            pm.config.allowed_tools.clear()
+            pm._save_config()
+            self._add_system_message("Tool permissions reset to default.")
+        else:
+            self._show_permissions("")
+
+    def _handle_todo_command(self: SagoApp, args: str = "") -> None:
+        """Handle /todo subcommand dispatch."""
+        parts = args.strip().split(None, 1)
+        action = parts[0].lower() if parts else "list"
+        param = parts[1].strip() if len(parts) > 1 else ""
+
+        if action == "done" and param:
+            self._mark_todo_done(param)
+        elif action == "show" and param:
+            self._show_todo(param)
+        elif action == "done" and not param:
+            self._add_system_message("Usage: /todo done <id>")
+        elif action and action not in ("list", "all"):
+            self._show_todo(action)
+        else:
+            self._show_plan("")
+
+    def _handle_tasks_command(self: SagoApp, args: str = "") -> None:
+        """Handle /tasks subcommand dispatch."""
+        parts = args.strip().split(None, 1)
+        action = parts[0].lower() if parts else "list"
+        param = parts[1].strip() if len(parts) > 1 else ""
+
+        if action == "cancel":
+            self._cancel_task(param)
+        else:
+            self._show_tasks()
+
     def _show_permissions(self: SagoApp, args: str) -> None:
         from sago.permissions import TOOL_RISK_LEVELS, get_permission_manager
 
@@ -1214,12 +1579,40 @@ class CommandHandlers:
             self._add_system_message(f"Already blocked: {tool_name}")
 
     def _show_plan(self: SagoApp, args: str) -> None:
+        raw = args.strip()
+        if raw and raw.lower() not in ("status", "list", "show"):
+            # Interactive planning mode for user task!
+            self._hide_welcome_screen()
+            self._add_to_history(f"/plan {raw}")
+            self._add_user_message(f"/plan {raw}")
+
+            planning_prompt = (
+                f"You are operating in rigorous PLANNING MODE. Create a comprehensive implementation plan for the following task before making any changes:\n\n"
+                f"**Task**: {raw}\n\n"
+                f"Please research the codebase thoroughly and format the plan as follows:\n"
+                f"### 1. Goal & Requirements\n"
+                f"- Clear summary of what will be implemented or resolved.\n\n"
+                f"### 2. Architecture & Proposed File Changes\n"
+                f"- Specific files to create, modify, or delete, including key functions, classes, and logic flow.\n\n"
+                f"### 3. Step-by-Step Execution Plan\n"
+                f"- Numbered, ordered implementation checklist.\n\n"
+                f"### 4. Verification & Testing Plan\n"
+                f"- Exact commands and automated tests to run to verify the solution.\n\n"
+                f"---\n"
+                f"**CRITICAL INSTRUCTION**: Do NOT make code changes or run modifying commands yet. "
+                f"Conclude by asking for the user's review and explicit confirmation (e.g. `Type 'y' or 'proceed' to execute this plan, or provide feedback to refine.`)."
+            )
+            self._process_message(planning_prompt)
+            return
+
         from sago.tasks import TaskStatus, get_task_manager
 
         tm = get_task_manager()
         plan = tm.get_active_plan()
         if not plan:
-            self._add_system_message("No active plan")
+            self._add_system_message(
+                "No active plan in memory.\nUsage: `/plan <task description>` — Researches codebase and generates a step-by-step implementation plan for your review before executing."
+            )
             return
 
         container = self.query_one("#messages")
@@ -1476,22 +1869,31 @@ class CommandHandlers:
             self._add_system_message("Summary: OFF")
 
     def _show_repo_map(self: SagoApp, query: str = "") -> None:
-        """Generate and display compact AST symbol repo map."""
+        """Generate and display compact, structured AST symbol repo map."""
+        from rich.markdown import Markdown
+
         from sago.memory.symbol_graph import SymbolGraph
+        from sago.tui.helpers import create_collapsible
 
         try:
             graph = SymbolGraph()
-            rmap = graph.generate_repo_map(filter_query=query.strip() or None)
-            from sago.tui.helpers import create_collapsible
+            clean_map = graph.generate_clean_tui_map(filter_query=query.strip() or None)
 
             container = self.query_one("#messages")
+            md_widget = Markdown(clean_map, code_theme="monokai")
+            title = (
+                f"Symbol Repo Map ({graph.root_dir.name})"
+                if not query
+                else f"Symbol Repo Map (filter: {query})"
+            )
             container.mount(
                 create_collapsible(
-                    Static(f"```text\n{rmap}\n```"),
-                    title="Symbol Repo Map",
+                    Static(md_widget),
+                    title=title,
                     collapsed=False,
                 )
             )
+            container.scroll_end(animate=False)
         except Exception as e:
             self._add_system_message(f"Error generating repo map: {e}")
 
@@ -1754,6 +2156,71 @@ class CommandHandlers:
         except Exception as e:
             self._add_system_message(f"Error listing plugins: {e}")
 
+    def _handle_mcp_command(self: SagoApp, args: str = "") -> None:
+        """Handle /mcp [list|test|reload] command."""
+        from sago.mcp.manager import get_mcp_manager
+
+        mgr = get_mcp_manager()
+        parts = args.strip().split(None, 1)
+        subcmd = parts[0].lower() if parts else "list"
+        subargs = parts[1].strip() if len(parts) > 1 else ""
+
+        if subcmd in ("reload", "refresh"):
+            mgr._servers.clear()
+            mgr._load_configurations()
+            tools = mgr.get_mcp_tools()
+            self._add_system_message(
+                f"🔄 MCP Servers reloaded: {len(mgr.list_servers())} servers configured, {len(tools)} remote tools bridged."
+            )
+        elif subcmd == "test":
+            if not subargs:
+                self._add_system_message("Usage: `/mcp test <server_name>`")
+                return
+            res = mgr.test_server(subargs)
+            if res.get("success"):
+                t_list = ", ".join(res.get("tools", [])) or "none"
+                self._add_system_message(
+                    f"✅ [bold green]MCP Server '{subargs}' Connected[/bold green]\n"
+                    f"Exposed {res.get('tool_count', 0)} tools: {t_list}"
+                )
+            else:
+                self._add_system_message(
+                    f"❌ [bold red]MCP Server '{subargs}' Connection Failed[/bold red]: {res.get('error')}"
+                )
+        else:
+            servers = mgr.list_servers()
+            tools = mgr.get_mcp_tools()
+            if not servers:
+                self._add_system_message(
+                    "No MCP servers configured.\n"
+                    "Define servers in `.sago/mcp_servers.json` or `~/.sago/mcp_servers.json`:\n"
+                    '```json\n{\n  "mcpServers": {\n    "sqlite": {\n      "command": "uvx",\n      "args": ["mcp-server-sqlite", "--db-path", "test.db"]\n    }\n  }\n}\n```'
+                )
+                return
+            lines = [f"[bold]Configured MCP Servers ({len(servers)}):[/bold]\n"]
+            for s in servers:
+                target = s.url if s.url else f"{s.command} {' '.join(s.args)}"
+                status = "[green]ENABLED[/green]" if s.enabled else "[dim]DISABLED[/dim]"
+                lines.append(
+                    f"  • [bold cyan]{s.name:<16}[/bold cyan] {status} - [dim]{target}[/dim]"
+                )
+
+            if tools:
+                lines.append(f"\n[bold green]Bridged MCP Tools ({len(tools)}):[/bold green]")
+                for t in tools:
+                    lines.append(f"  • [bold yellow]{t.name:<24}[/bold yellow] {t.description}")
+
+            lines.append("\n[dim]Commands: /mcp test <server> | /mcp reload[/dim]")
+            container = self.query_one("#messages")
+            container.mount(
+                Collapsible(
+                    Static("\n".join(lines)),
+                    title=f"MCP Servers ({len(servers)} configured, {len(tools)} tools)",
+                    collapsed=False,
+                )
+            )
+            container.scroll_end()
+
     def _set_theme(self: SagoApp, name: str) -> None:
         """Switch or list available TUI color themes."""
         from sago.tui.models import THEMES as themes
@@ -1834,13 +2301,13 @@ class CommandHandlers:
                 "[bold red] ⚡ SAGO DEVELOPER MODE ACTIVATED                             [/bold red]\n"
                 "  • [bold cyan]Deep Tracing[/bold cyan]: LLM payloads, token metrics, exact tool parameters\n"
                 "  • [bold magenta]Telemetry[/bold magenta]: Microsecond function duration & state transitions\n"
-                "  • [bold yellow]Commands[/bold yellow]: `/dev logs` | `/dev traces` | `/dev export [file]` | `/dev off`"
+                "  • [bold yellow]Commands[/bold yellow]: `/dev logs` | `/dev traces` | `/dev export <file>` | `/dev off`"
             )
             self._add_system_message(msg)
         elif action in ("off", "disable", "0", "false"):
             self.developer_mode = False
             tracer.set_enabled(False)
-            self._add_system_message("⚡ [dim][DEV MODE OFF][/dim] Developer diagnostics disabled.")
+            self._add_system_message("⚡ [dim](DEV MODE OFF)[/dim] Developer diagnostics disabled.")
         elif action in ("export", "save"):
             parts_export = subarg.split()
             export_type = parts_export[0].lower() if parts_export else "json"
@@ -1870,11 +2337,17 @@ class CommandHandlers:
                 fmt = "md" if subarg.endswith(".md") else "json"
                 success, res = tracer.export_traces(file_path=subarg or None, format=fmt)
                 if success:
+                    from rich.markup import escape
+
                     self._add_system_message(
-                        f"● [bold green]Traces Exported Successfully[/bold green]:\n  `{res}`"
+                        f"● [bold green]Traces Exported Successfully[/bold green]:\n  `{escape(str(res))}`"
                     )
                 else:
-                    self._add_system_message(f"● [bold red]Export Failed[/bold red]: {res}")
+                    from rich.markup import escape
+
+                    self._add_system_message(
+                        f"● [bold red]Export Failed[/bold red]: {escape(str(res))}"
+                    )
         elif action in ("clear", "reset"):
             tracer.clear()
             self._add_system_message("⚡ Developer trace telemetry buffer cleared.")
@@ -1898,13 +2371,15 @@ class CommandHandlers:
                 self._add_system_message("⚡ No developer traces recorded yet.")
                 return
 
+            from rich.markup import escape
+
             lines = ["[bold red]═══ SAGO DEVELOPER EXECUTION TRACES ═══[/bold red]"]
             for t in traces:
-                lines.append(f"  {t.format_line()}")
+                lines.append(f"  {escape(t.format_line())}")
                 if t.data:
-                    data_str = ", ".join(f"{k}={str(v)[:80]}" for k, v in t.data.items())
+                    data_str = ", ".join(f"{k}={escape(str(v)[:80])}" for k, v in t.data.items())
                     lines.append(f"    [dim]↳ data: {data_str}[/dim]")
-            lines.append("\n[dim]To export to file: /dev export [filepath.json|filepath.md][/dim]")
+            lines.append("\n[dim]To export to file: /dev export <filepath.json|filepath.md>[/dim]")
             self._add_system_message("\n".join(lines))
         else:
             # Toggle mode
@@ -1915,7 +2390,7 @@ class CommandHandlers:
                 "[bold red]ENABLED[/bold red]" if self.developer_mode else "[dim]DISABLED[/dim]"
             )
             self._add_system_message(
-                f"⚡ Developer Mode is now {state_str}.\nUsage: `/dev [on|off|logs|traces|export|clear]`"
+                f"⚡ Developer Mode is now {state_str}.\nUsage: `/dev <on|off|logs|traces|export|clear>`"
             )
 
     def _handle_checkpoint_command(self: SagoApp, args: str = "") -> None:
@@ -1936,18 +2411,30 @@ class CommandHandlers:
             if not subargs:
                 self._add_system_message("Usage: /checkpoint restore <checkpoint-id>")
                 return
-            success, msg = mgr.restore_checkpoint(subargs.strip())
-            if success:
-                self._add_system_message(f"● [bold green]Restored[/bold green]: {msg}")
+            res = mgr.restore_checkpoint(subargs.strip())
+            if res.get("success"):
+                self._add_system_message(
+                    f"● [bold green]Restored[/bold green]: Successfully restored {res.get('restored_count', 0)} files from {subargs.strip()}"
+                )
             else:
-                self._add_system_message(f"● [bold red]Restore Failed[/bold red]: {msg}")
+                self._add_system_message(
+                    f"● [bold red]Restore Failed[/bold red]: {res.get('error')}"
+                )
+        elif subcmd in ("prune", "clean"):
+            keep = 3
+            if subargs and subargs.strip().isdigit():
+                keep = int(subargs.strip())
+            deleted = mgr.prune_checkpoints(keep_latest=keep)
+            self._add_system_message(
+                f"● [bold green]Checkpoints Pruned[/bold green]: Removed {len(deleted)} old snapshots (retaining newest {keep})"
+            )
         else:
             import time
 
             cps = mgr.list_checkpoints(limit=10)
             if not cps:
                 self._add_system_message(
-                    "No checkpoints found. Create one with: `/checkpoint create [description]`"
+                    "No checkpoints found. Create one with: `/checkpoint create <description>`"
                 )
                 return
             lines = ["[bold cyan]═══ WORKSPACE CHECKPOINTS ═══[/bold cyan]"]
@@ -1956,8 +2443,101 @@ class CommandHandlers:
                 lines.append(
                     f"  • `{cp.checkpoint_id}` - [dim]{t_str}[/dim] ({len(cp.file_paths)} files) - {cp.description}"
                 )
-            lines.append("\n[dim]To restore: /checkpoint restore <id>[/dim]")
+            lines.append(
+                "\n[dim]To restore: /checkpoint restore <id> | To prune: /checkpoint prune <keep>[/dim]"
+            )
             self._add_system_message("\n".join(lines))
+
+    def _handle_clean_command(self: SagoApp, args: str = "") -> None:
+        """Handle /clean and /gc garbage collection command.
+
+        Usage: /clean [mode] [--confirm]
+        Modes: all, cache, backups, checkpoints, db, logs
+        Default: dry-run showing what would be deleted
+        Add --confirm to actually delete
+        """
+        from sago.cleanup import run_cleanup
+
+        args_lower = args.strip().lower() if args else ""
+        confirm = "--confirm" in args_lower
+        mode = args_lower.replace("--confirm", "").strip() or "all"
+
+        clean_cache = mode in ("all", "cache", "caches")
+        clean_backup = mode in ("all", "backups", "backup")
+        clean_chkpt = mode in ("all", "checkpoints", "checkpoint")
+        clean_db = mode in ("all", "db", "database", "sessions")
+        clean_log = mode in ("all", "logs", "log")
+
+        if not any([clean_cache, clean_backup, clean_chkpt, clean_db, clean_log]):
+            clean_cache = clean_backup = clean_chkpt = clean_db = clean_log = True
+
+        # Always do dry-run first to show what would be deleted
+        dry_run_results = run_cleanup(
+            clean_cache=clean_cache,
+            clean_backup=clean_backup,
+            clean_chkpt=clean_chkpt,
+            clean_db=clean_db,
+            clean_log=clean_log,
+            dry_run=True,
+        )
+
+        total_would_delete = sum(r.items_deleted for r in dry_run_results)
+        total_would_reclaim = sum(r.bytes_reclaimed for r in dry_run_results)
+
+        lines = ["[bold cyan]═══ SAGO GARBAGE COLLECTION (DRY RUN) ═══[/bold cyan]"]
+        for r in dry_run_results:
+            if r.items_deleted > 0:
+                lines.append(
+                    f"  • [bold]{r.category}:[/bold] {', '.join(r.details) if r.details else 'No items to clean'}"
+                )
+
+        if total_would_reclaim < 1024 * 1024:
+            rec_str = f"{total_would_reclaim / 1024:.1f} KB"
+        else:
+            rec_str = f"{total_would_reclaim / (1024 * 1024):.2f} MB"
+
+        if total_would_delete == 0:
+            lines.append("\n[bold green]✓ Nothing to clean[/] - database is already optimized.")
+            self._add_system_message("\n".join(lines))
+            return
+
+        lines.append(
+            f"\n[bold yellow]Would delete:[/] {total_would_delete} items, {rec_str} disk space"
+        )
+
+        if not confirm:
+            lines.append("\n[bold]To execute cleanup:[/] /clean {mode} --confirm")
+            self._add_system_message("\n".join(lines))
+            return
+
+        # Execute actual cleanup
+        results = run_cleanup(
+            clean_cache=clean_cache,
+            clean_backup=clean_backup,
+            clean_chkpt=clean_chkpt,
+            clean_db=clean_db,
+            clean_log=clean_log,
+            dry_run=False,
+        )
+
+        total_reclaimed = sum(r.bytes_reclaimed for r in results)
+        total_items = sum(r.items_deleted for r in results)
+
+        lines = ["[bold cyan]═══ SAGO GARBAGE COLLECTION ═══[/bold cyan]"]
+        for r in results:
+            lines.append(
+                f"  • [bold]{r.category}:[/bold] {', '.join(r.details) if r.details else 'Cleaned'}"
+            )
+
+        if total_reclaimed < 1024 * 1024:
+            rec_str = f"{total_reclaimed / 1024:.1f} KB"
+        else:
+            rec_str = f"{total_reclaimed / (1024 * 1024):.2f} MB"
+
+        lines.append(
+            f"\n[bold green]✓ Cleanup complete:[/] {total_items} items purged, [bold cyan]{rec_str}[/bold cyan] disk space reclaimed."
+        )
+        self._add_system_message("\n".join(lines))
 
     def _handle_shortcuts_command(self: SagoApp, args: str = "") -> None:
         """Handle ? / /? / /shortcuts command."""
@@ -2109,3 +2689,22 @@ class CommandHandlers:
                 else "[bold red]hidden[/bold red]"
             )
             self._add_system_message(f"🔘 Bottom action bar is now {state}. (Settings persisted)")
+
+    def _handle_pr_command(self: SagoApp, args: str = "") -> None:
+        """Handle /pr command for automated branch creation and Pull Requests."""
+        title = args.strip() or "Feature updates and verified code changes"
+        self._show_spinner(f"Creating PR: {title}...")
+        try:
+            from sago.tools.vcs.pr_workflow import create_pr_workflow
+
+            res = create_pr_workflow(title=title)
+            self._hide_spinner()
+            if res["success"]:
+                msg = res.get("pr_url") or res.get("message")
+                md_content = res.get("pr_markdown", "")
+                self._add_system_message(f"✓ {msg}\n\n{md_content}")
+            else:
+                self._add_system_message(f"✗ PR workflow failed: {res.get('error')}")
+        except Exception as e:
+            self._hide_spinner()
+            self._add_system_message(f"PR creation error: {e}")

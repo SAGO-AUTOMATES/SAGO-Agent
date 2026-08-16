@@ -2,6 +2,166 @@
 
 All notable changes to the SAGO project are documented in this file.
 
+## [0.1.10] - 2026-08-16
+
+### Added (Hidden Dev Mode, Auto Session Title, Collapsible Enhancement & Highlights Summary)
+- **Intelligent One-Liner Session Title Synthesis (`sago/engine/prompt_enhancer.py`)**:
+  - Automatically synthesizes concise, high-impact session titles based on the user's initial objective and intent (e.g. `Fix authentication token refresh bug in auth.py`, `Explore codebase module topology`, `General greeting & capabilities inquiry`).
+  - Persisted directly to SQLite session database, `chat_export.md`, `trace.md`, `/sessions` list, and terminal summary banners.
+- **Clean Inline Collapsible Prompt Enhancement (`sago/tui/helpers.py`)**:
+  - Rendered directly inside the exchange turn box as a sleek collapsible card with clean typography and minimal emoji clutter, maintaining clear visual hierarchy with user prompt, tool executions, and assistant responses.
+- **Structured Execution Trace Reports (`sago/tracking/dev_tracer.py`)**:
+  - Replaced heavy unformatted JSON dumps in `trace.md` with structured Markdown summaries, latency metrics, and collapsible `<details><summary>View Raw Payload</summary>` inspection blocks.
+- **Robust Typo-Tolerant Greeting & Capability Resolution (`sago/engine/intent_classifier.py`, `sago/engine/prompt_enhancer.py`)**:
+  - Fast-paths conversational greetings (`hellos`, `heya`, `howdy`), capability questions (`what can you do`, `wehta can yiu do`, `skills`), and small talk into lightweight chat context without dumping 30,000-character project instruction files or triggering code synthesis.
+- **Post-Exit Session Highlights Summary Banner (`sago/tui/app.py`, `sago/main.py`)**:
+  - Displays comprehensive session statistics (Session ID, One-Liner Title, Total Queries, Messages, Tool Calls breakdown, In/Out Tokens, Specialist Agents, Resume command, and Dev Mode artifact paths) cleanly to the terminal upon exit or detach.
+- **Hidden Developer Mode Configuration (`~/.sago/`)**:
+  - Configurable via `~/.sago/config.json`, `~/.sago/settings.json`, `~/.sago/config.yaml`, or environment variable `SAGO_DEV_MODE=1` / `SAGO_DEV_MODE=true`.
+  - When enabled, TUI and CLI start with Developer Mode active by default; `F2` live trace inspection and deep telemetry are immediately available.
+- **TUI Home Screen Dev Mode Green Dot Indicator**:
+  - Prominent visual badge (`● Dev Mode ON ─ F2 Dev Traces Active`) displayed directly below the SAGO logo on the welcome home screen.
+- **Automatic Project-Specific Session Artifact Export on Exit**:
+  - Automatically exports full session artifacts to `.sago/data/<session_id>/`:
+    - `chat_export.md`: Complete Markdown formatted transcript with all user, assistant, agent messages, and tool outputs.
+    - `trace.md`: Formatted execution trace with Mermaid interaction graph, call hierarchy, and latency breakdown.
+    - `trace.json`: Full machine-readable event stream and graph nodes/edges.
+  - Informs the user on exit with resume instructions: `sago tui --resume <session_id>` along with paths to all generated artifacts.
+- **Dynamic Multi-Factor Specialist Agent Resolution (`sago/agents/registry.py`)**:
+  - Eliminated hardcoded generic agent defaults; dynamically resolves the optimal specialist from 340+ built-in profiles (e.g. Next.js $\rightarrow$ `nextjs-engineer`, Spring Boot $\rightarrow$ `spring-boot-engineer`, Azure $\rightarrow$ `azure-engineer`, Rust $\rightarrow$ `rust-engineer`, Go $\rightarrow$ `go-engineer`, Terraform $\rightarrow$ `terraform-engineer`, etc.) based on keywords, referenced file extensions (`.tsx`, `.java`, `.rs`, `.go`, `.tf`), and workspace project context.
+
+## [0.1.9] - 2026-08-16
+
+### Added (Dynamic Registry & Intelligent Transparent Prompt Enhancement)
+- **Dynamic Tool Registry (`sago/tools/registry.py`)**:
+  - Replaced hardcoded tool dictionaries with live dynamic discovery across all 69+ tools and 13 categories (`coding`, `file`, `system`, `network`, `shell`, `ssh`, `database`, `session`, `security`, `admin`, `interactive`, `web`, `vcs`).
+  - Dynamic discovery for third-party plugins and bridged Model Context Protocol (MCP) tools.
+  - Interactive parameter and argument schema extraction for `sago tools <tool_name>`.
+- **Dynamic Help System (`sago help`)**:
+  - Categorized CLI dashboard showing live agent counts, dynamic tool counts, skills, plugins, and active models.
+  - Subcommand parameter inspection with fuzzy matching suggestions for mistyped commands.
+- **Intelligent Context-Adaptive Prompt Enhancer (`sago/engine/prompt_enhancer.py`)**:
+  - Automatically synthesizes core objectives, detects workspace targets/files, and injects acceptance criteria and domain constraints without requiring users to write "perfect prompts".
+  - **Comprehensive Real-World Trigger Coverage**: Handles bug troubleshooting (`why is this not working`, `it crashes`, `500 error`), architecture/codebase exploration (`projects`, `project structure`, `how does X work`), performance optimization (`this feels slow`, `memory leak`), code cleanup (`clean this up`), DevOps (`how do I run this`, `dockerize`), and QA testing (`pytest`).
+  - **Zero-Token Local Overhead**: Completely local, deterministic, and fast-path cached; internal enhancer logs and metadata never pollute the main LLM payload.
+- **Selective Context Assembly for Conversational Queries (`sago/engine/context_assembler.py`)**:
+  - For casual chat, weather questions, greetings, and general explanations, heavy repository scans, Git status diffs, AST symbol maps, RAG chunks, and `.sago/instructions.md` dumps are automatically omitted.
+- **Transparent TUI Prompt Enhancement Cards (`sago/tui/helpers.py`)**:
+  - Mounted directly in active exchange turns in the Textual TUI (`/delegate`, `/chain`, and chat), displaying synthesized goals, detected files, verification criteria, and the exact injected prompt.
+- **Developer Telemetry Integration (`sago/tracking/dev_tracer.py`)**:
+  - Emits `PROMPT_ENHANCED` trace events exportable to OpenTelemetry, Prometheus, JSON, and Markdown formats.
+
+### Fixed (Critical Bugs)
+- **RAG Context Layer Completely Broken** (`sago/engine/context_assembler.py:202-208`):
+  - `getattr(r, "file_path")` always returned `""` because `HybridSearchResult` stores data in `r.chunk`, not directly on `r`.
+  - Fixed to use `r.chunk.file_path` and `r.chunk.content`. The entire RAG code snippet injection pipeline is now functional.
+- **Thread Safety in Project Graph** (`sago/memory/project_graph.py:260`):
+  - `self._lock` was declared but never acquired. Concurrent `build_graph()` calls corrupted shared `self.edges` and `self.nodes` dicts.
+  - Merge loop now wrapped in `with self._lock:` for thread-safe parallel access.
+- **Dead Code in Symbol Index** (`sago/memory/symbol_index.py:275-293`):
+  - Unreachable code after `finally: conn.close()` block referenced closed variables.
+  - Removed dead code; function now returns cleanly.
+
+### Enhanced (Language Support)
+- **20 Languages Now Supported** (was 6):
+  - Added Ruby (`.rb`), PHP (`.php`), Kotlin (`.kt`), Scala (`.scala`), Swift (`.swift`), C# (`.cs`), Dart (`.dart`), Elixir (`.ex`, `.exs`), Lua (`.lua`) regex parsers in `symbol_graph.py`.
+  - Added all new extensions to `project_graph.py` candidate discovery, language detection, and file scanning.
+- **Java Parser Added** (`sago/memory/project_graph.py`):
+  - New `_parse_java_local()` method extracts `import` edges, class/interface/enum symbols, and method definitions with `@*Mapping` endpoint detection (Spring Boot).
+- **C++ Parser Added** (`sago/memory/project_graph.py`):
+  - New `_parse_cpp_local()` method extracts `#include` edges, namespace/class/struct symbols, and function definitions.
+- **Go Import Edge Parsing** (`sago/memory/project_graph.py`):
+  - `_parse_go_rust_local()` now extracts `import` block and single-line `import` statements, creating edges to `module:` nodes.
+- **Rust Import Edge Parsing** (`sago/memory/project_graph.py`):
+  - `_parse_go_rust_local()` now extracts `use` statements, creating edges to `module:` nodes.
+- **JS/TS Import Resolution** (`sago/memory/project_graph.py`):
+  - Relative imports (`./utils`, `../lib`) now resolve to actual `file:` nodes when the target file exists.
+  - External package imports store only the package root name (e.g., `module:react`).
+
+### Enhanced (Python AST Parser)
+- **Nested Class Support** (`sago/memory/symbol_graph.py`):
+  - Recursive extraction of nested classes via `_extract_class()` helper.
+- **Type Annotations in Signatures** (`sago/memory/symbol_graph.py`):
+  - Signatures now show `x: int, y: str = "hello"` instead of just `x, y`.
+- **Decorator Distinction** (`sago/memory/symbol_graph.py`):
+  - `@property`, `@staticmethod`, `@classmethod` now have distinct `symbol_type` values instead of generic `"method"`.
+- **Dataclass Field Extraction** (`sago/memory/symbol_graph.py`):
+  - `@dataclass` class fields (annotated assignments) extracted as `"field"` child symbols.
+
+### Enhanced (Architecture & Classification)
+- **Multi-Signal Architecture Classification** (`sago/memory/project_graph.py`):
+  - Replaced naive substring matching with priority cascade: directory name (strongest) → path substring (fallback).
+  - Eliminates false positives like `utils/api_helper.py` → "Presentation".
+- **Expanded Endpoint Detection** (`sago/memory/project_graph.py`):
+  - Added `@blueprint.route`, `@api_view`, `@api.route`, `.route(`, `.api_route(`, `@controller`, `@action` for Flask/Django/Express/FastAPI.
+- **Data Model False Positive Reduction** (`sago/memory/project_graph.py`):
+  - Changed from `"model" in name.lower()` to exact suffix matching: `*Model`, `*Schema`, `*DTO`, `*Entity`, `*Record`, `*Table`.
+
+### Enhanced (Search & Index)
+- **FTS5 Query Sanitizer Fixed** (`sago/memory/symbol_index.py`):
+  - Preserves dotted names: `os.path.join` → searches `os* AND path* AND join*` instead of stripping dots.
+- **Symbol Index Update Cooldown** (`sago/memory/symbol_index.py`):
+  - `update_index()` now has 30-second cooldown instead of running on every `get_ranked_repo_map()` call.
+- **Hybrid Indexer Thread Safety** (`sago/memory/hybrid_indexer.py`):
+  - Global singleton now protected by `threading.Lock()`.
+- **Smart Zero-Match Fallback** (`sago/memory/hybrid_indexer.py`):
+  - Zero-match fallback now uses stratified sampling (max 20 per chunk type) instead of scanning all chunks.
+
+### Enhanced (Monorepo Support)
+- **Workspace Detection** (`sago/memory/project_graph.py`):
+  - Detects npm/yarn/pnpm workspaces (`package.json`), Cargo workspaces (`Cargo.toml [workspace]`), Nx/Turbo/Lerna configs, and pyproject.toml workspaces.
+  - `build_graph()` scans all workspace roots in parallel.
+
+### Enhanced (Token Budget & Overflow)
+- **Token Budget System** (`sago/engine/context_assembler.py`):
+  - New `_TokenBudget` class with priority-based truncation (12K token default limit).
+  - Prevents context overflow by truncating sections by priority.
+- **Mermaid ID Collision Prevention** (`sago/memory/project_graph.py`):
+  - Counter suffix prevents ID collisions when different paths produce the same sanitized ID.
+- **Quote Escaping in Mermaid** (`sago/memory/project_graph.py`):
+  - Labels with `"` now escaped to `'` to prevent Mermaid syntax errors.
+- **Overflow Indicators** (`sago/memory/project_graph.py`):
+  - All truncated renderers now show "... and N more" indicators (ER diagram, flowchart, ASCII tree, LLM blueprint).
+
+## [0.1.7] - 2026-08-16
+
+- **SQLite Checkpoint Store & Multi-Project Snapshot Tracking**:
+  - Checkpoints are now indexed and stored directly in SQLite (`~/.sago/data/sago.db`) with `checkpoints` table and `CheckpointStore`.
+  - Added support for cross-project / external path snapshotting and restoration preserving original absolute paths.
+  - Added proactive pre-modification workspace auto-snapshot notifications in TUI.
+- **Automated MCP Server Manager & Dynamic Tool Bridge (`/mcp`)**:
+  - Added `sago.mcp.manager.MCPManager` to discover standard Claude/Anthropic format `mcpServers` configs across `~/.sago/mcp_servers.json`, `.sago/mcp_servers.json`, and `mcp.json`.
+  - Dynamically bridges remote MCP tools into native Sago `BaseTool` instances with Pydantic argument schemas so agents can call external MCP tools autonomously.
+  - Added `/mcp [list|test|reload]` and `/skills [query|reload]` commands.
+- **Extensibility & Authoring Documentation (`docs/SKILLS_AND_PLUGINS.md`)**:
+  - Comprehensive guide covering `SKILL.md` authoring, Python `BasePlugin` lifecycle hooks, and MCP server configuration.
+- **Deduplicated & Streamlined TUI Slash Command Suite**:
+  - Consolidated 50+ scattered commands into 4 clean, focused categories: Core & Workflow, Agent Orchestration, Code Intelligence & VCS, and Settings & Runtime.
+  - Merged single-action commands into clean subcommands: `/perms [list|allow|block|reset]`, `/todo [list|done]`, `/session [list|save|load|reset]`, `/tasks [list|cancel]`, `/buttons [toggle|on|off]`, and `/graph [arch|process|models|flow|summary]`.
+  - Updated `/help` command reference and interactive shortcuts modal (`F1` / `?`).
+- **Strict Monospace Column Alignment & Zero Emoji Breakage**:
+  - Eliminated variable-width emoji glyphs from autocompletion menus and shortcut sheets.
+  - Standardized fixed-width monospace column padding (`{key:<12}`) for razor-sharp rendering across all terminal emulators and fonts.
+- **Deep Recursive Fuzzy File Autocomplete & Context Injection (`#<file>`)**:
+  - Upgraded `rank_files_smart` with recursive workspace file tree indexing and fast in-memory TTL caching.
+  - Prioritizes Git-modified files (`[mod]`) and displays human-readable file sizes (`53 KB`).
+  - Automatically resolves referenced file paths recursively and injects their code content directly into the LLM prompt context.
+- **Structured AST Repo Map & Automated Topology Priming**:
+  - Implemented `generate_clean_tui_map` in `SymbolGraph` to render structured Markdown cards with line counts and query filtering (`/map [query]`).
+  - Injected topological project graph summaries into `ContextAssembler` when queries touch architecture, dependencies, or data models.
+- **Comprehensive Garbage Collection & Cleanup System (`sago clean`)**:
+  - Implemented `sago.cleanup` module to safely purge stale, unneeded, and regenerable files across `~/.sago` and project `.sago` directories.
+  - Added `sago clean` CLI command (defaulting to `--all`) with rich summary reporting of scanned items, deleted files, and bytes of disk space reclaimed.
+  - Supports fine-grained CLI flags: `--cache`, `--backups`, `--checkpoints`, `--db`, `--logs`, `--days <N>`, `--keep-checkpoints <N>`, `--keep-backups <N>`, and `--dry-run`.
+- **Database Session Garbage Collection & Physical Defragmentation**:
+  - Automatically identifies and purges empty sessions (0 messages or blank whitespace) and noise-only sessions from `~/.sago/data/sago.db`.
+  - Removes orphaned foreign key records and executes SQLite `VACUUM` and `PRAGMA optimize` to reclaim physical disk blocks.
+- **Subsystem Auto-Retention Policies**:
+  - **`ChangeTracker`**: Automatically caps session backup files to 50 files per session and auto-prunes older session backup folders beyond the 10 most recent sessions.
+  - **`CheckpointManager`**: Added `prune_checkpoints()` method and automatic retention capping (retains newest 20 snapshots upon creation).
+- **TUI Maintenance Commands**:
+  - Added `/checkpoint prune [keep]` and `sago checkpoint prune` to easily trim older workspace snapshots.
+
 ## [0.1.6] - 2026-08-15
 
 - **Modular TUI Architecture Decomposition**:

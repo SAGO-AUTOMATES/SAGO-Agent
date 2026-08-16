@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import collections
 import contextlib
+import json
 import logging
 import threading
 import time
@@ -29,6 +30,7 @@ class TraceEventType(StrEnum):
     LLM_THINKING = "LLM_THINKING"
     TOOL_DISPATCH = "TOOL_DISPATCH"
     AGENT_ROUTING = "AGENT_ROUTING"
+    PROMPT_ENHANCED = "PROMPT_ENHANCED"
     LOG_EVENT = "LOG_EVENT"
     STATE_CHANGE = "STATE_CHANGE"
     ERROR = "ERROR"
@@ -331,6 +333,82 @@ class DevTracer:
         lines.append("```")
         return "\n".join(lines)
 
+    def _format_event_markdown(self, idx: int, e: DevTraceEvent) -> list[str]:
+        """Format an individual trace event into clean, professional Markdown."""
+        lines = [
+            f"### Event {idx}: `{e.event_type.value}` ─ {e.action}",
+            f"- **Source**: `{e.source}` | **Status**: {e.status} | **Latency**: {e.duration_ms:.2f}ms",
+        ]
+
+        if not e.data:
+            lines.append("")
+            return lines
+
+        data = e.data
+        if e.event_type == TraceEventType.PROMPT_ENHANCED:
+            lines.append(f"- **Goal**: {data.get('intent', 'N/A')}")
+            if data.get("targets"):
+                lines.append(f"- **Targets**: {', '.join(data.get('targets', []))}")
+            if data.get("improvements"):
+                lines.append(f"- **Improvements**: {', '.join(data.get('improvements', []))}")
+            if data.get("enhanced_prompt"):
+                lines.append(
+                    "\n<details><summary>Enhanced Prompt Content</summary>\n\n```text\n"
+                    + str(data.get("enhanced_prompt", ""))
+                    + "\n```\n</details>"
+                )
+        elif e.event_type == TraceEventType.LLM_RAW_REQUEST:
+            lines.append(f"- **Model**: `{data.get('model', 'unknown')}`")
+            lines.append(
+                f"- **Messages Count**: {data.get('messages_count', len(data.get('messages', [])))}"
+            )
+            lines.append(f"- **Tools Provided**: {data.get('tools_count', 0)}")
+            msgs = data.get("messages", [])
+            last_user = next(
+                (m.get("content") for m in reversed(msgs) if m.get("role") == "user"), None
+            )
+            if last_user:
+                preview = (
+                    str(last_user)[:250] + "..." if len(str(last_user)) > 250 else str(last_user)
+                )
+                lines.append(f"- **Last User Input**: {preview}")
+        elif e.event_type == TraceEventType.LLM_RAW_RESPONSE:
+            lines.append(f"- **Model**: `{data.get('model', 'unknown')}`")
+            usage = data.get("usage", {})
+            lines.append(
+                f"- **Tokens**: {usage.get('tokens_in', 0):,} in, {usage.get('tokens_out', 0):,} out"
+            )
+            resp = str(data.get("response_content", ""))
+            if resp:
+                resp_preview = resp[:300] + "..." if len(resp) > 300 else resp
+                lines.append(f"- **Response Summary**: {resp_preview}")
+            if data.get("thinking"):
+                lines.append(
+                    "\n<details><summary>Model Reasoning / Thinking</summary>\n\n"
+                    + str(data.get("thinking", ""))
+                    + "\n</details>"
+                )
+        elif e.event_type == TraceEventType.TOOL_DISPATCH:
+            lines.append(f"- **Tool**: `{data.get('tool_name', 'tool')}`")
+            if data.get("arguments"):
+                lines.append(f"- **Arguments**: `{json.dumps(data.get('arguments', {}))}`")
+        else:
+            kv_items = [
+                f"- **{k}**: `{v}`"
+                for k, v in data.items()
+                if not isinstance(v, (dict, list)) and len(str(v)) < 120
+            ]
+            if kv_items:
+                lines.extend(kv_items)
+
+        # Place raw JSON in a collapsible block so it never clutters the document
+        lines.append(
+            "\n<details><summary>View Raw Payload</summary>\n\n```json\n"
+            + json.dumps(data, indent=2, default=str)
+            + "\n```\n</details>\n"
+        )
+        return lines
+
     def export_traces(
         self, file_path: str | Path | None = None, format: str = "json"
     ) -> tuple[bool, str]:
@@ -368,13 +446,13 @@ class DevTracer:
                     f"- **Total Events**: {len(events)}",
                     f"- **Export Time**: {time.strftime('%Y-%m-%d %H:%M:%S')}",
                     "",
-                    "## 🗺️ Interaction Graph (Mermaid Flowchart)",
+                    "## Interaction Graph (Mermaid Flowchart)",
                     mermaid_graph,
                     "",
-                    "## 🌲 Call Hierarchy Map",
+                    "## Call Hierarchy Map",
                     ascii_tree,
                     "",
-                    "## 📊 Event Summary",
+                    "## Event Summary",
                     "| Timestamp | Type | Source | Action | Status | Latency |",
                     "| :--- | :--- | :--- | :--- | :--- | :--- |",
                 ]
@@ -385,18 +463,9 @@ class DevTracer:
                         f"| {t_str} | `{e.event_type.value}` | `{e.source}` | `{e.action}` | {e.status} | {dur} |"
                     )
 
-                lines.append("\n## 🔍 Detailed Event Payloads\n")
+                lines.append("\n## Detailed Event Trace Log\n")
                 for idx, e in enumerate(events, 1):
-                    lines.append(
-                        f"### Event {idx}: {e.event_type.value} - {e.source} -> {e.action}"
-                    )
-                    lines.append(f"- **Status**: {e.status}")
-                    lines.append(f"- **Latency**: {e.duration_ms:.2f}ms")
-                    if e.data:
-                        lines.append("```json")
-                        lines.append(json.dumps(e.data, indent=2, default=str))
-                        lines.append("```")
-                    lines.append("")
+                    lines.extend(self._format_event_markdown(idx, e))
 
                 target_path.write_text("\n".join(lines), encoding="utf-8")
             else:
@@ -457,3 +526,87 @@ def get_dev_tracer() -> DevTracer:
 def get_tracer() -> DevTracer:
     """Alias for get_dev_tracer() — backward compatibility."""
     return get_dev_tracer()
+
+
+def export_session_dev_artifacts(
+    session_id: str,
+    messages: list[dict[str, Any]],
+    cwd: str | Path | None = None,
+) -> dict[str, str]:
+    """Export chat_export.md, trace.md, and trace.json to project-specific .sago/data/<session_id>/."""
+    import re
+
+    project_root = Path(cwd) if cwd else Path.cwd()
+    data_dir = project_root / ".sago" / "data" / session_id
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    created_files: dict[str, str] = {}
+
+    # Extract distinct agents involved in session
+    agents_involved = sorted({msg.get("agent_name") for msg in messages if msg.get("agent_name")})
+    agents_summary = ", ".join(f"`@{a}`" for a in agents_involved) if agents_involved else "`@sago`"
+
+    from sago.engine.prompt_enhancer import generate_session_title
+
+    session_title = generate_session_title(messages)
+
+    # 1. Generate rich chat_export.md
+    chat_file = data_dir / "chat_export.md"
+    chat_lines = [
+        f"# 💬 SAGO Session Transcript Export: {session_title}",
+        f"- **Session ID**: `{session_id}`",
+        f"- **Title**: {session_title}",
+        f"- **Export Timestamp**: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- **Total Messages**: {len(messages)}",
+        f"- **Engaged Agents**: {agents_summary}",
+        "",
+        "---",
+        "",
+    ]
+    for idx, msg in enumerate(messages, 1):
+        role = msg.get("role", "unknown").upper()
+        agent = msg.get("agent_name", "")
+        content = msg.get("content", "")
+        t_stamp = msg.get("timestamp")
+        time_str = f" • {time.strftime('%H:%M:%S', time.localtime(t_stamp))}" if t_stamp else ""
+        agent_tag = f" (Agent: `@{agent}`)" if agent else ""
+
+        chat_lines.append(f"### Turn {idx}: {role}{agent_tag}{time_str}\n")
+
+        # Format reasoning / thinking process
+        thinking_match = re.search(
+            r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>", content, re.DOTALL
+        )
+        body = content
+        if thinking_match:
+            thinking_text = thinking_match.group(1).strip()
+            if thinking_text:
+                chat_lines.append(
+                    "<details>\n<summary>🧠 <b>Technical Reasoning & Architectural Analysis</b></summary>\n\n"
+                )
+                chat_lines.append(thinking_text)
+                chat_lines.append("\n\n</details>\n")
+            body = re.sub(
+                r"<(?:thinking|thought)>.*?</(?:thinking|thought)>", "", content, flags=re.DOTALL
+            ).strip()
+
+        chat_lines.append(body)
+        chat_lines.append("\n\n---\n")
+
+    chat_file.write_text("\n".join(chat_lines), encoding="utf-8")
+    created_files["chat_export"] = str(chat_file.resolve())
+
+    # 2. Export trace.md and trace.json
+    tracer = get_dev_tracer()
+    trace_md_file = data_dir / "trace.md"
+    trace_json_file = data_dir / "trace.json"
+
+    ok_md, res_md = tracer.export_traces(trace_md_file, format="md")
+    if ok_md:
+        created_files["trace_md"] = res_md
+
+    ok_json, res_json = tracer.export_traces(trace_json_file, format="json")
+    if ok_json:
+        created_files["trace_json"] = res_json
+
+    return created_files

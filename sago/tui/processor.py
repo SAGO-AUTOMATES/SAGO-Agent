@@ -32,6 +32,25 @@ class MessageProcessorMixin:
 
     def _process_message_thread(self: SagoApp, message: str) -> None:
         """Runs in a background thread — all call_from_thread calls are safe here."""
+        # Direct shell execution escape (!command)
+        clean_msg = message.strip()
+        if clean_msg.startswith("!") and len(clean_msg) > 1:
+            cmd = clean_msg[1:].strip()
+            self.call_from_thread(self._update_spinner, f"Executing: {cmd}")
+            try:
+                import subprocess
+
+                res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
+                out = (res.stdout or "") + ("\n" + res.stderr if res.stderr else "")
+                output_str = f"```bash\n$ {cmd}\n{out.strip()}\n```"
+                self.call_from_thread(self._add_assistant_message, output_str)
+            except Exception as e:
+                self.call_from_thread(self._add_system_message, f"Shell command failed: {e}")
+            finally:
+                self.call_from_thread(self._hide_spinner)
+                self.is_thinking = False
+            return
+
         try:
             cancel_ev = getattr(self, "_active_cancel_event", None)
             effort = EFFORT_LEVELS.get(self.current_effort, EFFORT_LEVELS["medium"])
@@ -91,6 +110,25 @@ class MessageProcessorMixin:
                     },
                 )
 
+                # Assemble rich tri-partite context (AST symbols, hybrid search, learning patterns, previous sessions)
+                task_type = _detect_task_type(message)
+                try:
+                    from sago.engine.context_assembler import get_context_assembler
+
+                    assembler = get_context_assembler()
+                    agent_slug = (
+                        self.current_agent.lower().replace(" ", "-") if self.current_agent else None
+                    )
+                    assembled = assembler.assemble(
+                        task=message,
+                        task_type=task_type,
+                        agent_name=agent_slug,
+                        available_tools=list(tools.keys()),
+                        session_id=self.current_session_id or "default",
+                    )
+                except Exception:
+                    assembled = None
+
                 # Detect project context
                 project_context = _detect_project_context()
                 project_ctx = _get_context()
@@ -109,56 +147,75 @@ class MessageProcessorMixin:
                 if file_context:
                     project_ctx += f"\n\nReferenced files:\n{file_context}"
 
-                # Load learning suggestions
-                learning_suggestion = None
-                try:
-                    from sago.learning import get_learning_store
+                from sago.agents.registry import resolve_specialist_agent
 
-                    ls = get_learning_store()
-                    learning_suggestion = ls.suggest_approach("general", list(tools.keys()))
-                except Exception as e:
-                    logger.debug("Learning suggestion failed: %s", e)
+                active_agent = self.current_agent or "full-stack-engineer"
+                if active_agent in (
+                    "python-engineer",
+                    "developer",
+                    "general-assistant",
+                    "assistant",
+                ):
+                    resolved = resolve_specialist_agent(task=message, default_agent=active_agent)
+                    if resolved and resolved != "general-assistant":
+                        active_agent = resolved
 
                 # Load profile and build prompt
-                profile = _load_agent_profile(self.current_agent.replace("-", " ").title())
-                task_type = _detect_task_type(message)
-                template = PROMPTS.get(task_type, PROMPTS["create"])
-                system_prompt = template.format(
-                    agent_role=self.current_agent.replace("-", " ").title(),
-                    project_ctx=project_ctx,
-                )
-
-                if profile and profile.get("system_prompt"):
-                    system_prompt = profile["system_prompt"]
-
-                # Inject learning suggestion
-                if learning_suggestion:
-                    system_prompt += (
-                        f"\n\n=== PAST SUCCESSFUL APPROACH ===\n"
-                        f"Based on past similar tasks, this approach worked:\n"
-                        f"{learning_suggestion}\n"
-                        f"Consider using a similar approach, but adapt to the current context."
+                profile = _load_agent_profile(active_agent.replace("-", " ").title())
+                if task_type == "chat":
+                    template = PROMPTS.get("chat", PROMPTS["create"])
+                    system_prompt = template.format(
+                        agent_role=active_agent.replace("-", " ").title(),
+                        project_ctx="",
                     )
-
-                # Inject project instructions
-                try:
-                    from sago.memory.project_instructions import (
-                        get_project_instructions,
+                else:
+                    template = PROMPTS.get(task_type, PROMPTS["create"])
+                    system_prompt = template.format(
+                        agent_role=active_agent.replace("-", " ").title(),
+                        project_ctx=project_ctx,
                     )
+                    if profile and profile.get("system_prompt"):
+                        system_prompt = profile["system_prompt"]
 
-                    pi = get_project_instructions()
-                    instructions_prompt = pi.get_for_prompt()
-                    if instructions_prompt:
-                        system_prompt += instructions_prompt
-                except Exception as e:
-                    logger.debug("Project instructions failed: %s", e)
+                # Inject system-level enhancements (learning approach, known fixes, instructions)
+                if assembled and task_type != "chat":
+                    enhancements = assembled.format_system_enhancements()
+                    if enhancements:
+                        system_prompt += f"\n\n{enhancements}"
+                elif task_type != "chat":
+                    try:
+                        from sago.learning import get_learning_store
+
+                        ls = get_learning_store()
+                        learning_suggestion = ls.suggest_approach(task_type, list(tools.keys()))
+                        if learning_suggestion:
+                            system_prompt += (
+                                f"\n\n=== PAST SUCCESSFUL APPROACH ===\n"
+                                f"Based on past similar tasks, this approach worked:\n"
+                                f"{learning_suggestion}\n"
+                                f"Consider using a similar approach, but adapt to the current context."
+                            )
+                    except Exception as e:
+                        logger.debug("Learning suggestion failed: %s", e)
+
+                    try:
+                        from sago.memory.project_instructions import (
+                            get_project_instructions,
+                        )
+
+                        pi = get_project_instructions()
+                        instructions_prompt = pi.get_for_prompt()
+                        if instructions_prompt:
+                            system_prompt += instructions_prompt
+                    except Exception as e:
+                        logger.debug("Project instructions failed: %s", e)
 
                 # TODO system
                 task_plan = None
                 current_todo_index = 0
                 todo_tool_counts: dict[str, int] = {}
 
-                if _is_complex_task(message):
+                if _is_complex_task(message) and task_type != "chat":
                     try:
                         from sago.tasks import TaskStatus, get_task_manager
 
@@ -207,14 +264,33 @@ class MessageProcessorMixin:
                         if cleaned_c:
                             history.append({"role": r, "content": cleaned_c})
 
-                # Retain up to last 16 turns to maintain complete conversational memory
-                if len(history) > 16:
-                    history = history[-16:]
+                from sago.engine.prompt_enhancer import enhance_prompt
+
+                enhancement = enhance_prompt(
+                    task=message,
+                    agent_role=self.current_agent,
+                )
+                if enhancement.was_modified and task_type != "chat":
+                    self.call_from_thread(
+                        self._update_spinner,
+                        f"✨ Enhanced: {enhancement.intent_summary}",
+                    )
+                    self.call_from_thread(
+                        self._add_prompt_enhancement_card,
+                        enhancement,
+                    )
+
+                # Use enhanced structured prompt for engineering requests
+                user_msg_content = (
+                    enhancement.enhanced_prompt
+                    if (task_type != "chat" and enhancement.was_modified)
+                    else message
+                )
 
                 messages = (
                     [{"role": "system", "content": system_prompt}]
                     + history
-                    + [{"role": "user", "content": message}]
+                    + [{"role": "user", "content": user_msg_content}]
                 )
 
                 # Build OpenAI function calling tool definitions
@@ -230,6 +306,7 @@ class MessageProcessorMixin:
                 failed_calls: set[str] = set()
                 executed_calls: set[str] = set()
                 MAX_CUMULATIVE_TOKENS = 40000  # hard cap per message
+                has_created_checkpoint = False
 
                 # Initialize DB stores for this session
                 _tool_usage_store = None
@@ -803,6 +880,41 @@ class MessageProcessorMixin:
                                 ):
                                     clean_args["pattern"] = clean_args["query"]
 
+                                # Proactive pre-modification workspace checkpointing with user notification
+                                if not has_created_checkpoint and name in (
+                                    "write_file",
+                                    "edit_file",
+                                    "multi_edit_file",
+                                    "apply_patch",
+                                    "delete_file",
+                                ):
+                                    try:
+                                        from sago.engine.checkpoint import (
+                                            get_checkpoint_manager,
+                                        )
+
+                                        mgr = get_checkpoint_manager()
+                                        target_fp = clean_args.get("file_path") or clean_args.get(
+                                            "path"
+                                        )
+                                        target_list = (
+                                            [target_fp]
+                                            if target_fp and os.path.exists(target_fp)
+                                            else None
+                                        )
+                                        cp_meta = mgr.create_checkpoint(
+                                            description=f"Snapshot before {name}",
+                                            files=target_list,
+                                        )
+                                        self.call_from_thread(
+                                            self._add_system_message,
+                                            f"🛡️ [bold green]Workspace Snapshot Saved[/bold green]: `{cp_meta.checkpoint_id}` ({len(cp_meta.file_paths)} files)\n"
+                                            f"[dim]Rollback at any time with: `/checkpoint restore {cp_meta.checkpoint_id}` or `/undo`[/dim]",
+                                        )
+                                        has_created_checkpoint = True
+                                    except Exception as e:
+                                        logger.debug("Auto checkpoint failed: %s", e)
+
                                 tool_instance = tool_cls()
                                 result = tool_instance.run(**clean_args)
                                 result_str = str(result)
@@ -1008,7 +1120,7 @@ class MessageProcessorMixin:
                         if test_fix_attempts >= max_test_fix_attempts:
                             self.call_from_thread(
                                 self._add_system_message,
-                                f"❌ Tests still failing after {max_test_fix_attempts} attempts",
+                                f"❌ Tests still failing after {max_test_fix_attempts} attempts. Use `/undo` or `/checkpoint restore` to safely roll back changes.",
                             )
                             break
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import json
 import os
 import re
@@ -11,8 +10,6 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-
-from openai import OpenAI
 
 from sago.tools.base import BaseTool
 
@@ -453,7 +450,7 @@ def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
 
 def _generate_plan_with_llm(
     task: str,
-    client: OpenAI,
+    client: Any,
     model: str,
     tools_desc: str,
 ) -> list[str]:
@@ -511,44 +508,28 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
         return _TOOL_CLASSES
 
     with _tool_discovery_lock:
-        # Double-check after acquiring lock
         if _TOOL_CLASSES and _TOOL_DESCRIPTIONS:
             return _TOOL_CLASSES
 
-        import logging
+        from sago.tools.registry import discover_tools
 
-        _log = logging.getLogger("sago.tools")
-
-        tools_dir = Path(__file__).parent.parent / "tools"
-        for py_file in tools_dir.rglob("*.py"):
-            if py_file.name.startswith("_") or py_file.name == "base.py":
-                continue
-            try:
-                parts = py_file.relative_to(tools_dir).with_suffix("").as_posix().split("/")
-                mod = importlib.import_module(f"sago.tools.{'.'.join(parts)}")
-                for attr in dir(mod):
-                    obj = getattr(mod, attr)
-                    if (
-                        isinstance(obj, type)
-                        and issubclass(obj, BaseTool)
-                        and obj is not BaseTool
-                        and getattr(obj, "name", None)
-                    ):
-                        _TOOL_CLASSES[obj.name] = obj
-            except Exception as e:
-                _log.debug(f"Failed to load tool from {py_file.name}: {e}")
+        discovered = discover_tools()
+        _TOOL_CLASSES = {name: tdef.tool_class for name, tdef in discovered.items()}
 
         lines = []
-        for name, cls in sorted(_TOOL_CLASSES.items()):
-            desc = cls.description or name
+        for name, tdef in sorted(discovered.items()):
+            desc = tdef.description or name
             args = ""
-            if cls.args_model:
-                fields = cls.args_model.model_fields
-                parts = []
-                for fn, fi in fields.items():
-                    req = "REQ" if fi.is_required() else f"={fi.default}"
-                    parts.append(f"{fn}({req})")
-                args = ", ".join(parts)
+            if tdef.args_model:
+                try:
+                    fields = tdef.args_model.model_fields
+                    parts = []
+                    for fn, fi in fields.items():
+                        req = "REQ" if fi.is_required() else f"={fi.default}"
+                        parts.append(f"{fn}({req})")
+                    args = ", ".join(parts)
+                except Exception:
+                    args = ""
             lines.append(f"- {name}({args}): {desc}")
         _TOOL_DESCRIPTIONS = "\n".join(lines)
         return _TOOL_CLASSES
@@ -616,14 +597,15 @@ def _get_context(cwd: str | None = None) -> str:
 
 # Task-specific system prompts (tools are now passed via API, not in text)
 PROMPTS = {
-    "chat": """You are {agent_role}, an expert software engineering AI assistant.
+    "chat": """You are {agent_role}, a helpful, knowledgeable, and friendly AI assistant.
 
 {project_ctx}
 
-- Answer conversational queries, explanations, and follow-ups directly and concisely.
-- Only invoke tools when the user explicitly requests inspecting, editing, or running workspace commands.
+- Answer questions, conversation, weather inquiries, greetings, explanations, and general requests naturally and accurately.
+- Respond conversationally without imposing unsolicited engineering templates or code scaffolding.
+- Only invoke tools if the user explicitly requests inspecting files, executing commands, or performing workspace operations.
 - Never hallucinate tool results or file contents.""",
-    "create": """You are {agent_role}. The user wants you to create or implement code.
+    "create": """You are {agent_role}. The user wants you to create, implement, or modify code and files.
 
 {project_ctx}
 
@@ -631,7 +613,7 @@ PROMPTS = {
 - Write or edit files cleanly with exact code.
 - Verify work and report results honestly without fabricating output.
 - Reply directly without calling tools for simple conversational queries.""",
-    "fix": """You are {agent_role}. The user wants you to fix an issue or bug.
+    "fix": """You are {agent_role}. The user wants you to fix an issue, bug, or error.
 
 {project_ctx}
 
@@ -713,6 +695,68 @@ def execute_agent_task(
     """
     tools = _discover_tools()
 
+    # --- Plugin: on_init hook (once per execution lifecycle) ---
+    try:
+        from sago.plugins.base import get_plugin_manager
+
+        _plugin_ctx = {
+            "task": task,
+            "model": model,
+            "agent_role": agent_role,
+            "cwd": cwd,
+            "session_id": session_id,
+            "tools": list(tools.keys()),
+        }
+        for plugin in get_plugin_manager().discover_plugins():
+            if plugin.meta.enabled:
+                try:
+                    plugin.on_init(_plugin_ctx)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # --- Skill: discover matching skills for this task ---
+    matched_skills = []
+    custom_skills_context = ""
+    try:
+        from sago.skills.loader import SkillLoader
+        from sago.skills.registry import get_skill_registry
+
+        registry = get_skill_registry()
+        matched_skills = registry.find_skills_for_task(task)
+
+        # Also discover custom skills from disk
+        custom_skills = SkillLoader.discover_skills()
+        # Match custom skills by keyword overlap with task
+        task_words = set(task.lower().split())
+        for cs in custom_skills.values():
+            cs_words = set(cs.description.lower().split())
+            name_words = set(cs.name.lower().replace("-", " ").replace("_", " ").split())
+            if task_words & cs_words or task_words & name_words:
+                matched_skills_custom = cs
+                custom_skills_context += f"\n\n{matched_skills_custom.to_prompt_context()}"
+            elif not task_words.isdisjoint(cs_words | name_words):
+                custom_skills_context += f"\n\n{cs.to_prompt_context()}"
+    except Exception:
+        pass
+
+    # --- Plugin: hook_user_message (transform/enrich the prompt) ---
+    try:
+        from sago.plugins.base import get_plugin_manager
+
+        _hook_ctx = {
+            "task_type": _detect_task_type(task),
+            "model": model,
+            "agent_role": agent_role,
+            "cwd": cwd,
+            "matched_skills": [s.name for s in matched_skills],
+        }
+        task = get_plugin_manager().hook_user_message(task, _hook_ctx)
+        enhanced_task = task  # re-sync after plugin transformation
+    except Exception:
+        pass
+
     # Auto-resolve active model, key, and base_url if defaults or empty
     if not api_key or model == "openrouter/free":
         try:
@@ -741,8 +785,42 @@ def execute_agent_task(
         else:
             base_url = "https://openrouter.ai/api/v1"
 
+    from openai import OpenAI
+
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
     start_time = time.time()
+
+    # 1. Automatically enhance prompt with intent, clarity, constraints, and criteria
+    from sago.engine.prompt_enhancer import enhance_prompt
+
+    enhancement = enhance_prompt(
+        task=task,
+        agent_role=agent_role,
+        cwd=cwd,
+    )
+    enhanced_task = enhancement.enhanced_prompt
+
+    if on_thinking and enhancement.improvements:
+        on_thinking(
+            f"✨ Enhanced Prompt: {enhancement.intent_summary} [dim]({', '.join(enhancement.improvements[:3])})[/dim]"
+        )
+
+    # Assemble rich tri-partite context (AST symbols, hybrid search, learning patterns, previous sessions)
+    task_type = _detect_task_type(task)
+    try:
+        from sago.engine.context_assembler import get_context_assembler
+
+        assembler = get_context_assembler(cwd)
+        agent_name_slug = agent_role.lower().replace(" ", "-") if agent_role else None
+        assembled = assembler.assemble(
+            task=enhanced_task,
+            task_type=task_type,
+            agent_name=agent_name_slug,
+            available_tools=list(tools.keys()),
+            session_id=session_id,
+        )
+    except Exception:
+        assembled = None
 
     # Detect existing project context (languages, frameworks, structure)
     project_ctx = _get_context(cwd)
@@ -757,17 +835,6 @@ def execute_agent_task(
         project_ctx += f"\nTest frameworks: {', '.join(project_context['test_frameworks'])}"
     if project_context["package_managers"]:
         project_ctx += f"\nPackage managers: {', '.join(project_context['package_managers'])}"
-
-    # Load learning store for smart suggestions
-    learning_suggestion = None
-    try:
-        from sago.learning import get_learning_store
-
-        ls = get_learning_store()
-        task_type = _detect_task_type(task)
-        learning_suggestion = ls.suggest_approach(task_type, list(tools.keys()))
-    except Exception:
-        pass
 
     # Auto-create todo list for complex tasks
     task_plan = None
@@ -796,12 +863,23 @@ def execute_agent_task(
         except Exception:
             task_plan = None
 
+    # Auto-resolve specialist agent if default or generic agent was supplied
+    if agent_role in ("python-engineer", "developer", "general-assistant", "assistant", "agent"):
+        try:
+            from sago.agents.registry import resolve_specialist_agent
+
+            resolved = resolve_specialist_agent(task=task, cwd=cwd, default_agent=agent_role)
+            if resolved and resolved != "general-assistant":
+                agent_role = resolved
+        except Exception:
+            pass
+
     # Load agent profile metadata
     profile = _load_agent_profile(agent_role)
 
     # Use profile metadata if available
     if profile:
-        if not system_prompt:
+        if not system_prompt and task_type != "chat":
             system_prompt = profile.get("system_prompt", "")
         if profile.get("model_preference"):
             model = profile["model_preference"]
@@ -810,48 +888,92 @@ def execute_agent_task(
         if profile.get("max_iterations") and max_iterations == 30:
             max_iterations = min(profile["max_iterations"], 50)
         # Filter tools to only those the agent knows about
-        if profile.get("tools"):
+        if profile.get("tools") and task_type != "chat":
             agent_tools = {t: tools[t] for t in profile["tools"] if t in tools}
             if agent_tools:
                 tools = agent_tools
 
     # Auto-detect task type and use appropriate prompt
-    # NOTE: project_ctx goes in USER message, not system prompt, to prevent prompt injection
     if not system_prompt:
-        task_type = _detect_task_type(task)
         template = PROMPTS.get(task_type, PROMPTS["create"])
         system_prompt = template.format(
             agent_role=agent_role,
-            project_ctx="",  # Intentionally empty — context goes in user message
+            project_ctx="",  # Context goes in user message
         )
 
-    # Add learning suggestion if available (safe — it's our own data)
-    if learning_suggestion:
+    # --- Skill: inject matched skill context into system prompt ---
+    if matched_skills and task_type != "chat":
+        skill_sections = []
+        for skill in matched_skills[:3]:  # Top 3 matching skills
+            skill_sections.append(f"### Active Skill: {skill.name}\n{skill.description}")
+            if skill.tools:
+                skill_sections.append(f"Recommended tools: {', '.join(skill.tools)}")
+            if skill.steps:
+                steps_text = "\n".join(f"  {i + 1}. {s}" for i, s in enumerate(skill.steps))
+                skill_sections.append(f"Suggested workflow:\n{steps_text}")
+        skill_block = "\n\n".join(skill_sections)
         system_prompt += (
-            f"\n\n=== PAST SUCCESSFUL APPROACH ===\n"
-            f"Based on past similar tasks, this approach worked:\n"
-            f"{learning_suggestion}\n"
-            f"Consider using a similar approach, but adapt to the current context."
+            f"\n\n=== MATCHED SKILL(S) FOR THIS TASK ===\n"
+            f"{skill_block}\n"
+            f"Follow the skill workflow where appropriate, but adapt to the specific context."
         )
 
-    # Add project context hints (safe — controlled strings)
-    if project_context["frameworks"]:
-        system_prompt += (
-            f"\n\n=== EXISTING PROJECT DETECTED ===\n"
-            f"This project uses: {', '.join(project_context['frameworks'])}\n"
-            f"Match the existing style and conventions."
-        )
+    # --- Custom skill: inject SKILL.md instructions ---
+    if custom_skills_context and task_type != "chat":
+        system_prompt += f"\n\n=== CUSTOM SKILL INSTRUCTIONS ===\n{custom_skills_context}"
 
-    # Load project instructions (CLAUDE.md / .sago/instructions.md)
-    try:
-        from sago.memory.project_instructions import get_project_instructions
+    # --- Skill-based tool filtering: restrict tools to skill-defined subset ---
+    if matched_skills and task_type != "chat":
+        # Union of all tools from matched skills
+        skill_tool_names: set[str] = set()
+        for skill in matched_skills:
+            skill_tool_names.update(skill.tools)
+        # Only filter if skill specifies tools and they exist in available tools
+        if skill_tool_names:
+            filtered = {t: tools[t] for t in skill_tool_names if t in tools}
+            if filtered:
+                # Always keep core tools available
+                core_tools = {
+                    "read_file",
+                    "write_file",
+                    "edit_file",
+                    "execute_shell",
+                    "grep_content",
+                }
+                filtered.update({t: tools[t] for t in core_tools if t in tools})
+                tools = filtered
 
-        pi = get_project_instructions(cwd)
-        instructions_prompt = pi.get_for_prompt()
-        if instructions_prompt:
-            system_prompt += instructions_prompt
-    except Exception:
-        pass
+    # Inject system-level enhancements (learning approach, known fixes, project instructions)
+    if assembled and task_type != "chat":
+        system_enhancements = assembled.format_system_enhancements()
+        if system_enhancements:
+            system_prompt += f"\n\n{system_enhancements}"
+    elif task_type != "chat":
+        # Fallback to direct instructions / learning store lookup
+        try:
+            from sago.learning import get_learning_store
+
+            ls = get_learning_store()
+            suggestion = ls.suggest_approach(task_type, list(tools.keys()))
+            if suggestion:
+                system_prompt += (
+                    f"\n\n=== PAST SUCCESSFUL APPROACH ===\n"
+                    f"Based on past similar tasks, this approach worked:\n"
+                    f"{suggestion}\n"
+                    f"Consider using a similar approach, but adapt to the current context."
+                )
+        except Exception:
+            pass
+
+        try:
+            from sago.memory.project_instructions import get_project_instructions
+
+            pi = get_project_instructions(cwd)
+            instructions_prompt = pi.get_for_prompt()
+            if instructions_prompt:
+                system_prompt += instructions_prompt
+        except Exception:
+            pass
 
     # State tracking
     tool_history: list[dict] = []
@@ -874,11 +996,21 @@ def execute_agent_task(
     except Exception:
         tool_usage_store = None
 
-    # Build user message with project context as DATA (not instructions)
-    user_content = task
-    if project_ctx:
+    # Build user message with rich reference data context (read-only)
+    if task_type == "chat":
+        user_content = task
+    elif assembled:
+        context_block = assembled.format_user_context_block()
         user_content = (
-            f"## Project Context (read-only reference data)\n{project_ctx}\n\n## Task\n{task}"
+            f"## Reference Context (read-only workspace data)\n{context_block}\n\n## Task & Plan\n{enhanced_task}"
+            if context_block
+            else enhanced_task
+        )
+    else:
+        user_content = (
+            f"## Project Context (read-only reference data)\n{project_ctx}\n\n## Task & Plan\n{enhanced_task}"
+            if project_ctx
+            else enhanced_task
         )
 
     messages: list[dict[str, Any]] = [
@@ -1130,17 +1262,44 @@ def execute_agent_task(
                         ]
 
                     # Convert OpenAI tools to Google format
+                    # ``google.genai.types.Type`` has grown over SDK versions.
+                    # Resolve optional values defensively so an older SDK can
+                    # still execute tools whose schemas use those JSON types.
+                    gemini_type = google_types.Type
+                    _JSON_TO_GEMINI_TYPE = {
+                        "string": gemini_type.STRING,
+                        "integer": getattr(gemini_type, "INTEGER", gemini_type.STRING),
+                        "number": getattr(gemini_type, "NUMBER", gemini_type.STRING),
+                        "boolean": getattr(gemini_type, "BOOLEAN", gemini_type.STRING),
+                        "array": getattr(gemini_type, "ARRAY", gemini_type.STRING),
+                        "object": gemini_type.OBJECT,
+                    }
                     google_tools = []
                     for tool in openai_tools:
                         func = tool["function"]
                         params = func.get("parameters", {})
-                        properties = {
-                            k: google_types.Schema(
-                                type=google_types.Type.STRING,
-                                description=v.get("description", ""),
+                        properties = {}
+                        for k, v in params.get("properties", {}).items():
+                            prop_type_str = v.get("type", "string")
+                            prop_type = _JSON_TO_GEMINI_TYPE.get(
+                                prop_type_str, google_types.Type.STRING
                             )
-                            for k, v in params.get("properties", {}).items()
-                        }
+                            schema_kwargs: dict[str, Any] = {
+                                "type": prop_type,
+                                "description": v.get("description", ""),
+                            }
+                            # Handle enum for Literal types
+                            if "enum" in v:
+                                schema_kwargs["enum"] = v["enum"]
+                            # Handle array item type
+                            if prop_type == _JSON_TO_GEMINI_TYPE["array"] and "items" in v:
+                                item_type_str = v["items"].get("type", "string")
+                                schema_kwargs["items"] = google_types.Schema(
+                                    type=_JSON_TO_GEMINI_TYPE.get(
+                                        item_type_str, google_types.Type.STRING
+                                    )
+                                )
+                            properties[k] = google_types.Schema(**schema_kwargs)
                         google_tools.append(
                             google_types.FunctionDeclaration(
                                 name=func["name"],
@@ -1413,6 +1572,16 @@ def execute_agent_task(
                             }
                         )
                         continue
+            # --- Plugin: hook_response (transform final response) ---
+            try:
+                from sago.plugins.base import get_plugin_manager
+
+                content = get_plugin_manager().hook_response(
+                    content, {"task": task, "model": model}
+                )
+            except Exception:
+                pass
+
             # ---- Post-execution quality review ----
             quality_issues = _review_output_quality(content, files_created, tool_history)
 
@@ -1522,6 +1691,14 @@ def execute_agent_task(
                         "content": f"[HINT] You've called {name} with similar args {circular_thresh} times in a row.",
                     }
 
+            # --- Plugin: hook_tool_call (intercept/modify args before execution) ---
+            try:
+                from sago.plugins.base import get_plugin_manager
+
+                args = get_plugin_manager().hook_tool_call(name, args)
+            except Exception:
+                pass
+
             if on_tool_call:
                 on_tool_call(name, args)
 
@@ -1555,7 +1732,21 @@ def execute_agent_task(
                     get_continuous_verifier().enqueue_files([fp] if fp else [])
                 except Exception:
                     pass
-                if fp and fp.endswith(".py"):
+                if fp and any(
+                    fp.endswith(ext)
+                    for ext in (
+                        ".py",
+                        ".js",
+                        ".ts",
+                        ".tsx",
+                        ".jsx",
+                        ".go",
+                        ".rs",
+                        ".java",
+                        ".c",
+                        ".cpp",
+                    )
+                ):
                     try:
                         from sago.engine.verifier import ProjectVerifier
 
@@ -1584,6 +1775,14 @@ def execute_agent_task(
 
             if on_tool_result:
                 on_tool_result(name, args, result_str, not is_error)
+
+            # --- Plugin: hook_tool_result (transform result after execution) ---
+            try:
+                from sago.plugins.base import get_plugin_manager
+
+                result_str = str(get_plugin_manager().hook_tool_result(name, result_str))
+            except Exception:
+                pass
 
             content = (
                 f"[ERROR] {name}:\n{result_str}\nTry a different approach."
@@ -1919,6 +2118,14 @@ def execute_agent_task(
                 ["edit_file", "write_file"],
                 f"Fixed tests in {test_fix_attempts} attempts",
             )
+    except Exception:
+        pass
+
+    # --- Plugin: hook_response (transform final response at end of execution) ---
+    try:
+        from sago.plugins.base import get_plugin_manager
+
+        content = get_plugin_manager().hook_response(content, {"task": task, "model": model})
     except Exception:
         pass
 

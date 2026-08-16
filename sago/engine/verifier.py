@@ -449,6 +449,11 @@ _global_verifier: ContinuousVerifier | None = None
 _global_verifier_lock = None
 
 
+def get_project_verifier(root_dir: str | Path | None = None) -> ProjectVerifier:
+    """Helper to instantiate ProjectVerifier."""
+    return ProjectVerifier(root_dir=root_dir)
+
+
 def get_continuous_verifier(root_dir: str | Path | None = None) -> ContinuousVerifier:
     """Singleton getter for the continuous background verifier."""
     global _global_verifier, _global_verifier_lock

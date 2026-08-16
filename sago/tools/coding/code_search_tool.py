@@ -61,6 +61,18 @@ class CodeSearchTool(BaseTool):
             )
 
             if not results:
+                # Fallback to hybrid code search for natural language queries
+                try:
+                    from sago.tools.coding.hybrid_search_tool import HybridSearchTool
+
+                    hybrid = HybridSearchTool()
+                    res = hybrid.execute(
+                        query=query, limit=max_results, directory=path if path != "." else None
+                    )
+                    if res.success and res.output and not res.output.startswith("No matching"):
+                        return res.output
+                except Exception:
+                    pass
                 return f"No results for: {query}"
 
             lines = [f"=== Search Results for: {query} ==="]

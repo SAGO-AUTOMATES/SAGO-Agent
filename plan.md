@@ -157,50 +157,50 @@ Problems:
 
 ### Milestone E — Quality (P2)
 - [x] **E1** Batch verifier enqueues; in-process `py_compile` (`verifier.py:242`, `simple_executor.py:1494`).
-- [ ] **E2** Add a fake/mock LLM provider so integration tests run in CI without keys.
-- [ ] **E3** Consolidate duplicate tools; raise coverage above 55% comfortably; triage mypy errors.
+- [x] **E2** Add a fake/mock LLM provider so integration tests run in CI without keys.
+- [x] **E3** Consolidate duplicate tools; raise coverage above 55% comfortably; triage mypy errors.
 
 ### Milestone F — Security Hardening (P0, NEW from §8.1)
-- [ ] **F1** Fix SQL injection in `sql_schema.py:74,87,94` — parameterize all PRAGMA queries.
-- [ ] **F2** Fix SQL injection in `workflow/templates.py:369` — parameterize `report_type`.
-- [ ] **F3** Fix unsafe `os.fork()` in `daemon.py:115-123` — close FDs before fork, properly share server socket.
-- [ ] **F4** Change daemon default bind from `0.0.0.0` to `127.0.0.1` (`daemon.py:28`).
-- [ ] **F5** Sanitize sudo passwords from tool history/output (`sudo_executor.py:77-83`, `simple_executor.py:1513-1520`).
-- [ ] **F6** Add input validation/sanitization for shell commands (`shell/execute.py`).
+- [x] **F1** Fix SQL injection in `sql_schema.py:74,87,94` — parameterize all PRAGMA queries.
+- [x] **F2** Fix SQL injection in `workflow/templates.py:369` — parameterize `report_type`.
+- [x] **F3** Fix unsafe `os.fork()` in `daemon.py:115-123` — close FDs before fork, properly share server socket.
+- [x] **F4** Change daemon default bind from `0.0.0.0` to `127.0.0.1` (`daemon.py:28`).
+- [x] **F5** Sanitize sudo passwords from tool history/output (`sudo_executor.py:77-83`, `simple_executor.py:1513-1520`).
+- [x] **F6** Add input validation/sanitization for shell commands (`shell/execute.py`).
 
 ### Milestone G — Thread Safety (P0, NEW from §8.2)
-- [ ] **G1** Fix broken double-checked locking in `permissions.py:278-281`.
-- [ ] **G2** Add thread lock to `_error_handler` and `_recovery_manager` singletons (`errors/handler.py:353-358`).
-- [ ] **G3** Add thread lock to `_global_tracker` (`tracking/token_tracker.py:352-360`).
-- [ ] **G4** Add thread lock to `_global_cache` (`cache/intelligent.py:328-338`).
-- [ ] **G5** Add thread lock to `_config_cache` / `_config_cache_key` (`config/loader.py:217-247`).
-- [ ] **G6** Synchronize SQLite connection access in `database.py:32-53` — use `check_same_thread=True` or serialize access.
+- [x] **G1** Fix broken double-checked locking in `permissions.py:278-281`.
+- [x] **G2** Add thread lock to `_error_handler` and `_recovery_manager` singletons (`errors/handler.py:353-358`).
+- [x] **G3** Add thread lock to `_global_tracker` (`tracking/token_tracker.py:352-360`).
+- [x] **G4** Add thread lock to `_global_cache` (`cache/intelligent.py:328-338`).
+- [x] **G5** Add thread lock to `_config_cache` / `_config_cache_key` (`config/loader.py:217-247`).
+- [x] **G6** Synchronize SQLite connection access in `database.py:32-53` — use `check_same_thread=True` or serialize access.
 
 ### Milestone H — Error Visibility (P1, NEW from §8.3)
-- [ ] **H1** Replace all 100+ `except Exception: pass` blocks with at minimum `logger.debug()` or `logger.warning()`.
-- [ ] **H2** Prioritize: `unified.py`, `verifier.py`, `codebase_indexer.py`, `change_tracker.py`, `project_graph.py`, `lsp_client.py`, `simple_executor.py`.
+- [x] **H1** Replace all 100+ `except Exception: pass` blocks with at minimum `logger.debug()` or `logger.warning()`.
+- [x] **H2** Prioritize: `unified.py`, `verifier.py`, `codebase_indexer.py`, `change_tracker.py`, `project_graph.py`, `lsp_client.py`, `simple_executor.py`.
 
 ### Milestone I — Performance (P1, NEW from §8.4)
-- [ ] **I1** Add async I/O for LLM calls (biggest throughput win — current blocking calls freeze TUI).
-- [ ] **I2** Batch DB writes instead of per-tool-call flush (`simple_executor.py:1524-1538`).
-- [ ] **I3** Cache tool discovery results per-project (`simple_executor.py:484-530`).
-- [ ] **I4** Optimize fallback tool search from O(n²) (`errors/handler.py:244-283`).
-- [ ] **I5** Add memory cap / streaming for in-RAM chunk index (`hybrid_indexer.py`).
-- [ ] **I6** Make `_save_cache` incremental instead of full-JSON rewrite (`hybrid_indexer.py`).
+- [x] **I1** Add async I/O for LLM calls (biggest throughput win — current blocking calls freeze TUI).
+- [x] **I2** Batch DB writes instead of per-tool-call flush (`simple_executor.py:1524-1538`).
+- [x] **I3** Cache tool discovery results per-project (`simple_executor.py:484-530`).
+- [x] **I4** Optimize fallback tool search from O(n²) (`errors/handler.py:244-283`).
+- [x] **I5** Add memory cap / streaming for in-RAM chunk index (`hybrid_indexer.py`).
+- [x] **I6** Make `_save_cache` incremental instead of full-JSON rewrite (`hybrid_indexer.py`).
 
 ### Milestone J — Code Quality (P2, NEW from §8.5-8.6)
-- [ ] **J1** Fix mutable default `metadata={}` on `ToolResult` → `field(default_factory=dict)` (`tools/base.py:44`).
-- [ ] **J2** Enforce rate limits in executors (`tracking/token_tracker.py:191-212`).
-- [ ] **J3** Fix connection leak in `symbol_index.py:242-257` — add context manager/try-finally.
-- [ ] **J4** Add timeouts to `while True` loops (`daemon.py:215`, `workflow/engine.py:353`, `main.py:1037`, `mesh.py:258`).
-- [ ] **J5** Fix bounded memory growth in `cache/intelligent.py`, `token_tracker.py`, `errors/handler.py`.
-- [ ] **J6** Extract hardcoded magic numbers to config/constants (`simple_executor.py:268,906,1457-1471,1610-1618`).
-- [ ] **J7** Add graceful degradation for optional LLM deps (`llm/factory.py`, `main.py:595`).
-- [ ] **J8** Fix inconsistent error checking in TUI `_process_message_thread`.
-- [ ] **J9** Fix resource cleanup — context managers for file handles (`daemon.py:130`, `simple_executor.py:338,362`).
-- [ ] **J10** Fix `ToolUsageStore` lifecycle — don't create/flush/discard per tool call (`simple_executor.py:1529-1537`).
-- [ ] **J11** Consolidate duplicate tools: `git_ops`/`git_operations`, `code_search_tool`/`hybrid_search_tool`, `spawn_agent`/`delegate_to_agent`/`agent_delegator`.
-- [ ] **J12** Add input validation for `effort` parameter (`main.py:580`).
+- [x] **J1** Fix mutable default `metadata={}` on `ToolResult` → `field(default_factory=dict)` (`tools/base.py:44`).
+- [x] **J2** Enforce rate limits in executors (`tracking/token_tracker.py:191-212`).
+- [x] **J3** Fix connection leak in `symbol_index.py:242-257` — add context manager/try-finally.
+- [x] **J4** Add timeouts to `while True` loops (`daemon.py:215`, `workflow/engine.py:353`, `main.py:1037`, `mesh.py:258`).
+- [x] **J5** Fix bounded memory growth in `cache/intelligent.py`, `token_tracker.py`, `errors/handler.py`.
+- [x] **J6** Extract hardcoded magic numbers to config/constants (`simple_executor.py:268,906,1457-1471,1610-1618`).
+- [x] **J7** Add graceful degradation for optional LLM deps (`llm/factory.py`, `main.py:595`).
+- [x] **J8** Fix inconsistent error checking in TUI `_process_message_thread`.
+- [x] **J9** Fix resource cleanup — context managers for file handles (`daemon.py:130`, `simple_executor.py:338,362`).
+- [x] **J10** Fix `ToolUsageStore` lifecycle — don't create/flush/discard per tool call (`simple_executor.py:1529-1537`).
+- [x] **J11** Consolidate duplicate tools: `git_ops`/`git_operations`, `code_search_tool`/`hybrid_search_tool`, `spawn_agent`/`delegate_to_agent`/`agent_delegator`.
+- [x] **J12** Add input validation for `effort` parameter (`main.py:580`).
 
 ### Milestone L — TUI Telemetry & Experience Hardening (P0/P1, v0.1.6)
 - [x] **L1** Fix Textual markup injection crash on dynamic dictionary values and unescaped LLM event keys (`trace_viewer.py`).
@@ -584,13 +584,13 @@ query 'cache retry':               736.8 ms  (avg 826.8 ms)
 def _compute_dense_vector(tokens, dim=128):
     vec = [0.0] * dim
     for tok in tokens:
-        ngrams = [tok[i:i+n] for n in (3,4,5) for i in range(len(tok)-n+1)] or [tok]
+        ngrams = [tok[i : i + n] for n in (3, 4, 5) for i in range(len(tok) - n + 1)] or [tok]
         for ng in ngrams:
             h = int(hashlib.md5(ng.encode()).hexdigest(), 16)
             idx = h % dim
-            sign = 1.0 if ((h>>8)&1) else -1.0
+            sign = 1.0 if ((h >> 8) & 1) else -1.0
             vec[idx] += sign
-    norm = math.sqrt(sum(x*x for x in vec))
+    norm = math.sqrt(sum(x * x for x in vec))
     ...
 ```
 This is a hashing/bag-of-character-ngrams trick (±1 per bucket), **not a learned embedding**. It cannot capture semantics. In `hybrid_search_tool.py`, `use_embeddings=False` by default (`:50,:57`) — so by default the "dense" score *is* this hash vector. A real `sentence-transformers` model only loads if `SAGO_HYBRID_EMBEDDINGS=1` *and* the dependency is installed (`:69-88`).

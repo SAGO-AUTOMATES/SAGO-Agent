@@ -203,6 +203,15 @@ class PluginManager:
                     logger.error("Plugin %s failed in on_tool_result: %s", p.meta.name, exc)
         return result
 
+    def hook_response(self, response: str, context: dict[str, Any]) -> str:
+        for p in self._plugins.values():
+            if p.meta.enabled and p.meta.name not in self._disabled:
+                try:
+                    response = p.on_response(response, context)
+                except Exception as exc:
+                    logger.error("Plugin %s failed in on_response: %s", p.meta.name, exc)
+        return response
+
 
 # Global singleton instance
 _plugin_manager: PluginManager | None = None

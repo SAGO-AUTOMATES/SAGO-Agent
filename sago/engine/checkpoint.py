@@ -46,6 +46,44 @@ class CheckpointManager:
         self.root = Path(workspace_root) if workspace_root else Path.cwd()
         self.checkpoints_dir = self.root / ".sago" / "checkpoints"
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
+        # Define allowed paths for external file restoration
+        self._allowed_restore_paths: list[Path] = []
+
+    def add_allowed_restore_path(self, path: Path | str) -> None:
+        """Add a path that external files can be restored to.
+
+        By default, external files can only be restored to paths explicitly
+        added to this list. This prevents arbitrary file writes during restore.
+        """
+        p = Path(path).resolve()
+        if p not in self._allowed_restore_paths:
+            self._allowed_restore_paths.append(p)
+
+    def _validate_restore_path(self, target_path: Path) -> bool:
+        """Validate that a restore target path is allowed.
+
+        Returns True if:
+        1. The path is within the workspace root, OR
+        2. The path is in the allowed restore paths list
+        """
+        resolved = target_path.resolve()
+
+        # Check if within workspace root
+        try:
+            resolved.relative_to(self.root.resolve())
+            return True
+        except ValueError:
+            pass
+
+        # Check if in allowed restore paths
+        for allowed in self._allowed_restore_paths:
+            try:
+                resolved.relative_to(allowed)
+                return True
+            except ValueError:
+                continue
+
+        return False
 
     def create_checkpoint(
         self, description: str, files: list[str | Path] | None = None
@@ -77,19 +115,23 @@ class CheckpointManager:
                         break
 
         for fpath in target_files:
-            abs_path = fpath if fpath.is_absolute() else self.root / fpath
+            abs_path = fpath if fpath.is_absolute() else (self.root / fpath).resolve()
             if not abs_path.is_file():
                 continue
 
             try:
                 rel = abs_path.relative_to(self.root)
+                dest = snap_dir / "data" / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(abs_path, dest)
+                copied_files.append(str(rel))
             except ValueError:
-                rel = abs_path
-
-            dest = snap_dir / "data" / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(abs_path, dest)
-            copied_files.append(str(rel))
+                # External file outside workspace root (e.g. cross-project path)
+                clean_ext_rel = Path(abs_path.as_posix().lstrip("/"))
+                dest = snap_dir / "data" / "_external" / clean_ext_rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(abs_path, dest)
+                copied_files.append(str(abs_path))
 
         meta = CheckpointMeta(
             checkpoint_id=chk_id,
@@ -101,10 +143,68 @@ class CheckpointManager:
         with open(snap_dir / "meta.json", "w", encoding="utf-8") as fp:
             json.dump(meta.to_dict(), fp, indent=2)
 
+        # Record in SQLite database
+        try:
+            from sago.database import CheckpointStore
+
+            cp_store = CheckpointStore()
+            cp_store.record_checkpoint(
+                checkpoint_id=chk_id,
+                description=description,
+                file_paths=copied_files,
+                workspace_root=str(self.root),
+                timestamp=ts,
+            )
+        except Exception as e:
+            logger.debug("Failed to record checkpoint in SQLite: %s", e)
+
         logger.info(
             "Created checkpoint %s with %d files: %s", chk_id, len(copied_files), description
         )
+        # Automatic retention pruning (keep latest 20 by default)
+        try:
+            self.prune_checkpoints(keep_latest=20)
+        except Exception:
+            pass
         return meta
+
+    def prune_checkpoints(
+        self, keep_latest: int = 10, max_age_days: float | None = None
+    ) -> list[str]:
+        """Prune older checkpoints to keep repository size bounded."""
+        if not self.checkpoints_dir.exists():
+            return []
+
+        now = time.time()
+        cutoff_ts = (now - max_age_days * 86400) if max_age_days is not None else None
+
+        snapshots = [d for d in self.checkpoints_dir.iterdir() if d.is_dir()]
+        snapshots.sort(key=lambda p: p.name, reverse=True)
+
+        to_delete: list[Path] = []
+        if max_age_days is not None and cutoff_ts is not None:
+            for snap in snapshots:
+                if snap.stat().st_mtime <= cutoff_ts:
+                    to_delete.append(snap)
+        else:
+            to_delete = snapshots[keep_latest:]
+
+        deleted_ids: list[str] = []
+        for snap in to_delete:
+            try:
+                shutil.rmtree(snap, ignore_errors=True)
+                deleted_ids.append(snap.name)
+                # Remove from SQLite database
+                try:
+                    from sago.database import CheckpointStore
+
+                    CheckpointStore().delete_checkpoint(snap.name)
+                except Exception:
+                    pass
+            except OSError as e:
+                logger.debug("Failed to prune checkpoint %s: %s", snap, e)
+
+        return deleted_ids
 
     def list_checkpoints(self, limit: int = 50) -> list[CheckpointMeta]:
         """List all available snapshots ordered from newest to oldest."""
@@ -136,7 +236,12 @@ class CheckpointManager:
         return results
 
     def restore_checkpoint(self, checkpoint_id: str) -> dict[str, Any]:
-        """Restore all files from a specific snapshot."""
+        """Restore all files from a specific snapshot.
+
+        External files (stored under _external/) are only restored if their
+        target path is within the workspace or in the allowed restore paths list.
+        This prevents arbitrary file writes during restore operations.
+        """
         snap_dir = self.checkpoints_dir / checkpoint_id
         if not snap_dir.exists():
             return {"success": False, "error": f"Checkpoint '{checkpoint_id}' not found."}
@@ -147,20 +252,61 @@ class CheckpointManager:
             return {"success": False, "error": f"Checkpoint data missing for '{checkpoint_id}'."}
 
         restored_files = []
+        skipped_files = []
+        errors = []
+
         for p in data_dir.rglob("*"):
             if p.is_file():
                 rel = p.relative_to(data_dir)
-                dest = self.root / rel
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(p, dest)
-                restored_files.append(str(rel))
+                if "_external" in rel.parts:
+                    # Restore external file back to its original absolute path
+                    ext_idx = rel.parts.index("_external")
+                    orig_abs = Path("/" + "/".join(rel.parts[ext_idx + 1 :]))
 
-        return {
+                    # Validate the restore path is allowed
+                    if not self._validate_restore_path(orig_abs):
+                        skipped_files.append(str(orig_abs))
+                        logger.warning(
+                            "Skipped restoring external file to disallowed path: %s", orig_abs
+                        )
+                        continue
+
+                    try:
+                        orig_abs.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(p, orig_abs)
+                        restored_files.append(str(orig_abs))
+                    except Exception as e:
+                        errors.append(f"Failed to restore {orig_abs}: {e}")
+                        logger.error("Failed to restore external file %s: %s", orig_abs, e)
+                else:
+                    dest = self.root / rel
+                    try:
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(p, dest)
+                        restored_files.append(str(rel))
+                    except Exception as e:
+                        errors.append(f"Failed to restore {rel}: {e}")
+                        logger.error("Failed to restore file %s: %s", rel, e)
+
+        result = {
             "success": True,
             "checkpoint_id": checkpoint_id,
             "restored_count": len(restored_files),
             "files": restored_files,
         }
+
+        if skipped_files:
+            result["skipped"] = skipped_files
+            result["skipped_count"] = len(skipped_files)
+            logger.warning(
+                "Skipped %d external files with disallowed restore paths", len(skipped_files)
+            )
+
+        if errors:
+            result["errors"] = errors
+            result["error_count"] = len(errors)
+
+        return result
 
 
 _GLOBAL_CHECKPOINT_MGR: CheckpointManager | None = None

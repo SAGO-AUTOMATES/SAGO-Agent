@@ -8,12 +8,15 @@ Falls back to CLI tools when LSP servers aren't available.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -496,7 +499,8 @@ class LSPClient:
             for source in self._iter_source_files(root):
                 try:
                     text = source.read_text(encoding="utf-8", errors="replace")
-                except Exception:
+                except Exception as read_err:
+                    logger.debug("LSPClient: Failed to read source file %s: %s", source, read_err)
                     continue
                 for idx, src_line in enumerate(text.split("\n"), 1):
                     if combined.search(src_line):
@@ -508,7 +512,8 @@ class LSPClient:
                         if len(definitions) >= 20:
                             return definitions
             return definitions
-        except Exception:
+        except Exception as e:
+            logger.debug("LSPClient: get_definitions failed: %s", e)
             return []
 
     @staticmethod
@@ -556,7 +561,8 @@ class LSPClient:
             for source in self._iter_source_files(root):
                 try:
                     text = source.read_text(encoding="utf-8", errors="replace")
-                except Exception:
+                except Exception as read_err:
+                    logger.debug("LSPClient: Failed to read source file %s: %s", source, read_err)
                     continue
                 for idx, src_line in enumerate(text.split("\n"), 1):
                     if pattern.search(src_line):
@@ -568,7 +574,8 @@ class LSPClient:
                         if len(references) >= 200:
                             return references
             return references
-        except Exception:
+        except Exception as e:
+            logger.debug("LSPClient: get_references failed: %s", e)
             return []
 
     def get_hover(self, file_path: str, line: int, column: int) -> dict[str, Any] | None:
@@ -597,7 +604,8 @@ class LSPClient:
                     )
                     if 1 <= definition.line <= len(def_text):
                         detail = def_text[definition.line - 1].strip()
-                except Exception:
+                except Exception as read_err:
+                    logger.debug("LSPClient: Failed to read hover definition: %s", read_err)
                     detail = None
                 if detail is not None:
                     if re.search(rf"(?:def|async\s+def)\s+{re.escape(symbol)}\b", detail):
@@ -608,7 +616,8 @@ class LSPClient:
                         kind = "variable"
 
             return {"symbol": symbol, "kind": kind, "detail": detail}
-        except Exception:
+        except Exception as e:
+            logger.debug("LSPClient: get_hover failed: %s", e)
             return None
 
     def get_diagnostics(self, file_path: str) -> list[Diagnostic]:
@@ -619,7 +628,8 @@ class LSPClient:
         """
         try:
             return self.check_types(file_path)
-        except Exception:
+        except Exception as e:
+            logger.debug("LSPClient: get_diagnostics failed: %s", e)
             return []
 
     @staticmethod

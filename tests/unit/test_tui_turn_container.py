@@ -78,7 +78,11 @@ async def test_tui_collapse_command():
 
 
 @pytest.mark.anyio
-async def test_tui_developer_mode(tmp_path: Path):
+async def test_tui_developer_mode(tmp_path: Path, monkeypatch):
+    from sago.settings import save_setting
+
+    monkeypatch.delenv("SAGO_DEV_MODE", raising=False)
+    save_setting("dev_mode", False)
     app = SagoApp()
     async with app.run_test() as pilot:
         assert app.developer_mode is False
@@ -179,3 +183,59 @@ async def test_tui_turn_header_collapse():
         card.toggle_collapse()
         await pilot.pause()
         assert card.is_turn_collapsed is False
+
+
+@pytest.mark.anyio
+async def test_tui_shell_escape_card():
+    from textual.widgets import Collapsible
+
+    app = SagoApp()
+    async with app.run_test() as pilot:
+        # Submit shell escape command !echo test
+        inp = app.query_one("#msg-input")
+        inp.value = "!echo 'hello sago'"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        collapsible = app.query_one(Collapsible)
+        assert collapsible is not None
+        assert "echo 'hello sago'" in str(collapsible.title)
+
+
+@pytest.mark.anyio
+async def test_tui_command_turn_cards():
+    """Verify /delegate, /chain, and /orchestrate mount dedicated command turn cards."""
+    from sago.tui.helpers import ExchangeTurnCard
+
+    app = SagoApp()
+    async with app.run_test() as pilot:
+        # Test delegate command turn card
+        app._add_command_turn(
+            cmd_type="delegate",
+            content="Optimize query",
+            meta="@database-engineer",
+            tag_label="DELEGATE",
+            tag_color="#bc8cff",
+        )
+        await pilot.pause()
+
+        card = app.query_one(ExchangeTurnCard)
+        assert card is not None
+        assert card.card_type == "delegate"
+        assert card.tag_label == "DELEGATE"
+        assert "exchange-box--delegate" in card.classes
+
+
+@pytest.mark.anyio
+async def test_tui_dev_mode_welcome_screen(monkeypatch):
+    """Verify welcome screen displays green Dev Mode ON indicator when enabled."""
+
+    monkeypatch.setenv("SAGO_DEV_MODE", "true")
+    app = SagoApp()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.developer_mode is True
+
+        welcome = app.query_one("#welcome-screen")
+        dev_badge = welcome.query(".welcome-dev-badge")
+        assert len(dev_badge) >= 1

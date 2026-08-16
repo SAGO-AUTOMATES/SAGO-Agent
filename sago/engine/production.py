@@ -323,7 +323,18 @@ class ProductionEngine:
 
     def _build_chain_input(self, original_task: str, ctx: Any, next_agent: str) -> str:
         """Build a rich input for the next agent in the chain."""
-        parts = [f"## Original Task\n{original_task}"]
+        from sago.engine.prompt_enhancer import enhance_prompt
+
+        enhancement = enhance_prompt(
+            task=original_task,
+            agent_role=next_agent,
+            extra_context=f"Chained Pipeline Step for {next_agent}",
+        )
+
+        parts = [
+            f"## Target Goal & Objective\n{enhancement.intent_summary}",
+            f"## Original Request\n{original_task}",
+        ]
 
         if ctx.completed_agents:
             parts.append("## Previous Agent Results")
@@ -338,9 +349,13 @@ class ProductionEngine:
         if ctx.errors:
             parts.append("## Known Issues\n" + "\n".join(f"- {e}" for e in ctx.errors[-3:]))
 
+        if enhancement.acceptance_criteria:
+            crit_str = "\n".join(f"- {c}" for c in enhancement.acceptance_criteria)
+            parts.append(f"## Acceptance Criteria\n{crit_str}")
+
         parts.append(
             f"## Your Turn as {next_agent}\n"
-            f"Continue the work. Review what has been done and provide your contribution."
+            f"Continue the work. Review what has been done, address open criteria, and provide your specialist contribution."
         )
 
         return "\n\n".join(parts)

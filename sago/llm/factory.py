@@ -22,6 +22,7 @@ def _register_providers() -> None:
         return
 
     from sago.llm.claude import ClaudeProvider
+    from sago.llm.mock import MockLLMProvider
     from sago.llm.ollama import OllamaProvider
     from sago.llm.openai_provider import OpenAIProvider
     from sago.llm.openrouter import OpenRouterProvider
@@ -31,6 +32,7 @@ def _register_providers() -> None:
         "claude": ClaudeProvider,
         "openrouter": OpenRouterProvider,
         "ollama": OllamaProvider,
+        "mock": MockLLMProvider,
     }
 
     try:

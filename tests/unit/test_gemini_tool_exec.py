@@ -136,7 +136,7 @@ def _install_fakes(monkeypatch):
 
     # The OpenAI client is built unconditionally but unused on the gemini path.
     # Stub it so no real credentials / network are needed.
-    monkeypatch.setattr(se, "OpenAI", MagicMock())
+    monkeypatch.setattr("openai.OpenAI", MagicMock())
 
     # Allow every tool call without prompting (mirrors YOLO mode for the test).
     class _FakePM:

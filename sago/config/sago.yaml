@@ -5,7 +5,7 @@
 
 project:
   name: "sago"
-  version: "0.1.6"
+  version: "0.1.7"
   description: "Sophisticated Multi-Agent Orchestration System"
 
 # Master Agent Configuration

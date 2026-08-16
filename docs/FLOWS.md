@@ -38,7 +38,7 @@ flowchart TD
         AgentB -->|Feedback / Review| AgentC["Specialist Agent C (e.g. Code Reviewer)"]
     end
     
-    Swarm --> Tools["🛠️ Tool Matrix (56+ Safe / Risk-Gated Tools)"]
+    Swarm --> Tools["🛠️ Tool Matrix (70 Safe / Risk-Gated Tools)"]
     Tools --> Codebase[("💻 Local Codebase & Workspace")]
     Codebase --> Verifier["🔍 Self-Healing Verifier (Linter, Typecheck, Tests)"]
     
@@ -86,7 +86,7 @@ SAGO employs a 5-layer defensive safety matrix to ensure autonomous execution ne
 | **1. Atomic Checkpoints** | [`sago/engine/checkpoint.py`](file:///mnt/ramdisk/sago/sago/engine/checkpoint.py) | Takes lightweight copy-on-write workspace snapshots before high-risk changes. Enables **1-click instant rollback** (`/checkpoint restore <id>`). |
 | **2. Self-Healing Verifier** | [`sago/engine/verifier.py`](file:///mnt/ramdisk/sago/sago/engine/verifier.py) | Automatically resolves `.venv/bin/*`, `uv run`, `pytest`, `ruff`, `tsc`, `cargo`, and `go vet`. Captures compiler errors and feeds them directly back to agents for autonomous correction. |
 | **3. Recursion & Loop Guards** | [`sago/orchestrator/delegator.py`](file:///mnt/ramdisk/sago/sago/orchestrator/delegator.py) | Enforces maximum delegation depth (`max_depth = 5`) and tracks a `visited_agents` set to block circular ping-pong loops between agents. |
-| **4. Persistent Learning Store** | [`sago/memory/learning_store.py`](file:///mnt/ramdisk/sago/sago/memory/learning_store.py) | Persists proven error fixes and successful strategies across sessions. When an error recurs, `get_known_fixes()` instantly suggests the verified fix. |
+| **4. Persistent Learning Store** | [`sago/learning.py`](file:///mnt/ramdisk/sago/sago/learning.py) | Persists proven error fixes and successful strategies across sessions. When an error recurs, `get_known_fixes()` instantly suggests the verified fix. |
 | **5. Risk-Gated Permissions** | [`sago/permissions.py`](file:///mnt/ramdisk/sago/sago/permissions.py) | Enforces granular risk policies (`SAFE`, `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) with path traversal guards, secret leak detection, and shell sanitization. |
 
 ---
@@ -102,7 +102,7 @@ flowchart TD
     subgraph Context_Tiers["Multi-Tiered Context Assembly"]
         Router -->|1. Structural Outline| SymbolGraph["AST Symbol Graph & Project Graph\n• Dynamic multi-language ASTs & schemas\n• Cross-session persistent disk cache\n• Zero-token architecture topology"]
         Router -->|2. Hybrid Search| HybridSearch["BM25 & Dense Semantic Index\n• Probabilistic BM25 term weighting\n• 128-d zero-dep dense vector similarity\n• AST symbol boosting & code chunking"]
-        Router -->|3. Hierarchical Pyramid| Compactor["3-Tier Hierarchical Pyramid\n• Tier 1: Architectural Goals\n• Tier 2: Working File Deltas\n• Tier 3: High-Fidelity Turns"]
+        Router -->|3. Memory Pyramid| Compactor["4-Tier Hierarchical Memory Pyramid\n• Tier 1: Architectural Goals & Invariants\n• Tier 2: Working File Deltas & Milestones\n• Tier 3: Semantic Distillation Summary\n• Base Tier: High-Fidelity Turns"]
     end
     
     SymbolGraph --> HighDensityPrompt["High-Density Assembled Prompt"]
@@ -115,8 +115,14 @@ flowchart TD
    * Analyzes multi-language ASTs (Python, TypeScript, Rust, Go, SQL, C++) to inject high-level signatures, ER schemas, and file hierarchies directly into prompt headers with cross-session disk caching (`~/.sago/cache/project_graphs/`).
 2. **Hybrid BM25 & Dense Semantic Vector Search (`HybridCodeIndexer` & `HybridSearchTool`)**:
    * Combines probabilistic BM25 rank scoring ($k_1=1.5, b=0.75$) with 128-dimensional dense sub-token vector hashing for sub-second semantic search across 1,000+ files without external cloud vector DBs.
-3. **Hierarchical Context Compactor & Memory Pyramid (`HierarchicalMemoryPyramid` in `sago/memory/compaction.py`)**:
-   * Maintains a 3-tier memory pyramid, saving ~70% token overhead and preventing context exhaustion during complex agent handoffs (`to_state_delta()`).
+3. **4-Tier Hierarchical Memory Pyramid & Auto-Compactor (`HierarchicalMemoryPyramid` in `sago/memory/compaction.py`)**:
+   * **Auto-Compaction Triggers**: Automatically activates when session tokens exceed 80,000 tokens or multi-turn conversational depth exceeds 16 turns, or via manual `/compact`.
+   * **Tier 1 (Architectural Goals & Invariants)**: Retains foundational requirements, user objectives, and design decisions permanently.
+   * **Tier 2 (Working Deltas & Milestones)**: Tracks modified file paths, git diff summaries, and finished todos.
+   * **Tier 3 (Semantic Distillation)**: Condenses verbose intermediate compiler outputs, search logs, and chatter into a concise narrative summary using hybrid LLM or deterministic extractive summarization.
+   * **Base Tier (Working Turns)**: Preserves the most recent 6–8 high-fidelity turns and active tool calls verbatim.
+4. **Deep Recursive Fuzzy File Autocomplete & Context Attachment (`#<file>`)**:
+   * Scans workspace file trees recursively with TTL in-memory caching, prioritizing Git-modified (`[mod]`) files and automatically loading referenced file contents into LLM context.
 
 ---
 
@@ -180,7 +186,7 @@ To allow seamless collaboration between agents without data loss or infinite loo
 
 ## 8. Tool Matrix & Risk-Gated Permission Model
 
-Agents interact with the environment via **56+ production tools** registered under `sago/tools/`. Every tool execution is evaluated by the **Permission Manager** ([`sago/permissions.py`](file:///mnt/ramdisk/sago/sago/permissions.py)):
+Agents interact with the environment via **70 production tools** registered under `sago/tools/`. Every tool execution is evaluated by the **Permission Manager** ([`sago/permissions.py`](file:///mnt/ramdisk/sago/sago/permissions.py)):
 
 | Risk Level | Operations Included | Security Policy |
 | :--- | :--- | :--- |

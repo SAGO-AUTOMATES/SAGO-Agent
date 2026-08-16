@@ -382,3 +382,50 @@ class TestConnectionPool:
         from sago.database import close_thread_connection
 
         close_thread_connection()  # Should not raise
+
+
+class TestCheckpointStore:
+    def test_record_and_get_checkpoint(self):
+        from sago.database import CheckpointStore
+
+        store = CheckpointStore()
+        store.record_checkpoint(
+            checkpoint_id="chk_test_01",
+            description="Unit test snapshot",
+            file_paths=["src/app.py", "src/util.py"],
+            workspace_root="/test/workspace",
+            session_id="session-123",
+        )
+
+        cp = store.get_checkpoint("chk_test_01")
+        assert cp is not None
+        assert cp["id"] == "chk_test_01"
+        assert cp["description"] == "Unit test snapshot"
+        assert cp["file_count"] == 2
+        assert "src/app.py" in cp["file_paths"]
+        assert cp["workspace_root"] == "/test/workspace"
+
+    def test_list_and_delete_checkpoint(self):
+        from sago.database import CheckpointStore
+
+        store = CheckpointStore()
+        store.record_checkpoint(
+            checkpoint_id="chk_list_01",
+            description="Snapshot 1",
+            file_paths=["file1.py"],
+            workspace_root="/ws_a",
+        )
+        store.record_checkpoint(
+            checkpoint_id="chk_list_02",
+            description="Snapshot 2",
+            file_paths=["file2.py"],
+            workspace_root="/ws_a",
+        )
+
+        all_cps = store.list_checkpoints(workspace_root="/ws_a")
+        assert len(all_cps) == 2
+
+        deleted = store.delete_checkpoint("chk_list_01")
+        assert deleted is True
+        assert store.get_checkpoint("chk_list_01") is None
+        assert len(store.list_checkpoints(workspace_root="/ws_a")) == 1
