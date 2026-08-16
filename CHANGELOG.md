@@ -2,7 +2,26 @@
 
 All notable changes to the SAGO project are documented in this file.
 
-## [0.1.8] - 2026-08-16
+## [0.1.9] - 2026-08-16
+
+### Added (Dynamic Registry & Intelligent Transparent Prompt Enhancement)
+- **Dynamic Tool Registry (`sago/tools/registry.py`)**:
+  - Replaced hardcoded tool dictionaries with live dynamic discovery across all 69+ tools and 13 categories (`coding`, `file`, `system`, `network`, `shell`, `ssh`, `database`, `session`, `security`, `admin`, `interactive`, `web`, `vcs`).
+  - Dynamic discovery for third-party plugins and bridged Model Context Protocol (MCP) tools.
+  - Interactive parameter and argument schema extraction for `sago tools <tool_name>`.
+- **Dynamic Help System (`sago help`)**:
+  - Categorized CLI dashboard showing live agent counts, dynamic tool counts, skills, plugins, and active models.
+  - Subcommand parameter inspection with fuzzy matching suggestions for mistyped commands.
+- **Intelligent Context-Adaptive Prompt Enhancer (`sago/engine/prompt_enhancer.py`)**:
+  - Automatically synthesizes core objectives, detects workspace targets/files, and injects acceptance criteria and domain constraints without requiring users to write "perfect prompts".
+  - **Comprehensive Real-World Trigger Coverage**: Handles bug troubleshooting (`why is this not working`, `it crashes`, `500 error`), architecture/codebase exploration (`projects`, `project structure`, `how does X work`), performance optimization (`this feels slow`, `memory leak`), code cleanup (`clean this up`), DevOps (`how do I run this`, `dockerize`), and QA testing (`pytest`).
+  - **Zero-Token Local Overhead**: Completely local, deterministic, and fast-path cached; internal enhancer logs and metadata never pollute the main LLM payload.
+- **Selective Context Assembly for Conversational Queries (`sago/engine/context_assembler.py`)**:
+  - For casual chat, weather questions, greetings, and general explanations, heavy repository scans, Git status diffs, AST symbol maps, RAG chunks, and `.sago/instructions.md` dumps are automatically omitted.
+- **Transparent TUI Prompt Enhancement Cards (`sago/tui/helpers.py`)**:
+  - Mounted directly in active exchange turns in the Textual TUI (`/delegate`, `/chain`, and chat), displaying synthesized goals, detected files, verification criteria, and the exact injected prompt.
+- **Developer Telemetry Integration (`sago/tracking/dev_tracer.py`)**:
+  - Emits `PROMPT_ENHANCED` trace events exportable to OpenTelemetry, Prometheus, JSON, and Markdown formats.
 
 ### Fixed (Critical Bugs)
 - **RAG Context Layer Completely Broken** (`sago/engine/context_assembler.py:202-208`):

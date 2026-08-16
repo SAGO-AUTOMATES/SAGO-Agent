@@ -66,28 +66,36 @@ class PromptEnhancer:
     # Action intent patterns
     _INTENT_MAP = {
         "bug_fix": (
-            r"\b(fix|bug|error|broken|crash|issue|patch|resolve|fail|failing|exception|traceback|leak)\b",
+            r"\b(fix|bug|bugs|error|errors|broken|crash|crashes|issue|issues|patch|resolve|fail|failing|failed|exception|traceback|leak|why\s+(?:is\s+this\s+not\s+working|is\s+it\s+not\s+working|does\s+this\s+fail|am\s+i\s+getting|is\s+it\s+broken)|not\s+working|not\s+starting|hanging)\b",
             "Diagnose, isolate root cause, and implement robust fix with regression prevention",
+        ),
+        "explore_arch": (
+            r"\b(projects?|project\s+structure|codebase|architecture|topology|overview|modules?|layout|where\s+is\s+(?:the\s+config|[\w\-]+)|what\s+projects\s+are\s+in\s+here)\b",
+            "Explore repository architecture, module topology, and components",
+        ),
+        "optimize": (
+            r"\b(optimize|optimization|speed|fast|perf|performance|memory|latency|cache|reduce|benchmark|profile|slow|bottleneck|make\s+it\s+faster)\b",
+            "Profile, identify bottlenecks, and apply efficient optimizations while maintaining correctness",
+        ),
+        "refactor": (
+            r"\b(clean\s+(?:this\s+up|up|the\s+code)|make\s+this\s+cleaner|tidy\s+up|refactor|restructure|reorganize|simplify|modularize|modernize|upgrade)\b",
+            "Refactor code structure for improved modularity, maintainability, and readability without breaking API contracts",
+        ),
+        "test_verify": (
+            r"\b(test|tests|pytest|unittest|verify|check|lint|typecheck|coverage|assert|benchmark|audit|why\s+is\s+(?:test|pytest)\s+failing)\b",
+            "Execute thorough multi-tier verification, assertions, and edge-case testing",
+        ),
+        "devops": (
+            r"\b(docker|k8s|kubernetes|dockerfile|docker-compose|deploy|deployment|ci/cd|pipeline|how\s+(?:do\s+i\s+run\s+this|to\s+run\s+this|to\s+start|to\s+deploy))\b",
+            "Configure environment, containerization, and infrastructure deployment",
         ),
         "feature_create": (
             r"\b(add|create|implement|build|develop|make|write|generate|new|scaffold)\b",
             "Design and implement production-ready capability with complete logic and error handling",
         ),
-        "refactor": (
-            r"\b(refactor|clean|cleanup|restructure|reorganize|simplify|modularize|modernize|upgrade)\b",
-            "Refactor code structure for improved modularity, maintainability, and readability without breaking API contracts",
-        ),
-        "test_verify": (
-            r"\b(test|tests|pytest|verify|check|lint|typecheck|coverage|assert|benchmark|audit)\b",
-            "Execute thorough multi-tier verification, assertions, and edge-case testing",
-        ),
         "doc_explain": (
-            r"\b(document|explain|docs|readme|guide|clarify|comment|architecture)\b",
+            r"\b(document|explain|docs|readme|guide|clarify|comment)\b",
             "Provide accurate, clear, and comprehensive technical documentation and explanations",
-        ),
-        "optimize": (
-            r"\b(optimize|speed|fast|perf|performance|memory|latency|cache|reduce|benchmark|profile)\b",
-            "Profile, identify bottlenecks, and apply efficient optimizations while maintaining correctness",
         ),
         "casual_chat": (
             r"\b(hello|hi|hoi|hey|sup|yo|howdy|greetings|good\s+(?:morning|afternoon|evening)|thanks|thank\s+you|who\s+are\s+you|how\s+are\s+you|what\'?s\s+up|weather|forecast|temperature|joke|jokes|pun|riddle|story|poem)\b",
@@ -280,6 +288,12 @@ class PromptEnhancer:
 
         if category == "bug_fix":
             return f"Diagnose and resolve the reported issue{target_str}: {raw_clean}"
+        elif category == "explore_arch":
+            return f"Explore and analyze codebase architecture and layout{target_str}: {raw_clean}"
+        elif category == "devops":
+            return (
+                f"Configure environment, containerization, or deployment{target_str}: {raw_clean}"
+            )
         elif category == "refactor":
             return f"Refactor and modernize code architecture{target_str}: {raw_clean}"
         elif category == "test_verify":
@@ -300,6 +314,18 @@ class PromptEnhancer:
             criteria.append("Implement a targeted fix that resolves the issue cleanly.")
             criteria.append("Ensure no regressions are introduced into adjacent functionality.")
             criteria.append("Verify fix execution with relevant tests or diagnostics.")
+        elif category == "explore_arch":
+            criteria.append(
+                "Analyze directory structure, project dependencies, and module relationships."
+            )
+            criteria.append("Identify core components, entrypoints, and communication flows.")
+            criteria.append("Provide a clear, structured architecture summary.")
+        elif category == "devops":
+            criteria.append(
+                "Verify environment isolation, configuration files, and script reliability."
+            )
+            criteria.append("Ensure deployment/dockerization scripts execute idempotently.")
+            criteria.append("Provide clear execution steps and verification checks.")
         elif category == "refactor":
             criteria.append("Improve code structure, separation of concerns, and readability.")
             criteria.append("Preserve all existing public APIs, function contracts, and behaviors.")

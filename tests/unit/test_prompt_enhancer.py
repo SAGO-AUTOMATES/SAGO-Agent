@@ -56,12 +56,22 @@ def test_casual_chat_and_weather_not_overwritten(tmp_path):
 
     classifier = get_intent_classifier()
 
-    for chat_query in ["hello", "hoi", "how are you today?", "what's the weather today?", "tell me a joke"]:
+    for chat_query in [
+        "hello",
+        "hoi",
+        "how are you today?",
+        "what's the weather today?",
+        "tell me a joke",
+    ]:
         intent = classifier.classify(chat_query)
-        assert intent.task_type == "chat", f"Query '{chat_query}' was classified as {intent.task_type}, expected 'chat'"
+        assert intent.task_type == "chat", (
+            f"Query '{chat_query}' was classified as {intent.task_type}, expected 'chat'"
+        )
 
         res = enhance_prompt(chat_query, agent_role="python-engineer", cwd=tmp_path)
-        assert res.was_modified is False, f"Query '{chat_query}' should not be modified with code templates"
+        assert res.was_modified is False, (
+            f"Query '{chat_query}' should not be modified with code templates"
+        )
         assert res.enhanced_prompt == chat_query
 
 
@@ -80,3 +90,73 @@ def test_mixed_greeting_with_engineering_task(tmp_path):
     assert res.was_modified is True
     assert "auth.py" in res.target_scope
     assert "bug" in res.intent_summary.lower() or "fix" in res.intent_summary.lower()
+
+
+def test_comprehensive_trigger_scenarios(tmp_path):
+    from sago.engine.intent_classifier import get_intent_classifier
+
+    classifier = get_intent_classifier()
+
+    # Troubleshooting
+    res = classifier.classify("why is this not working")
+    assert res.task_type == "fix"
+
+    res = classifier.classify("it crashes when I click login")
+    assert res.task_type == "fix"
+
+    # Exploration
+    res = classifier.classify("projects in this repository")
+    assert res.task_type == "analyze"
+
+    res = classifier.classify("how does the session manager work")
+    assert res.task_type == "analyze"
+
+    # DevOps
+    res = classifier.classify("how do I run this with docker")
+    assert res.task_type == "devops"
+
+    # QA / Testing
+    res = classifier.classify("why is pytest failing on auth")
+    assert res.task_type == "test"
+
+    # Performance
+    enh = enhance_prompt("this feels slow, optimize memory usage", cwd=tmp_path)
+    assert enh.was_modified is True
+    assert "optimize" in enh.intent_summary.lower() or "profile" in enh.intent_summary.lower()
+
+
+def test_prompt_generator_tool_integration(tmp_path):
+    from sago.tools.admin.prompt_generator import PromptGeneratorTool
+
+    tool = PromptGeneratorTool()
+
+    # Template retrieval
+    tmpl_res = tool._run(operation="template", template_type="coding")
+    assert "software engineer" in tmpl_res.lower()
+
+    # Enhanced custom generation
+    gen_res = tool._run(
+        operation="generate",
+        template_type="debugger",
+        content="fix broken JWT authentication loop in auth.py",
+    )
+    assert "Generated Enhanced Prompt" in gen_res
+    assert "JWT authentication" in gen_res
+    assert "Acceptance Criteria" in gen_res
+
+
+def test_zero_token_local_execution(tmp_path):
+    """Verify that enhance_prompt runs completely locally without external network or LLM calls."""
+    import time
+
+    start = time.perf_counter()
+    res = enhance_prompt(
+        "refactor database connection pool for high concurrency",
+        agent_role="python-engineer",
+        cwd=tmp_path,
+    )
+    duration = time.perf_counter() - start
+
+    assert res.was_modified is True
+    assert duration < 0.05  # Sub-50ms local execution
+    assert "Primary Objective" in res.enhanced_prompt

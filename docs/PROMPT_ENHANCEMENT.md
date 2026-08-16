@@ -103,3 +103,27 @@ fix login error handling
 - Preserve unrelated existing comments and interfaces.
 - Ensure no placeholders or unfinished mock code remain.
 ```
+
+---
+
+## Supported Trigger Scenarios & Natural Phrasing
+
+SAGO's prompt enhancement and intent classifier are not confined to rigid keywords. They dynamically interpret natural engineering phrasing:
+
+| Scenario / Category | Natural Input Examples | Synthesized Intent & Focus |
+|---|---|---|
+| **Failure Troubleshooting** | `"why is this not working"`, `"why does this fail"`, `"it crashes when I click submit"`, `"500 Internal Server Error"` | Isolates failure root causes, inspects stack traces, and implements targeted fixes. |
+| **Codebase Exploration** | `"projects"`, `"what projects are in here"`, `"project structure"`, `"how does X work"`, `"where is config defined"` | Explores repository topology, maps component relationships, and summarizes architecture. |
+| **Performance & Profiling** | `"this feels slow"`, `"make it faster"`, `"is there a memory leak"`, `"profile CPU usage"`, `"bottleneck in query"` | Profiles computational bottlenecks, optimizes memory allocations, and adds benchmarking. |
+| **Refactoring & Cleanup** | `"clean this up"`, `"make this cleaner"`, `"tidy up code"`, `"modularize database handlers"` | Refactors code structure for maintainability while preserving external contracts and tests. |
+| **DevOps & Infrastructure** | `"how do I run this"`, `"how to start"`, `"dockerize this application"`, `"set up CI/CD workflow"` | Configures environment variables, Dockerfiles, docker-compose, and deployment pipelines. |
+| **Testing & Quality Assurance** | `"write pytest tests"`, `"why is test failing"`, `"increase unit test coverage"` | Synthesizes test suites covering happy paths, edge cases, and regression assertions. |
+| **Conversational Inquiries** | `"hello"`, `"hoi"`, `"how are you?"`, `"what's the weather today?"`, `"tell me a joke"` | Bypasses heavy codebase dumping and responds naturally without unsolicited boilerplate. |
+
+---
+
+## Zero-Token Local Overhead & Isolation
+
+1. **Pure Local Semantic Synthesis**: Intent classification and prompt structuring occur locally in `<1ms` without burning remote LLM tokens or introducing API latency.
+2. **Clean Main LLM Payload**: Internal prompt generator/enhancer logs, intermediate decision trees, and metadata are **never injected into the main LLM payload**. Only the clean, distilled task prompt is passed.
+3. **Selective Context Assembly**: Casual chat and general Q&A bypass repository file scanning, AST symbol indexing, and README instruction dumps, keeping token usage minimal.

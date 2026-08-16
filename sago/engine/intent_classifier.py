@@ -263,6 +263,43 @@ class IntentClassifier:
             "branch",
             "benchmark",
             "profile",
+            "session",
+            "sessions",
+            "manager",
+            "service",
+            "handler",
+            "controller",
+            "auth",
+            "authentication",
+            "router",
+            "route",
+            "model",
+            "models",
+            "schema",
+            "schemas",
+            "agent",
+            "agents",
+            "tool",
+            "tools",
+            "middleware",
+            "state",
+            "cache",
+            "query",
+            "module",
+            "modules",
+            "package",
+            "packages",
+            "component",
+            "components",
+            "ui",
+            "tui",
+            "cli",
+            "client",
+            "server",
+            "worker",
+            "thread",
+            "process",
+            "pipeline",
         )
 
         has_file_pattern = bool(
@@ -281,7 +318,100 @@ class IntentClassifier:
             re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in code_intent_words
         )
 
-        # General non-code questions (e.g. "what is the capital of france", "who was albert einstein", "is it raining")
+        # 1. Testing & Quality Assurance (e.g. "why is pytest failing", "run unit tests")
+        test_patterns = (
+            r"\b(test|tests|pytest|unittest|integration\s+test|unit\s+test|coverage|e2e|mock|assert|assertions)\b",
+            r"\b(why\s+is\s+(?:test|pytest|suite)\s+failing)\b",
+        )
+        if any(re.search(p, task_lower) for p in test_patterns):
+            return IntentClassification(
+                task_type="test",
+                needs_tools=True,
+                confidence=0.90,
+                suggested_agent="qa-engineer",
+                rationale="Testing suite execution and validation",
+                source="heuristic",
+            )
+
+        # 2. Bug fixing & failure troubleshooting (e.g. "why is this not working", "it crashes", "why does this fail")
+        troubleshoot_patterns = (
+            r"\b(fix|debug|bug|bugs|error|errors|broken|issue|issues|resolve|patch|failing|failed|crash|crashes|crashing)\b",
+            r"\b(why\s+(?:is\s+this\s+not\s+working|is\s+it\s+not\s+working|does\s+this\s+fail|does\s+it\s+fail|am\s+i\s+getting|is\s+it\s+broken))\b",
+            r"\b(not\s+working|not\s+starting|won\'?t\s+start|infinite\s+loop|hanging|deadlock|segfault|traceback|exception)\b",
+        )
+        if any(re.search(p, task_lower) for p in troubleshoot_patterns):
+            return IntentClassification(
+                task_type="fix",
+                needs_tools=True,
+                confidence=0.92,
+                suggested_agent="debugger",
+                rationale="Troubleshooting and error diagnosis",
+                source="heuristic",
+            )
+
+        # 3. DevOps, Deployment, Docker & Environment Setup (e.g. "how do I run this", "deploy to docker")
+        devops_patterns = (
+            r"\b(docker|k8s|kubernetes|dockerfile|docker-compose|compose|deploy|deployment|ci/cd|pipeline|github\s+actions)\b",
+            r"\b(how\s+(?:do\s+i\s+run\s+this|to\s+run\s+this|to\s+start|do\s+i\s+start|to\s+install|to\s+setup|to\s+deploy))\b",
+            r"\b(provision|terraform|ansible|helm|ingress|nginx|env\s+vars|environment\s+setup)\b",
+        )
+        if any(re.search(p, task_lower) for p in devops_patterns):
+            return IntentClassification(
+                task_type="devops",
+                needs_tools=True,
+                confidence=0.90,
+                suggested_agent="devops-engineer",
+                rationale="Infrastructure and deployment operations",
+                source="heuristic",
+            )
+
+        # 4. Codebase Exploration, Architecture & Code Review (e.g. "projects", "what projects are in here", "how does X work", "compare files")
+        analyze_patterns = (
+            r"\b(projects?|project\s+structure|codebase|architecture|topology|overview|modules?|layout)\b",
+            r"\b(what\s+(?:projects|files|modules|components|apis)\s+(?:are\s+in\s+here|exist|are\s+available))\b",
+            r"\b(how\s+does\s+(?:[\w\-\s]+?)\s+work|where\s+is\s+(?:[\w\-\s]+?)\s+(?:defined|implemented|configured|used))\b",
+            r"\b(explain|analyze|analysis|inspect|review|audit|trace|find\s+where|understand|search\s+for|compare|diff|difference)\b",
+        )
+        if any(re.search(p, task_lower) for p in analyze_patterns):
+            return IntentClassification(
+                task_type="analyze",
+                needs_tools=True,
+                confidence=0.88,
+                suggested_agent="code-reviewer",
+                rationale="Code review, exploration, and architecture analysis",
+                source="heuristic",
+            )
+
+        # 5. Performance Optimization & Profiling (e.g. "this feels slow", "make it faster", "memory leak")
+        optimize_patterns = (
+            r"\b(optimize|optimization|performance|perf|slow|speed\s+up|make\s+it\s+faster|latency|throughput|bottleneck|profiling|profile)\b",
+            r"\b(memory\s+leak|leak|high\s+cpu|memory\s+usage|cache|caching|reduce\s+allocations)\b",
+        )
+        if any(re.search(p, task_lower) for p in optimize_patterns):
+            return IntentClassification(
+                task_type="create",
+                needs_tools=True,
+                confidence=0.88,
+                suggested_agent="python-engineer",
+                rationale="Performance profiling and optimization",
+                source="heuristic",
+            )
+
+        # 6. Refactoring & Code Cleanup (e.g. "clean this up", "make this cleaner")
+        refactor_patterns = (
+            r"\b(clean\s+(?:this\s+up|up|the\s+code)|make\s+this\s+cleaner|tidy\s+up|refactor|restructure|reorganize|simplify|modularize|modernize|upgrade)\b",
+        )
+        if any(re.search(p, task_lower) for p in refactor_patterns):
+            return IntentClassification(
+                task_type="create",
+                needs_tools=True,
+                confidence=0.88,
+                suggested_agent="python-engineer",
+                rationale="Code refactoring and modernization",
+                source="heuristic",
+            )
+
+        # 7. General non-code questions & casual chat (only if no action patterns matched)
         is_general_qa = not has_code and bool(
             re.search(
                 r"^(what|who|when|where|why|how|is|are|was|were|can you tell|tell me)\b",
@@ -299,58 +429,7 @@ class IntentClassifier:
                 source="heuristic",
             )
 
-        if any(
-            re.search(r"\b" + re.escape(w) + r"\b", task_lower)
-            for w in ("fix", "debug", "bug", "error", "broken", "issue", "resolve")
-        ):
-            return IntentClassification(
-                task_type="fix",
-                needs_tools=True,
-                confidence=0.90,
-                suggested_agent="debugger",
-                rationale="Bug fixing and error diagnosis",
-                source="heuristic",
-            )
-
-        if any(
-            re.search(r"\b" + re.escape(w) + r"\b", task_lower)
-            for w in ("test", "pytest", "unit test", "integration test", "coverage")
-        ):
-            return IntentClassification(
-                task_type="test",
-                needs_tools=True,
-                confidence=0.90,
-                suggested_agent="qa-engineer",
-                rationale="Testing suite execution and validation",
-                source="heuristic",
-            )
-
-        if any(
-            re.search(r"\b" + re.escape(w) + r"\b", task_lower)
-            for w in ("docker", "k8s", "kubernetes", "deploy", "ci/cd", "pipeline")
-        ):
-            return IntentClassification(
-                task_type="devops",
-                needs_tools=True,
-                confidence=0.90,
-                suggested_agent="devops-engineer",
-                rationale="Infrastructure and container operations",
-                source="heuristic",
-            )
-
-        if any(
-            re.search(r"\b" + re.escape(w) + r"\b", task_lower)
-            for w in ("explain", "analyze", "describe", "review", "search", "what is", "how does")
-        ):
-            return IntentClassification(
-                task_type="analyze",
-                needs_tools=True,
-                confidence=0.85,
-                suggested_agent="code-reviewer",
-                rationale="Code review and architecture analysis",
-                source="heuristic",
-            )
-
+        # Default fallback: feature creation & code implementation
         return IntentClassification(
             task_type="create",
             needs_tools=True,
