@@ -190,6 +190,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             self.add_class("dev-mode-enabled")
         else:
             self.remove_class("dev-mode-enabled")
+        self._save_settings()
 
     def watch_show_action_bar(self, value: bool) -> None:
         """Dynamically add or remove .hide-action-bar class when action bar toggle changes."""

@@ -806,6 +806,12 @@ class CommandHandlers:
                 self._message_store.flush()
             except Exception:
                 pass
+
+        # Safety net: persist all settings to disk before exit
+        try:
+            self._save_settings()
+        except Exception:
+            pass
         from sago.engine.prompt_enhancer import generate_session_title
 
         current_title = getattr(self, "current_session_title", "")
