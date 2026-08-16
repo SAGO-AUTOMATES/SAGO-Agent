@@ -163,6 +163,26 @@ class SandboxedExecutor:
                     text=True,
                     timeout=timeout,
                 )
+
+                # Check if namespace isolation failed due to permissions
+                if (
+                    use_namespaces
+                    and proc.returncode != 0
+                    and "operation not permitted" in (proc.stderr or "").lower()
+                ):
+                    # Fall back to non-namespace approach
+                    full_cmd = self._build_resource_limited_cmd(cmd_args, sandbox_path)
+                    proc = subprocess.run(
+                        full_cmd,
+                        shell=False,
+                        cwd=str(sandbox_path),
+                        env=safe_env,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                    )
+                    use_namespaces = False
+
                 return {
                     "success": proc.returncode == 0,
                     "stdout": proc.stdout,
