@@ -101,7 +101,7 @@ def test_export_session_dev_artifacts(tmp_path):
     assert trace_json_path.exists()
 
     chat_content = chat_path.read_text(encoding="utf-8")
-    assert "SAGO Session Chat Export" in chat_content
+    assert "SAGO Session Transcript Export" in chat_content
     assert "test_sess_12345" in chat_content
     assert "nextjs-engineer" in chat_content
 

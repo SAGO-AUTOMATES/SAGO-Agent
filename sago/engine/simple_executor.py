@@ -452,7 +452,7 @@ def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
 
 def _generate_plan_with_llm(
     task: str,
-    client: OpenAI,
+    client: Any,
     model: str,
     tools_desc: str,
 ) -> list[str]:
