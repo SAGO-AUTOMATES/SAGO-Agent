@@ -5,26 +5,12 @@ from __future__ import annotations
 import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
 from sago.llm.ollama import OllamaProvider, is_ollama_running
 from sago.main import pr_create
 from sago.tools.vcs.pr_workflow import PRWorkflowTool, create_pr_workflow
-
-
-def _make_passing_verifier():
-    """Create a mock verifier that always passes."""
-    mock_verifier = MagicMock()
-    mock_report = MagicMock()
-    mock_report.passed = True
-    mock_report.linter_passed = True
-    mock_report.typecheck_passed = True
-    mock_report.tests_passed = True
-    mock_report.issues = []
-    mock_verifier.verify_project.return_value = mock_report
-    return mock_verifier
 
 
 def test_ollama_provider_local_models_and_check():
@@ -37,11 +23,8 @@ def test_ollama_provider_local_models_and_check():
     assert isinstance(is_ollama_running("http://127.0.0.1:11434"), bool)
 
 
-@patch("sago.engine.verifier.get_project_verifier")
-def test_pr_workflow_in_git_repo(mock_get_verifier):
+def test_pr_workflow_in_git_repo():
     """Verify PR workflow creates feature branch and formats PR description."""
-    mock_get_verifier.return_value = _make_passing_verifier()
-
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
         subprocess.run(["git", "init"], cwd=str(root), capture_output=True)
@@ -66,6 +49,7 @@ def test_pr_workflow_in_git_repo(mock_get_verifier):
             body="Implements updated response",
             branch="feat/hello-update",
             cwd=str(root),
+            skip_verification=True,
         )
 
         assert res["success"] is True

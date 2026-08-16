@@ -32,6 +32,7 @@ def create_pr_workflow(
     target_branch: str = "main",
     draft: bool = False,
     cwd: str | None = None,
+    skip_verification: bool = False,
 ) -> dict[str, Any]:
     """Automates branch creation, pre-commit verification, commit, push, and PR creation."""
     root_dir = Path(cwd) if cwd else Path.cwd()
@@ -50,20 +51,21 @@ def create_pr_workflow(
     if rc != 0:
         return {"success": False, "error": "Current directory is not a git repository."}
 
-    # 2. Run ContinuousVerifier check
-    from sago.engine.verifier import get_project_verifier
+    # 2. Run ContinuousVerifier check (skippable for testing)
+    if not skip_verification:
+        from sago.engine.verifier import get_project_verifier
 
-    verifier = get_project_verifier(root_dir=root_dir)
-    report = verifier.verify_project()
-    if not report.passed:
-        issue_msgs = [
-            f"• {i.file_path}:{i.line} ({i.rule}): {i.message}" for i in report.issues[:5]
-        ]
-        return {
-            "success": False,
-            "error": "Pre-PR verification failed. Fix diagnostic errors before creating PR:\n"
-            + "\n".join(issue_msgs),
-        }
+        verifier = get_project_verifier(root_dir=root_dir)
+        report = verifier.verify_project()
+        if not report.passed:
+            issue_msgs = [
+                f"• {i.file_path}:{i.line} ({i.rule}): {i.message}" for i in report.issues[:5]
+            ]
+            return {
+                "success": False,
+                "error": "Pre-PR verification failed. Fix diagnostic errors before creating PR:\n"
+                + "\n".join(issue_msgs),
+            }
 
     # 3. Formulate branch name if not provided
     if not branch:
