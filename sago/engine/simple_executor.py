@@ -11,7 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from openai import OpenAI  # noqa: F401
+from openai import OpenAI
 
 from sago.tools.base import BaseTool
 
@@ -452,7 +452,7 @@ def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
 
 def _generate_plan_with_llm(
     task: str,
-    client: Any,
+    client: OpenAI,
     model: str,
     tools_desc: str,
 ) -> list[str]:
