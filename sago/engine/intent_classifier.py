@@ -175,14 +175,32 @@ class IntentClassifier:
             "poem",
             "hello",
             "hi",
+            "hoi",
             "hey",
+            "sup",
+            "yo",
+            "howdy",
+            "greetings",
+            "good morning",
+            "good afternoon",
+            "good evening",
             "thanks",
             "thank you",
             "who are you",
             "how are you",
+            "what's up",
+            "whats up",
+            "weather",
+            "forecast",
+            "temperature",
+            "today",
             "tell me a joke",
             "more joke",
             "laugh",
+            "fact",
+            "facts",
+            "quote",
+            "news",
         )
 
         code_intent_words = (
@@ -190,35 +208,62 @@ class IntentClassifier:
             "files",
             "code",
             "repo",
+            "repository",
             "function",
+            "functions",
             "class",
+            "classes",
             "test",
             "tests",
+            "pytest",
             "build",
             "script",
+            "scripts",
             "directory",
             "folder",
             "git",
             "import",
             "database",
             "sql",
+            "endpoint",
+            "api",
+            "json",
+            "yaml",
+            "config",
+            "variable",
+            "compile",
+            "refactor",
+            "debug",
+            "traceback",
+            "npm",
+            "pip",
+            "cargo",
         )
 
-        # Detect conversational requests (jokes, banter, greetings)
+        # Detect conversational requests (weather, greetings, jokes, general knowledge)
         has_chat = any(
             re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in chat_words
         ) or bool(re.search(r"^\d+(?:-\d+)?\s+more", task_lower))
+
         has_code = any(
             re.search(r"\b" + re.escape(w) + r"\b", task_lower) for w in code_intent_words
         )
 
-        if has_chat and not has_code:
+        # General non-code questions (e.g. "what is the capital of france", "who was albert einstein", "is it raining")
+        is_general_qa = not has_code and bool(
+            re.search(
+                r"^(what|who|when|where|why|how|is|are|was|were|can you tell|tell me)\b",
+                task_lower,
+            )
+        )
+
+        if (has_chat or is_general_qa) and not has_code:
             return IntentClassification(
                 task_type="chat",
                 needs_tools=False,
-                confidence=0.92,
+                confidence=0.95,
                 suggested_agent="general-assistant",
-                rationale="Conversational banter / joke intent",
+                rationale="Conversational / general QA intent",
                 source="heuristic",
             )
 

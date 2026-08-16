@@ -49,3 +49,17 @@ def test_prompt_enhancer_telemetry_event(tmp_path):
     assert latest.event_type == TraceEventType.PROMPT_ENHANCED
     assert latest.source == "prompt_enhancer"
     assert "original_prompt" in latest.data
+
+
+def test_casual_chat_and_weather_not_overwritten(tmp_path):
+    from sago.engine.intent_classifier import get_intent_classifier
+
+    classifier = get_intent_classifier()
+
+    for chat_query in ["hello", "hoi", "how are you today?", "what's the weather today?", "tell me a joke"]:
+        intent = classifier.classify(chat_query)
+        assert intent.task_type == "chat", f"Query '{chat_query}' was classified as {intent.task_type}, expected 'chat'"
+
+        res = enhance_prompt(chat_query, agent_role="python-engineer", cwd=tmp_path)
+        assert res.was_modified is False, f"Query '{chat_query}' should not be modified with code templates"
+        assert res.enhanced_prompt == chat_query

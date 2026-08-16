@@ -65,6 +65,14 @@ class PromptEnhancer:
 
     # Action intent patterns
     _INTENT_MAP = {
+        "casual_chat": (
+            r"\b(hello|hi|hoi|hey|sup|yo|howdy|greetings|good\s+(?:morning|afternoon|evening)|thanks|thank\s+you|who\s+are\s+you|how\s+are\s+you|what\'?s\s+up|weather|forecast|temperature|joke|jokes|pun|riddle|story|poem)\b",
+            "Conversational interaction and pleasantries",
+        ),
+        "general_qa": (
+            r"^(what\s+is|who\s+is|where\s+is|when\s+is|why\s+is|how\s+does|can\s+you\s+explain|tell\s+me\s+about)\b",
+            "General knowledge inquiry and question answering",
+        ),
         "bug_fix": (
             r"\b(fix|bug|error|broken|crash|issue|patch|resolve|fail|failing|exception|traceback)\b",
             "Diagnose, isolate root cause, and implement robust fix with regression prevention",
@@ -147,6 +155,21 @@ class PromptEnhancer:
 
         # 1. Detect primary intent & domain
         intent_category, intent_description = self._classify_intent(raw_prompt)
+
+        # For casual conversation, greetings, weather questions — never inject forced coding boilerplate
+        if intent_category == "casual_chat":
+            return PromptEnhancementResult(
+                original_prompt=raw_prompt,
+                enhanced_prompt=raw_prompt,
+                intent_summary=f"Conversational inquiry: {raw_prompt}",
+                target_scope=[],
+                acceptance_criteria=[],
+                operational_constraints=[],
+                improvements=[],
+                was_modified=False,
+                agent_role=agent_role,
+            )
+
         improvements.append(f"Structured {intent_category.replace('_', ' ')} intent")
 
         # 2. Extract potential file / module targets from prompt & workspace

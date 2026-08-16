@@ -149,21 +149,27 @@ class MessageProcessorMixin:
 
                 # Load profile and build prompt
                 profile = _load_agent_profile(self.current_agent.replace("-", " ").title())
-                template = PROMPTS.get(task_type, PROMPTS["create"])
-                system_prompt = template.format(
-                    agent_role=self.current_agent.replace("-", " ").title(),
-                    project_ctx=project_ctx,
-                )
-
-                if profile and profile.get("system_prompt"):
-                    system_prompt = profile["system_prompt"]
+                if task_type == "chat":
+                    template = PROMPTS.get("chat", PROMPTS["create"])
+                    system_prompt = template.format(
+                        agent_role=self.current_agent.replace("-", " ").title(),
+                        project_ctx="",
+                    )
+                else:
+                    template = PROMPTS.get(task_type, PROMPTS["create"])
+                    system_prompt = template.format(
+                        agent_role=self.current_agent.replace("-", " ").title(),
+                        project_ctx=project_ctx,
+                    )
+                    if profile and profile.get("system_prompt"):
+                        system_prompt = profile["system_prompt"]
 
                 # Inject system-level enhancements (learning approach, known fixes, instructions)
-                if assembled:
+                if assembled and task_type != "chat":
                     enhancements = assembled.format_system_enhancements()
                     if enhancements:
                         system_prompt += f"\n\n{enhancements}"
-                else:
+                elif task_type != "chat":
                     try:
                         from sago.learning import get_learning_store
 
@@ -196,7 +202,7 @@ class MessageProcessorMixin:
                 current_todo_index = 0
                 todo_tool_counts: dict[str, int] = {}
 
-                if _is_complex_task(message):
+                if _is_complex_task(message) and task_type != "chat":
                     try:
                         from sago.tasks import TaskStatus, get_task_manager
 
@@ -251,16 +257,24 @@ class MessageProcessorMixin:
                     task=message,
                     agent_role=self.current_agent,
                 )
-                if enhancement.was_modified and len(message.strip().split()) >= 3:
+                if (
+                    enhancement.was_modified
+                    and task_type != "chat"
+                    and len(message.strip().split()) >= 3
+                ):
                     self.call_from_thread(
                         self._update_spinner,
                         f"✨ Enhanced: {enhancement.intent_summary}",
                     )
 
-                # Use enhanced structured prompt for substantive requests
+                # Use enhanced structured prompt for substantive engineering requests
                 user_msg_content = (
                     enhancement.enhanced_prompt
-                    if (enhancement.was_modified and len(message.strip().split()) >= 4)
+                    if (
+                        task_type != "chat"
+                        and enhancement.was_modified
+                        and len(message.strip().split()) >= 4
+                    )
                     else message
                 )
 

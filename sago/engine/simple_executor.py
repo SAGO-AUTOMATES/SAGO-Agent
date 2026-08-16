@@ -599,14 +599,15 @@ def _get_context(cwd: str | None = None) -> str:
 
 # Task-specific system prompts (tools are now passed via API, not in text)
 PROMPTS = {
-    "chat": """You are {agent_role}, an expert software engineering AI assistant.
+    "chat": """You are {agent_role}, a helpful, knowledgeable, and friendly AI assistant.
 
 {project_ctx}
 
-- Answer conversational queries, explanations, and follow-ups directly and concisely.
-- Only invoke tools when the user explicitly requests inspecting, editing, or running workspace commands.
+- Answer questions, conversation, weather inquiries, greetings, explanations, and general requests naturally and accurately.
+- Respond conversationally without imposing unsolicited engineering templates or code scaffolding.
+- Only invoke tools if the user explicitly requests inspecting files, executing commands, or performing workspace operations.
 - Never hallucinate tool results or file contents.""",
-    "create": """You are {agent_role}. The user wants you to create or implement code.
+    "create": """You are {agent_role}. The user wants you to create, implement, or modify code and files.
 
 {project_ctx}
 
@@ -614,7 +615,7 @@ PROMPTS = {
 - Write or edit files cleanly with exact code.
 - Verify work and report results honestly without fabricating output.
 - Reply directly without calling tools for simple conversational queries.""",
-    "fix": """You are {agent_role}. The user wants you to fix an issue or bug.
+    "fix": """You are {agent_role}. The user wants you to fix an issue, bug, or error.
 
 {project_ctx}
 
@@ -805,7 +806,7 @@ def execute_agent_task(
 
     # Use profile metadata if available
     if profile:
-        if not system_prompt:
+        if not system_prompt and task_type != "chat":
             system_prompt = profile.get("system_prompt", "")
         if profile.get("model_preference"):
             model = profile["model_preference"]
@@ -814,7 +815,7 @@ def execute_agent_task(
         if profile.get("max_iterations") and max_iterations == 30:
             max_iterations = min(profile["max_iterations"], 50)
         # Filter tools to only those the agent knows about
-        if profile.get("tools"):
+        if profile.get("tools") and task_type != "chat":
             agent_tools = {t: tools[t] for t in profile["tools"] if t in tools}
             if agent_tools:
                 tools = agent_tools
@@ -828,11 +829,11 @@ def execute_agent_task(
         )
 
     # Inject system-level enhancements (learning approach, known fixes, project instructions)
-    if assembled:
+    if assembled and task_type != "chat":
         system_enhancements = assembled.format_system_enhancements()
         if system_enhancements:
             system_prompt += f"\n\n{system_enhancements}"
-    else:
+    elif task_type != "chat":
         # Fallback to direct instructions / learning store lookup
         try:
             from sago.learning import get_learning_store
@@ -881,7 +882,9 @@ def execute_agent_task(
         tool_usage_store = None
 
     # Build user message with rich reference data context (read-only)
-    if assembled:
+    if task_type == "chat":
+        user_content = task
+    elif assembled:
         context_block = assembled.format_user_context_block()
         user_content = (
             f"## Reference Context (read-only workspace data)\n{context_block}\n\n## Task & Plan\n{enhanced_task}"
