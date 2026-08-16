@@ -1917,6 +1917,71 @@ class CommandHandlers:
         except Exception as e:
             self._add_system_message(f"Error listing plugins: {e}")
 
+    def _handle_mcp_command(self: SagoApp, args: str = "") -> None:
+        """Handle /mcp [list|test|reload] command."""
+        from sago.mcp.manager import get_mcp_manager
+
+        mgr = get_mcp_manager()
+        parts = args.strip().split(None, 1)
+        subcmd = parts[0].lower() if parts else "list"
+        subargs = parts[1].strip() if len(parts) > 1 else ""
+
+        if subcmd in ("reload", "refresh"):
+            mgr._servers.clear()
+            mgr._load_configurations()
+            tools = mgr.get_mcp_tools()
+            self._add_system_message(
+                f"🔄 MCP Servers reloaded: {len(mgr.list_servers())} servers configured, {len(tools)} remote tools bridged."
+            )
+        elif subcmd == "test":
+            if not subargs:
+                self._add_system_message("Usage: `/mcp test <server_name>`")
+                return
+            res = mgr.test_server(subargs)
+            if res.get("success"):
+                t_list = ", ".join(res.get("tools", [])) or "none"
+                self._add_system_message(
+                    f"✅ [bold green]MCP Server '{subargs}' Connected[/bold green]\n"
+                    f"Exposed {res.get('tool_count', 0)} tools: {t_list}"
+                )
+            else:
+                self._add_system_message(
+                    f"❌ [bold red]MCP Server '{subargs}' Connection Failed[/bold red]: {res.get('error')}"
+                )
+        else:
+            servers = mgr.list_servers()
+            tools = mgr.get_mcp_tools()
+            if not servers:
+                self._add_system_message(
+                    "No MCP servers configured.\n"
+                    "Define servers in `.sago/mcp_servers.json` or `~/.sago/mcp_servers.json`:\n"
+                    '```json\n{\n  "mcpServers": {\n    "sqlite": {\n      "command": "uvx",\n      "args": ["mcp-server-sqlite", "--db-path", "test.db"]\n    }\n  }\n}\n```'
+                )
+                return
+            lines = [f"[bold]Configured MCP Servers ({len(servers)}):[/bold]\n"]
+            for s in servers:
+                target = s.url if s.url else f"{s.command} {' '.join(s.args)}"
+                status = "[green]ENABLED[/green]" if s.enabled else "[dim]DISABLED[/dim]"
+                lines.append(
+                    f"  • [bold cyan]{s.name:<16}[/bold cyan] {status} - [dim]{target}[/dim]"
+                )
+
+            if tools:
+                lines.append(f"\n[bold green]Bridged MCP Tools ({len(tools)}):[/bold green]")
+                for t in tools:
+                    lines.append(f"  • [bold yellow]{t.name:<24}[/bold yellow] {t.description}")
+
+            lines.append("\n[dim]Commands: /mcp test <server> | /mcp reload[/dim]")
+            container = self.query_one("#messages")
+            container.mount(
+                Collapsible(
+                    Static("\n".join(lines)),
+                    title=f"MCP Servers ({len(servers)} configured, {len(tools)} tools)",
+                    collapsed=False,
+                )
+            )
+            container.scroll_end()
+
     def _set_theme(self: SagoApp, name: str) -> None:
         """Switch or list available TUI color themes."""
         from sago.tui.models import THEMES as themes

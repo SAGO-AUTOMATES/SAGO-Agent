@@ -427,6 +427,31 @@ def get_subcommand_completions(raw: str) -> tuple[list[str], list[str]] | None:
         values = [f"/tasks {k}" for k in matches]
         return items, values
 
+    # /mcp subcommands
+    if cmd == "/mcp":
+        mcp_opts = {
+            "list": "List configured MCP servers and bridged tools",
+            "reload": "Reload MCP configuration files and reconnect",
+            "test": "Test connection to a specific MCP server (/mcp test <name>)",
+        }
+        matches = [k for k in mcp_opts if fuzzy_score(arg, k) > 0] if arg else list(mcp_opts.keys())
+        items = [f"[bold cyan]{k:<12}[/bold cyan] [dim]{mcp_opts[k]}[/dim]" for k in matches]
+        values = [f"/mcp {k}" for k in matches]
+        return items, values
+
+    # /skill and /skills subcommands
+    if cmd in ("/skill", "/skills"):
+        skill_opts = {
+            "list": "List all built-in and workspace custom skills",
+            "reload": "Reload custom skills from .sago/skills/ and ~/.sago/skills/",
+        }
+        matches = (
+            [k for k in skill_opts if fuzzy_score(arg, k) > 0] if arg else list(skill_opts.keys())
+        )
+        items = [f"[bold green]{k:<12}[/bold green] [dim]{skill_opts[k]}[/dim]" for k in matches]
+        values = [f"/skill {k}" for k in matches]
+        return items, values
+
     # /agent subcommands & list
     if cmd in ("/agent", "/agents"):
         if arg == "list" or not arg:

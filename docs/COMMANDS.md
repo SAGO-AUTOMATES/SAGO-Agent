@@ -181,6 +181,9 @@ Show system and connection status.
 | `/orchestrate <task>` | Automatically orchestrate and dispatch task across specialist team |
 | `/parallel <a1,a2> <task>` | Run multiple agents concurrently on the same task |
 | `/tasks [list\|cancel <id>]` | Manage background tasks (`Ctrl+T` or `/tasks cancel <id>`) |
+| `/skills [query\|reload]` | Inspect available built-in and workspace `SKILL.md` workflows |
+| `/mcp [list\|test\|reload]` | Manage external Model Context Protocol servers and bridged tools |
+| `/plugins` | List active extension plugins and lifecycle hooks |
 | `@<agent>` | Mention and route task to specialist agent anywhere in prompt (`@python-engineer`) |
 | `#<file>` | Deep recursive workspace file autocomplete and automatic context injection |
 | `~<file>` | Autocomplete user home directory file paths |

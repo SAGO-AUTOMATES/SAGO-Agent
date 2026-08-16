@@ -538,6 +538,34 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
             except Exception as e:
                 _log.debug(f"Failed to load tool from {py_file.name}: {e}")
 
+        # Discover and register plugin tools
+        try:
+            from sago.plugins.base import get_plugin_manager
+
+            pm = get_plugin_manager()
+            for plugin in pm.discover_plugins():
+                if plugin.meta.enabled:
+                    for pt in plugin.provide_tools():
+                        if isinstance(pt, BaseTool) or (
+                            isinstance(pt, type) and issubclass(pt, BaseTool)
+                        ):
+                            pt_cls = pt if isinstance(pt, type) else pt.__class__
+                            name = getattr(pt, "name", None) or getattr(pt_cls, "name", "")
+                            if name:
+                                _TOOL_CLASSES[name] = pt_cls
+        except Exception as e:
+            _log.debug(f"Plugin tools discovery skipped: {e}")
+
+        # Discover and register MCP bridged tools
+        try:
+            from sago.mcp.manager import get_mcp_manager
+
+            mcp_mgr = get_mcp_manager()
+            for mcp_tool in mcp_mgr.get_mcp_tools():
+                _TOOL_CLASSES[mcp_tool.name] = mcp_tool.__class__
+        except Exception as e:
+            _log.debug(f"MCP tools discovery skipped: {e}")
+
         lines = []
         for name, cls in sorted(_TOOL_CLASSES.items()):
             desc = cls.description or name

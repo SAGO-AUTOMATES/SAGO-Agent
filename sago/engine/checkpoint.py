@@ -105,6 +105,21 @@ class CheckpointManager:
         with open(snap_dir / "meta.json", "w", encoding="utf-8") as fp:
             json.dump(meta.to_dict(), fp, indent=2)
 
+        # Record in SQLite database
+        try:
+            from sago.database import CheckpointStore
+
+            cp_store = CheckpointStore()
+            cp_store.record_checkpoint(
+                checkpoint_id=chk_id,
+                description=description,
+                file_paths=copied_files,
+                workspace_root=str(self.root),
+                timestamp=ts,
+            )
+        except Exception as e:
+            logger.debug("Failed to record checkpoint in SQLite: %s", e)
+
         logger.info(
             "Created checkpoint %s with %d files: %s", chk_id, len(copied_files), description
         )
@@ -141,6 +156,13 @@ class CheckpointManager:
             try:
                 shutil.rmtree(snap, ignore_errors=True)
                 deleted_ids.append(snap.name)
+                # Remove from SQLite database
+                try:
+                    from sago.database import CheckpointStore
+
+                    CheckpointStore().delete_checkpoint(snap.name)
+                except Exception:
+                    pass
             except OSError as e:
                 logger.debug("Failed to prune checkpoint %s: %s", snap, e)
 

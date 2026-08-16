@@ -156,6 +156,18 @@ def init_db() -> None:
                 FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
             );
 
+            CREATE TABLE IF NOT EXISTS checkpoints (
+                id TEXT PRIMARY KEY,
+                description TEXT NOT NULL,
+                workspace_root TEXT,
+                session_id TEXT,
+                file_count INTEGER DEFAULT 0,
+                file_paths TEXT DEFAULT '[]',
+                git_commit TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                metadata TEXT DEFAULT '{}'
+            );
+
             CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
             CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
             CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id);
@@ -167,6 +179,9 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_tool_usage_tool ON tool_usage(tool_name);
             CREATE INDEX IF NOT EXISTS idx_tool_usage_task ON tool_usage(task_id);
             CREATE INDEX IF NOT EXISTS idx_agent_state_session ON agent_state(session_id);
+            CREATE INDEX IF NOT EXISTS idx_checkpoints_created ON checkpoints(created_at);
+            CREATE INDEX IF NOT EXISTS idx_checkpoints_workspace ON checkpoints(workspace_root);
+            CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id);
         """)
         conn.commit()
     finally:
@@ -554,6 +569,108 @@ class ToolUsageStore:
     def close(self) -> None:
         """Flush and no-op - connection is pooled."""
         self.flush()
+
+
+class CheckpointStore:
+    """Store for managing workspace snapshot metadata in SQLite."""
+
+    def __init__(self) -> None:
+        init_db()
+        self.conn = _get_connection()
+
+    def record_checkpoint(
+        self,
+        checkpoint_id: str,
+        description: str,
+        file_paths: list[str],
+        workspace_root: str = "",
+        session_id: str | None = None,
+        git_commit: str = "",
+        timestamp: float | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Record or update a checkpoint in SQLite."""
+        created_at = (
+            datetime.fromtimestamp(timestamp, tz=UTC).isoformat()
+            if timestamp
+            else datetime.now(UTC).isoformat()
+        )
+        self.conn.execute(
+            """
+            INSERT OR REPLACE INTO checkpoints
+            (id, description, workspace_root, session_id, file_count, file_paths, git_commit, created_at, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                checkpoint_id,
+                description,
+                workspace_root,
+                session_id,
+                len(file_paths),
+                json.dumps(file_paths),
+                git_commit,
+                created_at,
+                json.dumps(metadata or {}),
+            ),
+        )
+        self.conn.commit()
+
+    def get_checkpoint(self, checkpoint_id: str) -> dict[str, Any] | None:
+        """Retrieve a specific checkpoint by ID."""
+        row = self.conn.execute(
+            "SELECT * FROM checkpoints WHERE id = ?", (checkpoint_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "description": row["description"],
+            "workspace_root": row["workspace_root"],
+            "session_id": row["session_id"],
+            "file_count": row["file_count"],
+            "file_paths": json.loads(row["file_paths"] or "[]"),
+            "git_commit": row["git_commit"],
+            "created_at": row["created_at"],
+            "metadata": json.loads(row["metadata"] or "{}"),
+        }
+
+    def list_checkpoints(
+        self, workspace_root: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """List checkpoints ordered by creation time descending."""
+        if workspace_root:
+            rows = self.conn.execute(
+                "SELECT * FROM checkpoints WHERE workspace_root = ? ORDER BY created_at DESC LIMIT ?",
+                (workspace_root, limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM checkpoints ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+
+        results = []
+        for row in rows:
+            results.append(
+                {
+                    "id": row["id"],
+                    "description": row["description"],
+                    "workspace_root": row["workspace_root"],
+                    "session_id": row["session_id"],
+                    "file_count": row["file_count"],
+                    "file_paths": json.loads(row["file_paths"] or "[]"),
+                    "git_commit": row["git_commit"],
+                    "created_at": row["created_at"],
+                    "metadata": json.loads(row["metadata"] or "{}"),
+                }
+            )
+        return results
+
+    def delete_checkpoint(self, checkpoint_id: str) -> bool:
+        """Delete a checkpoint from SQLite."""
+        cur = self.conn.execute("DELETE FROM checkpoints WHERE id = ?", (checkpoint_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
 
 
 def init() -> None:

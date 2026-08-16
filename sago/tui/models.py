@@ -23,6 +23,9 @@ COMMANDS = {
     "/orchestrate": "Auto-orchestrate task across specialist team",
     "/parallel": "Execute agents concurrently (/parallel <a1,a2> <task>)",
     "/tasks": "Background task manager (/tasks [list|cancel])",
+    "/skills": "List built-in & custom skills (/skills [query])",
+    "/mcp": "Manage Model Context Protocol servers (/mcp [list|test|reload])",
+    "/plugins": "List installed extension plugins",
     # Code Intelligence, Map & VCS
     "/graph": "Architecture & process graph (/graph [summary|arch|process|models|flow])",
     "/map": "Repository AST symbol map (/map [query])",

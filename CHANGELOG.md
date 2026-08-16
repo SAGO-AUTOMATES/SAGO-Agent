@@ -4,9 +4,16 @@ All notable changes to the SAGO project are documented in this file.
 
 ## [0.1.7] - 2026-08-16
 
-- **Interactive Implementation Planning Workflow (`/plan <task>`)**:
-  - Upgraded `/plan <task>` from a static task viewer into a full interactive planning and confirmation workflow.
-  - Generates comprehensive technical designs, goals, proposed file changes, ordered checklists, and verification test strategies without making code edits until explicit user approval (`y` / `proceed`).
+- **SQLite Checkpoint Store & Multi-Project Snapshot Tracking**:
+  - Checkpoints are now indexed and stored directly in SQLite (`~/.sago/data/sago.db`) with `checkpoints` table and `CheckpointStore`.
+  - Added support for cross-project / external path snapshotting and restoration preserving original absolute paths.
+  - Added proactive pre-modification workspace auto-snapshot notifications in TUI.
+- **Automated MCP Server Manager & Dynamic Tool Bridge (`/mcp`)**:
+  - Added `sago.mcp.manager.MCPManager` to discover standard Claude/Anthropic format `mcpServers` configs across `~/.sago/mcp_servers.json`, `.sago/mcp_servers.json`, and `mcp.json`.
+  - Dynamically bridges remote MCP tools into native Sago `BaseTool` instances with Pydantic argument schemas so agents can call external MCP tools autonomously.
+  - Added `/mcp [list|test|reload]` and `/skills [query|reload]` commands.
+- **Extensibility & Authoring Documentation (`docs/SKILLS_AND_PLUGINS.md`)**:
+  - Comprehensive guide covering `SKILL.md` authoring, Python `BasePlugin` lifecycle hooks, and MCP server configuration.
 - **Deduplicated & Streamlined TUI Slash Command Suite**:
   - Consolidated 50+ scattered commands into 4 clean, focused categories: Core & Workflow, Agent Orchestration, Code Intelligence & VCS, and Settings & Runtime.
   - Merged single-action commands into clean subcommands: `/perms [list|allow|block|reset]`, `/todo [list|done]`, `/session [list|save|load|reset]`, `/tasks [list|cancel]`, `/buttons [toggle|on|off]`, and `/graph [arch|process|models|flow|summary]`.
