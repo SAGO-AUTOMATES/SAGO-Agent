@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import json
 import os
 import re
@@ -511,72 +510,28 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
         return _TOOL_CLASSES
 
     with _tool_discovery_lock:
-        # Double-check after acquiring lock
         if _TOOL_CLASSES and _TOOL_DESCRIPTIONS:
             return _TOOL_CLASSES
 
-        import logging
+        from sago.tools.registry import discover_tools
 
-        _log = logging.getLogger("sago.tools")
-
-        tools_dir = Path(__file__).parent.parent / "tools"
-        for py_file in tools_dir.rglob("*.py"):
-            if py_file.name.startswith("_") or py_file.name == "base.py":
-                continue
-            try:
-                parts = py_file.relative_to(tools_dir).with_suffix("").as_posix().split("/")
-                mod = importlib.import_module(f"sago.tools.{'.'.join(parts)}")
-                for attr in dir(mod):
-                    obj = getattr(mod, attr)
-                    if (
-                        isinstance(obj, type)
-                        and issubclass(obj, BaseTool)
-                        and obj is not BaseTool
-                        and getattr(obj, "name", None)
-                    ):
-                        _TOOL_CLASSES[obj.name] = obj
-            except Exception as e:
-                _log.debug(f"Failed to load tool from {py_file.name}: {e}")
-
-        # Discover and register plugin tools
-        try:
-            from sago.plugins.base import get_plugin_manager
-
-            pm = get_plugin_manager()
-            for plugin in pm.discover_plugins():
-                if plugin.meta.enabled:
-                    for pt in plugin.provide_tools():
-                        if isinstance(pt, BaseTool) or (
-                            isinstance(pt, type) and issubclass(pt, BaseTool)
-                        ):
-                            pt_cls = pt if isinstance(pt, type) else pt.__class__
-                            name = getattr(pt, "name", None) or getattr(pt_cls, "name", "")
-                            if name:
-                                _TOOL_CLASSES[name] = pt_cls
-        except Exception as e:
-            _log.debug(f"Plugin tools discovery skipped: {e}")
-
-        # Discover and register MCP bridged tools
-        try:
-            from sago.mcp.manager import get_mcp_manager
-
-            mcp_mgr = get_mcp_manager()
-            for mcp_tool in mcp_mgr.get_mcp_tools():
-                _TOOL_CLASSES[mcp_tool.name] = mcp_tool.__class__
-        except Exception as e:
-            _log.debug(f"MCP tools discovery skipped: {e}")
+        discovered = discover_tools()
+        _TOOL_CLASSES = {name: tdef.tool_class for name, tdef in discovered.items()}
 
         lines = []
-        for name, cls in sorted(_TOOL_CLASSES.items()):
-            desc = cls.description or name
+        for name, tdef in sorted(discovered.items()):
+            desc = tdef.description or name
             args = ""
-            if cls.args_model:
-                fields = cls.args_model.model_fields
-                parts = []
-                for fn, fi in fields.items():
-                    req = "REQ" if fi.is_required() else f"={fi.default}"
-                    parts.append(f"{fn}({req})")
-                args = ", ".join(parts)
+            if tdef.args_model:
+                try:
+                    fields = tdef.args_model.model_fields
+                    parts = []
+                    for fn, fi in fields.items():
+                        req = "REQ" if fi.is_required() else f"={fi.default}"
+                        parts.append(f"{fn}({req})")
+                    args = ", ".join(parts)
+                except Exception:
+                    args = ""
             lines.append(f"- {name}({args}): {desc}")
         _TOOL_DESCRIPTIONS = "\n".join(lines)
         return _TOOL_CLASSES
@@ -772,6 +727,21 @@ def execute_agent_task(
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
     start_time = time.time()
 
+    # 1. Automatically enhance prompt with intent, clarity, constraints, and criteria
+    from sago.engine.prompt_enhancer import enhance_prompt
+
+    enhancement = enhance_prompt(
+        task=task,
+        agent_role=agent_role,
+        cwd=cwd,
+    )
+    enhanced_task = enhancement.enhanced_prompt
+
+    if on_thinking and enhancement.improvements:
+        on_thinking(
+            f"✨ Enhanced Prompt: {enhancement.intent_summary} [dim]({', '.join(enhancement.improvements[:3])})[/dim]"
+        )
+
     # Assemble rich tri-partite context (AST symbols, hybrid search, learning patterns, previous sessions)
     task_type = _detect_task_type(task)
     try:
@@ -780,7 +750,7 @@ def execute_agent_task(
         assembler = get_context_assembler(cwd)
         agent_name_slug = agent_role.lower().replace(" ", "-") if agent_role else None
         assembled = assembler.assemble(
-            task=task,
+            task=enhanced_task,
             task_type=task_type,
             agent_name=agent_name_slug,
             available_tools=list(tools.keys()),
@@ -914,15 +884,15 @@ def execute_agent_task(
     if assembled:
         context_block = assembled.format_user_context_block()
         user_content = (
-            f"## Reference Context (read-only workspace data)\n{context_block}\n\n## Task\n{task}"
+            f"## Reference Context (read-only workspace data)\n{context_block}\n\n## Task & Plan\n{enhanced_task}"
             if context_block
-            else task
+            else enhanced_task
         )
     else:
         user_content = (
-            f"## Project Context (read-only reference data)\n{project_ctx}\n\n## Task\n{task}"
+            f"## Project Context (read-only reference data)\n{project_ctx}\n\n## Task & Plan\n{enhanced_task}"
             if project_ctx
-            else task
+            else enhanced_task
         )
 
     messages: list[dict[str, Any]] = [

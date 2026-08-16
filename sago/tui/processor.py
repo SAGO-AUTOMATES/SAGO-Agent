@@ -245,14 +245,29 @@ class MessageProcessorMixin:
                         if cleaned_c:
                             history.append({"role": r, "content": cleaned_c})
 
-                # Retain up to last 16 turns to maintain complete conversational memory
-                if len(history) > 16:
-                    history = history[-16:]
+                from sago.engine.prompt_enhancer import enhance_prompt
+
+                enhancement = enhance_prompt(
+                    task=message,
+                    agent_role=self.current_agent,
+                )
+                if enhancement.was_modified and len(message.strip().split()) >= 3:
+                    self.call_from_thread(
+                        self._update_spinner,
+                        f"✨ Enhanced: {enhancement.intent_summary}",
+                    )
+
+                # Use enhanced structured prompt for substantive requests
+                user_msg_content = (
+                    enhancement.enhanced_prompt
+                    if (enhancement.was_modified and len(message.strip().split()) >= 4)
+                    else message
+                )
 
                 messages = (
                     [{"role": "system", "content": system_prompt}]
                     + history
-                    + [{"role": "user", "content": message}]
+                    + [{"role": "user", "content": user_msg_content}]
                 )
 
                 # Build OpenAI function calling tool definitions

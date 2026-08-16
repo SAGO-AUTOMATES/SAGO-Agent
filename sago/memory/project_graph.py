@@ -87,6 +87,105 @@ class ProjectGraph:
         self.endpoints: list[str] = []
         self.model_fields: dict[str, list[str]] = defaultdict(list)
         self._lock = threading.Lock()
+        self.workspaces: list[Path] = []  # Detected workspace roots for monorepos
+
+    def detect_workspaces(self) -> list[Path]:
+        """Detect monorepo workspace roots from common config files."""
+        workspaces = []
+        root = self.root_dir
+
+        # npm/yarn/pnpm workspaces
+        pkg_json = root / "package.json"
+        if pkg_json.exists():
+            try:
+                import json
+
+                data = json.loads(pkg_json.read_text(encoding="utf-8"))
+                ws_field = data.get("workspaces")
+                if isinstance(ws_field, list):
+                    for pattern in ws_field:
+                        # Expand glob patterns like "packages/*"
+                        import glob
+
+                        expanded = glob.glob(str(root / pattern), recursive=True)
+                        for p in expanded:
+                            if Path(p).is_dir() and p not in [str(w) for w in workspaces]:
+                                workspaces.append(Path(p))
+                elif isinstance(ws_field, dict) and "packages" in ws_field:
+                    for pattern in ws_field["packages"]:
+                        import glob
+
+                        expanded = glob.glob(str(root / pattern), recursive=True)
+                        for p in expanded:
+                            if Path(p).is_dir() and p not in [str(w) for w in workspaces]:
+                                workspaces.append(Path(p))
+            except Exception:
+                pass
+
+        # Cargo workspaces (Rust)
+        cargo_toml = root / "Cargo.toml"
+        if cargo_toml.exists():
+            try:
+                content = cargo_toml.read_text(encoding="utf-8")
+                members = re.findall(r"members\s*=\s*\[(.*?)\]", content, re.DOTALL)
+                for member_block in members:
+                    paths = re.findall(r'"([^"]+)"', member_block)
+                    for p in paths:
+                        import glob
+
+                        expanded = glob.glob(str(root / p), recursive=True)
+                        for ep in expanded:
+                            if Path(ep).is_dir() and ep not in [str(w) for w in workspaces]:
+                                workspaces.append(Path(ep))
+            except Exception:
+                pass
+
+        # Nx/Turbo/Lerna
+        for config_file in ["nx.json", "turbo.json", "lerna.json"]:
+            config_path = root / config_file
+            if config_path.exists():
+                try:
+                    import json
+
+                    data = json.loads(config_path.read_text(encoding="utf-8"))
+                    packages = data.get("packages", data.get("workspaces", []))
+                    if isinstance(packages, list):
+                        for pattern in packages:
+                            import glob
+
+                            expanded = glob.glob(str(root / pattern), recursive=True)
+                            for p in expanded:
+                                if Path(p).is_dir() and p not in [str(w) for w in workspaces]:
+                                    workspaces.append(Path(p))
+                except Exception:
+                    pass
+
+        # Python workspace detection (pyproject.toml [tool.poetry.workspaces])
+        pyproject = root / "pyproject.toml"
+        if pyproject.exists():
+            try:
+                content = pyproject.read_text(encoding="utf-8")
+                if "packages" in content:
+                    # TOML parsing without external deps
+                    packages = re.findall(r"packages\s*=\s*\[(.*?)\]", content, re.DOTALL)
+                    for pkg_block in packages:
+                        paths = re.findall(r'"([^"]+)"', pkg_block)
+                        for p in paths:
+                            import glob
+
+                            expanded = glob.glob(str(root / p), recursive=True)
+                            for ep in expanded:
+                                if Path(ep).is_dir() and ep not in [str(w) for w in workspaces]:
+                                    workspaces.append(Path(ep))
+            except Exception:
+                pass
+
+        # Also add root itself as a workspace
+        if root not in workspaces:
+            workspaces.insert(0, root)
+
+        self.workspaces = workspaces
+        return workspaces
 
     def build_graph(
         self,
@@ -101,6 +200,9 @@ class ProjectGraph:
         self.data_models.clear()
         self.endpoints.clear()
         self.model_fields.clear()
+
+        # Detect monorepo workspaces
+        workspaces = self.detect_workspaces()
 
         ignore_dirs = {
             ".git",
@@ -127,32 +229,48 @@ class ProjectGraph:
             ".vscode",
         }
 
-        # 1. Discover candidate source files
+        # 1. Discover candidate source files across all workspaces
         candidate_files: list[Path] = []
-        for root, dirs, files in os.walk(self.root_dir):
-            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith(".")]
-            for f in files:
-                ext = Path(f).suffix.lower()
-                if ext in {
-                    ".py",
-                    ".ts",
-                    ".tsx",
-                    ".js",
-                    ".jsx",
-                    ".go",
-                    ".rs",
-                    ".java",
-                    ".cpp",
-                    ".c",
-                    ".h",
-                    ".sql",
-                    ".yaml",
-                    ".json",
-                    ".toml",
-                }:
-                    candidate_files.append(Path(root) / f)
-                    if len(candidate_files) >= max_files:
-                        break
+        for ws_root in workspaces:
+            for root, dirs, files in os.walk(ws_root):
+                dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith(".")]
+                for f in files:
+                    ext = Path(f).suffix.lower()
+                    if ext in {
+                        ".py",
+                        ".ts",
+                        ".tsx",
+                        ".js",
+                        ".jsx",
+                        ".go",
+                        ".rs",
+                        ".java",
+                        ".cpp",
+                        ".c",
+                        ".h",
+                        ".hpp",
+                        ".cc",
+                        ".cxx",
+                        ".rb",
+                        ".php",
+                        ".kt",
+                        ".scala",
+                        ".swift",
+                        ".cs",
+                        ".dart",
+                        ".ex",
+                        ".exs",
+                        ".lua",
+                        ".sql",
+                        ".yaml",
+                        ".json",
+                        ".toml",
+                    }:
+                        candidate_files.append(Path(root) / f)
+                        if len(candidate_files) >= max_files:
+                            break
+                if len(candidate_files) >= max_files:
+                    break
             if len(candidate_files) >= max_files:
                 break
 
@@ -244,6 +362,27 @@ class ProjectGraph:
                 self._parse_sql_local(
                     file_node_id, rel_path, content, local_nodes, local_edges, local_models
                 )
+            elif lang == "java":
+                self._parse_java_local(
+                    file_node_id,
+                    rel_path,
+                    content,
+                    include_symbols,
+                    local_nodes,
+                    local_edges,
+                    local_models,
+                    local_endpoints,
+                )
+            elif lang == "cpp":
+                self._parse_cpp_local(
+                    file_node_id,
+                    rel_path,
+                    content,
+                    include_symbols,
+                    local_nodes,
+                    local_edges,
+                    local_models,
+                )
 
             return {
                 "nodes": local_nodes,
@@ -257,17 +396,18 @@ class ProjectGraph:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             results = executor.map(_process_single_file, candidate_files)
 
-        # Merge thread results
-        for res in results:
-            if not res:
-                continue
-            for n in res.get("nodes", []):
-                self.nodes[n.id] = n
-            self.edges.extend(res.get("edges", []))
-            self.data_models.extend(res.get("models", []))
-            self.endpoints.extend(res.get("endpoints", []))
-            for k, v in res.get("fields", {}).items():
-                self.model_fields[k].extend(v)
+        # Merge thread results with thread-safe locking
+        with self._lock:
+            for res in results:
+                if not res:
+                    continue
+                for n in res.get("nodes", []):
+                    self.nodes[n.id] = n
+                self.edges.extend(res.get("edges", []))
+                self.data_models.extend(res.get("models", []))
+                self.endpoints.extend(res.get("endpoints", []))
+                for k, v in res.get("fields", {}).items():
+                    self.model_fields[k].extend(v)
 
         return self
 
@@ -283,10 +423,28 @@ class ProjectGraph:
             return "go"
         if ext == ".rs":
             return "rust"
-        if ext in {".cpp", ".c", ".h", ".hpp"}:
+        if ext in {".cpp", ".c", ".h", ".hpp", ".cc", ".cxx"}:
             return "cpp"
         if ext == ".java":
             return "java"
+        if ext == ".rb":
+            return "ruby"
+        if ext == ".php":
+            return "php"
+        if ext == ".kt":
+            return "kotlin"
+        if ext == ".scala":
+            return "scala"
+        if ext == ".swift":
+            return "swift"
+        if ext == ".cs":
+            return "csharp"
+        if ext == ".dart":
+            return "dart"
+        if ext in {".ex", ".exs"}:
+            return "elixir"
+        if ext == ".lua":
+            return "lua"
         if ext == ".sql":
             return "sql"
         if ext in {".yaml", ".yml"}:
@@ -335,25 +493,28 @@ class ProjectGraph:
 
             elif isinstance(node, ast.ClassDef):
                 sym_id = f"sym:{rel_path}#{node.name}"
-                is_data_model = (
-                    any(
-                        base_name
-                        in [
-                            "BaseModel",
-                            "Model",
-                            "DeclarativeBase",
-                            "Schema",
-                            "Table",
-                            "Base",
-                            "dataclass",
-                        ]
-                        for base_name in [
-                            ast.unparse(b) for b in node.bases if hasattr(ast, "unparse")
-                        ]
-                    )
-                    or "model" in node.name.lower()
-                    or "schema" in node.name.lower()
-                    or "meta" in node.name.lower()
+                base_names = [ast.unparse(b) for b in node.bases if hasattr(ast, "unparse")]
+                is_data_model = any(
+                    base_name
+                    in [
+                        "BaseModel",
+                        "Model",
+                        "DeclarativeBase",
+                        "Schema",
+                        "Table",
+                        "Base",
+                        "dataclass",
+                        "TypedDict",
+                    ]
+                    for base_name in base_names
+                ) or (
+                    # Only match exact suffixes, not substrings, to reduce false positives
+                    node.name.endswith("Model")
+                    or node.name.endswith("Schema")
+                    or node.name.endswith("DTO")
+                    or node.name.endswith("Entity")
+                    or node.name.endswith("Record")
+                    or node.name.endswith("Table")
                 )
 
                 if is_data_model:
@@ -405,6 +566,13 @@ class ProjectGraph:
                             ".patch(",
                             "@app.",
                             "@router.",
+                            "@blueprint.",
+                            "@api_view",
+                            "@api.route",
+                            ".route(",
+                            ".api_route(",
+                            "@controller",
+                            "@action",
                         ]
                     )
                     for d in decorators
@@ -444,16 +612,52 @@ class ProjectGraph:
         for i, line in enumerate(lines, 1):
             line_str = line.strip()
 
+            # Skip comment-only lines
+            if line_str.startswith("//") or line_str.startswith("/*") or line_str.startswith("*"):
+                continue
+
+            # Resolve relative imports to actual file paths when possible
             imp_match = re.search(r"import\s+.*?from\s+['\"](.*?)['\"]", line_str)
             if imp_match:
                 imp_target = imp_match.group(1)
-                out_edges.append(
-                    GraphEdge(
-                        source=file_node_id,
-                        target=f"module:{imp_target}",
-                        relation="imports",
+                # Try to resolve relative imports
+                if imp_target.startswith("./") or imp_target.startswith("../"):
+                    # Normalize the import path
+                    base_dir = str(Path(rel_path).parent)
+                    resolved = os.path.normpath(os.path.join(base_dir, imp_target))
+                    # Check if the resolved path exists as a known node
+                    for ext in [
+                        ".ts",
+                        ".tsx",
+                        ".js",
+                        ".jsx",
+                        "/index.ts",
+                        "/index.js",
+                        "/index.tsx",
+                        "/index.jsx",
+                    ]:
+                        candidate = resolved + ext
+                        node_id = f"file:{candidate}"
+                        if node_id in self.nodes:
+                            out_edges.append(
+                                GraphEdge(source=file_node_id, target=node_id, relation="imports")
+                            )
+                            break
+                    else:
+                        # Dangling edge to module (unresolved relative import)
+                        out_edges.append(
+                            GraphEdge(
+                                source=file_node_id,
+                                target=f"module:{imp_target}",
+                                relation="imports",
+                            )
+                        )
+                else:
+                    # External package import
+                    pkg = imp_target.split("/")[0]
+                    out_edges.append(
+                        GraphEdge(source=file_node_id, target=f"module:{pkg}", relation="imports")
                     )
-                )
 
             class_match = re.search(
                 r"(?:export\s+)?(class|interface|type)\s+([A-Za-z0-9_]+)", line_str
@@ -517,23 +721,104 @@ class ProjectGraph:
         out_models: list[str],
     ) -> None:
         lines = content.splitlines()
+        in_import_block = False
         for i, line in enumerate(lines, 1):
             line_str = line.strip()
+
+            # Go import parsing
+            if lang == "go":
+                if line_str == "import (":
+                    in_import_block = True
+                    continue
+                if in_import_block:
+                    if line_str == ")":
+                        in_import_block = False
+                        continue
+                    imp_match = re.search(r'(?:[\w.]+\s+)?"([^"]+)"', line_str)
+                    if not imp_match:
+                        imp_match = re.search(r'"([^"]+)"', line_str)
+                    if imp_match:
+                        imp_target = imp_match.group(1)
+                        out_edges.append(
+                            GraphEdge(
+                                source=file_node_id,
+                                target=f"module:{imp_target}",
+                                relation="imports",
+                            )
+                        )
+                    continue
+                imp_match = re.search(r'^import\s+"([^"]+)"', line_str)
+                if imp_match:
+                    imp_target = imp_match.group(1)
+                    out_edges.append(
+                        GraphEdge(
+                            source=file_node_id, target=f"module:{imp_target}", relation="imports"
+                        )
+                    )
+
+            # Rust use parsing
+            if lang == "rust" and line_str.startswith("use "):
+                use_match = re.search(r"use\s+([\w:]+)", line_str)
+                if use_match:
+                    use_target = use_match.group(1)
+                    out_edges.append(
+                        GraphEdge(
+                            source=file_node_id, target=f"module:{use_target}", relation="imports"
+                        )
+                    )
+
             if lang == "rust" and include_symbols:
                 r_match = re.search(
-                    r"(?:pub\s+)?(struct|enum|trait|fn)\s+([A-Za-z0-9_]+)", line_str
+                    r"(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)\s*(?:<.*?>)?\s*\((.*?)\)",
+                    line_str,
                 )
                 if r_match:
-                    kind, name = r_match.group(1), r_match.group(2)
+                    name = r_match.group(1)
                     sym_id = f"sym:{rel_path}#{name}"
-                    is_data = kind in ("struct", "enum")
-                    if is_data:
-                        out_models.append(sym_id)
                     out_nodes.append(
                         GraphNode(
                             id=sym_id,
-                            label=f"{name}()" if kind == "fn" else name,
-                            node_type="data_model" if is_data else "function",
+                            label=f"{name}()",
+                            node_type="function",
+                            language="rust",
+                            file_path=rel_path,
+                            line_number=i,
+                        )
+                    )
+                    out_edges.append(
+                        GraphEdge(source=file_node_id, target=sym_id, relation="defines")
+                    )
+                    continue
+
+                r_match = re.search(r"(?:pub\s+)?(?:struct|enum|union)\s+([A-Za-z0-9_]+)", line_str)
+                if r_match:
+                    name = r_match.group(1)
+                    sym_id = f"sym:{rel_path}#{name}"
+                    out_models.append(sym_id)
+                    out_nodes.append(
+                        GraphNode(
+                            id=sym_id,
+                            label=name,
+                            node_type="data_model",
+                            language="rust",
+                            file_path=rel_path,
+                            line_number=i,
+                        )
+                    )
+                    out_edges.append(
+                        GraphEdge(source=file_node_id, target=sym_id, relation="defines")
+                    )
+                    continue
+
+                r_match = re.search(r"(?:pub\s+)?trait\s+([A-Za-z0-9_]+)", line_str)
+                if r_match:
+                    name = r_match.group(1)
+                    sym_id = f"sym:{rel_path}#{name}"
+                    out_nodes.append(
+                        GraphNode(
+                            id=sym_id,
+                            label=name,
+                            node_type="interface",
                             language="rust",
                             file_path=rel_path,
                             line_number=i,
@@ -609,6 +894,195 @@ class ProjectGraph:
             )
             out_edges.append(GraphEdge(source=file_node_id, target=sym_id, relation="defines"))
 
+    def _parse_java_local(
+        self,
+        file_node_id: str,
+        rel_path: str,
+        content: str,
+        include_symbols: bool,
+        out_nodes: list[GraphNode],
+        out_edges: list[GraphEdge],
+        out_models: list[str],
+        out_endpoints: list[str],
+    ) -> None:
+        lines = content.splitlines()
+        for i, line in enumerate(lines, 1):
+            line_str = line.strip()
+
+            imp_match = re.search(r"^import\s+(?:static\s+)?([\w.]+)\s*;", line_str)
+            if imp_match:
+                imp_target = imp_match.group(1)
+                out_edges.append(
+                    GraphEdge(
+                        source=file_node_id, target=f"module:{imp_target}", relation="imports"
+                    )
+                )
+
+            cls_match = re.search(
+                r"(?:public|private|protected)?\s*(?:abstract|final|static)?\s*(?:class|interface|enum)\s+(\w+)",
+                line_str,
+            )
+            if cls_match and include_symbols:
+                name = cls_match.group(1)
+                sym_id = f"sym:{rel_path}#{name}"
+                is_data = (
+                    name.endswith("DTO")
+                    or name.endswith("Model")
+                    or name.endswith("Entity")
+                    or "schema" in name.lower()
+                )
+                if is_data:
+                    out_models.append(sym_id)
+                node_type = "data_model" if is_data else "class"
+                out_nodes.append(
+                    GraphNode(
+                        id=sym_id,
+                        label=name,
+                        node_type=node_type,
+                        language="java",
+                        file_path=rel_path,
+                        line_number=i,
+                    )
+                )
+                out_edges.append(GraphEdge(source=file_node_id, target=sym_id, relation="defines"))
+
+            method_match = re.search(
+                r"(?:public|private|protected)\s+(?:static\s+)?(?:final\s+)?(?:synchronized\s+)?(\w+(?:<[^>]+>)?)\s+(\w+)\s*\(",
+                line_str,
+            )
+            if method_match and include_symbols:
+                ret_type, name = method_match.group(1), method_match.group(2)
+                sym_id = f"sym:{rel_path}#{name}"
+                decorators = []
+                is_endpoint = False
+                for prev in lines[max(0, i - 4) : i - 1]:
+                    prev_s = prev.strip()
+                    if any(
+                        ann in prev_s
+                        for ann in [
+                            "@GetMapping",
+                            "@PostMapping",
+                            "@RequestMapping",
+                            "@PutMapping",
+                            "@DeleteMapping",
+                            "@PatchMapping",
+                        ]
+                    ):
+                        is_endpoint = True
+                        decorators.append(prev_s)
+                    elif prev_s.startswith("@"):
+                        decorators.append(prev_s)
+                node_type = "endpoint" if is_endpoint else "function"
+                if is_endpoint:
+                    out_endpoints.append(sym_id)
+                out_nodes.append(
+                    GraphNode(
+                        id=sym_id,
+                        label=f"{name}()",
+                        node_type=node_type,
+                        language="java",
+                        file_path=rel_path,
+                        line_number=i,
+                        metadata={"decorators": decorators, "return_type": ret_type},
+                    )
+                )
+                out_edges.append(GraphEdge(source=file_node_id, target=sym_id, relation="defines"))
+
+    def _parse_cpp_local(
+        self,
+        file_node_id: str,
+        rel_path: str,
+        content: str,
+        include_symbols: bool,
+        out_nodes: list[GraphNode],
+        out_edges: list[GraphEdge],
+        out_models: list[str],
+    ) -> None:
+        lines = content.splitlines()
+        for i, line in enumerate(lines, 1):
+            line_str = line.strip()
+
+            inc_match = re.search(r'#include\s+[<"]([^>"]+)[>"]', line_str)
+            if inc_match:
+                inc_target = inc_match.group(1)
+                out_edges.append(
+                    GraphEdge(
+                        source=file_node_id, target=f"module:{inc_target}", relation="imports"
+                    )
+                )
+
+            ns_match = re.match(r"namespace\s+(\w+)", line_str)
+            if ns_match and include_symbols:
+                name = ns_match.group(1)
+                sym_id = f"sym:{rel_path}#{name}"
+                out_nodes.append(
+                    GraphNode(
+                        id=sym_id,
+                        label=f"namespace {name}",
+                        node_type="class",
+                        language="cpp",
+                        file_path=rel_path,
+                        line_number=i,
+                    )
+                )
+                out_edges.append(GraphEdge(source=file_node_id, target=sym_id, relation="defines"))
+
+            cls_match = re.search(
+                r"(?:class|struct)\s+(\w+)(?:\s*:\s*(?:public|private|protected)\s+(\w+))?",
+                line_str,
+            )
+            if cls_match and include_symbols:
+                name = cls_match.group(1)
+                sym_id = f"sym:{rel_path}#{name}"
+                out_models.append(sym_id)
+                out_nodes.append(
+                    GraphNode(
+                        id=sym_id,
+                        label=name,
+                        node_type="data_model",
+                        language="cpp",
+                        file_path=rel_path,
+                        line_number=i,
+                    )
+                )
+                out_edges.append(GraphEdge(source=file_node_id, target=sym_id, relation="defines"))
+                if cls_match.group(2):
+                    base = cls_match.group(2)
+                    out_edges.append(
+                        GraphEdge(source=sym_id, target=f"class:{base}", relation="inherits")
+                    )
+
+            fn_match = re.search(
+                r"(?:[\w:]+::)*(\w+)\s*\([^)]*\)\s*(?:const)?\s*(?:override)?\s*(?:=\s*(?:default|delete|0|override))?\s*[;{]",
+                line_str,
+            )
+            if fn_match and include_symbols:
+                name = fn_match.group(1)
+                if name in (
+                    "if",
+                    "for",
+                    "while",
+                    "switch",
+                    "return",
+                    "class",
+                    "struct",
+                    "namespace",
+                    "include",
+                ):
+                    continue
+                sym_id = f"sym:{rel_path}#{name}"
+                out_nodes.append(
+                    GraphNode(
+                        id=sym_id,
+                        label=f"{name}()",
+                        node_type="function",
+                        language="cpp",
+                        file_path=rel_path,
+                        line_number=i,
+                    )
+                )
+                out_edges.append(GraphEdge(source=file_node_id, target=sym_id, relation="defines"))
+
     # ─────────────────────────────────────────────────────────────
     # Smart Architectural, Process, & ER Renderers
     # ─────────────────────────────────────────────────────────────
@@ -632,7 +1106,82 @@ class ProjectGraph:
             path = node.file_path.lower()
             name = node.label
 
-            if any(k in path for k in ("test", "spec", "verify", "mock", "fixture", "audit")):
+            # Multi-signal classification: path keywords + directory depth + file size
+            path_parts = Path(node.file_path).parts
+            top_dir = path_parts[0] if len(path_parts) > 1 else ""
+            parent_dir = path_parts[-2] if len(path_parts) >= 2 else top_dir
+
+            # Priority 1: Explicit test directories (strongest signal)
+            if any(
+                k in parent_dir.lower() or k in top_dir.lower()
+                for k in ("test", "tests", "spec", "__tests__", "specs")
+            ):
+                layers["Test Suites & Quality Verification"].append(name)
+            # Priority 2: Explicit UI/frontend directories
+            elif any(
+                k in parent_dir.lower() or k in top_dir.lower()
+                for k in (
+                    "ui",
+                    "frontend",
+                    "client",
+                    "views",
+                    "pages",
+                    "components",
+                    "tui",
+                    "cli",
+                    "templates",
+                )
+            ):
+                layers["Presentation & Interface"].append(name)
+            # Priority 3: Explicit engine/orchestration directories
+            elif any(
+                k in parent_dir.lower() or k in top_dir.lower()
+                for k in ("engine", "orchestration", "workflow", "executor", "pipeline", "runtime")
+            ):
+                layers["Orchestration & Workflow Engine"].append(name)
+            # Priority 4: Explicit agent/tool directories
+            elif any(
+                k in parent_dir.lower() or k in top_dir.lower()
+                for k in ("agent", "tool", "tools", "coding", "security", "shell", "network")
+            ):
+                layers["Specialist Agents & Tools Domain"].append(name)
+            # Priority 5: Explicit data/storage directories
+            elif any(
+                k in parent_dir.lower() or k in top_dir.lower()
+                for k in (
+                    "model",
+                    "schema",
+                    "db",
+                    "database",
+                    "store",
+                    "storage",
+                    "repository",
+                    "cache",
+                    "memory",
+                    "rag",
+                )
+            ):
+                layers["Memory, State & Database"].append(name)
+            # Priority 6: Explicit integration/mesh directories
+            elif any(
+                k in parent_dir.lower() or k in top_dir.lower()
+                for k in (
+                    "util",
+                    "helper",
+                    "common",
+                    "lib",
+                    "config",
+                    "adapter",
+                    "mcp",
+                    "mesh",
+                    "plugin",
+                    "llm",
+                    "auth",
+                )
+            ):
+                layers["Integration, Mesh & Plugins"].append(name)
+            # Priority 7: Fall back to path substring matching (weaker signal)
+            elif any(k in path for k in ("test", "spec", "verify", "mock", "fixture", "audit")):
                 layers["Test Suites & Quality Verification"].append(name)
             elif any(
                 k in path
@@ -646,8 +1195,6 @@ class ProjectGraph:
                     "widget",
                     "tui",
                     "cli",
-                    "route",
-                    "api",
                     "handler",
                     "endpoint",
                     "controller",
@@ -737,8 +1284,8 @@ class ProjectGraph:
                 layers["Integration, Mesh & Plugins"].append(name)
             else:
                 p = Path(node.file_path)
-                top_dir = str(p.parent) if str(p.parent) != "." else "root"
-                unassigned_by_dir[top_dir].append(name)
+                top_dir_str = str(p.parent) if str(p.parent) != "." else "root"
+                unassigned_by_dir[top_dir_str].append(name)
 
         # Merge unassigned directories into dynamic layers if any exist
         for d, files in sorted(unassigned_by_dir.items()):
@@ -905,6 +1452,9 @@ class ProjectGraph:
                 lines.append(f"│   • Type: {m.language.upper()} Entity / Schema")
             lines.append("└──" + "─" * (w - 2) + "\n")
 
+        if len(models) > 18:
+            lines.append(f"... and {len(models) - 18} more models/schemas")
+
         return "\n".join(lines)
 
     def to_detailed_llm_blueprint(self) -> str:
@@ -924,6 +1474,12 @@ class ProjectGraph:
 
         for d, f_list in sorted(by_dir.items())[:20]:
             lines.append(f"  - {d}/: {', '.join(f_list[:10])}")
+            if len(f_list) > 10:
+                lines.append(f"    ... and {len(f_list) - 10} more files")
+
+        overflow_dirs = len(by_dir) - 20
+        if overflow_dirs > 0:
+            lines.append(f"\n  ... and {overflow_dirs} more directories")
 
         in_degree: dict[str, int] = defaultdict(int)
         for e in self.edges:
@@ -944,6 +1500,8 @@ class ProjectGraph:
                 fields = self.model_fields.get(m.id, [])
                 field_str = f" ({', '.join(fields[:4])})" if fields else ""
                 lines.append(f"  - {m.label} at {m.file_path}{field_str}")
+            if len(models) > 12:
+                lines.append(f"  ... and {len(models) - 12} more models")
 
         return "\n".join(lines)
 
@@ -1161,11 +1719,20 @@ class ProjectGraph:
             src_clean_id = re.sub(r"[^a-zA-Z0-9_]", "_", edge.source)
             tgt_clean_id = re.sub(r"[^a-zA-Z0-9_]", "_", edge.target)
 
+            # Prevent collisions by appending a counter if ID already used
+            if src_clean_id in added_nodes:
+                src_clean_id = f"{src_clean_id}_{edge.source.count(':')}"
+            if tgt_clean_id in added_nodes:
+                tgt_clean_id = f"{tgt_clean_id}_{edge.target.count(':')}"
+
             if src_clean_id not in added_nodes:
-                lines.append(f'  {src_clean_id}["{src_label}"]')
+                # Escape quotes in labels to prevent Mermaid syntax errors
+                safe_label = src_label.replace('"', "'")
+                lines.append(f'  {src_clean_id}["{safe_label}"]')
                 added_nodes.add(src_clean_id)
             if tgt_clean_id not in added_nodes:
-                lines.append(f'  {tgt_clean_id}["{tgt_label}"]')
+                safe_label = tgt_label.replace('"', "'")
+                lines.append(f'  {tgt_clean_id}["{safe_label}"]')
                 added_nodes.add(tgt_clean_id)
 
             arrow = "-->" if edge.relation == "imports" else "-.->|inherits|"

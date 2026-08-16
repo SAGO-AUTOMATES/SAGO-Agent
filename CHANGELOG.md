@@ -2,6 +2,80 @@
 
 All notable changes to the SAGO project are documented in this file.
 
+## [0.1.8] - 2026-08-16
+
+### Fixed (Critical Bugs)
+- **RAG Context Layer Completely Broken** (`sago/engine/context_assembler.py:202-208`):
+  - `getattr(r, "file_path")` always returned `""` because `HybridSearchResult` stores data in `r.chunk`, not directly on `r`.
+  - Fixed to use `r.chunk.file_path` and `r.chunk.content`. The entire RAG code snippet injection pipeline is now functional.
+- **Thread Safety in Project Graph** (`sago/memory/project_graph.py:260`):
+  - `self._lock` was declared but never acquired. Concurrent `build_graph()` calls corrupted shared `self.edges` and `self.nodes` dicts.
+  - Merge loop now wrapped in `with self._lock:` for thread-safe parallel access.
+- **Dead Code in Symbol Index** (`sago/memory/symbol_index.py:275-293`):
+  - Unreachable code after `finally: conn.close()` block referenced closed variables.
+  - Removed dead code; function now returns cleanly.
+
+### Enhanced (Language Support)
+- **20 Languages Now Supported** (was 6):
+  - Added Ruby (`.rb`), PHP (`.php`), Kotlin (`.kt`), Scala (`.scala`), Swift (`.swift`), C# (`.cs`), Dart (`.dart`), Elixir (`.ex`, `.exs`), Lua (`.lua`) regex parsers in `symbol_graph.py`.
+  - Added all new extensions to `project_graph.py` candidate discovery, language detection, and file scanning.
+- **Java Parser Added** (`sago/memory/project_graph.py`):
+  - New `_parse_java_local()` method extracts `import` edges, class/interface/enum symbols, and method definitions with `@*Mapping` endpoint detection (Spring Boot).
+- **C++ Parser Added** (`sago/memory/project_graph.py`):
+  - New `_parse_cpp_local()` method extracts `#include` edges, namespace/class/struct symbols, and function definitions.
+- **Go Import Edge Parsing** (`sago/memory/project_graph.py`):
+  - `_parse_go_rust_local()` now extracts `import` block and single-line `import` statements, creating edges to `module:` nodes.
+- **Rust Import Edge Parsing** (`sago/memory/project_graph.py`):
+  - `_parse_go_rust_local()` now extracts `use` statements, creating edges to `module:` nodes.
+- **JS/TS Import Resolution** (`sago/memory/project_graph.py`):
+  - Relative imports (`./utils`, `../lib`) now resolve to actual `file:` nodes when the target file exists.
+  - External package imports store only the package root name (e.g., `module:react`).
+
+### Enhanced (Python AST Parser)
+- **Nested Class Support** (`sago/memory/symbol_graph.py`):
+  - Recursive extraction of nested classes via `_extract_class()` helper.
+- **Type Annotations in Signatures** (`sago/memory/symbol_graph.py`):
+  - Signatures now show `x: int, y: str = "hello"` instead of just `x, y`.
+- **Decorator Distinction** (`sago/memory/symbol_graph.py`):
+  - `@property`, `@staticmethod`, `@classmethod` now have distinct `symbol_type` values instead of generic `"method"`.
+- **Dataclass Field Extraction** (`sago/memory/symbol_graph.py`):
+  - `@dataclass` class fields (annotated assignments) extracted as `"field"` child symbols.
+
+### Enhanced (Architecture & Classification)
+- **Multi-Signal Architecture Classification** (`sago/memory/project_graph.py`):
+  - Replaced naive substring matching with priority cascade: directory name (strongest) → path substring (fallback).
+  - Eliminates false positives like `utils/api_helper.py` → "Presentation".
+- **Expanded Endpoint Detection** (`sago/memory/project_graph.py`):
+  - Added `@blueprint.route`, `@api_view`, `@api.route`, `.route(`, `.api_route(`, `@controller`, `@action` for Flask/Django/Express/FastAPI.
+- **Data Model False Positive Reduction** (`sago/memory/project_graph.py`):
+  - Changed from `"model" in name.lower()` to exact suffix matching: `*Model`, `*Schema`, `*DTO`, `*Entity`, `*Record`, `*Table`.
+
+### Enhanced (Search & Index)
+- **FTS5 Query Sanitizer Fixed** (`sago/memory/symbol_index.py`):
+  - Preserves dotted names: `os.path.join` → searches `os* AND path* AND join*` instead of stripping dots.
+- **Symbol Index Update Cooldown** (`sago/memory/symbol_index.py`):
+  - `update_index()` now has 30-second cooldown instead of running on every `get_ranked_repo_map()` call.
+- **Hybrid Indexer Thread Safety** (`sago/memory/hybrid_indexer.py`):
+  - Global singleton now protected by `threading.Lock()`.
+- **Smart Zero-Match Fallback** (`sago/memory/hybrid_indexer.py`):
+  - Zero-match fallback now uses stratified sampling (max 20 per chunk type) instead of scanning all chunks.
+
+### Enhanced (Monorepo Support)
+- **Workspace Detection** (`sago/memory/project_graph.py`):
+  - Detects npm/yarn/pnpm workspaces (`package.json`), Cargo workspaces (`Cargo.toml [workspace]`), Nx/Turbo/Lerna configs, and pyproject.toml workspaces.
+  - `build_graph()` scans all workspace roots in parallel.
+
+### Enhanced (Token Budget & Overflow)
+- **Token Budget System** (`sago/engine/context_assembler.py`):
+  - New `_TokenBudget` class with priority-based truncation (12K token default limit).
+  - Prevents context overflow by truncating sections by priority.
+- **Mermaid ID Collision Prevention** (`sago/memory/project_graph.py`):
+  - Counter suffix prevents ID collisions when different paths produce the same sanitized ID.
+- **Quote Escaping in Mermaid** (`sago/memory/project_graph.py`):
+  - Labels with `"` now escaped to `'` to prevent Mermaid syntax errors.
+- **Overflow Indicators** (`sago/memory/project_graph.py`):
+  - All truncated renderers now show "... and N more" indicators (ER diagram, flowchart, ASCII tree, LLM blueprint).
+
 ## [0.1.7] - 2026-08-16
 
 - **SQLite Checkpoint Store & Multi-Project Snapshot Tracking**:

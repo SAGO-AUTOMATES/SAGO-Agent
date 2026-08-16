@@ -5,6 +5,12 @@ from __future__ import annotations
 from sago.engine.async_executor import AsyncAgentExecutor, execute_parallel_tasks
 from sago.engine.checkpoint import CheckpointManager
 from sago.engine.context_assembler import ContextAssembler, get_context_assembler
+from sago.engine.prompt_enhancer import (
+    PromptEnhancementResult,
+    PromptEnhancer,
+    enhance_prompt,
+    get_prompt_enhancer,
+)
 from sago.engine.simple_executor import execute_agent_task
 from sago.engine.verifier import ProjectVerifier, get_project_verifier
 
@@ -17,4 +23,8 @@ __all__ = [
     "CheckpointManager",
     "ProjectVerifier",
     "get_project_verifier",
+    "PromptEnhancer",
+    "PromptEnhancementResult",
+    "enhance_prompt",
+    "get_prompt_enhancer",
 ]

@@ -1241,6 +1241,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/summary": lambda: self._toggle_summary(),
             "/map": lambda: self._show_repo_map(args),
             "/verify": lambda: self._run_verify(),
+            "/tools": lambda: self._show_tools(args),
+            "/tool": lambda: self._show_tools(args),
             "/skills": lambda: self._show_skills(args),
             "/skill": lambda: self._show_skills(args),
             "/plugins": lambda: self._show_plugins(),

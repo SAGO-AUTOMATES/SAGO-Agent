@@ -23,6 +23,48 @@ from sago.utils.errors import log_error
 logger = logging.getLogger("sago.engine.context_assembler")
 
 
+class _TokenBudget:
+    """Simple token budget tracker with priority-based truncation."""
+
+    def __init__(self, max_tokens: int = 12000) -> None:
+        self.max_tokens = max_tokens
+        self.used = 0
+
+    def remaining(self) -> int:
+        return max(0, self.max_tokens - self.used)
+
+    def can_add(self, estimated_tokens: int) -> bool:
+        return self.used + estimated_tokens <= self.max_tokens
+
+    def consume(self, text: str, ratio: float = 4.0) -> bool:
+        """Estimate tokens and consume budget. Returns True if within budget."""
+        estimated = int(len(text) / ratio)
+        if self.used + estimated > self.max_tokens:
+            # Truncate to fit
+            available_chars = int(self.remaining() * ratio)
+            if available_chars > 100:
+                truncated = text[:available_chars] + "... [truncated for token budget]"
+                self.used += int(len(truncated) / ratio)
+                return True
+            return False
+        self.used += estimated
+        return True
+
+    def consume_strict(self, text: str, ratio: float = 4.0) -> str:
+        """Consume budget and return truncated text if needed."""
+        estimated = int(len(text) / ratio)
+        if self.used + estimated <= self.max_tokens:
+            self.used += estimated
+            return text
+        available_chars = int(self.remaining() * ratio)
+        if available_chars > 100:
+            result = text[:available_chars] + "... [truncated for token budget]"
+            self.used += int(len(result) / ratio)
+            return result
+        self.used = self.max_tokens
+        return ""
+
+
 @dataclass
 class AssembledContext:
     """Structured assembled context ready for agent prompt construction."""
@@ -109,9 +151,11 @@ class ContextAssembler:
         session_id: str = "default",
         max_symbols: int = 8,
         max_rag_snippets: int = 3,
+        max_tokens: int = 12000,
     ) -> AssembledContext:
         """Assemble comprehensive context for a task following the 5-layer pipeline."""
         ctx = AssembledContext()
+        token_budget = _TokenBudget(max_tokens)
 
         # 1. Detect project structure, languages, frameworks
         try:
@@ -160,7 +204,7 @@ class ContextAssembler:
                 except Exception:
                     pass
 
-            ctx.project_summary = "\n".join(summary_lines)
+            ctx.project_summary = token_budget.consume_strict("\n".join(summary_lines))
         except Exception as e:
             log_error("ContextAssembler: project summary failed", e)
 
@@ -169,7 +213,7 @@ class ContextAssembler:
             from sago.memory.symbol_graph import SymbolGraph
 
             sg = SymbolGraph(root_dir=str(self.cwd))
-            task_tokens = set(re.findall(r"[a-zA-Z0-9_]{3,}", task.lower()))
+            task_words = set(re.findall(r"[a-zA-Z0-9_]{3,}", task.lower()))
             matching_symbols = []
 
             # Match files or outline nodes
@@ -177,7 +221,7 @@ class ContextAssembler:
             for file_path, symbols in outline.items():
                 for sym in symbols:
                     sym_name = sym.get("name", "")
-                    if any(t in sym_name.lower() or t in file_path.lower() for t in task_tokens):
+                    if any(t in sym_name.lower() or t in file_path.lower() for t in task_words):
                         matching_symbols.append(
                             f"• `{sym.get('kind', 'symbol')}` {sym_name} in {file_path}:{sym.get('line', 1)}"
                         )
@@ -187,7 +231,7 @@ class ContextAssembler:
                     break
 
             if matching_symbols:
-                ctx.ast_symbols_context = "\n".join(matching_symbols)
+                ctx.ast_symbols_context = token_budget.consume_strict("\n".join(matching_symbols))
         except Exception as e:
             log_error("ContextAssembler: AST symbol extraction failed", e)
 
@@ -200,13 +244,16 @@ class ContextAssembler:
             results = indexer.search(task, limit=max_rag_snippets)
             snippets = []
             for r in results:
-                fp = getattr(r, "file_path", "")
-                snippet = getattr(r, "content", "") or getattr(r, "snippet", "")
+                # HybridSearchResult stores data in r.chunk (HybridCodeChunk)
+                chunk = r.chunk
+                fp = chunk.file_path if chunk else ""
+                snippet = chunk.content if chunk else ""
+                score = r.combined_score if hasattr(r, "combined_score") else 0.0
                 if fp and snippet:
                     clean_snippet = snippet.strip()[:300]
-                    snippets.append(
-                        f"File `{fp}` (score: {getattr(r, 'score', 0):.2f}):\n```\n{clean_snippet}\n```"
-                    )
+                    snippet_text = f"File `{fp}` (score: {score:.2f}):\n```\n{clean_snippet}\n```"
+                    if token_budget.consume(snippet_text):
+                        snippets.append(snippet_text)
 
             if snippets:
                 ctx.rag_snippets_context = "\n\n".join(snippets)
@@ -230,7 +277,9 @@ class ContextAssembler:
                 if pyramid.semantic_summary:
                     pyramid_parts.append(f"Prior Progress: {pyramid.semantic_summary[:300]}")
                 if pyramid_parts:
-                    ctx.memory_pyramid_context = "\n".join(pyramid_parts)
+                    pyramid_text = "\n".join(pyramid_parts)
+                    if token_budget.consume(pyramid_text):
+                        ctx.memory_pyramid_context = pyramid_text
             except Exception as e:
                 log_error("ContextAssembler: Memory pyramid extraction failed", e)
 
@@ -239,12 +288,20 @@ class ContextAssembler:
             ls = get_learning_store()
             tools_list = available_tools or []
             suggestion = ls.suggest_approach(task_type, tools_list)
-            if suggestion:
+            if suggestion and token_budget.consume(suggestion):
                 ctx.learning_approach = suggestion
 
             fixes = ls.get_known_fixes(task)
             if fixes:
-                ctx.known_fixes = [fixes] if isinstance(fixes, str) else list(fixes)
+                fix_list = [fixes] if isinstance(fixes, str) else list(fixes)
+                # Budget: keep only fixes that fit
+                budget_fixes = []
+                for fix in fix_list:
+                    if token_budget.consume(fix):
+                        budget_fixes.append(fix)
+                    else:
+                        break
+                ctx.known_fixes = budget_fixes
         except Exception as e:
             log_error("ContextAssembler: Learning store query failed", e)
 
@@ -261,7 +318,9 @@ class ContextAssembler:
                     r = m.get("role", "user")
                     c = m.get("content", "")[:200]
                     if c:
-                        turns.append(f"{r.title()}: {c}")
+                        turn = f"{r.title()}: {c}"
+                        if token_budget.consume(turn):
+                            turns.append(turn)
                 if turns:
                     ctx.past_session_context = "\n".join(turns)
         except Exception as e:

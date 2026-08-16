@@ -35,6 +35,8 @@ class PersistentSymbolIndex:
 
         self._graph = SymbolGraph(root_dir=self.root)
         self._init_db()
+        self._last_update_time: float = 0.0
+        self._update_cooldown: float = 30.0  # Minimum seconds between full index updates
 
     def _init_db(self) -> None:
         """Initialize tables and FTS5 search index."""
@@ -180,12 +182,18 @@ class PersistentSymbolIndex:
         try:
             cur = conn.cursor()
 
-            # Sanitize query for FTS5
-            clean_q = "".join(c for c in query if c.isalnum() or c in (" ", "_", "-")).strip()
+            # Sanitize query for FTS5 - preserve dots, underscores, hyphens for dotted names
+            clean_q = "".join(c for c in query if c.isalnum() or c in (" ", "_", "-", ".")).strip()
             if not clean_q:
                 return []
 
-            fts_query = f'"{clean_q}"*'
+            # Split on dots to handle dotted names like os.path.join
+            parts = clean_q.split(".")
+            if len(parts) > 1:
+                # For dotted queries, search for each part individually
+                fts_query = " AND ".join(f'"{p}"*' for p in parts if p)
+            else:
+                fts_query = f'"{clean_q}"*'
 
             try:
                 cur.execute(
@@ -230,7 +238,12 @@ class PersistentSymbolIndex:
 
     def get_ranked_repo_map(self, query: str | None = None, max_symbols: int = 150) -> str:
         """Generate a token-efficient outline map of the most relevant files & symbols."""
-        self.update_index()
+        import time as _time
+
+        now = _time.time()
+        if now - self._last_update_time >= self._update_cooldown:
+            self.update_index()
+            self._last_update_time = now
 
         conn = sqlite3.connect(self.db_path)
         try:
@@ -274,20 +287,5 @@ class PersistentSymbolIndex:
             return "\n".join(lines)
         finally:
             conn.close()
-            fpath, lang, lines_cnt, syms_raw = r
-            syms_list = json.loads(syms_raw) if syms_raw else []
-
-            lines.append(f"### `{fpath}` ({lang}, {lines_cnt} lines):")
-            for s in syms_list[:10]:
-                sig = f"({s.get('signature', '')})" if s.get("signature") else ""
-                lines.append(f"  • {s.get('symbol_type', 'symbol')} `{s.get('name')}`{sig}")
-                for ch in s.get("children", [])[:5]:
-                    ch_sig = f"({ch.get('signature', '')})" if ch.get("signature") else ""
-                    lines.append(
-                        f"    - {ch.get('symbol_type', 'method')} `{ch.get('name')}`{ch_sig}"
-                    )
-            if len(syms_list) > 10:
-                lines.append(f"  [dim]... +{len(syms_list) - 10} more symbols[/dim]")
-            lines.append("")
 
         return "\n".join(lines)

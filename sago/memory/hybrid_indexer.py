@@ -450,9 +450,18 @@ class HybridCodeIndexer:
             if term in self.inverted_index:
                 candidate_indices.update(self.inverted_index[term])
 
-        # If zero lexical matches found, scan the entire chunk set for dense semantic vector matches
+        # If zero lexical matches found, use stratified sampling instead of scanning all chunks
         if not candidate_indices:
-            candidate_indices = set(range(len(self.chunks)))
+            # Sample evenly across chunk types for diversity
+            type_buckets: dict[str, list[int]] = {}
+            for idx in range(len(self.chunks)):
+                ct = self.chunks[idx].chunk_type
+                type_buckets.setdefault(ct, []).append(idx)
+            for indices in type_buckets.values():
+                # Sample proportional to bucket size, max 20 per type
+                sample_size = min(20, len(indices))
+                step = max(1, len(indices) // sample_size)
+                candidate_indices.update(indices[::step][:sample_size])
 
         results: list[HybridSearchResult] = []
         raw_bm25: list[float] = []
@@ -527,13 +536,15 @@ class HybridCodeIndexer:
 
 
 _global_hybrid_indexer: HybridCodeIndexer | None = None
+_global_hybrid_indexer_lock = __import__("threading").Lock()
 
 
 def get_hybrid_code_indexer(root_dir: str | Path | None = None) -> HybridCodeIndexer:
-    """Singleton getter for the hybrid code indexer."""
+    """Thread-safe singleton getter for the hybrid code indexer."""
     global _global_hybrid_indexer
-    if _global_hybrid_indexer is None or (
-        root_dir and _global_hybrid_indexer.root_dir != Path(root_dir).resolve()
-    ):
-        _global_hybrid_indexer = HybridCodeIndexer(root_dir=root_dir)
-    return _global_hybrid_indexer
+    with _global_hybrid_indexer_lock:
+        if _global_hybrid_indexer is None or (
+            root_dir and _global_hybrid_indexer.root_dir != Path(root_dir).resolve()
+        ):
+            _global_hybrid_indexer = HybridCodeIndexer(root_dir=root_dir)
+        return _global_hybrid_indexer

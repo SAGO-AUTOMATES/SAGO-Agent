@@ -23,6 +23,7 @@ class CommandHandlers:
         categories = {
             "CORE & WORKFLOW": [
                 "/help",
+                "/?",
                 "/status",
                 "/session",
                 "/compact",
@@ -37,6 +38,10 @@ class CommandHandlers:
                 "/orchestrate",
                 "/parallel",
                 "/tasks",
+                "/tools",
+                "/skills",
+                "/mcp",
+                "/plugins",
             ],
             "CODE INTELLIGENCE & VCS": [
                 "/graph",
@@ -46,6 +51,7 @@ class CommandHandlers:
                 "/diff",
                 "/undo",
                 "/checkpoint",
+                "/search",
             ],
             "SETTINGS & RUNTIME": [
                 "/model",
@@ -82,6 +88,88 @@ class CommandHandlers:
             )
         )
         container.scroll_end()
+
+    def _show_tools(self: SagoApp, query: str = "") -> None:
+        try:
+            from rich.markup import escape
+
+            from sago.tools.registry import get_tool, list_categories, list_tools
+
+            container = self.query_one("#messages")
+
+            # Case 1: Specific tool detailed inspection
+            if query and get_tool(query.strip()):
+                t = get_tool(query.strip())
+                assert t is not None
+                lines = [
+                    f"[bold cyan]Tool:[/] [bold yellow]{t.name}[/bold yellow]  [dim]Category: [{t.category}] | Source: {t.source}[/dim]\n",
+                    f"[bold]Description:[/]\n{escape(t.description)}\n",
+                    f"[dim]Module: {t.module_path}[/dim]\n",
+                ]
+                if t.args_schema:
+                    lines.append("[bold]Parameters:[/bold]")
+                    for pname, pinfo in t.args_schema.items():
+                        req = "[red]REQ[/red]" if pinfo.get("required") else "[dim]opt[/dim]"
+                        ptype = pinfo.get("type", "str")
+                        pdesc = pinfo.get("description", "-")
+                        lines.append(
+                            f"  • [yellow]{pname}[/yellow] [dim]({ptype}, {req})[/dim]: {escape(pdesc)}"
+                        )
+                body = "\n".join(lines)
+                container.mount(
+                    Collapsible(
+                        Static(body),
+                        title=f"Tool: {t.name}",
+                        collapsed=False,
+                    )
+                )
+                container.scroll_end()
+                return
+
+            # Case 2: Categories overview
+            if not query:
+                categories = list_categories()
+                total_tools = sum(len(v) for v in categories.values())
+                lines = [
+                    f"[bold]Dynamic Tool Registry ({total_tools} tools across {len(categories)} categories):[/bold]\n"
+                ]
+                for cat, tool_list in sorted(categories.items()):
+                    sample = ", ".join(t.name for t in tool_list[:4])
+                    if len(tool_list) > 4:
+                        sample += f", +{len(tool_list) - 4} more"
+                    lines.append(
+                        f"  [bold yellow]{cat:<18}[/bold yellow] [green]({len(tool_list):>2})[/green]  [dim]{escape(sample)}[/dim]"
+                    )
+                lines.append(
+                    "\n[dim]To view tools in a category or search: [/dim][bold cyan]/tools <category_or_query>[/bold cyan]"
+                )
+                lines.append(
+                    "[dim]Example: [/dim][bold]/tools coding[/bold]  or  [bold]/tools read_file[/bold]"
+                )
+                title = f"Tool Categories ({len(categories)} categories, {total_tools} tools)"
+            else:
+                # Case 3: Filtered tools search
+                matched = list_tools(query=query)
+                lines = [f"[bold]Tools matching '{query}' ({len(matched)}):[/bold]\n"]
+                for t in matched[:40]:
+                    lines.append(
+                        f"  [cyan]{t.name:<24}[/cyan] [yellow][{t.category}][/yellow] [dim]{escape(t.description[:60])}[/dim]"
+                    )
+                if len(matched) > 40:
+                    lines.append(f"\n  [dim]... and {len(matched) - 40} more[/dim]")
+                title = f"Tools matching '{query}' ({len(matched)})"
+
+            body = "\n".join(lines)
+            container.mount(
+                Collapsible(
+                    Static(body),
+                    title=title,
+                    collapsed=False,
+                )
+            )
+            container.scroll_end()
+        except Exception as e:
+            self._add_system_message(f"Error displaying tools: {e}")
 
     def _show_agents(self: SagoApp, f: str = "") -> None:
         try:
@@ -148,6 +236,15 @@ class CommandHandlers:
             self._add_system_message("Usage: /delegate <agent> <task>")
             return
         agent_name, task = parts
+
+        from sago.engine.prompt_enhancer import enhance_prompt
+
+        enhancement = enhance_prompt(task=task, agent_role=agent_name)
+        if enhancement.was_modified:
+            self._add_system_message(
+                f"✨ [bold cyan]Prompt Enhanced for @{agent_name}[/bold cyan]: {enhancement.intent_summary} [dim]({', '.join(enhancement.improvements[:3])})[/dim]"
+            )
+
         self._add_command_turn(
             "delegate",
             task,

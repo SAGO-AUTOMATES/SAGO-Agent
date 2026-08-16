@@ -261,10 +261,19 @@ class AgentSpawner:
 
     def _build_step_task(self, original_task: str, ctx: HandoffContext, next_agent: str) -> str:
         """Build a rich task prompt for the next agent in the chain."""
+        from sago.engine.prompt_enhancer import enhance_prompt
+
+        enhancement = enhance_prompt(
+            task=original_task,
+            agent_role=next_agent,
+            extra_context=f"Chained execution step for {next_agent}",
+        )
+
         parts = []
 
-        # Original task
-        parts.append(f"## Original Task\n{original_task}")
+        # Enhanced goal and original request
+        parts.append(f"## Target Objective\n{enhancement.intent_summary}")
+        parts.append(f"## Original User Request\n{original_task}")
 
         # What previous agents did
         if ctx.completed_agents:
@@ -284,11 +293,16 @@ class AgentSpawner:
         if ctx.errors:
             parts.append("## Known Issues\n" + "\n".join(f"- {e}" for e in ctx.errors[-3:]))
 
+        # Acceptance criteria
+        if enhancement.acceptance_criteria:
+            crit_lines = "\n".join(f"- {c}" for c in enhancement.acceptance_criteria)
+            parts.append(f"## Acceptance Criteria\n{crit_lines}")
+
         # What this agent should focus on
         parts.append(
             f"## Your Task as {next_agent}\n"
-            f"Continue the work above. You are the {next_agent}. "
-            f"Review what has been done and provide your specialist contribution."
+            f"Continue the work above. You are the specialist {next_agent}. "
+            f"Review what has been completed, address open criteria, and provide your specialist contribution."
         )
 
         return "\n\n".join(parts)

@@ -26,14 +26,18 @@ console = Console()
 
 
 def _get_configured_model() -> str:
-    """Get the configured model from config, fallback to openrouter/free."""
+    """Get the configured model from config, fallback to gemini-2.0-flash / openrouter."""
     try:
         from sago.config.loader import get_config
 
         config = get_config()
-        return config.llm.model or "openrouter/free"
+        default_prov = getattr(config.llm_providers, "default", "gemini")
+        providers = getattr(config.llm_providers, "providers", {})
+        if default_prov in providers and getattr(providers[default_prov], "model", None):
+            return providers[default_prov].model
+        return default_prov
     except Exception:
-        return "openrouter/free"
+        return "gemini-2.0-flash"
 
 
 @click.group()
@@ -142,6 +146,24 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool, deta
 
     console.print(f"[green]Using agent: {agent_name}[/]\n")
 
+    from sago.engine.prompt_enhancer import enhance_prompt
+
+    enhancement = enhance_prompt(
+        task=task,
+        agent_role=agent_name,
+        cwd=os.getcwd(),
+    )
+    if enhancement.was_modified:
+        console.print(
+            Panel(
+                f"[bold cyan]✨ Prompt Automatically Enhanced with Intent & Scope[/bold cyan]\n\n"
+                f"[bold]Synthesized Objective:[/] [white]{enhancement.intent_summary}[/white]\n"
+                f"[dim]Key Additions:[/] [green]{' • '.join(enhancement.improvements)}[/green]",
+                title="[bold]Sago Prompt Enhancer[/]",
+                border_style="cyan",
+            )
+        )
+
     result = execute_agent_task(
         task=task,
         agent_role=agent_name.replace("-", " ").title(),
@@ -182,6 +204,227 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool, deta
         )
 
 
+@cli.command("help")
+@click.argument("command_name", required=False, default=None)
+@click.pass_context
+def help_cmd(ctx: click.Context, command_name: str | None) -> None:
+    """Show dynamic, formatted help and usage guides for SAGO commands.
+
+    Examples:
+      sago help                # Overview of all commands & system capabilities
+      sago help run            # Detailed guide for 'run' command
+      sago help tools          # Detailed guide for 'tools' command
+      sago help agents         # Detailed guide for 'agents' command
+      sago help pr             # Detailed guide for 'pr' command group
+    """
+    import difflib
+
+    from sago.agents.registry import list_agents
+    from sago.plugins.base import get_plugin_manager
+    from sago.skills.registry import list_skills
+    from sago.tools.registry import get_total_tools_count
+
+    root_cli = ctx.find_root().command
+    if not isinstance(root_cli, click.Group):
+        console.print(ctx.get_help())
+        return
+
+    # If no command_name provided, display the categorized master dashboard
+    if not command_name:
+        total_agents = len(list_agents())
+        total_tools = get_total_tools_count()
+        total_skills = len(list_skills())
+        try:
+            total_plugins = len(get_plugin_manager().list_plugins())
+        except Exception:
+            total_plugins = 0
+
+        console.print(
+            Panel.fit(
+                f"[bold cyan]SAGO Multi-Agent Orchestration — Command Reference[/]\n"
+                f"[dim]Version: v{__version__}  |  Model: {_get_configured_model()}  |  "
+                f"Agents: {total_agents}  |  Tools: {total_tools}  |  Skills: {total_skills}  |  Plugins: {total_plugins}[/]",
+                border_style="cyan",
+            )
+        )
+
+        categories = {
+            "🚀 Agent Execution & Workflows": [
+                (
+                    "run",
+                    "Execute a task using specialist agents or custom agent chains (--detach supported)",
+                ),
+                ("smart", "Autonomous agent selection with streaming & effort-level reasoning"),
+                (
+                    "chain",
+                    "Sequential agent pipeline execution (e.g. architect -> dev -> reviewer)",
+                ),
+                (
+                    "workflow",
+                    "LangGraph stateful planning & execution workflow with adaptive loops",
+                ),
+                ("workflow-create", "Interactive creation of multi-step structured workflows"),
+                ("workflow-run", "Execute a saved stateful workflow by ID"),
+                ("workflow-add-step", "Add an agent or tool step to a workflow"),
+                ("workflows", "List all configured workflows and execution status"),
+            ],
+            "💬 Interactive & Runtime Interfaces": [
+                ("tui", "Interactive Textual full-terminal UI with live streaming & autocomplete"),
+                ("chat", "Quick conversational interface with master Sago orchestrator"),
+                ("attach", "Attach to and stream running detached tasks or TUI sessions"),
+                ("serve", "Start Sago daemon background server for remote execution"),
+                ("stop", "Stop running Sago daemon background server"),
+                ("daemon-status", "Inspect active Sago daemon PID and status"),
+                ("remote", "Dispatch and execute tasks on a remote Sago daemon instance"),
+            ],
+            "🔍 Codebase Intelligence & VCS": [
+                ("search", "Natural language semantic & BM25 hybrid codebase search"),
+                ("map", "Generate compact AST symbol outline map across repository"),
+                (
+                    "project-graph",
+                    "Deep architecture diagrams, process pipelines & data model ER graphs",
+                ),
+                ("graph", "Alias for project-graph with curated architecture visualization"),
+                (
+                    "verify",
+                    "Self-healing linter, type-check, and automated test suite verification",
+                ),
+                ("pr", "Automated feature branch and verified Pull Request creation workflow"),
+                ("parse", "Convert documents, PDFs, Excel sheets, and web files to Markdown"),
+            ],
+            "🗂️ Dynamic Registries & State": [
+                (
+                    "tools",
+                    "Dynamically explore, search, and inspect all available tools & parameters",
+                ),
+                ("agents", "Explore specialist engineering agents across domain categories"),
+                ("info", "Inspect detailed role, skills, tools, and handoffs for an agent"),
+                ("skills", "List built-in capabilities and custom workspace skills"),
+                ("plugins", "List installed third-party plugins and lifecycle hooks"),
+                ("sessions", "List historical interactive sessions with message & tool metrics"),
+                ("history", "View full message history and tool trace logs for a session"),
+                (
+                    "checkpoint",
+                    "Create and restore atomic workspace snapshots for safe refactoring",
+                ),
+            ],
+            "⚙️ Configuration & Diagnostics": [
+                ("status", "Comprehensive live system health, active model, tools, and DB status"),
+                ("doctor", "Full diagnostic check of Python runtime, DB, API keys, and ports"),
+                ("init", "Initialize Sago in current directory with tailored project config"),
+                ("setup", "Interactive setup wizard for LLM providers and workspace preferences"),
+                ("onboard", "Seamless first-time onboarding wizard"),
+                ("clean", "Garbage collect stale caches, backups, logs, and empty DB sessions"),
+                ("usage", "Inspect token consumption, API costs, and cache hit rates"),
+                ("telemetry", "Export traces and metrics (OpenTelemetry, Prometheus, JSON, HTML)"),
+                ("hook", "Manage Git pre-commit hooks for automatic syntax and symbol indexing"),
+                ("update", "Check for updates and auto-upgrade SAGO via uv/pip"),
+                ("help", "Display this dynamic guide or detailed help for any specific command"),
+            ],
+        }
+
+        for cat_title, cmd_list in categories.items():
+            table = Table(
+                title=f"[bold]{cat_title}[/bold]",
+                show_header=True,
+                header_style="bold cyan",
+                border_style="dim",
+            )
+            table.add_column("Command", style="bold yellow", width=22)
+            table.add_column("Description", style="white")
+
+            for cmd_name, fallback_desc in cmd_list:
+                cmd_obj = root_cli.commands.get(cmd_name)
+                desc = fallback_desc
+                if cmd_obj:
+                    doc = (cmd_obj.help or cmd_obj.short_help or "").strip()
+                    if doc:
+                        desc = doc.splitlines()[0]
+                table.add_row(f"sago {cmd_name}", desc)
+
+            console.print(table)
+            console.print("")
+
+        console.print(
+            "[bold cyan]Need details on a specific command?[/bold cyan] Run [bold white]sago help <command>[/bold white]  "
+            "[dim](e.g. 'sago help run', 'sago help tools', 'sago help agents')[/dim]\n"
+        )
+        return
+
+    # If command_name is provided, find and display its dynamic help
+    cmd_name = command_name.strip()
+    cmd_obj = root_cli.commands.get(cmd_name)
+
+    if not cmd_obj:
+        # Check sub-groups like "pr create" or "hook install"
+        parts = cmd_name.split()
+        if len(parts) > 1 and parts[0] in root_cli.commands:
+            group = root_cli.commands[parts[0]]
+            if isinstance(group, click.Group) and parts[1] in group.commands:
+                cmd_obj = group.commands[parts[1]]
+
+    if not cmd_obj:
+        # Fuzzy match suggestions
+        all_cmds = list(root_cli.commands.keys())
+        matches = difflib.get_close_matches(cmd_name, all_cmds, n=3, cutoff=0.4)
+        console.print(f"[bold red]Command not found:[/] '{cmd_name}'")
+        if matches:
+            console.print(
+                f"[yellow]Did you mean:[/] {', '.join(f'[bold cyan]sago {m}[/bold cyan]' for m in matches)}"
+            )
+        console.print("[dim]Run 'sago help' to see all available commands.[/]\n")
+        return
+
+    # Render rich help for cmd_obj
+    console.print(
+        Panel.fit(
+            f"[bold cyan]SAGO Command:[/] [bold yellow]sago {cmd_name}[/bold yellow]",
+            border_style="cyan",
+        )
+    )
+
+    doc = (cmd_obj.help or cmd_obj.short_help or "No description available.").strip()
+    console.print(f"\n[bold]Description:[/]\n{doc}\n")
+
+    # Options and arguments
+    if hasattr(cmd_obj, "params") and cmd_obj.params:
+        p_table = Table(
+            title="[bold]Options & Arguments[/bold]", show_header=True, header_style="bold cyan"
+        )
+        p_table.add_column("Option / Argument", style="bold yellow")
+        p_table.add_column("Type", style="dim")
+        p_table.add_column("Default", style="green")
+        p_table.add_column("Description", style="white")
+
+        for param in cmd_obj.params:
+            names = ", ".join(param.opts or [param.name])
+            ptype = param.type.name if hasattr(param.type, "name") else str(param.type)
+            default_val = str(param.default) if param.default is not None else "[dim]none[/dim]"
+            if getattr(param, "is_flag", False):
+                default_val = f"flag ({param.default})"
+            pdesc = param.help if hasattr(param, "help") and param.help else ""
+            p_table.add_row(names, ptype, default_val, pdesc or "-")
+
+        console.print(p_table)
+
+    if isinstance(cmd_obj, click.Group) and cmd_obj.commands:
+        sub_table = Table(
+            title="[bold]Subcommands[/bold]", show_header=True, header_style="bold cyan"
+        )
+        sub_table.add_column("Subcommand", style="bold yellow")
+        sub_table.add_column("Description", style="white")
+        for sc_name, sc_obj in cmd_obj.commands.items():
+            sc_desc = (
+                (sc_obj.short_help or sc_obj.help or "").splitlines()[0]
+                if (sc_obj.help or sc_obj.short_help)
+                else ""
+            )
+            sub_table.add_row(f"sago {cmd_name} {sc_name}", sc_desc)
+        console.print("\n", sub_table)
+
+    console.print(f"\n[dim]Run 'sago {cmd_name} --help' for standard Click help output.[/]\n")
+
+
 @cli.command()
 @click.argument("query", required=False, default=None)
 @click.option("--all", "show_all", is_flag=True, help="List all agents unconditionally")
@@ -193,7 +436,7 @@ def agents(query: str | None = None, show_all: bool = False) -> None:
       sago agents database            # List agents in database category
       sago agents security            # List agents in security category
       sago agents python              # Search for agents matching 'python'
-      sago agents --all               # List all 339 agents
+      sago agents --all               # List all available agents
     """
     from sago.agents.registry import get_agents_by_category, list_categories
 
@@ -204,8 +447,8 @@ def agents(query: str | None = None, show_all: bool = False) -> None:
     if not query and not show_all:
         console.print(
             Panel.fit(
-                f"[bold]Sago Specialist Agent Categories[/]  [dim]({total_agents} agents across {len(categories)} domains)[/]",
-                border_style="blue",
+                f"[bold cyan]Sago Specialist Agent Categories[/]  [dim]({total_agents} agents across {len(categories)} domains)[/]",
+                border_style="cyan",
             )
         )
         table = Table(show_header=True, header_style="bold cyan")
@@ -265,12 +508,20 @@ def agents(query: str | None = None, show_all: bool = False) -> None:
 @click.argument("agent_name")
 def info(agent_name: str) -> None:
     """Show detailed info about a specific agent."""
-    from sago.agents.registry import get_agent, get_handoff_targets
+    import difflib
+
+    from sago.agents.registry import get_agent, get_handoff_targets, list_agents
 
     agent = get_agent(agent_name)
     if agent is None:
-        console.print(f"[red]Agent not found: {agent_name}[/]")
-        console.print("Use 'sago agents' to see available agents.")
+        console.print(f"[bold red]Agent not found:[/] '{agent_name}'")
+        all_agents = [a["name"] for a in list_agents()]
+        matches = difflib.get_close_matches(agent_name, all_agents, n=3, cutoff=0.4)
+        if matches:
+            console.print(
+                f"[yellow]Did you mean:[/] {', '.join(f'[bold cyan]{m}[/bold cyan]' for m in matches)}"
+            )
+        console.print("Use 'sago agents' to see available agents.\n")
         return
 
     console.print(
@@ -281,6 +532,7 @@ def info(agent_name: str) -> None:
     )
 
     console.print(f"\n[bold]Description:[/]\n{agent.description}")
+    console.print(f"\n[bold]Category:[/]\n{agent.category}")
     console.print(f"\n[bold]Skills:[/]\n{', '.join(agent.skills)}")
     console.print(f"\n[bold]Tools:[/]\n{', '.join(agent.tools)}")
     console.print(f"\n[bold]Max Iterations:[/] {agent.max_iterations}")
@@ -295,85 +547,238 @@ def info(agent_name: str) -> None:
 
 @cli.command()
 def status() -> None:
-    """Show Sago system status."""
+    """Show Sago system status and active resource metrics."""
+    from sago.agents.registry import list_agents
     from sago.config.loader import get_config
     from sago.database import Session
+    from sago.mcp.manager import get_mcp_manager
     from sago.paths import get_db_path, get_sago_home
+    from sago.plugins.base import get_plugin_manager
+    from sago.skills.loader import SkillLoader
+    from sago.skills.registry import list_skills
+    from sago.tools.registry import get_total_tools_count
+    from sago.tools.registry import list_categories as list_tool_categories
 
     config = get_config()
+    db_path = get_db_path()
+    sago_home = get_sago_home()
 
     console.print(
         Panel.fit(
-            "[bold]Sago System Status[/]",
-            border_style="blue",
+            f"[bold cyan]Sago System Status[/]  [dim](v{__version__})[/]",
+            border_style="cyan",
         )
     )
 
-    console.print(f"\n[bold]Version:[/] {__version__}")
-    console.print(f"[bold]Home:[/] {get_sago_home()}")
-    console.print(f"[bold]Database:[/] {get_db_path()}")
+    # Core Directories & DB
+    console.print(f"[bold]Home:[/]     {sago_home}")
+    console.print(f"[bold]Database:[/] {db_path}")
 
-    # Check if DB exists
-    if get_db_path().exists():
-        session = Session()
-        sessions = session.list_all(limit=10)
-        console.print(f"[bold]Sessions:[/] {len(sessions)} stored")
+    if db_path.exists():
+        try:
+            session = Session()
+            sessions = session.list_all(limit=100)
+            active_count = sum(1 for s in sessions if s.get("status") == "active")
+            console.print(f"[bold]Sessions:[/] {len(sessions)} stored ({active_count} active)")
+            session.close()
+        except Exception as e:
+            console.print(f"[bold]Sessions:[/] Error reading database: {e}")
     else:
-        console.print("[bold]Database:[/] Not initialized")
+        console.print("[bold]Database:[/] [yellow]Not initialized[/]")
 
-    console.print(f"\n[bold]Default LLM:[/] {config.llm_providers.default}")
-    console.print(f"[bold]Orchestrator:[/] {config.orchestrator.name}")
+    # LLM & Orchestration
+    console.print(f"\n[bold]Default Provider:[/] [cyan]{config.llm_providers.default}[/cyan]")
+    console.print(f"[bold]Default Model:[/]    [green]{_get_configured_model()}[/green]")
+    console.print(f"[bold]Orchestrator:[/]     [yellow]{config.orchestrator.name}[/yellow]")
 
-    # Enabled agents
-    from sago.agents.registry import list_agents
-
+    # Dynamic Registries Counts
     agents_list = list_agents()
-    console.print(f"[bold]Agents:[/] {len(agents_list)} available")
+    tools_count = get_total_tools_count()
+    tool_cats = len(list_tool_categories())
+    builtin_skills = list_skills()
+    custom_skills = SkillLoader.discover_skills()
+    total_skills = len(builtin_skills) + len(custom_skills)
+
+    pm = get_plugin_manager()
+    plugins = pm.list_plugins()
+    mcp_mgr = get_mcp_manager()
+    mcp_servers = mcp_mgr.list_servers()
+
+    console.print(
+        f"\n[bold]Specialist Agents:[/] [bold green]{len(agents_list)}[/bold green] available across 22 domains"
+    )
+    console.print(
+        f"[bold]Tool Registry:[/]     [bold green]{tools_count}[/bold green] dynamic tools across {tool_cats} categories"
+    )
+    console.print(
+        f"[bold]Skills Registry:[/]   [bold green]{total_skills}[/bold green] skills ({len(builtin_skills)} built-in, {len(custom_skills)} custom)"
+    )
+    console.print(
+        f"[bold]Plugins:[/]           [bold green]{len(plugins)}[/bold green] external plugins loaded"
+    )
+    console.print(
+        f"[bold]MCP Servers:[/]       [bold green]{len(mcp_servers)}[/bold green] servers configured\n"
+    )
 
 
 @cli.command()
-def tools() -> None:
-    """List all available tools."""
-    from sago.config.loader import get_config
+@click.argument("query", required=False, default=None)
+@click.option("--all", "show_all", is_flag=True, help="List all tools unconditionally in a table")
+@click.option("--category", "-c", default=None, help="Filter tools by specific category")
+@click.option("--json-out", is_flag=True, help="Output tools in raw JSON format")
+@click.option("--reload", "-r", is_flag=True, help="Force reload tools from disk & plugins")
+def tools(
+    query: str | None,
+    show_all: bool,
+    category: str | None,
+    json_out: bool,
+    reload: bool,
+) -> None:
+    """Explore, search, and inspect all available SAGO tools dynamically.
 
-    get_config()
+    Examples:
+      sago tools                       # Show categories overview & tool counts
+      sago tools coding                # List tools in coding category
+      sago tools git                   # Search for tools related to 'git'
+      sago tools read_file             # Inspect specific tool arguments & schema
+      sago tools --all                 # List all tools in a table
+      sago tools --category file       # Filter by category
+      sago tools --json-out            # Machine-readable JSON export
+    """
+    import json
 
-    console.print(
-        Panel.fit(
-            "[bold]Sago Tools Registry[/]",
-            border_style="blue",
-        )
+    from sago.tools.registry import (
+        discover_tools,
+        get_tool,
+        list_categories,
+        list_tools,
     )
 
-    tool_categories = {
-        "File Operations": [
-            "read_file",
-            "write_file",
-            "edit_file",
-            "glob_files",
-            "grep_content",
-            "file_operations",
-        ],
-        "Shell": ["execute_shell", "background_process"],
-        "SSH": ["ssh_connect", "ssh_command", "ssh_transfer"],
-        "Session": ["session_manager", "clipboard"],
-        "Coding": [
-            "code_analyzer",
-            "linter",
-            "formatter",
-            "test_runner",
-            "debugger",
-            "log_analyzer",
-        ],
-        "Network": ["http_client", "dns_lookup", "port_scan", "network_config"],
-        "Admin": ["software_install", "permission_manager", "sudo_executor", "prompt_generator"],
-        "System": ["os_detector", "process_manager", "env_manager"],
-    }
+    if reload:
+        discover_tools(force_reload=True)
 
-    for category, tool_list in tool_categories.items():
-        console.print(f"\n[bold]{category}:[/]")
-        for tool in tool_list:
-            console.print(f"  - {tool}")
+    # JSON export
+    if json_out:
+        all_tools = discover_tools(force_reload=reload)
+        out = {k: v.to_dict() for k, v in all_tools.items()}
+        console.print(json.dumps(out, indent=2))
+        return
+
+    # Check if querying a specific single tool by exact name
+    if query:
+        single_tool = get_tool(query.strip())
+        if single_tool:
+            console.print(
+                Panel.fit(
+                    f"[bold cyan]Tool:[/] [bold yellow]{single_tool.name}[/bold yellow]  "
+                    f"[dim]Category: {single_tool.category} | Source: {single_tool.source}[/dim]",
+                    border_style="cyan",
+                )
+            )
+            console.print(f"\n[bold]Description:[/]\n{single_tool.description}\n")
+            console.print(f"[bold]Implementation Module:[/] [dim]{single_tool.module_path}[/dim]\n")
+
+            if single_tool.args_schema:
+                table = Table(
+                    title="[bold]Tool Arguments & Parameters[/bold]",
+                    show_header=True,
+                    header_style="bold cyan",
+                )
+                table.add_column("Parameter", style="bold yellow")
+                table.add_column("Type", style="dim")
+                table.add_column("Required", style="green")
+                table.add_column("Default")
+                table.add_column("Description")
+
+                for pname, pinfo in single_tool.args_schema.items():
+                    req_str = (
+                        "[bold red]YES[/bold red]" if pinfo.get("required") else "[dim]no[/dim]"
+                    )
+                    def_str = (
+                        str(pinfo.get("default"))
+                        if pinfo.get("default") is not None
+                        else "[dim]none[/dim]"
+                    )
+                    table.add_row(
+                        pname,
+                        pinfo.get("type", "str"),
+                        req_str,
+                        def_str,
+                        pinfo.get("description", "-"),
+                    )
+                console.print(table)
+            else:
+                console.print(
+                    "[dim]No structured argument schema required (takes standard keyword args).[/dim]"
+                )
+            console.print("")
+            return
+
+    categories = list_categories()
+    total_tools = sum(len(v) for v in categories.values())
+
+    # Case 1: Category overview when no query and not --all and not --category
+    if not query and not show_all and not category:
+        console.print(
+            Panel.fit(
+                f"[bold cyan]Sago Dynamic Tools Registry[/]  [dim]({total_tools} tools across {len(categories)} categories)[/]",
+                border_style="cyan",
+            )
+        )
+
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("Category / Domain", style="bold yellow", width=18)
+        table.add_column("Count", justify="right", style="green", width=8)
+        table.add_column("Discovered Tools", style="white")
+
+        for cat, tool_list in sorted(categories.items()):
+            sample = ", ".join(t.name for t in tool_list[:5])
+            if len(tool_list) > 5:
+                sample += f", ... (+{len(tool_list) - 5} more)"
+            table.add_row(cat, str(len(tool_list)), sample)
+
+        console.print(table)
+        console.print(
+            "\n[dim]To view tools in a category or search by name:[/] [bold cyan]sago tools <category_or_search>[/bold cyan]"
+        )
+        console.print(
+            "[dim]To inspect parameters of a specific tool:[/]   [bold cyan]sago tools <tool_name>[/bold cyan]"
+        )
+        console.print(
+            "[dim]To list every tool with full descriptions:[/]      [bold cyan]sago tools --all[/bold cyan]\n"
+        )
+        return
+
+    # Case 2: Filtered search or --all or --category
+    filter_cat = category
+    matched_tools = list_tools(category=filter_cat, query=query)
+
+    if not matched_tools:
+        console.print(f"[yellow]No tools found matching query '{query or filter_cat}'.[/yellow]")
+        console.print("[dim]Run 'sago tools' to see all available categories.[/]\n")
+        return
+
+    header_title = f"Discovered Tools ({len(matched_tools)})"
+    if query:
+        header_title += f" matching '{query}'"
+    if filter_cat:
+        header_title += f" in category '{filter_cat}'"
+
+    console.print(Panel.fit(f"[bold]{header_title}[/]", border_style="cyan"))
+
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Tool Name", style="bold cyan", min_width=20)
+    table.add_column("Category", style="yellow", min_width=12)
+    table.add_column("Description", style="white")
+    table.add_column("Source", style="dim")
+
+    for t in matched_tools:
+        table.add_row(t.name, t.category, t.description, t.source)
+
+    console.print(table)
+    console.print(
+        f"\n[dim]Total: {len(matched_tools)} tools shown. Use 'sago tools <tool_name>' for parameter details.[/]\n"
+    )
 
 
 @cli.command()
@@ -767,10 +1172,54 @@ def doctor() -> None:
         finally:
             s.close()
 
-    # 6. Agents & Tools
-    from sago.agents.registry import AGENTS
+    # 6. Agents & Tools Registries
+    from sago.agents.registry import list_agents
+    from sago.mcp.manager import get_mcp_manager
+    from sago.plugins.base import get_plugin_manager
+    from sago.skills.loader import SkillLoader
+    from sago.skills.registry import list_skills
+    from sago.tools.registry import get_total_tools_count
+    from sago.tools.registry import list_categories as list_tool_categories
 
-    table.add_row("Specialist Agents", "[green]✓ PASS[/]", f"{len(AGENTS)} agent profiles ready")
+    agents_count = len(list_agents())
+    table.add_row(
+        "Specialist Agents",
+        "[green]✓ PASS[/]",
+        f"{agents_count} agent profiles active across 22 domains",
+    )
+
+    tools_count = get_total_tools_count()
+    tool_cats = len(list_tool_categories())
+    table.add_row(
+        "Dynamic Tools",
+        "[green]✓ PASS[/]",
+        f"{tools_count} tools discovered across {tool_cats} categories",
+    )
+
+    skills_count = len(list_skills()) + len(SkillLoader.discover_skills())
+    table.add_row(
+        "Skills Registry", "[green]✓ PASS[/]", f"{skills_count} built-in & workspace skills ready"
+    )
+
+    pm = get_plugin_manager()
+    plugins = pm.list_plugins()
+    table.add_row(
+        "Plugin Extensions",
+        "[green]✓ PASS[/]",
+        f"{len(plugins)} external plugins loaded"
+        if plugins
+        else "0 plugins (ready for extensions)",
+    )
+
+    mcp_mgr = get_mcp_manager()
+    mcp_servers = mcp_mgr.list_servers()
+    table.add_row(
+        "MCP Protocol",
+        "[green]✓ PASS[/]",
+        f"{len(mcp_servers)} MCP servers configured"
+        if mcp_servers
+        else "0 MCP servers (ready for integration)",
+    )
 
     console.print(table)
     console.print(
@@ -1007,6 +1456,24 @@ def smart(task: str, effort: str, thinking: bool) -> None:
         )
     )
 
+    from sago.engine.prompt_enhancer import enhance_prompt
+
+    enhancement = enhance_prompt(
+        task=task,
+        agent_role=agent_name,
+        cwd=os.getcwd(),
+    )
+    if enhancement.was_modified:
+        console.print(
+            Panel(
+                f"[bold cyan]✨ Prompt Automatically Enhanced with Intent & Scope[/bold cyan]\n\n"
+                f"[bold]Synthesized Goal:[/] [white]{enhancement.intent_summary}[/white]\n"
+                f"[dim]Key Additions:[/] [green]{' • '.join(enhancement.improvements)}[/green]",
+                title="[bold]Sago Prompt Enhancer[/]",
+                border_style="cyan",
+            )
+        )
+
     with console.status(f"[bold green]Agent {agent_name} is working...[/]"):
         result = execute_agent_task(
             task=task,
@@ -1053,10 +1520,29 @@ def chain(task: str, chain: str, effort: str) -> None:
         sago chain "Build a web app" --chain system-architect,fullstack-dev,code-reviewer
         sago chain "Fix security issue" --chain security-engineer,debugger,code-reviewer
     """
+    import os
+
     from sago.engine.production import ProductionEngine
+    from sago.engine.prompt_enhancer import enhance_prompt
 
     engine = ProductionEngine()
     agent_list = [a.strip() for a in chain.split(",")]
+
+    enhancement = enhance_prompt(
+        task=task,
+        agent_role=agent_list[0] if agent_list else "chain",
+        cwd=os.getcwd(),
+    )
+    if enhancement.was_modified:
+        console.print(
+            Panel(
+                f"[bold cyan]✨ Pipeline Prompt Enhanced[/bold cyan]\n\n"
+                f"[bold]Target Goal:[/] [white]{enhancement.intent_summary}[/white]\n"
+                f"[dim]Key Additions:[/] [green]{' • '.join(enhancement.improvements)}[/green]",
+                title="[bold]Sago Chain Prompt Enhancer[/]",
+                border_style="cyan",
+            )
+        )
 
     console.print(
         Panel.fit(
@@ -1261,6 +1747,24 @@ def chat(message: str) -> None:
 
     session_id = str(__import__("uuid").uuid4())[:12]
     console.print(f"[dim]Session: {session_id}[/]\n")
+
+    from sago.engine.prompt_enhancer import enhance_prompt
+
+    enhancement = enhance_prompt(
+        task=message,
+        agent_role="Sago Orchestrator",
+        cwd=os.getcwd(),
+    )
+    if enhancement.was_modified and len(message.strip().split()) >= 3:
+        console.print(
+            Panel(
+                f"[bold cyan]✨ Chat Prompt Enhanced[/bold cyan]\n\n"
+                f"[bold]Synthesized Objective:[/] [white]{enhancement.intent_summary}[/white]\n"
+                f"[dim]Key Additions:[/] [green]{' • '.join(enhancement.improvements)}[/green]",
+                title="[bold]Sago Prompt Enhancer[/]",
+                border_style="cyan",
+            )
+        )
 
     result = execute_agent_task(
         task=message,
