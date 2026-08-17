@@ -466,7 +466,7 @@ class CommandHandlers:
 
     def _show_history(self: SagoApp) -> None:
         if not self.command_history:
-            self._add_system_message("[dim]No history[/dim]")
+            self._add_system_message("No history")
             return
         lines = [
             f"  [dim]{i + 1}.[/dim] [cyan]{cmd}[/cyan]"
@@ -1515,7 +1515,7 @@ class CommandHandlers:
                 container = self.query_one("#messages")
                 container.mount(Collapsible(Static(body), title="Blocked Tools", collapsed=True))
             else:
-                self._add_system_message("[dim]No blocked tools[/dim]")
+                self._add_system_message("No blocked tools")
         elif args == "allowed":
             if pm.config.allowed_tools:
                 lines = "\n".join(f"  [green]✓[/green] {t}" for t in pm.config.allowed_tools)
@@ -2251,7 +2251,7 @@ class CommandHandlers:
 
             self.sago_theme = name
             self.screen.add_class(f"theme-{name}")
-            self._add_system_message(f"Switched theme to [bold cyan]{themes[name]}[/bold cyan]")
+            self._add_system_message(f"Switched theme to {themes[name]}")
         except Exception as e:
             self._add_system_message(f"Failed to switch theme: {e}")
 
@@ -2307,7 +2307,7 @@ class CommandHandlers:
         elif action in ("off", "disable", "0", "false"):
             self.developer_mode = False
             tracer.set_enabled(False)
-            self._add_system_message("⚡ [dim](DEV MODE OFF)[/dim] Developer diagnostics disabled.")
+            self._add_system_message("⚡ (DEV MODE OFF) Developer diagnostics disabled.")
         elif action in ("export", "save"):
             parts_export = subarg.split()
             export_type = parts_export[0].lower() if parts_export else "json"

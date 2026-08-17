@@ -454,7 +454,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 return
             msg = auto_refresh_if_stale(api_key)
             if msg:
-                self._add_system_message(f"[auto-refresh] {msg}")
+                self._add_system_message(f"\\[auto-refresh\\] {msg}")
         except Exception as e:
             logger.debug("Auto-refresh models failed: %s", e)
 

@@ -32,7 +32,7 @@ Sago supports the Model Context Protocol (MCP) for:
 ```python
 from sago.mcp.server import MCPServer, MCPTool
 
-server = MCPServer(name="sago", version="0.1.0")
+server = MCPServer(name="sago", version="0.1.11")
 
 # Register tools
 server.register_function(
@@ -70,7 +70,7 @@ response = server.to_mcp_response()
 # {
 #     'protocolVersion': '2024-11-05',
 #     'capabilities': {'tools': {'listChanged': False}},
-#     'serverInfo': {'name': 'sago', 'version': '0.1.0'}
+#     'serverInfo': {'name': 'sago', 'version': '0.1.11'}
 # }
 ```
 
@@ -229,6 +229,4 @@ SAGO_MCP_ENABLED=0
 
 ## Limitations
 
-- Current implementation uses stdio transport
-- HTTP/SSE transport planned for future
 - External tool integration requires custom handler

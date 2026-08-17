@@ -219,13 +219,18 @@ sago/
 
 ### 2. Tool System (`sago/tools/`)
 
-54 tools across 8 categories:
+70 tools across 13 categories:
 - **File** (15): read, write, edit, glob, grep, scan, analyze
 - **Shell** (2): execute, background
 - **SSH** (3): connect, command, transfer
 - **Session** (2): manager, clipboard
 - **Coding** (7): analyzer, linter, formatter, test, debug, logs, summarize
 - **Network** (5): http, crawl, dns, port, config
+- **Database** (3): query, schema, migration
+- **Security** (2): secret_scanner, permission_manager
+- **Web** (3): search, crawler, screenshot
+- **Interactive** (2): ask_question, confirm
+- **VCS** (2): git_ops, git_operations
 - **Admin** (4): install, permissions, sudo, prompts
 - **System** (8): os, process, env, git, docker, cron, screenshot, info
 

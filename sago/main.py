@@ -27,17 +27,34 @@ console = Console()
 
 def _get_configured_model() -> str:
     """Get the configured model from config, fallback to gemini-2.0-flash / openrouter."""
-    try:
-        from sago.config.loader import get_config
+    import os
 
-        config = get_config()
-        default_prov = getattr(config.llm_providers, "default", "gemini")
-        providers = getattr(config.llm_providers, "providers", {})
-        if default_prov in providers and getattr(providers[default_prov], "model", None):
-            return providers[default_prov].model
-        return default_prov
-    except Exception:
-        return "gemini-2.0-flash"
+    # Auto-detect model based on available API keys
+    _key_model_map = [
+        ("OPENROUTER_API_KEY", "openrouter/free"),
+        ("OPENAI_API_KEY", "gpt-4o"),
+        ("GEMINI_API_KEY", "gemini-2.0-flash"),
+        ("ANTHROPIC_API_KEY", "claude-sonnet-4-20250514"),
+    ]
+    for env_key, default_model in _key_model_map:
+        if os.environ.get(env_key):
+            # Try config first, fall back to key-matched default
+            try:
+                from sago.config.loader import get_config
+
+                config = get_config()
+                default_prov = getattr(config.llm_providers, "default", "gemini")
+                providers = getattr(config.llm_providers, "providers", {})
+                if default_prov in providers and getattr(providers[default_prov], "model", None):
+                    configured_model = providers[default_prov].model
+                    # Only use configured model if its provider matches an available key
+                    configured_key_env = getattr(providers[default_prov], "api_key_env", "")
+                    if configured_key_env and os.environ.get(configured_key_env):
+                        return configured_model
+            except Exception:
+                pass
+            return default_model
+    return "openrouter/free"
 
 
 @click.group()
@@ -1726,12 +1743,11 @@ def usage() -> None:
 
 
 @cli.command()
-@click.argument("message")
-def chat(message: str) -> None:
-    """Interactive chat with Sago."""
-    import os
+@click.argument("message", required=False, default=None)
+def chat(message: str | None) -> None:
+    """Interactive chat with Sago. Pass a message or run interactively."""
 
-    from sago.engine.simple_executor import execute_agent_task
+    from sago.llm.tui_providers import resolve_active_llm_config
 
     console.print(
         Panel.fit(
@@ -1740,43 +1756,161 @@ def chat(message: str) -> None:
         )
     )
 
-    api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+    resolved = resolve_active_llm_config()
+    api_key = resolved["api_key"]
     if not api_key:
-        console.print("[red]Error: No API key. Set OPENROUTER_API_KEY[/]")
+        console.print(
+            "[red]Error: No API key. Set OPENROUTER_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY[/]"
+        )
         return
 
-    session_id = str(__import__("uuid").uuid4())[:12]
-    console.print(f"[dim]Session: {session_id}[/]\n")
+    provider = resolved["provider"]
+    model = resolved["model"]
+    base_url = resolved["base_url"]
+    console.print(f"[dim]Using {provider}/{model}[/]\n")
 
-    from sago.engine.prompt_enhancer import enhance_prompt
-
-    enhancement = enhance_prompt(
-        task=message,
-        agent_role="Sago Orchestrator",
-        cwd=os.getcwd(),
+    # Build client and conversation history
+    history: list[dict] = []
+    system_prompt = (
+        "You are Sago, a helpful, knowledgeable, and friendly AI assistant.\n"
+        "- Answer questions, conversation, greetings, explanations, and general requests naturally.\n"
+        "- Respond conversationally without engineering templates or code scaffolding.\n"
+        "- Keep responses concise and natural."
     )
-    if enhancement.was_modified and len(message.strip().split()) >= 3:
-        console.print(
-            Panel(
-                f"[bold cyan]✨ Chat Prompt Enhanced[/bold cyan]\n\n"
-                f"[bold]Synthesized Objective:[/] [white]{enhancement.intent_summary}[/white]\n"
-                f"[dim]Key Additions:[/] [green]{' • '.join(enhancement.improvements)}[/green]",
-                title="[bold]Sago Prompt Enhancer[/]",
-                border_style="cyan",
+
+    def _send_to_llm(user_msg: str) -> str:
+        """Send a message to the LLM and return the response text."""
+        if provider == "google":
+            return _chat_gemini(api_key, model, system_prompt, history, user_msg)
+        else:
+            return _chat_openai_compatible(
+                provider, model, api_key, base_url, system_prompt, history, user_msg
             )
-        )
 
-    result = execute_agent_task(
-        task=message,
-        agent_role="Sago Orchestrator",
-        api_key=api_key,
-        model=_get_configured_model(),
-        max_tokens=2048,
-        max_iterations=3,
+    # If a message was passed as argument, handle single-shot then enter interactive
+    if message:
+        # Check for special commands
+        if message.strip().lower() in ("exit", "quit"):
+            return
+        if message.strip().lower() == "help":
+            _print_chat_help()
+            return
+
+        console.print(f"[cyan]You:[/] {message}")
+        with console.status("[dim]Thinking...[/]"):
+            response = _send_to_llm(message)
+        console.print(f"\n[green]Sago:[/] {response}\n")
+        history.append({"role": "user", "content": message})
+        history.append({"role": "assistant", "content": response})
+
+    # Interactive loop
+    from rich.prompt import Prompt as _Prompt
+
+    while True:
+        try:
+            user_input = _Prompt.ask("[cyan]You[/]")
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[dim]Bye![/]")
+            break
+
+        user_input = user_input.strip()
+        if not user_input:
+            continue
+        if user_input.lower() in ("exit", "quit"):
+            console.print("[dim]Bye![/]")
+            break
+        if user_input.lower() == "help":
+            _print_chat_help()
+            continue
+
+        with console.status("[dim]Thinking...[/]"):
+            try:
+                response = _send_to_llm(user_input)
+            except Exception as e:
+                console.print(f"\n[red]Error: {e}[/]\n")
+                continue
+
+        console.print(f"\n[green]Sago:[/] {response}\n")
+        history.append({"role": "user", "content": user_input})
+        history.append({"role": "assistant", "content": response})
+
+
+def _print_chat_help() -> None:
+    console.print(
+        Panel(
+            "[bold]Chat Commands[/]\n"
+            "- Type naturally to chat\n"
+            "- [cyan]help[/] — Show this help\n"
+            "- [cyan]exit[/] or [cyan]quit[/] — Exit chat\n",
+            border_style="dim",
+        )
     )
 
-    output = result.get("output", "No response")
-    console.print(f"\n[green]Sago:[/] {output}")
+
+def _chat_gemini(
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    history: list[dict],
+    user_msg: str,
+) -> str:
+    """Single-turn call to Gemini using native SDK."""
+    from google import genai as google_genai
+    from google.genai import types as google_types
+
+    client = google_genai.Client(api_key=api_key)
+
+    contents = []
+    for msg in history:
+        role = msg["role"]
+        c = msg.get("content", "")
+        if role == "user":
+            contents.append(google_types.Content(role="user", parts=[google_types.Part(text=c)]))
+        elif role == "assistant":
+            contents.append(google_types.Content(role="model", parts=[google_types.Part(text=c)]))
+    contents.append(google_types.Content(role="user", parts=[google_types.Part(text=user_msg)]))
+
+    config = google_types.GenerateContentConfig(
+        system_instruction=system_prompt,
+        max_output_tokens=2048,
+        temperature=0.7,
+    )
+
+    response = client.models.generate_content(model=model, contents=contents, config=config)
+    return response.text or ""
+
+
+def _chat_openai_compatible(
+    provider: str,
+    model: str,
+    api_key: str,
+    base_url: str | None,
+    system_prompt: str,
+    history: list[dict],
+    user_msg: str,
+) -> str:
+    """Single-turn call to OpenAI-compatible API (OpenAI, OpenRouter, etc.)."""
+    from openai import OpenAI
+
+    if provider == "openrouter":
+        base_url = base_url or "https://openrouter.ai/api/v1"
+    elif provider == "openai":
+        base_url = base_url or "https://api.openai.com/v1"
+
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0)
+
+    messages = [{"role": "system", "content": system_prompt}]
+    for msg in history:
+        messages.append({"role": msg["role"], "content": msg.get("content", "")})
+    messages.append({"role": "user", "content": user_msg})
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=2048,
+        temperature=0.7,
+    )
+    return response.choices[0].message.content or ""
 
 
 @cli.command()

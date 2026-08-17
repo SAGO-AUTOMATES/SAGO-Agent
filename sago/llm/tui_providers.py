@@ -41,10 +41,32 @@ def resolve_active_llm_config(
         except Exception:
             resolved_provider = "openrouter"
 
+    # Auto-fallback: if configured provider has no API key, pick one that does
+    _key_check_map = {
+        "gemini": "GEMINI_API_KEY",
+        "google": "GEMINI_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "claude": "ANTHROPIC_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+    }
+    _fallback_order = ["openrouter", "openai", "gemini", "claude", "ollama"]
+    _check_key = _key_check_map.get(resolved_provider, "")
+    _original_provider = resolved_provider
+    if _check_key and not os.environ.get(_check_key):
+        for fallback in _fallback_order:
+            fb_key = _key_check_map.get(fallback, "")
+            if fb_key and os.environ.get(fb_key):
+                logger.info("No API key for %r, falling back to %r", resolved_provider, fallback)
+                resolved_provider = fallback
+                break
+
     # 2. Resolve Model
     resolved_model = model
     if not resolved_model:
-        resolved_model = os.environ.get("SAGO_MODEL") or load_setting("model")
+        resolved_model = (
+            os.environ.get("SAGO_MODEL") or load_setting("model") or load_setting("provider_model")
+        )
     if not resolved_model:
         try:
             from sago.config.loader import get_config
@@ -54,7 +76,18 @@ def resolve_active_llm_config(
                 resolved_model = cfg.orchestrator.model
         except Exception:
             pass
-    if not resolved_model:
+
+    # If provider was fallback-changed, use the new provider's default model
+    if resolved_provider != _original_provider and not model:
+        provider_defaults = {
+            "google": "gemini-2.5-pro",
+            "openai": "gpt-4o",
+            "openrouter": "openrouter/free",
+            "claude": "claude-3-5-sonnet-20241022",
+            "anthropic": "claude-3-5-sonnet-20241022",
+        }
+        resolved_model = provider_defaults.get(resolved_provider, "openrouter/free")
+    elif not resolved_model:
         provider_defaults = {
             "google": "gemini-2.5-pro",
             "openai": "gpt-4o",

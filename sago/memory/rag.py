@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -37,6 +40,7 @@ class MemoryEntry:
             "metadata": self.metadata,
             "timestamp": self.timestamp,
             "access_count": self.access_count,
+            "last_accessed": self.last_accessed,
             "importance": self.importance,
             "tags": self.tags,
             "session_id": self.session_id,
@@ -365,8 +369,8 @@ class RAGMemory:
                     if entry.user_id not in self._user_index:
                         self._user_index[entry.user_id] = set()
                     self._user_index[entry.user_id].add(entry.id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to load RAG memory from disk: %s", e)
 
     def save(self) -> None:
         """Persist memory to disk."""

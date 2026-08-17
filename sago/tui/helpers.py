@@ -19,7 +19,11 @@ if TYPE_CHECKING:
 
 def _render_markdown(content: str) -> str:
     """Format markdown content cleanly into Rich terminal markup."""
-    text = content
+    from rich.markup import escape as _escape
+
+    # Escape any Rich markup in the raw content first to prevent LLM output
+    # from being interpreted as style tags (e.g. [c8caa51e] -> \[c8caa51e\])
+    text = _escape(content)
 
     # Headers: ### text -> [bold yellow]text[/bold yellow]
     text = re.sub(r"^###\s+(.+)$", r"[bold yellow]\1[/bold yellow]", text, flags=re.MULTILINE)
@@ -562,10 +566,12 @@ class UIHelpers:
 
     def _add_plan_card(self: SagoApp, plan_text: str, step_count: int = 0) -> None:
         """Add a dedicated collapsible plan card inside active turn box."""
+        from rich.markup import escape as _escape
+
         target_card = getattr(self, "_active_exchange_card", None)
         title = f"● Execution Plan ({step_count} steps)" if step_count else "● Execution Plan"
         card = Collapsible(
-            Static(plan_text, classes="plan-text", markup=True),
+            Static(_escape(plan_text), classes="plan-text", markup=True),
             title=title,
             collapsed=True,
         )
@@ -581,20 +587,28 @@ class UIHelpers:
         """Add a message with explicit agent tagging."""
         self._add_assistant_message(content, agent_name=agent_name)
 
-    def _add_system_message(self: SagoApp, content: str) -> None:
+    def _add_system_message(self: SagoApp, content: str | Any) -> None:
         self._hide_welcome_screen()
+        from rich.markup import escape as _escape
         from rich.text import Text
 
-        clean_text = content.strip()
-        if clean_text.startswith("[") or "●" in clean_text or "⚡" in clean_text:
-            text_str = clean_text
+        if isinstance(content, Text):
+            renderable = content
         else:
-            text_str = f"[dim yellow]●[/dim yellow] [dim]{clean_text}[/dim]"
+            clean_text = content.strip()
+            has_prefix = (
+                clean_text.startswith("⚡")
+                or clean_text.startswith("●")
+                or clean_text.startswith("\\[")
+                or clean_text.startswith("[STOP]")
+            )
 
-        try:
-            renderable = Text.from_markup(text_str)
-        except Exception:
-            renderable = Text(clean_text)
+            if has_prefix:
+                renderable = Text.from_markup(_escape(clean_text))
+            else:
+                renderable = Text()
+                renderable.append("● ", style="dim yellow")
+                renderable.append_text(Text.from_markup(_escape(clean_text), style="dim"))
 
         self.query_one("#messages").mount(
             Static(
@@ -644,19 +658,23 @@ class UIHelpers:
     def _add_tool_call(
         self: SagoApp, tool_name: str, args: dict, result: str, success: bool = True
     ) -> None:
+        from rich.markup import escape as _escape
+
         if not hasattr(self, "session_tool_calls"):
             self.session_tool_calls = []
         self.session_tool_calls.append({"tool": tool_name, "success": success})
 
         status_tag = "[bold green]● OK[/bold green]" if success else "[bold red]✗ FAILED[/bold red]"
-        title = f"{status_tag} Tool: [bold cyan]{tool_name}[/bold cyan]"
+        title = f"{status_tag} Tool: [bold cyan]{_escape(tool_name)}[/bold cyan]"
 
         param_lines = []
         for k, v in args.items():
             val_str = str(v)
             if len(val_str) > 300:
                 val_str = val_str[:300] + "..."
-            param_lines.append(f"  [bold cyan]{k}[/bold cyan]: [white]{val_str}[/white]")
+            param_lines.append(
+                f"  [bold cyan]{_escape(k)}[/bold cyan]: [white]{_escape(val_str)}[/white]"
+            )
         args_str = "\n".join(param_lines) if param_lines else "  [dim](no parameters)[/dim]"
 
         preview_res = result[:2000] if result else "(empty)"

@@ -1019,7 +1019,11 @@ def execute_agent_task(
     ]
 
     # Build OpenAI function calling tool definitions
-    openai_tools = _build_openai_tools(tools)
+    # Skip tools for chat tasks to avoid Google API rate limits on tool-use quotas
+    if task_type == "chat":
+        openai_tools = []
+    else:
+        openai_tools = _build_openai_tools(tools)
 
     content = ""
 

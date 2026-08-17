@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -258,8 +261,8 @@ class Cache:
                         self._entries[key] = entry
                 self._stats.hits = data.get("stats", {}).get("hits", 0)
                 self._stats.misses = data.get("stats", {}).get("misses", 0)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to load cache from disk: %s", e)
 
     def save(self) -> None:
         """Persist cache to disk."""

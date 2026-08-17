@@ -801,6 +801,20 @@ class MessageProcessorMixin:
                             )
                             continue
 
+                        def _make_tool_approval_message(tool_name: str, risk_level: str) -> Any:
+                            from rich.text import Text
+
+                            msg = Text()
+                            msg.append("⚡ Tool '", style="bold")
+                            msg.append(tool_name, style="bold yellow")
+                            msg.append(f"' ({risk_level} risk) requires approval.\n", style="bold")
+                            msg.append("Press ", style="bold")
+                            msg.append("[Y]", style="bold green")
+                            msg.append(" Approve / ", style="bold")
+                            msg.append("[N]", style="bold red")
+                            msg.append(" Deny or type 'y' / 'n'.", style="bold")
+                            return msg
+
                         # Check permissions
                         from sago.permissions import RiskLevel, get_permission_manager
 
@@ -828,7 +842,7 @@ class MessageProcessorMixin:
                                 )
                                 self.call_from_thread(
                                     self._add_system_message,
-                                    f"⚡ Tool '[bold yellow]{name}[/bold yellow]' ({risk.value} risk) requires approval.\nPress [bold green][Y] Approve[/bold green] / [bold red][N] Deny[/bold red] or type 'y' / 'n'.",
+                                    self._make_tool_approval_message(name, risk.value),
                                 )
                                 pause_event = threading.Event()
                                 self._executor_pause_event = pause_event

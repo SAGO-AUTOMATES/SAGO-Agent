@@ -76,3 +76,4 @@ htmlcov/
 
 # pytype
 .pytype/
+crash.txt

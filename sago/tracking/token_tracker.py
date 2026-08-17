@@ -386,8 +386,12 @@ class TokenTracker:
         try:
             if self.persist_path and self.persist_path.exists():
                 data = json.loads(self.persist_path.read_text())
+                import dataclasses
+
+                field_names = {f.name for f in dataclasses.fields(TokenUsage)}
                 for usage_data in data.get("usages", []):
-                    usage = TokenUsage(**usage_data)
+                    filtered = {k: v for k, v in usage_data.items() if k in field_names}
+                    usage = TokenUsage(**filtered)
                     self._usages.append(usage)
                 self._daily_usage = defaultdict(
                     lambda: {"requests": 0, "tokens": 0, "cost": 0.0},

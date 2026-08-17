@@ -2,6 +2,38 @@
 
 All notable changes to the SAGO project are documented in this file.
 
+## [0.1.11] - 2026-08-17
+
+### Fixed
+- **`sago chat` Rate Limit on Gemini (`sago/engine/simple_executor.py`)**:
+  - Chat tasks now skip tool definitions when calling the LLM. Previously ~30 tools were sent even for simple greetings, hitting Google's tool-use rate quotas.
+- **`sago chat` Multi-Turn Interactive Mode (`sago/main.py`)**:
+  - Rewrote `sago chat` from single-shot to interactive: maintains conversation history across turns, supports `exit`/`quit`/`help`.
+  - Works with both Google Gemini (native SDK) and OpenAI-compatible providers.
+  - `sago chat "hello"` now sends the message then drops into an interactive loop; `sago chat` starts interactive directly.
+- **Auto-Fallback to Available LLM Provider (`sago/llm/tui_providers.py`, `sago/main.py`)**:
+  - When the configured default provider (e.g. `gemini`) has no API key set, the system now automatically falls back to a provider that has a valid key (checks `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` in order).
+  - `_get_configured_model()` now selects a model matching the available API key instead of always using the config default.
+  - `sago chat` now uses `resolve_active_llm_config()` for proper provider/model resolution.
+  - `resolve_active_llm_config` reads `load_setting("model")` from `~/.sago/settings.json` (TUI settings).
+- **TUI Rich Markup Crash (`sago/tui/helpers.py`)**:
+  - `_add_system_message` now uses `Text.from_markup(_escape(content))` to safely render content while preventing LLM hallucinations like `[c8caa51e]` from being interpreted as Rich style tags.
+  - `_render_markdown()` escapes ALL LLM content with `rich.markup.escape()` BEFORE converting markdown to Rich markup, preventing `MissingStyle` crashes.
+  - `_add_plan_card()` escapes `plan_text` before rendering with `markup=True`.
+  - `_add_tool_call()` escapes tool argument keys and values to prevent markup injection.
+- **TokenUsage Deserialization Crash (`sago/tracking/token_tracker.py`)**:
+  - `to_dict()` included `total_tokens` (a computed property), but `TokenUsage.__init__()` doesn't accept it, causing `TypeError` on `_load()`.
+  - Fixed by filtering data to only valid dataclass field names before construction.
+- **PeerInfo Data Loss on Deserialization (`sago/peers/manager.py`)**:
+  - `to_dict()` was missing `ssh_key`, `sago_path`, `python_version`, `last_seen` fields, losing data on round-trip.
+  - All fields now serialized and deserialized correctly.
+- **MemoryEntry Missing Fields (`sago/memory/rag.py`)**:
+  - `to_dict()` was missing `user_id` and `last_accessed` fields. Both now included.
+- **Silent Error Swallowing (`sago/cache/intelligent.py`, `sago/memory/rag.py`, `sago/peers/manager.py`)**:
+  - Replaced bare `except Exception: pass` blocks with `logger.warning()` for visibility into load failures.
+- **Config Model Mismatch (`sago/config/sago.yaml`, `sago/config/llm_providers.yaml`)**:
+  - Updated default Gemini model from `gemini-2.0-flash` to `gemini-2.5-flash` to match TUI settings.
+
 ## [0.1.10] - 2026-08-16
 
 ### Added (Hidden Dev Mode, Auto Session Title, Collapsible Enhancement & Highlights Summary)
