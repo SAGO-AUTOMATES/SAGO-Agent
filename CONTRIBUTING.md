@@ -90,3 +90,23 @@ class MyNewTool(BaseTool):
 4. Add tests if applicable
 5. Run linter and type checker
 6. Submit a PR
+
+## Testing Hallucination Prevention
+
+The project has extensive hallucination prevention tests that must pass:
+
+```bash
+# Run hallucination prevention tests
+python -m pytest tests/unit/test_hallucination_prevention.py -v
+
+# Run hallucination verifier tests
+python -m pytest tests/unit/test_hallucination_verifier.py -v
+
+# Run all unit tests
+python -m pytest tests/unit/ -q
+```
+
+When adding new features, ensure:
+- No new fabrication phrases are introduced without tool verification
+- Any new code block languages are added to `_CODE_BLOCK_LANGS` and `_CODE_EXTS`
+- Any new tool categories are added to claim verification patterns

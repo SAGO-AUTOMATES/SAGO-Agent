@@ -2,6 +2,44 @@
 
 All notable changes to the SAGO project are documented in this file.
 
+## [0.1.13] - 2026-08-19
+
+### Added
+- **Shared Hallucination Verifier Module (`sago/engine/hallucination_verifier.py`)**:
+  - 9-stage verification pipeline used by all execution paths (simple_executor, unified streaming, orchestrator, production).
+  - Fabrication phrase detection with 80+ patterns and tool-category cross-referencing.
+  - Hedging/subtle claim detection catches "this should work", "trust me", "no breaking changes" without tool evidence.
+  - Claim vs tool-history verification cross-references read, write, search, analyze, execute claims against actual tool calls.
+  - Tool result integrity checking via SHA-256 hashing detects plugin tampering.
+  - Confidence scoring (0-100) based on tool usage, fabrication signals, hedging claims, and code validity.
+  - Response sanitization strips hallucinated sentences when confidence is low.
+  - `verify_response()` convenience function and `ResponseVerifier` singleton.
+- **Extended Language Support**:
+  - Brace matching for 15 languages: Python, JavaScript, TypeScript/TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Scala, Dart.
+  - External syntax checkers for 12 languages: `py_compile`, `gofmt`, `rustfmt`, `node --check`, `npx tsc`, `javac`, `gcc -fsyntax-only`, `bash -n`, `ruby -c`, `php -l`, `ktlint`, `swiftc -parse`, `scalac`, `dotnet script`.
+- **TUI Hallucination Sanitization (`sago/tui/processor.py`)**:
+  - Streaming path now runs shared verifier and sanitizes responses before display.
+  - No-tool content path also runs verifier for fabrication detection.
+- **Streaming Path Verification (`sago/engine/unified.py`)**:
+  - `stream()` method now runs hallucination verification on final response.
+- **Tool Result Integrity (`sago/engine/hallucination_verifier.py`, `sago/engine/simple_executor.py`)**:
+  - `ToolResultIntegrity` class records original tool results and detects plugin modifications.
+  - Wired into simple_executor after plugin hook_tool_result.
+
+### Changed
+- **Expanded Fabrication Phrases (`sago/engine/simple_executor.py`)**:
+  - Added 15+ hedging/subtle claim phrases to inline fabrication detection.
+  - Now detects "this should work", "trust me", "rest assured", "I'm confident" without tools.
+- **Expanded Anti-Hallucination Constraints (`sago/engine/prompt_enhancer.py`)**:
+  - 16 constraints (up from 12) including hedging phrase detection.
+- **Updated Documentation**:
+  - README.md: Added hallucination detection section, updated language support.
+  - ARCHITECTURE.md: Added hallucination_verifier.py to engine layer.
+  - PROJECT.md: Added hallucination_verifier.py and prompt_enhancer.py to file tree.
+  - FLOWS.md: 6-layer safety matrix (was 5), added hallucination detection layer.
+  - ERRORS.md: Added hallucination warning categories and issue types.
+  - CONTRIBUTING.md: Added hallucination prevention test suite reference.
+
 ## [0.1.12] - 2026-08-18
 
 ### Added

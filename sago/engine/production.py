@@ -205,6 +205,19 @@ class ProductionEngine:
             # Complete the response
             response.end()
 
+            # Run hallucination verification on result
+            try:
+                from sago.engine.hallucination_verifier import get_verifier
+
+                verifier = get_verifier()
+                verification = verifier.verify(result, tool_history=[], task_type="create")
+                if verification.has_hallucinations:
+                    result = verification.cleaned_content
+                    if verification.confidence < 50:
+                        result += "\n\n[Confidence Warning]\nThis response may contain unverified claims. Please verify independently."
+            except Exception:
+                pass
+
             # Update thread
             thread.result = result
             thread.status = ThreadStatus.COMPLETED

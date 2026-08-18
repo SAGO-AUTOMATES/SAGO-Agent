@@ -433,3 +433,110 @@ class TestFabricationPhrasePatterns:
             if re.search(pattern, text, re.IGNORECASE):
                 return  # Found it
         assert False, "Should have detected 'tests pass' fabrication phrase"
+
+
+class TestUserMentionFabrication:
+    """Test detection of agent fabricating what the user said."""
+
+    def test_detect_files_you_mentioned(self) -> None:
+        """Detect when agent claims user mentioned specific files."""
+        from sago.engine.simple_executor import _verify_claims_against_history
+
+        content = "I cannot analyze the specific files you mentioned (`analyze.py` and `analyze.cpython-311.pyc`)."
+        issues = _verify_claims_against_history(content, [])
+        assert any("claims user mentioned" in issue.lower() for issue in issues)
+
+    def test_detect_you_said_file(self) -> None:
+        """Detect 'you said X' fabrication."""
+        from sago.engine.simple_executor import _verify_claims_against_history
+
+        content = "You said `config.yaml` needs to be updated."
+        issues = _verify_claims_against_history(content, [])
+        assert any("claims user mentioned" in issue.lower() or "not found" in issue.lower() for issue in issues)
+
+    def test_detect_mentioned_files_pattern(self) -> None:
+        """Detect 'files you mentioned' pattern with specific file names."""
+        from sago.engine.simple_executor import _verify_claims_against_history
+
+        content = "The files you mentioned (`foo.py` and `bar.py`) are not in the repo."
+        issues = _verify_claims_against_history(content, [])
+        # Should detect fabricated file references
+        assert len(issues) > 0
+
+    def test_no_false_positive_on_tool_backed_claims(self) -> None:
+        """Files found by tools should not be flagged."""
+        from sago.engine.simple_executor import _verify_claims_against_history
+
+        content = "The files you mentioned (`main.py`) exist in the repo."
+        tool_history = [
+            {"tool": "glob_files", "args": {"pattern": "**/*.py"}, "result": "main.py\nutils.py"}
+        ]
+        issues = _verify_claims_against_history(content, tool_history)
+        # main.py was found by glob_files, so should not be flagged
+        assert not any("main.py" in issue and "not found" in issue for issue in issues)
+
+
+class TestFileListingWithoutTools:
+    """Test detection of listing files without search tools."""
+
+    def test_detect_listing_without_search(self) -> None:
+        """Detect listing specific files without using search tools."""
+        from sago.engine.simple_executor import _verify_claims_against_history
+
+        content = """The available files are:
+1. `safe_path.py`
+2. `generate_tool_specs.py`
+3. `wait_tool.py`"""
+        issues = _verify_claims_against_history(content, [])
+        assert any("lists specific files" in issue.lower() or "claims user mentioned" in issue.lower() for issue in issues)
+
+    def test_no_flag_when_search_used(self) -> None:
+        """Listing files after using search tools should not be flagged."""
+        from sago.engine.simple_executor import _verify_claims_against_history
+
+        content = """The available files are:
+1. `safe_path.py`
+2. `generate_tool_specs.py`"""
+        tool_history = [
+            {"tool": "glob_files", "args": {"pattern": "**/*.py"}, "result": "safe_path.py\ngenerate_tool_specs.py"}
+        ]
+        issues = _verify_claims_against_history(content, tool_history)
+        assert not any("lists specific files" in issue.lower() for issue in issues)
+
+
+class TestBroadenedFilePathDetection:
+    """Test broader file path hallucination detection."""
+
+    def test_detect_plain_text_file_ref(self) -> None:
+        """Detect plain text references to non-existent files."""
+        from sago.engine.simple_executor import _detect_code_hallucinations
+
+        content = "The file analyze.py should be checked."
+        issues = _detect_code_hallucinations(content, [])
+        assert any("analyze.py" in issue for issue in issues)
+
+    def test_detect_compiled_python_file(self) -> None:
+        """Detect references to compiled Python files."""
+        from sago.engine.simple_executor import _detect_code_hallucinations
+
+        content = "The file analyze.cpython-311.pyc was found."
+        issues = _detect_code_hallucinations(content, [])
+        assert any("analyze.cpython-311.pyc" in issue for issue in issues)
+
+    def test_detect_quoted_file_ref(self) -> None:
+        """Detect backtick-quoted file references."""
+        from sago.engine.simple_executor import _detect_code_hallucinations
+
+        content = "I checked `nonexistent_fake_xyz.py` and it doesn't exist."
+        issues = _detect_code_hallucinations(content, [])
+        assert any("nonexistent_fake_xyz.py" in issue for issue in issues)
+
+    def test_no_flag_existing_file(self) -> None:
+        """Existing files should not be flagged."""
+        from sago.engine.simple_executor import _detect_code_hallucinations
+
+        # pyproject.toml should exist in the repo
+        content = "The file pyproject.toml configures the project."
+        issues = _detect_code_hallucinations(content, [])
+        # Should not flag pyproject.toml if it exists
+        assert not any("pyproject.toml" in issue and "may not exist" in issue for issue in issues)

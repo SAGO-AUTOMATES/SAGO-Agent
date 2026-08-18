@@ -150,3 +150,18 @@ SAGO's prompt enhancement and intent classifier are not confined to rigid keywor
 2. **Clean Main LLM Payload**: Internal prompt generator/enhancer logs, intermediate decision trees, and metadata are **never injected into the main LLM payload**. Only the clean, distilled task prompt is passed.
 3. **Selective Context Assembly**: Casual chat, lightweight queries, and general Q&A bypass repository file scanning, AST symbol indexing, and README instruction dumps, keeping token usage minimal.
 4. **Complexity-Calibrated Enhancement**: Simple queries ("hi", "what is 2+2") skip prompt enhancement entirely. Medium queries get standard enhancement. Complex queries get structured multi-step workflows with anti-hallucination constraints.
+
+---
+
+## Runtime Verification Layer
+
+The prompt enhancer is the **prevention** layer — it injects constraints into the LLM prompt to discourage hallucinations. The **detection** layer is `sago/engine/hallucination_verifier.py`, which runs after the LLM responds:
+
+1. **Prevention** (prompt_enhancer.py): "Do NOT claim verification without running actual tools"
+2. **Detection** (hallucination_verifier.py): "I've verified" detected — no read/grep tool was called
+
+Both layers work together:
+- Prompt constraints reduce hallucination frequency
+- Runtime verification catches remaining hallucinations
+- Confidence scoring determines whether to strip or warn
+- Response sanitization removes hallucinated sentences when confidence is low

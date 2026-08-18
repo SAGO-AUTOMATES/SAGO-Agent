@@ -10,7 +10,9 @@ full transparency by displaying the enhanced prompt and recording dev trace even
 
 from __future__ import annotations
 
+import fnmatch
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -144,10 +146,16 @@ class PromptEnhancer:
         "NEVER claim to have read a file without actually calling read_file tool first.",
         "NEVER claim tests pass without actually running them via execute_shell tool.",
         "NEVER claim a file was created or modified without calling write_file or edit_file.",
+        "NEVER claim the user mentioned specific files unless they literally said the file names in their message.",
+        "NEVER list files as 'available' or 'related' without first discovering them via glob_files, file_search, or grep_content tools.",
+        "NEVER make structural claims ('the codebase has X files', 'the project uses Y') without using tools to verify.",
+        "NEVER make architectural claims ('the architecture is', 'the design pattern is') without reading relevant files.",
+        "NEVER make quality claims ('clean code', 'well-structured', 'production-ready') without evidence from tools.",
+        "NEVER make performance claims ('this is faster', 'more efficient') without measurement.",
+        "NEVER make security claims ('no vulnerabilities', 'secure') without scanning tools.",
         "If uncertain about code contents, state uncertainty rather than guessing.",
         "Always verify tool results before reporting them as facts.",
         "Cross-reference your claims against actual tool call history.",
-        "NEVER claim code is 'production-ready', 'fully tested', 'complete', or 'works perfectly' without tool evidence.",
         "NEVER fabricate function names, class names, or API methods that don't exist in the codebase.",
         "If you haven't searched the codebase, don't claim something 'doesn't exist' or 'isn't used'.",
         "NEVER claim 'no errors' or 'all checks pass' without actually running linters/tests.",
@@ -239,7 +247,11 @@ class PromptEnhancer:
         improvements.append(f"Structured {intent_category.replace('_', ' ')} intent")
 
         # 2. Extract potential file / module targets from prompt & workspace
-        targets = self._extract_targets(raw_prompt, root)
+        #    Skip for explore_arch — user wants a high-level overview, not random file hits
+        if intent_category == "explore_arch":
+            targets = []
+        else:
+            targets = self._extract_targets(raw_prompt, root)
         if targets:
             improvements.append(f"Identified {len(targets)} workspace targets")
 
@@ -387,30 +399,138 @@ class PromptEnhancer:
         else:
             return "medium"
 
+    # Directories to always skip when scanning for workspace targets.
+    # Language-agnostic: covers Python, Java, Rust, Go, C/C++, Node, .NET, Ruby, PHP.
+    _SKIP_DIRS: frozenset[str] = frozenset(
+        {
+            # Version control / IDE
+            ".git",
+            ".svn",
+            ".hg",
+            ".github",
+            ".gitlab",
+            ".bitbucket",
+            ".idea",
+            ".vscode",
+            ".vs",
+            ".eclipse",
+            ".project",
+            # Python
+            "__pycache__",
+            ".venv",
+            "venv",
+            "env",
+            ".tox",
+            ".nox",
+            ".mypy_cache",
+            ".ruff_cache",
+            ".pytest_cache",
+            ".pytype",
+            ".eggs",
+            "*.egg-info",
+            ".hypothesis",
+            # Node / JS / TS
+            "node_modules",
+            ".next",
+            ".nuxt",
+            ".cache",
+            "coverage",
+            ".turbo",
+            ".pnpm-store",
+            # Java / JVM
+            "target",
+            "build",
+            "out",
+            ".gradle",
+            ".mvn",
+            "bin",
+            "classes",
+            ".bsp",
+            ".bloop",
+            ".metals",
+            # Rust
+            "target",
+            # Go
+            "vendor",
+            # C / C++ / CMake
+            "cmake-build-*",
+            "obj",
+            "deps",
+            # .NET / C#
+            "bin",
+            "obj",
+            "packages",
+            ".nuget",
+            "TestResults",
+            # Ruby
+            ".bundle",
+            # PHP
+            "vendor",
+            # Dart / Flutter
+            ".dart_tool",
+            ".packages",
+            "build",
+            # General build / dist
+            "dist",
+            "build",
+            "out",
+            "output",
+            "release",
+            "debug",
+        }
+    )
+
     def _extract_targets(self, text: str, root: Path) -> list[str]:
-        """Extract explicit file paths, directories, or symbols mentioned in text."""
+        """Extract explicit file paths, directories, or symbols mentioned in text.
+
+        Only returns files that actually exist in the user's source tree.
+        Never scans .venv, .git, __pycache__, or other vendor/build dirs.
+        """
         targets: set[str] = set()
 
-        # Matches file-like patterns: src/foo.py, main.py, config.json, etc.
-        path_pattern = r"\b(?:[\w\-\./]+(?:\.[\w]{1,10}|/))\b"
+        # 1. Extract explicit file-like paths directly mentioned in the prompt
+        #    e.g. "src/foo.py", "config.json", "./main.py"
+        path_pattern = r"(?:[\w\-./]+\.[\w]{1,10})"
         matches = re.findall(path_pattern, text)
         for m in matches:
             cleaned = m.strip().strip("'\"`,:;")
             if cleaned and not cleaned.startswith("http") and not cleaned.startswith("v0."):
-                targets.add(cleaned)
+                # Only keep if the file actually exists relative to root
+                candidate = root / cleaned
+                if candidate.exists() and candidate.is_file():
+                    targets.add(cleaned)
 
-        # Check if mentioned names exist in workspace
+        # 2. Walk only user source dirs (skip vendor/build) to find mentioned symbols
+        def _should_skip_dir(dir_name: str) -> bool:
+            if dir_name.startswith(".") or dir_name in self._SKIP_DIRS:
+                return True
+            if dir_name.endswith(".egg-info"):
+                return True
+            # Handle wildcard patterns like cmake-build-*
+            for pat in self._SKIP_DIRS:
+                if "*" in pat and fnmatch.fnmatch(dir_name, pat):
+                    return True
+            return False
+
         try:
             words = re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_\-]{2,}\b", text)
             for w in words:
-                candidates = list(root.glob(f"**/{w}.*")) + list(root.glob(f"**/{w}"))
-                for c in candidates[:3]:
-                    if not c.name.startswith("."):
-                        try:
-                            rel = c.relative_to(root).as_posix()
+                found = False
+                for dirpath, dirnames, filenames in os.walk(root):
+                    # Prune vendor/build dirs before descending
+                    dirnames[:] = [d for d in dirnames if not _should_skip_dir(d)]
+
+                    rel_dir = Path(dirpath).relative_to(root)
+                    # Check direct children and one level of subdirectory
+                    for fname in filenames:
+                        stem = Path(fname).stem
+                        if stem == w or fname == w:
+                            rel = (rel_dir / fname).as_posix()
                             targets.add(rel)
-                        except Exception:
-                            pass
+                            found = True
+                            break
+                    if found or len(targets) >= 6:
+                        break
         except Exception:
             pass
 

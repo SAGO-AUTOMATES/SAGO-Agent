@@ -8,6 +8,7 @@ import os
 import re
 import threading
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from sago.tui.models import EFFORT_LEVELS
@@ -115,7 +116,7 @@ class MessageProcessorMixin:
                 try:
                     from sago.engine.context_assembler import get_context_assembler
 
-                    assembler = get_context_assembler()
+                    assembler = get_context_assembler(cwd=str(Path.cwd()))
                     agent_slug = (
                         self.current_agent.lower().replace(" ", "-") if self.current_agent else None
                     )
@@ -162,7 +163,7 @@ class MessageProcessorMixin:
 
                 # Load profile and build prompt
                 profile = _load_agent_profile(active_agent.replace("-", " ").title())
-                _is_lightweight = task_type in ("chat", "query")
+                _is_lightweight = task_type == "chat"
                 if _is_lightweight:
                     template = PROMPTS.get(task_type, PROMPTS.get("chat", PROMPTS["create"]))
                     system_prompt = template.format(
@@ -287,6 +288,16 @@ class MessageProcessorMixin:
                     if (not _is_lightweight and enhancement.was_modified)
                     else message
                 )
+
+                # Inject assembled context (AST symbols, project graph, RAG) into user message
+                if assembled and not _is_lightweight:
+                    context_block = assembled.format_user_context_block()
+                    if context_block:
+                        user_msg_content = (
+                            f"## Reference Context (read-only workspace data)\n"
+                            f"{context_block}\n\n"
+                            f"## Task & Plan\n{user_msg_content}"
+                        )
 
                 messages = (
                     [{"role": "system", "content": system_prompt}]
@@ -1460,38 +1471,43 @@ class MessageProcessorMixin:
                         last_results.append(f"{status} {t['tool']}: {t.get('result', '')[:200]}")
                     summary = "\n".join(last_results)
                     if content and content.strip() and not content.strip().startswith("{"):
-                        # LLM also produced text output (not just tool calls)
+                        # Run shared hallucination verifier on the content
+                        try:
+                            from sago.engine.hallucination_verifier import get_verifier
+
+                            verifier = get_verifier()
+                            verification = verifier.verify(
+                                content, tool_history=tool_history, task_type=task_type
+                            )
+                            if verification.has_hallucinations:
+                                content = verification.cleaned_content
+                        except Exception:
+                            pass
                         self.call_from_thread(self._add_assistant_message, content)
                     else:
                         self.call_from_thread(self._add_assistant_message, summary)
 
                     # Show verification and confidence indicator
                     try:
-                        from sago.engine.simple_executor import (
-                            _compute_confidence_score,
-                            _detect_code_hallucinations,
-                            _verify_claims_against_history,
-                        )
+                        from sago.engine.hallucination_verifier import get_verifier
 
-                        code_issues = _detect_code_hallucinations(content or "", tool_history)
-                        claim_issues = _verify_claims_against_history(content or "", tool_history)
-                        confidence = _compute_confidence_score(
+                        verifier = get_verifier()
+                        verification = verifier.verify(
                             content or "",
-                            tool_history,
-                            files_created,
-                            fabrication_issues=code_issues,
-                            code_issues=code_issues,
-                            claim_issues=claim_issues,
+                            tool_history=tool_history,
+                            task_type=task_type,
                         )
+                        confidence = verification.confidence
+                        all_issues = verification.all_issues
                         if confidence < 50:
-                            detail_parts = (code_issues + claim_issues)[:4]
+                            detail_parts = all_issues[:4]
                             detail = "; ".join(d[:80] for d in detail_parts)
                             self.call_from_thread(
                                 self._add_system_message,
                                 f"⚠️ Low confidence ({confidence}/100): {detail}",
                             )
                         elif confidence < 80:
-                            detail_parts = (code_issues + claim_issues)[:2]
+                            detail_parts = all_issues[:2]
                             detail = (
                                 "; ".join(d[:80] for d in detail_parts)
                                 if detail_parts
@@ -1510,6 +1526,18 @@ class MessageProcessorMixin:
                     except Exception:
                         pass
                 elif content and content.strip():
+                    # Run shared hallucination verifier on content without tools
+                    try:
+                        from sago.engine.hallucination_verifier import get_verifier
+
+                        verifier = get_verifier()
+                        verification = verifier.verify(
+                            content, tool_history=[], task_type=task_type
+                        )
+                        if verification.has_hallucinations:
+                            content = verification.cleaned_content
+                    except Exception:
+                        pass
                     self.call_from_thread(self._add_assistant_message, content)
                 elif tool_history:
                     tools_done = [t["tool"] for t in tool_history]

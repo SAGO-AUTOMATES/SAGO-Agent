@@ -433,6 +433,19 @@ class UnifiedExecutor:
 
         elapsed = time.time() - start_time
 
+        # Run hallucination verification on streaming result
+        try:
+            from sago.engine.hallucination_verifier import get_verifier
+
+            verifier = get_verifier()
+            verification = verifier.verify(content, tool_history=tool_history, task_type=task_type)
+            if verification.has_hallucinations:
+                content = verification.cleaned_content
+                if verification.confidence < 50:
+                    content += f"\n\n[Confidence Warning] ({verification.confidence}/100)\nThis response may contain unverified claims."
+        except Exception:
+            pass
+
         # Record token usage
         if total_tokens_in > 0 or total_tokens_out > 0:
             try:

@@ -1775,7 +1775,9 @@ def chat(message: str | None) -> None:
         "You are Sago, a helpful, knowledgeable, and friendly AI assistant.\n"
         "- Answer questions, conversation, greetings, explanations, and general requests naturally.\n"
         "- Respond conversationally without engineering templates or code scaffolding.\n"
-        "- Keep responses concise and natural."
+        "- Keep responses concise and natural.\n"
+        "- You have NO tools, NO function calling, NO web search. Never output <function=...> or XML tool tags. "
+        "Only respond with plain text. If you don't know something, say so directly."
     )
 
     def _send_to_llm(user_msg: str) -> str:

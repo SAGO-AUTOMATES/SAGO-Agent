@@ -42,6 +42,31 @@
 | `CacheError` | Cache error | Clear cache |
 | `ConfigError` | Config error | Reinitialize |
 
+### Hallucination Warnings
+
+The hallucination detection system (`hallucination_verifier.py`) produces warnings when LLM responses contain unverified claims. These are displayed as system messages in the TUI.
+
+| Warning | Cause | Action |
+|---------|-------|--------|
+| `⚠️ Low confidence (X/100)` | Multiple fabrication signals detected | Verify claims independently; response may be sanitized |
+| `🔍 Confidence: X/100 — ...` | Minor verification notes | Review the specific issues listed |
+| `✅ Confidence: X/100 — verified` | All claims backed by tool usage | Safe to use |
+| `WARNING: This response may contain hallucinated claims` | Fabrication phrases detected in final response | Treat claims with skepticism |
+| `Tool result integrity: 'X' result was modified by plugin` | Plugin tampered with tool result | Investigate plugin behavior |
+
+#### Hallucination Issue Types
+
+| Issue Type | Description | Example |
+|------------|-------------|---------|
+| `Fabrication: 'X'` | Claim made without tool evidence | "I've verified the fix works" without running tests |
+| `Hedging: 'X'` | Subtle unverifiable claim | "This should work now" without testing |
+| `User mention: 'X'` | Fabricated claim about user-mentioned files | "The file you mentioned (analyze.py)" when user never said that |
+| `Lists specific files without tools` | Lists files without using search tools | "Here are the relevant files: ..." without glob/grep |
+| `Referenced file without reading` | References file content without reading | "The file contains..." without read_file |
+| `Tool result integrity: 'X'` | Plugin modified tool result | SHA-256 hash mismatch after plugin hook |
+| `Python/JS/Go/etc. syntax error` | Code block has syntax errors | Invalid Python syntax in response code block |
+| `Unclosed brace` | Code block has unbalanced braces | Missing closing `}` in JavaScript code |
+
 ## Automatic Recovery
 
 ### Retry Strategy

@@ -39,8 +39,10 @@ All references below point to real modules in the `sago/` package and the
 │  Engine / Executor  (sago/engine)                                         │
 │  simple_executor.py  (native function-calling loop, _discover_tools)       │
 │  unified.py · production.py · intent_classifier.py · verifier.py · ...    │
+│  hallucination_verifier.py (9-stage response verification pipeline)        │
 │  - Builds OpenAI-style tool schemas from BaseTool.args_model              │
 │  - Runs the LLM loop, calls tools, handles permission/timeout/errors      │
+│  - Detects and sanitizes hallucinated content in responses                │
 └───────┬───────────────────────────┬───────────────────────────┬──────────┘
         │ tool call                  │ profile/skills           │ errors
         ▼                            ▼                           ▼

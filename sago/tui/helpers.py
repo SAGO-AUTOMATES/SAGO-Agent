@@ -589,7 +589,6 @@ class UIHelpers:
 
     def _add_system_message(self: SagoApp, content: str | Any) -> None:
         self._hide_welcome_screen()
-        from rich.markup import escape as _escape
         from rich.text import Text
 
         if isinstance(content, Text):
@@ -604,11 +603,11 @@ class UIHelpers:
             )
 
             if has_prefix:
-                renderable = Text.from_markup(_escape(clean_text))
+                renderable = Text.from_markup(clean_text)
             else:
                 renderable = Text()
                 renderable.append("● ", style="dim yellow")
-                renderable.append_text(Text.from_markup(_escape(clean_text), style="dim"))
+                renderable.append_text(Text.from_markup(clean_text, style="dim"))
 
         self.query_one("#messages").mount(
             Static(

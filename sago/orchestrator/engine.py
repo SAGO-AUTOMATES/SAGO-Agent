@@ -103,6 +103,22 @@ class SagoOrchestrator:
         result = crew.kickoff()
         result_str = str(result)
 
+        # Run hallucination verification on CrewAI result
+        try:
+            from sago.engine.hallucination_verifier import get_verifier
+
+            verifier = get_verifier()
+            verification = verifier.verify(result_str, tool_history=[], task_type="create")
+            if verification.has_hallucinations:
+                logger.warning(
+                    f"Hallucinations detected in orchestrator result: {verification.all_issues[:3]}"
+                )
+                result_str = verification.cleaned_content
+                if verification.confidence < 50:
+                    result_str += "\n\n[Confidence Warning]\nThis response may contain unverified claims. Please verify independently."
+        except Exception as e:
+            logger.debug(f"Hallucination verification skipped: {e}")
+
         # Quality gate: validate result addresses the task
         quality_issues = self._validate_result(result_str, task)
         if quality_issues:

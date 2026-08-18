@@ -111,6 +111,8 @@ sago/
 │   │   ├── checkpoint.py         # Atomic workspace snapshot & rollback
 │   │   ├── project_synthesizer.py # Multi-file topological synthesis
 │   │   ├── verifier.py           # Self-healing verification flywheel & daemon
+│   │   ├── hallucination_verifier.py # 9-stage response hallucination detection
+│   │   ├── prompt_enhancer.py    # Anti-hallucination prompt constraints
 │   │   └── unified.py            # Unified router
 │   │
 │   ├── errors/                   # Error handling & recovery

@@ -155,10 +155,10 @@ class ContextAssembler:
     ) -> AssembledContext:
         """Assemble comprehensive context for a task following the 5-layer pipeline."""
         ctx = AssembledContext()
-        if task_type in ("chat", "query"):
-            # For casual conversation, greetings, weather, non-coding queries,
-            # and lightweight information queries:
-            # Skip massive project instructions, symbol graphs, RAG code snippets, and directory trees
+        if task_type == "chat":
+            # For casual conversation, greetings, weather — skip heavy context assembly.
+            # "query" is NOT short-circuited here because queries like "analyze my repo"
+            # need AST symbols, project graph, and structural context.
             return ctx
 
         token_budget = _TokenBudget(max_tokens)
@@ -180,6 +180,7 @@ class ContextAssembler:
 
             # Check if query is architectural or codebase structure-oriented
             arch_keywords = {
+                # Existing
                 "architecture",
                 "arch",
                 "graph",
@@ -195,6 +196,34 @@ class ContextAssembler:
                 "explain",
                 "codebase",
                 "layout",
+                # Analysis / review
+                "analyze",
+                "analysis",
+                "review",
+                "audit",
+                "inspect",
+                "examine",
+                "understand",
+                "describe",
+                "explore",
+                "investigate",
+                # Project / repo
+                "repo",
+                "repository",
+                "project",
+                "code",
+                "source",
+                # Visualization
+                "diagram",
+                "visualize",
+                "chart",
+                "visual",
+                # How / what questions about code
+                "how",
+                "what",
+                "where",
+                "which",
+                "about",
             }
             task_words = set(re.findall(r"[a-zA-Z]{3,}", task.lower()))
             if task_words & arch_keywords:
@@ -235,6 +264,20 @@ class ContextAssembler:
                             break
                 if len(matching_symbols) >= max_symbols:
                     break
+
+            # Fallback: if no word-level matches, return top hub files (most connected)
+            if not matching_symbols and outline:
+                hub_files = sorted(
+                    outline.keys(),
+                    key=lambda f: len(outline[f]),
+                    reverse=True,
+                )[:max_symbols]
+                for fp in hub_files:
+                    syms = outline[fp]
+                    sym_names = [s.get("name", "?") for s in syms[:3]]
+                    matching_symbols.append(
+                        f"• `{fp}` — {', '.join(sym_names)}{'...' if len(syms) > 3 else ''}"
+                    )
 
             if matching_symbols:
                 ctx.ast_symbols_context = token_budget.consume_strict("\n".join(matching_symbols))
