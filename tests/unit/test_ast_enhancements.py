@@ -440,3 +440,155 @@ class TestMultiLanguageParsing:
         classes = [n for n in nodes if n.node_type == "class"]
         assert len(classes) >= 1
         assert classes[0].name == "Derived"
+
+
+class TestStringAwareBraceCounting:
+    """Test the enhanced string/comment-aware end-line estimation."""
+
+    def test_braces_in_strings_not_counted(self) -> None:
+        """Braces inside string literals should not affect depth counting."""
+        from sago.tools.coding.ast_editor import ASTEditor
+
+        editor = ASTEditor()
+        # JS code — uses brace-counting for end_line
+        code = 'function foo() {\n    var x = "hello { world }";\n    return x;\n}\n'
+        nodes = editor.analyze(code, "javascript")
+        funcs = [n for n in nodes if n.node_type == "function"]
+        assert len(funcs) == 1
+        assert funcs[0].name == "foo"
+        assert funcs[0].end_line == 4
+
+    def test_braces_in_comments_not_counted(self) -> None:
+        """Braces inside comments should not affect depth counting."""
+        from sago.tools.coding.ast_editor import ASTEditor
+
+        editor = ASTEditor()
+        code = "function bar() {\n    // This is a { comment }\n    return 1;\n}\n"
+        nodes = editor.analyze(code, "javascript")
+        funcs = [n for n in nodes if n.node_type == "function"]
+        assert len(funcs) == 1
+        assert funcs[0].name == "bar"
+
+    def test_nested_braces_correct(self) -> None:
+        """Nested braces should be counted correctly."""
+        from sago.tools.coding.ast_editor import ASTEditor
+
+        editor = ASTEditor()
+        code = "function outer() {\n    if (true) {\n        for (var i = 0; i < 10; i++) {\n        }\n    }\n    return 1;\n}\n"
+        nodes = editor.analyze(code, "javascript")
+        funcs = [n for n in nodes if n.node_type == "function"]
+        assert len(funcs) == 1
+        assert funcs[0].name == "outer"
+        assert funcs[0].end_line == 7
+
+
+class TestIntentClassifierComplexity:
+    """Test intent classifier complexity assessment."""
+
+    def test_simple_query_detection(self) -> None:
+        """Simple queries should be classified as simple complexity."""
+        from sago.engine.intent_classifier import IntentClassifier
+
+        classifier = IntentClassifier()
+        result = classifier.classify("hello", use_llm=False)
+        assert result.complexity == "simple"
+        assert result.task_type == "chat"
+        assert result.needs_tools is False
+
+    def test_single_word_query(self) -> None:
+        """Single-word queries should be simple."""
+        from sago.engine.intent_classifier import IntentClassifier
+
+        classifier = IntentClassifier()
+        result = classifier.classify("thanks", use_llm=False)
+        assert result.complexity == "simple"
+        assert result.needs_tools is False
+
+    def test_math_query(self) -> None:
+        """Simple math queries should be simple."""
+        from sago.engine.intent_classifier import IntentClassifier
+
+        classifier = IntentClassifier()
+        result = classifier.classify("what is 2+2", use_llm=False)
+        assert result.complexity == "simple"
+
+    def test_code_task_has_complexity(self) -> None:
+        """Code tasks should have complexity assessment."""
+        from sago.engine.intent_classifier import IntentClassifier
+
+        classifier = IntentClassifier()
+        result = classifier.classify("fix the bug in main.py", use_llm=False)
+        assert result.complexity in ("simple", "medium", "complex")
+        assert result.needs_tools is True
+
+    def test_complex_task_detected(self) -> None:
+        """Multi-step tasks should be detected as complex."""
+        from sago.engine.intent_classifier import IntentClassifier
+
+        classifier = IntentClassifier()
+        result = classifier.classify(
+            "refactor the entire authentication module to use OAuth2 with comprehensive test coverage",
+            use_llm=False,
+        )
+        assert result.complexity in ("medium", "complex")
+
+    def test_simple_code_task(self) -> None:
+        """Simple code tasks should be detected as simple."""
+        from sago.engine.intent_classifier import IntentClassifier
+
+        classifier = IntentClassifier()
+        result = classifier.classify("rename the variable x to count", use_llm=False)
+        assert result.complexity in ("simple", "medium")
+
+
+class TestQueryIntentRouting:
+    """Test that simple info queries route to 'query' type, not 'analyze'."""
+
+    def test_whats_in_this_file_routes_to_query(self) -> None:
+        """'what's in this file' should route to query, not analyze."""
+        from sago.engine.intent_classifier import IntentClassifier
+
+        classifier = IntentClassifier()
+        result = classifier.classify("what's in this file", use_llm=False)
+        assert result.task_type == "query"
+        assert result.needs_tools is True
+
+    def test_show_me_contents_routes_to_query(self) -> None:
+        """'show me the contents of main.py' should route to query."""
+        from sago.engine.intent_classifier import IntentClassifier
+
+        classifier = IntentClassifier()
+        result = classifier.classify("show me the contents of main.py", use_llm=False)
+        assert result.task_type == "query"
+
+    def test_how_do_i_routes_to_query(self) -> None:
+        """'how do I use the read_file tool' should route to query."""
+        from sago.engine.intent_classifier import IntentClassifier
+
+        classifier = IntentClassifier()
+        result = classifier.classify("how do I use the read_file tool", use_llm=False)
+        assert result.task_type == "query"
+
+    def test_where_is_x_defined_routes_to_query(self) -> None:
+        """'where is the User class defined' should route to query."""
+        from sago.engine.intent_classifier import IntentClassifier
+
+        classifier = IntentClassifier()
+        result = classifier.classify("where is the User class defined", use_llm=False)
+        assert result.task_type == "query"
+
+    def test_explain_this_function_routes_to_query(self) -> None:
+        """'explain this function' should route to query."""
+        from sago.engine.intent_classifier import IntentClassifier
+
+        classifier = IntentClassifier()
+        result = classifier.classify("explain this function", use_llm=False)
+        assert result.task_type == "query"
+
+    def test_comprehensive_analysis_still_routes_to_analyze(self) -> None:
+        """'review the entire architecture' should still route to analyze."""
+        from sago.engine.intent_classifier import IntentClassifier
+
+        classifier = IntentClassifier()
+        result = classifier.classify("review the entire architecture and suggest improvements", use_llm=False)
+        assert result.task_type == "analyze"

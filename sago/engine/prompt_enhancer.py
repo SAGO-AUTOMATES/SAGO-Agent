@@ -147,6 +147,35 @@ class PromptEnhancer:
         "If uncertain about code contents, state uncertainty rather than guessing.",
         "Always verify tool results before reporting them as facts.",
         "Cross-reference your claims against actual tool call history.",
+        "NEVER claim code is 'production-ready', 'fully tested', 'complete', or 'works perfectly' without tool evidence.",
+        "NEVER fabricate function names, class names, or API methods that don't exist in the codebase.",
+        "If you haven't searched the codebase, don't claim something 'doesn't exist' or 'isn't used'.",
+        "NEVER claim 'no errors' or 'all checks pass' without actually running linters/tests.",
+    ]
+
+    # Overthinking prevention: complexity signals that indicate simple queries
+    _SIMPLE_QUERY_SIGNALS = [
+        r"^(?:hi|hello|hey|yo|sup|howdy|greetings)\b",
+        r"^(?:thanks|thank\s+you|thx|ty|cheers)\b",
+        r"^(?:what\s+is|who\s+is|what\s+are)\s+\d+",
+        r"^(?:can\s+you\s+)?(?:explain|describe|what\s+does)\s+\w+\s+(?:do|mean)\b",
+        r"^(?:how\s+(?:do|can|to))\s+(?:i|we)\s+\w+",
+        r"^(?:where|when|why|how)\s+(?:is|are|was|were|do|does|did)\b",
+        r"^(?:yes|no|ok|okay|sure|nope|yep|yeah|nah)\b",
+        r"^(?:good|bad|great|nice|cool|awesome|excellent|terrible)\b",
+        r"^(?:what|which)\s+(?:file|function|class|method|variable)\s+(?:is|are|was)\b",
+        r"^\w+\??$",  # Single word questions
+    ]
+
+    # Complexity signals that indicate multi-step tasks
+    _COMPLEX_QUERY_SIGNALS = [
+        r"\b(?:refactor|redesign|restructure|rewrite)\s+(?:the\s+)?(?:entire|whole|full)\b",
+        r"\b(?:implement|build|create|add)\s+(?:a\s+)?(?:complete|full|entire|comprehensive)\b",
+        r"\b(?:migrate|upgrade|overhaul)\s+(?:from|to)\b",
+        r"\b(?:all|every|each)\s+(?:file|module|component|service)\b",
+        r"\b(?:architecture|system\s+design|infrastructure)\b",
+        r"\b(?:multi[\s-]step|step[\s-]by[\s-]step|phased)\b",
+        r"\b(?:security|performance|scalability)\s+(?:audit|review|analysis)\b",
     ]
 
     def __init__(self, root_dir: str | Path | None = None) -> None:
@@ -186,6 +215,23 @@ class PromptEnhancer:
                 acceptance_criteria=[],
                 operational_constraints=[],
                 improvements=[],
+                was_modified=False,
+                agent_role=agent_role,
+            )
+
+        # 2. Assess complexity to prevent overthinking on simple queries
+        complexity = self._assess_complexity(raw_prompt)
+        if complexity == "simple":
+            # For simple queries, return minimal enhancement to avoid overthinking
+            improvements.append("Simple query detected — minimal enhancement")
+            return PromptEnhancementResult(
+                original_prompt=raw_prompt,
+                enhanced_prompt=raw_prompt,
+                intent_summary=f"Simple {intent_category.replace('_', ' ')}: {raw_prompt}",
+                target_scope=[],
+                acceptance_criteria=[],
+                operational_constraints=[],
+                improvements=improvements,
                 was_modified=False,
                 agent_role=agent_role,
             )
@@ -264,6 +310,82 @@ class PromptEnhancer:
             if re.search(pattern, text_lower):
                 return cat, desc
         return "feature_create", "Execute requested engineering task with precision"
+
+    def _assess_complexity(self, text: str) -> str:
+        """Assess query complexity to prevent overthinking on simple queries.
+
+        Returns 'simple', 'medium', or 'complex'.
+        Only returns 'simple' for truly trivial queries (greetings, single words,
+        basic questions) — NOT for code-related tasks.
+        """
+        text_lower = text.lower().strip()
+        word_count = len(text_lower.split())
+
+        # Check for complex query signals FIRST (don't skip these)
+        complex_signals = 0
+        for pattern in self._COMPLEX_QUERY_SIGNALS:
+            if re.search(pattern, text_lower):
+                complex_signals += 1
+
+        if complex_signals >= 2 or word_count > 50:
+            return "complex"
+        elif complex_signals >= 1 or word_count > 25:
+            return "medium"
+
+        # Only return 'simple' for genuinely trivial, non-code queries
+        # Check for code-related words — if present, never skip enhancement
+        code_indicators = (
+            "file",
+            "code",
+            "function",
+            "class",
+            "method",
+            "module",
+            "import",
+            "fix",
+            "bug",
+            "error",
+            "test",
+            "refactor",
+            "implement",
+            "create",
+            "delete",
+            "add",
+            "remove",
+            "update",
+            "change",
+            "rename",
+            ".py",
+            ".js",
+            ".ts",
+            ".go",
+            ".rs",
+            ".java",
+        )
+        has_code_intent = any(word in text_lower for word in code_indicators)
+
+        if has_code_intent:
+            # Code tasks are at least medium complexity
+            return "medium"
+
+        # Non-code: check for simple query patterns
+        simple_patterns = (
+            r"^(?:hi|hello|hey|yo|sup|howdy|greetings|bye|goodbye)\b",
+            r"^(?:thanks|thank\s+you|thx|ty|cheers)\b",
+            r"^(?:yes|no|ok|okay|sure|nope|yep|yeah|nah)\b",
+            r"^(?:good|bad|great|nice|cool|awesome|excellent|terrible)\b",
+            r"^(?:what\s+is\s+\d+[\s+\-*/\d]*)\b",
+            r"^(?:what\s+time|what\s+date|what\s+day)\b",
+            r"^\w+\??$",
+        )
+        is_simple = any(re.search(p, text_lower) for p in simple_patterns)
+
+        if is_simple and word_count <= 8:
+            return "simple"
+        elif word_count <= 5:
+            return "simple"
+        else:
+            return "medium"
 
     def _extract_targets(self, text: str, root: Path) -> list[str]:
         """Extract explicit file paths, directories, or symbols mentioned in text."""
@@ -360,6 +482,14 @@ class PromptEnhancer:
             criteria.append("Ensure robust input validation and defensive error handling.")
             criteria.append("Ensure proper documentation, typings, and tests are provided.")
             criteria.append("Verify execution correctness across target environments.")
+
+        # Universal anti-hallucination criteria for all task types
+        criteria.append(
+            "NEVER claim verification without running actual tools (tests, lints, syntax checks)."
+        )
+        criteria.append(
+            "Report only what was actually observed via tools — state uncertainty when unsure."
+        )
 
         return criteria
 

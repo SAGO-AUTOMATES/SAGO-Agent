@@ -908,11 +908,74 @@ class ASTEditor:
         return nodes
 
     def _estimate_end_line(self, code: str, start: int, open_char: str, close_char: str) -> int:
-        """Estimate end line by counting brace depth from start position."""
+        """Estimate end line by counting brace depth, aware of strings and comments.
+
+        Skips braces inside string literals (single, double, triple-quoted)
+        and line/block comments to avoid false matches.
+        """
         depth = 0
         found_open = False
         line = code[:start].count("\n") + 1
-        for i, ch in enumerate(code[start:], start):
+        i = start
+        length = len(code)
+
+        while i < length:
+            ch = code[i]
+
+            # Skip single-line comments
+            if ch == "/" and i + 1 < length and code[i + 1] == "/":
+                # Skip to end of line
+                while i < length and code[i] != "\n":
+                    i += 1
+                continue
+
+            # Skip single-line comments (Python/Ruby style)
+            if ch == "#":
+                while i < length and code[i] != "\n":
+                    i += 1
+                continue
+
+            # Skip block comments /* ... */
+            if ch == "/" and i + 1 < length and code[i + 1] == "*":
+                i += 2
+                while i + 1 < length:
+                    if code[i] == "*" and code[i + 1] == "/":
+                        i += 2
+                        break
+                    i += 1
+                continue
+
+            # Skip multi-line strings (triple-quoted)
+            if ch in ('"', "'"):
+                quote = ch
+                # Check for triple quote
+                if i + 2 < length and code[i + 1] == quote and code[i + 2] == quote:
+                    triple = quote * 3
+                    i += 3
+                    while i + 2 < length:
+                        if code[i : i + 3] == triple:
+                            i += 3
+                            break
+                        i += 1
+                    continue
+                # Single/double quoted string
+                i += 1
+                while i < length:
+                    if code[i] == "\\":
+                        i += 2  # Skip escaped character
+                        continue
+                    if code[i] == quote:
+                        i += 1
+                        break
+                    i += 1
+                continue
+
+            # Skip single-quoted strings (char literals in C/Go)
+            if ch == "'" and i + 2 < length and code[i + 2] == "'":
+                i += 3
+                continue
+
+            # Count braces
             if ch == open_char:
                 depth += 1
                 found_open = True
@@ -920,8 +983,12 @@ class ASTEditor:
                 depth -= 1
                 if found_open and depth == 0:
                     return code[: i + 1].count("\n") + 1
+
             if ch == "\n":
                 line += 1
+
+            i += 1
+
         return line + 5  # fallback
 
     def find_node(self, code: str, name: str, language: str = "python") -> CodeNode | None:

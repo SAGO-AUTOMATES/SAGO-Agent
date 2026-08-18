@@ -155,8 +155,9 @@ class ContextAssembler:
     ) -> AssembledContext:
         """Assemble comprehensive context for a task following the 5-layer pipeline."""
         ctx = AssembledContext()
-        if task_type == "chat":
-            # For casual conversation, greetings, weather, non-coding queries:
+        if task_type in ("chat", "query"):
+            # For casual conversation, greetings, weather, non-coding queries,
+            # and lightweight information queries:
             # Skip massive project instructions, symbol graphs, RAG code snippets, and directory trees
             return ctx
 

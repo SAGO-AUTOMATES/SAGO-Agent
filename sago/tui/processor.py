@@ -162,8 +162,9 @@ class MessageProcessorMixin:
 
                 # Load profile and build prompt
                 profile = _load_agent_profile(active_agent.replace("-", " ").title())
-                if task_type == "chat":
-                    template = PROMPTS.get("chat", PROMPTS["create"])
+                _is_lightweight = task_type in ("chat", "query")
+                if _is_lightweight:
+                    template = PROMPTS.get(task_type, PROMPTS.get("chat", PROMPTS["create"]))
                     system_prompt = template.format(
                         agent_role=active_agent.replace("-", " ").title(),
                         project_ctx="",
@@ -178,11 +179,11 @@ class MessageProcessorMixin:
                         system_prompt = profile["system_prompt"]
 
                 # Inject system-level enhancements (learning approach, known fixes, instructions)
-                if assembled and task_type != "chat":
+                if assembled and not _is_lightweight:
                     enhancements = assembled.format_system_enhancements()
                     if enhancements:
                         system_prompt += f"\n\n{enhancements}"
-                elif task_type != "chat":
+                elif not _is_lightweight:
                     try:
                         from sago.learning import get_learning_store
 
@@ -215,7 +216,7 @@ class MessageProcessorMixin:
                 current_todo_index = 0
                 todo_tool_counts: dict[str, int] = {}
 
-                if _is_complex_task(message) and task_type != "chat":
+                if _is_complex_task(message) and not _is_lightweight:
                     try:
                         from sago.tasks import TaskStatus, get_task_manager
 
@@ -270,7 +271,7 @@ class MessageProcessorMixin:
                     task=message,
                     agent_role=self.current_agent,
                 )
-                if enhancement.was_modified and task_type != "chat":
+                if enhancement.was_modified and not _is_lightweight:
                     self.call_from_thread(
                         self._update_spinner,
                         f"✨ Enhanced: {enhancement.intent_summary}",
@@ -283,7 +284,7 @@ class MessageProcessorMixin:
                 # Use enhanced structured prompt for engineering requests
                 user_msg_content = (
                     enhancement.enhanced_prompt
-                    if (task_type != "chat" and enhancement.was_modified)
+                    if (not _is_lightweight and enhancement.was_modified)
                     else message
                 )
 
@@ -1478,24 +1479,33 @@ class MessageProcessorMixin:
                             content or "",
                             tool_history,
                             files_created,
-                            fabrication_issues=[],
+                            fabrication_issues=code_issues,
                             code_issues=code_issues,
                             claim_issues=claim_issues,
                         )
                         if confidence < 50:
+                            detail_parts = (code_issues + claim_issues)[:4]
+                            detail = "; ".join(d[:80] for d in detail_parts)
                             self.call_from_thread(
                                 self._add_system_message,
-                                f"⚠️ Low confidence ({confidence}/100): {'; '.join((code_issues + claim_issues)[:3])}",
+                                f"⚠️ Low confidence ({confidence}/100): {detail}",
                             )
                         elif confidence < 80:
+                            detail_parts = (code_issues + claim_issues)[:2]
+                            detail = (
+                                "; ".join(d[:80] for d in detail_parts)
+                                if detail_parts
+                                else "minor verification notes"
+                            )
                             self.call_from_thread(
                                 self._add_system_message,
-                                f"🔍 Confidence: {confidence}/100 — verification detected minor issues",
+                                f"🔍 Confidence: {confidence}/100 — {detail}",
                             )
                         else:
+                            tool_count = len(tool_history)
                             self.call_from_thread(
                                 self._add_system_message,
-                                f"✅ Confidence: {confidence}/100 — response verified",
+                                f"✅ Confidence: {confidence}/100 — verified ({tool_count} tool calls)",
                             )
                     except Exception:
                         pass

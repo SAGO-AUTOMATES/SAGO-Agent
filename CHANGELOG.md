@@ -2,6 +2,49 @@
 
 All notable changes to the SAGO project are documented in this file.
 
+## [0.1.12] - 2026-08-18
+
+### Added
+- **Lightweight "query" Intent Type (`sago/engine/intent_classifier.py`)**:
+  - New `query` task type for quick information lookups ("what's in this file", "where is X defined", "explain this function").
+  - Routes simple file/concept questions to a lightweight prompt that reads ONLY the specific file and gives a brief answer.
+  - Prevents aggressive multi-file analysis for simple questions.
+- **Complexity Assessment (`sago/engine/intent_classifier.py`, `sago/engine/prompt_enhancer.py`)**:
+  - Intent classifier now returns `complexity` field (simple/medium/complex) for all classifications.
+  - Prompt enhancer skips enhancement for truly simple queries (greetings, single words, basic math).
+  - Complex tasks get structured multi-step workflows; simple tasks get minimal overhead.
+- **Multi-Language Code Block Validation (`sago/engine/simple_executor.py`)**:
+  - `_detect_code_hallucinations` now validates JS/TS/Go/Rust code blocks for syntax (not just Python).
+
+### Changed
+- **Stronger Anti-Hallucination Prompts (`sago/engine/simple_executor.py`)**:
+  - All prompts now include "COMPLEXITY CALIBRATION" section to prevent overthinking.
+  - Added prohibition on overclaiming ("production-ready", "fully tested") without tool evidence.
+  - Analyze prompt now says "read the ONE file that defines X" instead of "inspect ALL relevant files thoroughly".
+- **Expanded Fabrication Detection (`sago/engine/simple_executor.py`)**:
+  - 18 fabrication phrase patterns detect common LLM lies ("I've verified", "tests pass", etc.).
+  - Hallucinated symbol detection flags function/class names not found in tool results.
+  - Overconfidence detection flags strong claims without any tool usage.
+- **Enhanced Claim Verification (`sago/engine/simple_executor.py`)**:
+  - 8 claim categories checked: read, write, test, fix, analyze, execute, search, file paths.
+  - Analyze claims now require read/search tools specifically (not just any tool).
+- **Improved Confidence Scoring (`sago/engine/simple_executor.py`)**:
+  - Factors in tool diversity, excessive fabrication, and response length appropriateness.
+  - Heavy penalty for 3+ fabrication signals.
+- **String/Comment-Aware AST Brace Counting (`sago/tools/coding/ast_editor.py`)**:
+  - `_estimate_end_line` now skips braces inside string literals, single-line comments, and block comments.
+- **Prompt Enhancer Anti-Hallucination (`sago/engine/prompt_enhancer.py`)**:
+  - 10 anti-hallucination constraints (up from 6).
+  - Universal acceptance criteria: "never claim verification without running actual tools".
+- **TUI Verification Display (`sago/tui/processor.py`)**:
+  - Shows actual issue details and tool call count instead of generic "minor issues".
+- **Lightweight Query Routing (`sago/tui/processor.py`, `sago/engine/simple_executor.py`)**:
+  - Query and chat tasks skip heavy context assembly, skill injection, and learning store.
+
+### Tests
+- 100 unit tests passing (up from 67).
+- New test classes: `TestQueryIntentRouting`, `TestFabricationPhrasePatterns`, `TestStringAwareBraceCounting`, `TestIntentClassifierComplexity`.
+
 ## [0.1.11] - 2026-08-17
 
 ### Fixed

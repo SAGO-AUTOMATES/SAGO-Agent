@@ -49,6 +49,22 @@ class TestFabricationPhraseDetection:
         assert "read_file" in analyze_prompt
         assert "NEVER" in analyze_prompt
 
+    def test_prompts_have_complexity_calibration(self) -> None:
+        """All prompts should have complexity calibration to prevent overthinking."""
+        from sago.engine.simple_executor import PROMPTS
+
+        for key in ("chat", "create", "fix", "analyze", "test"):
+            assert "COMPLEXITY CALIBRATION" in PROMPTS[key], (
+                f"Prompt '{key}' missing complexity calibration"
+            )
+
+    def test_prompts_discourage_overclaiming(self) -> None:
+        """Prompts should discourage overclaiming without tool evidence."""
+        from sago.engine.simple_executor import PROMPTS
+
+        for key in ("create", "fix", "analyze", "test"):
+            assert "production-ready" in PROMPTS[key].lower() or "NEVER claim" in PROMPTS[key]
+
 
 class TestCodeHallucinationDetection:
     """Test code-level hallucination detection."""
@@ -93,6 +109,69 @@ class TestCodeHallucinationDetection:
         content = "This is a simple text response without any code."
         issues = _detect_code_hallucinations(content, [])
         assert issues == []
+
+    def test_detect_fabrication_phrases(self) -> None:
+        """Detect common LLM fabrication phrases without tool evidence."""
+        from sago.engine.simple_executor import _detect_code_hallucinations
+
+        content = "I've verified the fix works. The tests pass now. Everything is working correctly."
+        # No tools called — should flag fabrication
+        issues = _detect_code_hallucinations(content, [])
+        assert any("fabrication" in issue.lower() for issue in issues)
+
+    def test_fabrication_with_tools_not_flagged(self) -> None:
+        """Fabrication phrases backed by actual tool calls should not be flagged."""
+        from sago.engine.simple_executor import _detect_code_hallucinations
+
+        content = "I've verified the fix works. The tests pass now."
+        tool_history = [
+            {"tool": "execute_shell", "args": {}, "result": "all tests passed", "success": True},
+        ]
+        issues = _detect_code_hallucinations(content, tool_history)
+        # Should not flag test claims since execute_shell was called
+        test_fabrications = [i for i in issues if "tests pass" in i.lower() and "fabrication" in i.lower()]
+        assert len(test_fabrications) == 0
+
+    def test_detect_js_code_block_syntax(self) -> None:
+        """Detect unbalanced braces in JavaScript code blocks."""
+        from sago.engine.simple_executor import _detect_code_hallucinations
+
+        content = "Here's the JS fix:\n```javascript\nfunction foo() { return 1; \n```"
+        issues = _detect_code_hallucinations(content, [])
+        assert any("unclosed brace" in issue.lower() for issue in issues)
+
+    def test_detect_go_code_block_syntax(self) -> None:
+        """Detect unbalanced braces in Go code blocks."""
+        from sago.engine.simple_executor import _detect_code_hallucinations
+
+        content = "Here's the Go fix:\n```go\nfunc Foo() { return 1 \n```"
+        issues = _detect_code_hallucinations(content, [])
+        assert any("unclosed brace" in issue.lower() or "unbalanced" in issue.lower() for issue in issues)
+
+    def test_detect_overconfidence_without_tools(self) -> None:
+        """Detect overconfident claims without any tool usage."""
+        from sago.engine.simple_executor import _detect_code_hallucinations
+
+        content = "This definitely works perfectly and is guaranteed to handle all cases."
+        issues = _detect_code_hallucinations(content, [])
+        assert any("overconfidence" in issue.lower() for issue in issues)
+
+    def test_hallucinated_import_detection(self) -> None:
+        """Detect imports of non-standard modules."""
+        from sago.engine.simple_executor import _detect_code_hallucinations
+
+        content = "```python\nimport fake_nonexistent_module_xyz\nprint('hello')\n```"
+        issues = _detect_code_hallucinations(content, [])
+        assert any("hallucinated import" in issue.lower() for issue in issues)
+
+    def test_known_import_not_flagged(self) -> None:
+        """Standard library imports should not be flagged."""
+        from sago.engine.simple_executor import _detect_code_hallucinations
+
+        content = "```python\nimport os\nimport json\nprint('hello')\n```"
+        issues = _detect_code_hallucinations(content, [])
+        import_issues = [i for i in issues if "hallucinated import" in i.lower()]
+        assert len(import_issues) == 0
 
 
 class TestClaimVerification:
@@ -151,6 +230,25 @@ class TestClaimVerification:
         content = "Here's a simple explanation of how Python works."
         issues = _verify_claims_against_history(content, [])
         assert issues == []
+
+    def test_analyze_claim_without_read(self) -> None:
+        """Detect claims to analyze without read tools."""
+        from sago.engine.simple_executor import _verify_claims_against_history
+
+        content = "After analyzing the code, I found the issue in main.py."
+        tool_history = [{"tool": "execute_shell", "args": {}, "result": "ok"}]
+        issues = _verify_claims_against_history(content, tool_history)
+        # Should detect that analyze claims need read/search tools
+        assert len(issues) > 0
+
+    def test_search_claim_without_search_tool(self) -> None:
+        """Detect claims to search without search tools."""
+        from sago.engine.simple_executor import _verify_claims_against_history
+
+        content = "I searched for the function and found it in utils.py."
+        tool_history = [{"tool": "write_file", "args": {}, "result": "ok"}]
+        issues = _verify_claims_against_history(content, tool_history)
+        assert any("search" in issue.lower() for issue in issues)
 
 
 class TestConfidenceScoring:
@@ -231,6 +329,45 @@ class TestConfidenceScoring:
         )
         assert 0 <= confidence <= 100
 
+    def test_tool_diversity_bonus(self) -> None:
+        """Using multiple different tools should boost confidence."""
+        from sago.engine.simple_executor import _compute_confidence_score
+
+        content = "I read the file, searched for patterns, and applied the fix."
+        tool_history = [
+            {"tool": "read_file", "args": {}, "result": "content", "success": True},
+            {"tool": "grep_content", "args": {}, "result": "found", "success": True},
+            {"tool": "edit_file", "args": {}, "result": "edited", "success": True},
+        ]
+        confidence_diverse = _compute_confidence_score(
+            content, tool_history, [], [], [], []
+        )
+        # Single tool usage
+        tool_history_single = [
+            {"tool": "read_file", "args": {}, "result": "content", "success": True},
+            {"tool": "read_file", "args": {}, "result": "content2", "success": True},
+            {"tool": "read_file", "args": {}, "result": "content3", "success": True},
+        ]
+        confidence_single = _compute_confidence_score(
+            content, tool_history_single, [], [], [], []
+        )
+        assert confidence_diverse >= confidence_single
+
+    def test_excessive_fabrication_heavy_penalty(self) -> None:
+        """Multiple fabrication signals should incur heavy penalty."""
+        from sago.engine.simple_executor import _compute_confidence_score
+
+        content = "Long response without tools"
+        fabrication_issues = [
+            "Fabrication: 'tests pass' — no execute_shell",
+            "Fabrication: 'I verified' — no read tool",
+            "Fabrication: 'fixed the issue' — no edit tool",
+        ]
+        confidence = _compute_confidence_score(
+            content, [], [], fabrication_issues, [], []
+        )
+        assert confidence < 50
+
 
 class TestPromptEnhancements:
     """Test prompt enhancements for anti-hallucination."""
@@ -265,3 +402,34 @@ class TestPromptEnhancements:
 
         analyze_prompt = PROMPTS["analyze"]
         assert "file paths" in analyze_prompt.lower() or "line numbers" in analyze_prompt.lower()
+
+
+class TestFabricationPhrasePatterns:
+    """Test the fabrication phrase regex patterns."""
+
+    def test_fabrication_phrases_defined(self) -> None:
+        """Verify fabrication phrases are defined."""
+        from sago.engine.simple_executor import _FABRICATION_PHRASES
+        assert len(_FABRICATION_PHRASES) > 10
+
+    def test_detect_i_verified_phrase(self) -> None:
+        """Detect 'I've verified' fabrication phrase."""
+        import re
+        from sago.engine.simple_executor import _FABRICATION_PHRASES
+
+        text = "I've verified that the code works correctly."
+        for pattern in _FABRICATION_PHRASES:
+            if re.search(pattern, text, re.IGNORECASE):
+                return  # Found it
+        assert False, "Should have detected 'I've verified' fabrication phrase"
+
+    def test_detect_tests_pass_phrase(self) -> None:
+        """Detect 'tests pass' fabrication phrase."""
+        import re
+        from sago.engine.simple_executor import _FABRICATION_PHRASES
+
+        text = "All tests pass after the fix."
+        for pattern in _FABRICATION_PHRASES:
+            if re.search(pattern, text, re.IGNORECASE):
+                return  # Found it
+        assert False, "Should have detected 'tests pass' fabrication phrase"
