@@ -701,19 +701,119 @@ class MessageProcessorMixin:
                             "i have created",
                             "i've created",
                             "done! the file",
+                            "i've updated",
+                            "i have updated",
+                            "i've added",
+                            "i have added",
+                            "i've removed",
+                            "i have removed",
+                            "i've deleted",
+                            "i have deleted",
+                            "i've modified",
+                            "i have modified",
+                            "the updated file",
+                            "the modified file",
+                            "after修改ing",
+                            "the fix involves",
+                            "the issue is",
+                            "the problem is",
+                            "the solution is",
+                            "here's the fix",
+                            "here is the fix",
+                            "the error occurs because",
+                            "the bug is in",
+                            "i've written",
+                            "i have written",
+                            "the code below",
+                            "here's the code",
+                            "here is the code",
+                            "as shown in",
+                            "as we can see",
+                            "based on the file",
+                            "after reviewing",
+                            "i've tested",
+                            "i have tested",
+                            "all tests pass",
+                            "the test passes",
+                            "everything works",
+                            "it's working",
+                            "it works now",
+                            "fixed by",
+                            "resolved by",
                         ]
                         content_lower = content.lower() if content else ""
-                        is_fabrication = not tool_history and any(
-                            phrase in content_lower for phrase in fabrication_phrases
-                        )
+
+                        # Detect fabrication:
+                        # 1. No tool calls at all + claims to have done things
+                        # 2. Tool calls exist but response claims MORE than was actually done
+                        is_fabrication = False
+                        if not tool_history:
+                            # No tools called at all - any fabrication phrase is suspicious
+                            is_fabrication = any(
+                                phrase in content_lower for phrase in fabrication_phrases
+                            )
+                        else:
+                            # Tools were called - check if response claims actions beyond what tools did
+                            tools_called = {tc.get("tool", "") for tc in tool_history}
+                            # If agent claims file operations but no write/edit tool was called
+                            file_claim_phrases = [
+                                "successfully created",
+                                "i saved the file",
+                                "the file was created",
+                                "i've created",
+                                "i have created",
+                                "i've updated",
+                                "i have updated",
+                                "i've modified",
+                                "i have modified",
+                                "done! the file",
+                                "i've written",
+                                "i have written",
+                            ]
+                            claims_file_ops = any(
+                                phrase in content_lower for phrase in file_claim_phrases
+                            )
+                            made_file_ops = any(
+                                t in tools_called
+                                for t in ("write_file", "edit_file", "create_file")
+                            )
+                            if claims_file_ops and not made_file_ops:
+                                is_fabrication = True
 
                         if is_fabrication and iteration < effort["max_iterations"] - 1:
+                            # Build specific guidance based on what was claimed
+                            guidance = []
+                            if any(
+                                p in content_lower
+                                for p in ["file contains", "i read", "the code shows", "i can see"]
+                            ):
+                                guidance.append(
+                                    "Use read_file tool to actually read the file first."
+                                )
+                            if any(
+                                p in content_lower
+                                for p in ["created", "saved", "written", "updated", "modified"]
+                            ):
+                                guidance.append(
+                                    "Use write_file or edit_file tool to actually create/modify the file."
+                                )
+                            if any(p in content_lower for p in ["tested", "tests pass", "works"]):
+                                guidance.append("Use execute_shell tool to actually run the tests.")
+
+                            guidance_text = (
+                                " ".join(guidance)
+                                if guidance
+                                else "Use the available tools to complete the task."
+                            )
+
                             messages.append(
                                 {
                                     "role": "user",
                                     "content": (
-                                        "STOP. You are fabricating results without calling tools. "
-                                        "You MUST use a tool to interact with the system. Do it NOW."
+                                        "STOP. You are fabricating results without actually using tools. "
+                                        f"{guidance_text} "
+                                        "Do NOT claim file contents, file creation, or test results "
+                                        "without actually calling the corresponding tool. Do it NOW."
                                     ),
                                 }
                             )
@@ -1363,6 +1463,42 @@ class MessageProcessorMixin:
                         self.call_from_thread(self._add_assistant_message, content)
                     else:
                         self.call_from_thread(self._add_assistant_message, summary)
+
+                    # Show verification and confidence indicator
+                    try:
+                        from sago.engine.simple_executor import (
+                            _compute_confidence_score,
+                            _detect_code_hallucinations,
+                            _verify_claims_against_history,
+                        )
+
+                        code_issues = _detect_code_hallucinations(content or "", tool_history)
+                        claim_issues = _verify_claims_against_history(content or "", tool_history)
+                        confidence = _compute_confidence_score(
+                            content or "",
+                            tool_history,
+                            files_created,
+                            fabrication_issues=[],
+                            code_issues=code_issues,
+                            claim_issues=claim_issues,
+                        )
+                        if confidence < 50:
+                            self.call_from_thread(
+                                self._add_system_message,
+                                f"⚠️ Low confidence ({confidence}/100): {'; '.join((code_issues + claim_issues)[:3])}",
+                            )
+                        elif confidence < 80:
+                            self.call_from_thread(
+                                self._add_system_message,
+                                f"🔍 Confidence: {confidence}/100 — verification detected minor issues",
+                            )
+                        else:
+                            self.call_from_thread(
+                                self._add_system_message,
+                                f"✅ Confidence: {confidence}/100 — response verified",
+                            )
+                    except Exception:
+                        pass
                 elif content and content.strip():
                     self.call_from_thread(self._add_assistant_message, content)
                 elif tool_history:

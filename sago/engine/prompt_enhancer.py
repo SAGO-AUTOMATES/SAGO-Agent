@@ -139,6 +139,16 @@ class PromptEnhancer:
         ],
     }
 
+    # Anti-hallucination constraints injected into all enhanced prompts
+    _ANTI_HALLUCINATION_CONSTRAINTS = [
+        "NEVER claim to have read a file without actually calling read_file tool first.",
+        "NEVER claim tests pass without actually running them via execute_shell tool.",
+        "NEVER claim a file was created or modified without calling write_file or edit_file.",
+        "If uncertain about code contents, state uncertainty rather than guessing.",
+        "Always verify tool results before reporting them as facts.",
+        "Cross-reference your claims against actual tool call history.",
+    ]
+
     def __init__(self, root_dir: str | Path | None = None) -> None:
         self.root_dir = Path(root_dir or ".").resolve()
 
@@ -202,6 +212,10 @@ class PromptEnhancer:
         guidelines.append("Preserve unrelated existing comments and interfaces.")
         guidelines.append("Ensure no placeholders or unfinished mock code remain.")
         improvements.append("Injected domain & verification constraints")
+
+        # 6. Inject anti-hallucination constraints
+        guidelines.extend(self._ANTI_HALLUCINATION_CONSTRAINTS)
+        improvements.append("Injected anti-hallucination safeguards")
 
         # 6. Assemble enhanced structured prompt
         enhanced_parts = [

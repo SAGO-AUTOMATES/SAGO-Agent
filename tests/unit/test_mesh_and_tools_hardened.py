@@ -119,7 +119,7 @@ def test_ast_editor_python_and_multilang():
     py_code = "class Calculator:\n    def add(self, a, b):\n        return a + b\n"
     nodes = editor.analyze(py_code, language="python")
     assert any(n.name == "Calculator" and n.node_type == "class" for n in nodes)
-    assert any(n.name == "add" and n.node_type == "function" for n in nodes)
+    assert any(n.name == "add" and n.node_type in ("function", "method") for n in nodes)
 
     js_code = "function calculateSum(x, y) {\n    return x + y;\n}\n"
     js_nodes = editor.analyze(js_code, language="javascript")

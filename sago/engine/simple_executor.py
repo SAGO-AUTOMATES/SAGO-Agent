@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -601,31 +602,121 @@ PROMPTS = {
 
 {project_ctx}
 
+CORE DIRECTIVES:
 - Answer questions, conversation, weather inquiries, greetings, explanations, and general requests naturally and accurately.
 - Respond conversationally without imposing unsolicited engineering templates or code scaffolding.
 - Only invoke tools if the user explicitly requests inspecting files, executing commands, or performing workspace operations.
-- Never hallucinate tool results or file contents.""",
+- NEVER hallucinate tool results or file contents. If you haven't read a file, don't claim what it contains.
+- If uncertain about something, say "I'm not sure" rather than guessing.
+
+THINKING STEP:
+Before responding, verify: Am I making any claims about files, code, or tool results that I haven't actually verified with tools? If yes, use the appropriate tool first.""",
     "create": """You are {agent_role}. The user wants you to create, implement, or modify code and files.
 
 {project_ctx}
 
-- Inspect existing code with tools first if needed.
-- Write or edit files cleanly with exact code.
-- Verify work and report results honestly without fabricating output.
-- Reply directly without calling tools for simple conversational queries.""",
+ABSOLUTE RULES - VIOLATION = FAILURE:
+1. You MUST use tools (read_file, write_file, edit_file, execute_shell) to interact with the system. NEVER fabricate tool results.
+2. NEVER claim a file was created, edited, read, or modified without actually calling the corresponding tool.
+3. NEVER say "the file contains", "I read the file", "the code shows", "I created the file" unless you actually used a tool to do so.
+4. If you need to read a file, use read_file tool FIRST. If you need to create/edit a file, use write_file or edit_file tool.
+5. Report tool results EXACTLY as the tool returns them. Do not embellish or fabricate additional details.
+6. ALWAYS verify code syntax before claiming it works. Use execute_shell to run syntax checks.
+7. NEVER claim "tests pass" or "all tests pass" without actually running the tests via execute_shell.
+
+WORKFLOW:
+- Inspect existing code with read_file tool FIRST if needed.
+- Use write_file or edit_file tools to create/modify files. Show exact code.
+- Use execute_shell to run tests or verify your work.
+- Report what tools actually returned. If a tool fails, say it failed.
+- For simple conversational queries, reply directly without calling tools.
+
+QUALITY STANDARDS:
+- Write production-ready code with proper error handling, types, and documentation.
+- Follow existing code conventions in the project.
+- Use meaningful variable and function names.
+- Handle edge cases and error conditions.
+- Never leave TODO comments or placeholder code unless explicitly asked.
+
+THINKING STEP:
+Before responding, verify: (1) Did I actually use tools to read/create/modify files? (2) Am I claiming test results without running tests? (3) Is my code syntactically valid? Fix any issues before responding.""",
     "fix": """You are {agent_role}. The user wants you to fix an issue, bug, or error.
 
 {project_ctx}
 
-- Identify root cause and inspect relevant files before modifying.
-- Make precise, minimal fixes and verify changes.
-- Never guess file contents or pretend tool executions succeeded.""",
+ABSOLUTE RULES - VIOLATION = FAILURE:
+1. You MUST use tools to inspect and fix code. NEVER fabricate file contents or tool results.
+2. NEVER claim a file was fixed without actually calling edit_file or write_file tool.
+3. NEVER guess what code looks like. Always use read_file to see the actual code first.
+4. Report tool results EXACTLY as the tool returns them.
+5. NEVER claim "tests pass" without actually running them via execute_shell.
+6. NEVER claim "the issue is fixed" without verifying the fix actually works.
+
+WORKFLOW:
+- Use read_file to inspect ALL relevant files before making changes.
+- Identify root cause from actual file contents, not assumptions.
+- Use edit_file to make precise, minimal fixes.
+- Use execute_shell to run tests and verify changes work.
+- Report what tools actually returned.
+
+QUALITY STANDARDS:
+- Make the minimal change necessary to fix the issue.
+- Preserve existing code style and conventions.
+- Ensure the fix doesn't introduce new bugs.
+- Add comments explaining the fix if the root cause is non-obvious.
+
+THINKING STEP:
+Before responding, verify: (1) Did I actually read the problematic code? (2) Did I verify my fix works? (3) Am I claiming success without evidence? If any answer is no, use the appropriate tool first.""",
     "analyze": """You are {agent_role}. The user wants you to analyze code or architecture.
 
 {project_ctx}
 
-- Inspect files thoroughly and provide structured, actionable analysis and insights.
-- Do not fabricate findings or tool outputs.""",
+ABSOLUTE RULES - VIOLATION = FAILURE:
+1. You MUST use read_file tool to inspect files. NEVER fabricate file contents.
+2. NEVER say "the file contains", "I can see that", "the code shows" unless you actually read the file with a tool.
+3. Report findings based ONLY on what tools actually returned.
+4. NEVER claim "the codebase has X files" or "there are Y classes" without actually counting via tools.
+5. NEVER claim "the architecture is" without actually reading the relevant files.
+
+WORKFLOW:
+- Use read_file to inspect ALL relevant files thoroughly.
+- Use grep_content to search for patterns if needed.
+- Use ast_grep to find structural elements (functions, classes, decorators).
+- Provide structured, actionable analysis based on actual file contents.
+- If you cannot find something, say so honestly.
+
+QUALITY STANDARDS:
+- Provide specific file paths and line numbers for findings.
+- Quantify where possible (e.g., "3 classes, 12 functions").
+- Identify both strengths and weaknesses.
+- Prioritize findings by impact and severity.
+
+THINKING STEP:
+Before responding, verify: (1) Did I actually read the files I'm analyzing? (2) Am I making claims about code structure without evidence? (3) Are my findings specific and verifiable? If any answer is no, use the appropriate tool first.""",
+    "test": """You are {agent_role}. The user wants you to write, run, or fix tests.
+
+{project_ctx}
+
+ABSOLUTE RULES - VIOLATION = FAILURE:
+1. You MUST use tools (read_file, write_file, execute_shell) to interact with the system. NEVER fabricate test results.
+2. NEVER claim "tests pass" or "all tests pass" without actually running them via execute_shell.
+3. NEVER claim "coverage is X%" without actually measuring it.
+4. Report tool results EXACTLY as the tool returns them.
+
+WORKFLOW:
+- Use read_file to understand the code you're testing.
+- Use write_file to create or modify test files.
+- Use execute_shell to run the tests.
+- Report actual test output, not fabricated results.
+
+QUALITY STANDARDS:
+- Write tests that cover both happy path and edge cases.
+- Use descriptive test names that explain what's being tested.
+- Include assertions that verify expected behavior.
+- Test error conditions and boundary cases.
+
+THINKING STEP:
+Before responding, verify: (1) Did I actually run the tests? (2) Am I claiming test results without evidence? (3) Do my tests actually verify the behavior? If any answer is no, use the appropriate tool first.""",
 }
 
 
@@ -666,6 +757,236 @@ def _load_agent_profile(agent_name: str) -> dict[str, Any] | None:
     except Exception:
         pass
     return None
+
+
+# ---- Module-level hallucination detection functions ----
+
+
+def _detect_code_hallucinations(content: str, tool_history: list) -> list[str]:
+    """Detect hallucinated code, paths, and imports in the response."""
+    issues: list[str] = []
+    if not content:
+        return issues
+
+    # 1. Check code blocks for syntax validity
+    code_block_pattern = r"```(?:python|py)\s*\n(.*?)```"
+    for match in re.finditer(code_block_pattern, content, re.DOTALL):
+        code_block = match.group(1).strip()
+        if code_block:
+            try:
+                ast.parse(code_block)
+            except SyntaxError as e:
+                issues.append(f"Code block has syntax error: {e}")
+
+    # 2. Check for hallucinated file paths
+    file_path_pattern = r"(?:`|\"|')((?:\./|\.\./|\w+/)*[\w\-]+\.\w+)(?:`|\"|')"
+    for match in re.finditer(file_path_pattern, content):
+        path = match.group(1)
+        # Only check paths that look like real file references
+        if "/" in path or path.endswith((".py", ".js", ".ts", ".go", ".rs", ".java", ".c", ".cpp")):
+            if not os.path.exists(path) and not path.startswith("./"):
+                # Check if it was actually created or read via tools
+                actual_files: set[str] = set()
+                for tc in tool_history:
+                    args = tc.get("args", {})
+                    fp = (
+                        args.get("file_path", "")
+                        or args.get("path", "")
+                        or args.get("target_file", "")
+                    )
+                    if fp:
+                        actual_files.add(fp)
+                if path not in actual_files:
+                    issues.append(f"Referenced file '{path}' may not exist")
+
+    # 3. Check for hallucinated imports in code blocks
+    import_pattern = r"```(?:python|py)\s*\n(.*?)```"
+    for match in re.finditer(import_pattern, content, re.DOTALL):
+        code_block = match.group(1).strip()
+        for line in code_block.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("import ") or stripped.startswith("from "):
+                # Extract module name
+                if stripped.startswith("from "):
+                    module = stripped.split()[1].split(".")[0]
+                else:
+                    module = stripped.split()[1].split(".")[0]
+                # Check if it's a standard library or commonly known
+                known_modules = {
+                    "os",
+                    "sys",
+                    "re",
+                    "json",
+                    "ast",
+                    "pathlib",
+                    "typing",
+                    "collections",
+                    "datetime",
+                    "time",
+                    "math",
+                    "random",
+                    "subprocess",
+                    "threading",
+                    "unittest",
+                    "pytest",
+                    "asyncio",
+                    "io",
+                    "copy",
+                    "functools",
+                    "itertools",
+                    "hashlib",
+                    "base64",
+                    "textwrap",
+                    "string",
+                    "struct",
+                    "socket",
+                    "http",
+                    "urllib",
+                    "email",
+                    "html",
+                    "xml",
+                    "csv",
+                    "sqlite3",
+                    "logging",
+                    "argparse",
+                    "dataclasses",
+                    "enum",
+                    "abc",
+                    "contextlib",
+                    "operator",
+                    "decimal",
+                    "fractions",
+                    "numpy",
+                    "pandas",
+                    "requests",
+                    "httpx",
+                    "aiohttp",
+                    "pydantic",
+                    "fastapi",
+                    "flask",
+                    "django",
+                    "click",
+                    "rich",
+                    "textual",
+                    "yaml",
+                    "toml",
+                    "dotenv",
+                    "sago",
+                    "google",
+                    "openai",
+                    "anthropic",
+                }
+                if module not in known_modules and not module.startswith("_"):
+                    # Check if tool history shows this module was imported/used
+                    tools_content = " ".join(str(tc.get("result", "")) for tc in tool_history)
+                    if module not in tools_content.lower():
+                        issues.append(f"Potentially hallucinated import: '{module}'")
+
+    return issues
+
+
+def _verify_claims_against_history(content: str, tool_history: list) -> list[str]:
+    """Cross-reference claims in response against actual tool call history."""
+    issues: list[str] = []
+    if not content or not tool_history:
+        return issues
+
+    content_lower = content.lower()
+    tools_called = {tc.get("tool", "") for tc in tool_history}
+
+    # Check "I read X" claims
+    read_claims = re.findall(
+        r"(?:i\s+read|reading|examined?|inspected?)\s+(?:the\s+)?(?:file\s+)?[`\"']?([^\s`\"'.]+\.\w+)",
+        content_lower,
+    )
+    for claimed_file in read_claims:
+        if "read_file" not in tools_called and "grep" not in tools_called:
+            issues.append(f"Claims to have read '{claimed_file}' but no read_file tool was called")
+        else:
+            # Verify the file was actually in tool results
+            file_found = any(claimed_file in str(tc.get("args", "")) for tc in tool_history)
+            if not file_found:
+                issues.append(
+                    f"Claims to have read '{claimed_file}' but it wasn't in read_file arguments"
+                )
+
+    # Check "I created/wrote X" claims
+    write_claims = re.findall(
+        r"(?:i\s+(?:created|wrote|saved|added)|(?:created|wrote|saved|added)\s+the\s+file)[\s]+[`\"']?([^\s`\"'.]+\.\w+)",
+        content_lower,
+    )
+    for claimed_file in write_claims:
+        if "write_file" not in tools_called and "edit_file" not in tools_called:
+            issues.append(
+                f"Claims to have created '{claimed_file}' but no write_file tool was called"
+            )
+
+    # Check "tests pass" claims
+    test_claims = [
+        "all tests pass",
+        "tests pass",
+        "test passes",
+        "all tests passed",
+        "tests passed",
+    ]
+    if any(claim in content_lower for claim in test_claims):
+        shell_calls = [tc for tc in tool_history if tc.get("tool") == "execute_shell"]
+        if not shell_calls:
+            issues.append("Claims tests pass but no execute_shell tool was called")
+        else:
+            last_shell_result = shell_calls[-1].get("result", "").lower()
+            if "fail" in last_shell_result or "error" in last_shell_result:
+                issues.append("Claims tests pass but last shell execution shows failures")
+
+    # Check "I fixed X" claims without edit_file
+    fix_claims = ["fixed the", "resolved the", "patched the", "corrected the"]
+    if any(claim in content_lower for claim in fix_claims):
+        if "edit_file" not in tools_called and "write_file" not in tools_called:
+            issues.append("Claims to have fixed something but no edit_file/write_file was called")
+
+    return issues
+
+
+def _compute_confidence_score(
+    content: str,
+    tool_history: list,
+    files_created: list,
+    fabrication_issues: list,
+    code_issues: list,
+    claim_issues: list,
+) -> int:
+    """Compute a confidence score (0-100) for the response quality."""
+    score = 100
+
+    # Deductions for hallucination indicators
+    score -= len(fabrication_issues) * 15
+    score -= len(code_issues) * 10
+    score -= len(claim_issues) * 12
+
+    # Deductions for missing tool usage
+    if not tool_history:
+        score -= 20
+
+    # Deductions for very short responses
+    if content and len(content.strip()) < 100:
+        score -= 10
+
+    # Bonus for proper tool usage
+    if tool_history:
+        successful = sum(1 for t in tool_history if t.get("success", True))
+        total = len(tool_history)
+        if total > 0:
+            success_rate = successful / total
+            if success_rate >= 0.8:
+                score += 5
+            elif success_rate < 0.5:
+                score -= 10
+
+    # Bonus for file creation when appropriate
+    if files_created:
+        score += 5
+
+    return max(0, min(100, score))
 
 
 def execute_agent_task(
@@ -1512,6 +1833,7 @@ def execute_agent_task(
         if not native_tool_calls:
             # Detect fabrication (claims to have done things without tool calls)
             fabrication_phrases = [
+                # File content claims
                 "the file contains",
                 "the contents are",
                 "i read the file",
@@ -1521,27 +1843,171 @@ def execute_agent_task(
                 "the code shows",
                 "i opened the file",
                 "the file shows",
+                "after reading the file",
+                "examining the file",
+                "reviewing the file",
+                "inspecting the file",
+                "checking the file",
+                "the file at",
+                "opening the file",
+                # File creation/modification claims
                 "successfully created",
                 "i saved the file",
                 "the file was created",
                 "i have created",
                 "i've created",
                 "done! the file",
+                "i've updated",
+                "i have updated",
+                "i've added",
+                "i have added",
+                "i've removed",
+                "i have removed",
+                "i've deleted",
+                "i have deleted",
+                "i've modified",
+                "i have modified",
+                "the updated file",
+                "the modified file",
+                "i've written",
+                "i have written",
+                "i went ahead and",
+                "i've gone ahead",
+                "just finished",
+                "i've already",
+                # Code content claims
+                "the code below",
+                "here's the code",
+                "here is the code",
+                "as shown in",
+                "as we can see",
+                "based on the file",
+                "after reviewing",
+                "the function returns",
+                "the class implements",
+                "the module provides",
+                "the implementation uses",
+                "the logic handles",
+                # Fix/analysis claims without tools
+                "the fix involves",
+                "the issue is",
+                "the problem is",
+                "the solution is",
+                "here's the fix",
+                "here is the fix",
+                "the error occurs because",
+                "the bug is in",
+                "fixed by",
+                "resolved by",
+                # Test/result claims
+                "i've tested",
+                "i have tested",
+                "all tests pass",
+                "the test passes",
+                "everything works",
+                "it's working",
+                "it works now",
+                "verified that",
+                "confirmed that",
+                "tested and",
+                "all checks pass",
+                "all linting passes",
+                # Action claims without tools
+                "let me walk you through",
+                "here's a summary",
+                "to summarize",
+                "in summary",
+                "i've analyzed",
+                "i have analyzed",
+                "i've inspected",
+                "i have inspected",
+                "i've reviewed",
+                "i have reviewed",
+                # Structural claims
+                "the project structure",
+                "the codebase has",
+                "the repository contains",
+                "there are \\d+ files",
+                "there are multiple",
             ]
             content_lower = content.lower() if content else ""
-            is_fabrication = not tool_history and any(
-                phrase in content_lower for phrase in fabrication_phrases
-            )
+
+            # Detect fabrication:
+            # 1. No tool calls at all + claims to have done things
+            # 2. Tool calls exist but response claims MORE than was actually done
+            is_fabrication = False
+            if not tool_history:
+                # No tools called at all - any fabrication phrase is suspicious
+                is_fabrication = any(phrase in content_lower for phrase in fabrication_phrases)
+            else:
+                # Tools were called - check if response claims actions beyond what tools did
+                tools_called = {tc.get("tool", "") for tc in tool_history}
+                # If agent claims file operations but no write/edit tool was called
+                file_claim_phrases = [
+                    "successfully created",
+                    "i saved the file",
+                    "the file was created",
+                    "i've created",
+                    "i have created",
+                    "i've updated",
+                    "i have updated",
+                    "i've modified",
+                    "i have modified",
+                    "done! the file",
+                    "i've written",
+                    "i have written",
+                ]
+                claims_file_ops = any(phrase in content_lower for phrase in file_claim_phrases)
+                made_file_ops = any(
+                    t in tools_called for t in ("write_file", "edit_file", "create_file")
+                )
+                if claims_file_ops and not made_file_ops:
+                    is_fabrication = True
+
+            # ---- Code-level hallucination detection ----
+            code_issues = _detect_code_hallucinations(content or "", tool_history)
+            claim_issues = _verify_claims_against_history(content or "", tool_history)
+
+            # Treat code-level issues as fabrication indicators
+            if code_issues or claim_issues:
+                is_fabrication = True
 
             if is_fabrication and i < max_iterations - 1:
+                # Build specific guidance based on what was claimed
+                guidance = []
+                if any(
+                    p in content_lower
+                    for p in ["file contains", "i read", "the code shows", "i can see"]
+                ):
+                    guidance.append("Use read_file tool to actually read the file first.")
+                if any(
+                    p in content_lower
+                    for p in ["created", "saved", "written", "updated", "modified"]
+                ):
+                    guidance.append(
+                        "Use write_file or edit_file tool to actually create/modify the file."
+                    )
+                if any(p in content_lower for p in ["tested", "tests pass", "works"]):
+                    guidance.append("Use execute_shell tool to actually run the tests.")
+                if code_issues:
+                    guidance.append(f"Code validation issues: {'; '.join(code_issues[:3])}")
+                if claim_issues:
+                    guidance.append(f"Claim verification issues: {'; '.join(claim_issues[:3])}")
+
+                guidance_text = (
+                    " ".join(guidance)
+                    if guidance
+                    else "Use the available tools to complete the task."
+                )
+
                 messages.append(
                     {
                         "role": "user",
                         "content": (
-                            "STOP. You are fabricating results without calling tools. "
-                            "You have NOT read any file. You have NOT created any file. "
-                            "You MUST use a tool to interact with the system. "
-                            "Do it NOW."
+                            "STOP. You are fabricating results without actually using tools. "
+                            f"{guidance_text} "
+                            "Do NOT claim file contents, file creation, or test results "
+                            "without actually calling the corresponding tool. Do it NOW."
                         ),
                     }
                 )
@@ -1589,6 +2055,16 @@ def execute_agent_task(
             # ---- Post-execution quality review ----
             quality_issues = _review_output_quality(content, files_created, tool_history)
 
+            # ---- Confidence scoring ----
+            confidence = _compute_confidence_score(
+                content or "",
+                tool_history,
+                files_created,
+                fabrication_issues=[],
+                code_issues=[],
+                claim_issues=[],
+            )
+
             return {
                 "success": True,
                 "output": content,
@@ -1604,6 +2080,7 @@ def execute_agent_task(
                 "files_created": files_created,
                 "task_plan": task_plan.to_dict() if task_plan else None,
                 "quality_issues": quality_issues,
+                "confidence": confidence,
             }
 
         # ---- Execute native tool calls and return results as role:tool messages ----
@@ -2183,4 +2660,12 @@ def execute_agent_task(
         "task_plan": task_plan.to_dict() if task_plan else None,
         "test_fixes_applied": test_fix_attempts,
         "change_summary": change_summary,
+        "confidence": _compute_confidence_score(
+            content or "",
+            tool_history,
+            files_created,
+            fabrication_issues=[],
+            code_issues=[],
+            claim_issues=[],
+        ),
     }
