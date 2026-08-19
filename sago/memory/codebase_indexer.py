@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -17,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from sago.paths import get_sago_home
+
+logger = logging.getLogger("sago.memory.indexer")
 
 
 @dataclass
@@ -86,6 +89,7 @@ class CodebaseIndexer:
 
         Returns number of chunks indexed.
         """
+        logger.info("Indexing directory: %s", directory)
         if extensions is None:
             extensions = [
                 ".py",
@@ -173,6 +177,7 @@ class CodebaseIndexer:
         # Persist index
         self._save_index()
 
+        logger.info("Indexed %d chunks from %s", len(self._chunks), directory)
         return len(self._chunks)
 
     def _detect_language(self, filename: str) -> str:
@@ -407,7 +412,10 @@ class CodebaseIndexer:
     ) -> list[SearchResult]:
         """Search the index using TF-IDF scoring."""
         if not self._chunks:
+            logger.debug("Search skipped: index empty")
             return []
+
+        logger.debug("Searching for %r (max=%d)", query[:50], max_results)
 
         query_tf = self._compute_tf(query)
         results: list[SearchResult] = []
@@ -493,8 +501,9 @@ class CodebaseIndexer:
             }
             self._index_path.parent.mkdir(parents=True, exist_ok=True)
             self._index_path.write_text(json.dumps(data, default=str))
-        except Exception:
-            pass
+            logger.debug("Saved index with %d chunks to %s", len(self._chunks), self._index_path)
+        except Exception as e:
+            logger.debug("Failed to save index: %s", e)
 
     def _load_index(self) -> None:
         """Load persisted index from disk."""
@@ -516,8 +525,9 @@ class CodebaseIndexer:
                         name=chunk_data.get("name"),
                     )
                 )
-        except Exception:
-            pass
+            logger.debug("Loaded index with %d chunks from %s", len(self._chunks), self._index_path)
+        except Exception as e:
+            logger.debug("Failed to load index: %s", e)
 
 
 # Global instance

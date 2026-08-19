@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from sago.paths import get_sago_home
+from sago.utils.safe import log_exception
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +65,8 @@ class SkillLoader:
 
                     try:
                         metadata = yaml.safe_load(parts[1]) or {}
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log_exception(e, "Failed to parse YAML frontmatter")
                     body = parts[2].strip()
 
             name = metadata.get("name") or skill_file.parent.name or skill_file.stem

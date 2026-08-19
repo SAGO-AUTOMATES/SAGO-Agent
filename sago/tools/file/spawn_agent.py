@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.spawn_agent")
 
 
 class SpawnAgentArgs(BaseModel):
@@ -105,8 +108,8 @@ class SpawnAgentTool(BaseTool):
                 return AGENT_ALIASES[candidate]
             if f"{candidate}-engineer" in AGENTS:
                 return f"{candidate}-engineer"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to resolve agent name from registry: %s", e)
 
         return candidate or "software-engineer"
 
@@ -139,6 +142,11 @@ class SpawnAgentTool(BaseTool):
 
         # --- Argument validation: reject empty/trivial tasks ---
         if not actual_task.strip() or len(actual_task.strip()) < 10:
+            logger.warning(
+                "Rejected trivial task (%d chars): '%s'",
+                len(actual_task.strip()),
+                actual_task.strip()[:100],
+            )
             return (
                 "REJECTED: spawn_agent requires a meaningful task description (min 10 characters).\n"
                 f"Got: '{actual_task.strip()}'\n\n"
@@ -149,6 +157,9 @@ class SpawnAgentTool(BaseTool):
             )
 
         resolved_agent = self._resolve_target_agent(raw_agent, actual_task)
+        logger.debug(
+            "Resolved agent '%s' -> '%s' (raw: '%s')", raw_agent, resolved_agent, agent_name
+        )
 
         # Warn if agent resolution was purely heuristic (no explicit agent_name given)
         if not raw_agent.strip():
@@ -194,6 +205,7 @@ class SpawnAgentTool(BaseTool):
         guard = get_recursion_guard()
         allowed, reason = guard.can_spawn(resolved_agent)
         if not allowed:
+            logger.warning("Recursion guard blocked agent '%s': %s", resolved_agent, reason)
             return (
                 f"Cannot spawn agent '{resolved_agent}': {reason}\n\n"
                 f"Please complete this task directly without delegating further."
@@ -222,11 +234,12 @@ class SpawnAgentTool(BaseTool):
                     "depth": guard.depth + 1,
                 },
             )
-        except Exception:
-            pass
-
-        # Register this agent in the guard
+        except Exception as e:
+            logger.debug("Failed to record dev trace event: %s", e)
         guard.enter(resolved_agent)
+        logger.info(
+            "Spawning agent '%s' (depth %d/%d)", resolved_agent, guard.depth + 1, guard.max_depth
+        )
 
         try:
             return self._execute_agent(
@@ -281,6 +294,7 @@ class SpawnAgentTool(BaseTool):
         # Build fallback chain: primary agent + fallbacks
         fallbacks = self._FALLBACK_AGENTS.get(agent_name, ["software-engineer"])
         agents_to_try = [agent_name] + [a for a in fallbacks if a != agent_name]
+        logger.debug("Agent fallback chain: %s", agents_to_try)
 
         last_error = None
         for try_agent in agents_to_try:
@@ -335,6 +349,13 @@ class SpawnAgentTool(BaseTool):
                     response = self._format_response(
                         try_agent, output, tools_used, files_created, guard
                     )
+                    logger.info(
+                        "Agent '%s' completed successfully (model=%s, tools=%d, files=%d)",
+                        try_agent,
+                        try_model,
+                        len(tools_used),
+                        len(files_created),
+                    )
                     if used_different_agent:
                         response = (
                             f"[Note: '{agent_name}' was unavailable, "
@@ -344,9 +365,16 @@ class SpawnAgentTool(BaseTool):
 
                 except Exception as e:
                     last_error = f"{try_agent}/{try_model}: {e}"
+                    logger.debug("Agent '%s' with model '%s' failed: %s", try_agent, try_model, e)
                     continue
 
         # All agents and models failed
+        logger.error(
+            "All %d agent(s) failed for task '%s'. Last error: %s",
+            len(agents_to_try),
+            task[:100],
+            last_error,
+        )
         return (
             f"Agent '{agent_name}' could not be spawned after trying {len(agents_to_try)} agent(s).\n"
             f"Last error: {last_error}\n\n"
@@ -459,8 +487,8 @@ Do NOT just say "I completed the task" — show evidence of your work.
             definition = get_agent(agent_name)
             if definition:
                 return definition.system_prompt
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to load agent prompt from registry: %s", e)
 
         # Fallback prompts for common agents
         prompts = {

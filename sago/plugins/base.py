@@ -113,8 +113,8 @@ class PluginManager:
                         self.register_plugin(instance)
                 except Exception as exc:
                     logger.warning("Failed to load plugin entry point %s: %s", ep.name, exc)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to load plugins via entry_points: %s", exc)
 
         return list(self._plugins.values())
 

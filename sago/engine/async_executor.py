@@ -11,7 +11,7 @@ from typing import Any
 from sago.engine.context_assembler import get_context_assembler
 from sago.llm.factory import get_provider
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sago.engine.async_executor")
 
 
 class AsyncAgentExecutor:
@@ -40,6 +40,12 @@ class AsyncAgentExecutor:
     ) -> dict[str, Any]:
         """Execute a single agent task asynchronously with streaming and tool loops."""
         start_time = time.time()
+        logger.info(
+            "Starting async task execution (model=%s, max_iterations=%d)",
+            self.model,
+            self.max_iterations,
+        )
+        logger.debug("Task preview: '%s'", task[:200])
         assembler = get_context_assembler(self.cwd)
         assembled_ctx = assembler.assemble(task=task, task_type="exec")
 
@@ -53,6 +59,7 @@ class AsyncAgentExecutor:
         )
         if not provider:
             # Fallback to mock provider
+            logger.warning("Provider '%s' unavailable, falling back to mock", self.provider_name)
             provider = get_provider("mock", {"model": self.model})
 
         response_chunks = []
@@ -76,6 +83,12 @@ class AsyncAgentExecutor:
         output_text = "".join(response_chunks) or f"Completed task: {task[:60]}"
         elapsed = time.time() - start_time
 
+        logger.info(
+            "Task completed in %.2fs (output_length=%d, model=%s)",
+            elapsed,
+            len(output_text),
+            self.model,
+        )
         return {
             "success": True,
             "output": output_text,
@@ -90,6 +103,8 @@ class AsyncAgentExecutor:
         system_prompt: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream response tokens asynchronously."""
+        logger.info("Starting streaming task (model=%s)", self.model)
+        logger.debug("Stream task preview: '%s'", task[:200])
         provider = get_provider(
             self.provider_name,
             {"model": self.model, "api_key": self.api_key or "mock"},
@@ -113,6 +128,7 @@ async def execute_parallel_tasks(
     max_concurrency: int = 4,
 ) -> list[dict[str, Any]]:
     """Execute multiple agent tasks in parallel with a bounded concurrency semaphore."""
+    logger.info("Executing %d parallel tasks (max_concurrency=%d)", len(tasks), max_concurrency)
     semaphore = asyncio.Semaphore(max_concurrency)
 
     async def _run_bounded(t_cfg: dict[str, Any]) -> dict[str, Any]:

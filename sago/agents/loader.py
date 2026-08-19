@@ -4,9 +4,12 @@ Loads agent profiles from individual .py files in the profiles/ directory.
 Each profile file exports a get_profile() function returning an AgentProfile.
 """
 
+import logging
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("sago.agents.loader")
 
 
 def load_all_profiles(profiles_dir: Path | None = None) -> dict[str, Any]:
@@ -14,6 +17,7 @@ def load_all_profiles(profiles_dir: Path | None = None) -> dict[str, Any]:
     if profiles_dir is None:
         profiles_dir = Path(__file__).parent / "profiles"
 
+    logger.info("Loading all profiles from %s", profiles_dir)
     profiles = {}
     for py_file in sorted(profiles_dir.glob("*.py")):
         if py_file.name.startswith("_"):
@@ -23,9 +27,11 @@ def load_all_profiles(profiles_dir: Path | None = None) -> dict[str, Any]:
             profile = load_profile(py_file)
             if profile and hasattr(profile, "name"):
                 profiles[profile.name] = profile
+                logger.debug("Loaded profile: %s", profile.name)
         except Exception as e:
-            print(f"Warning: Failed to load {py_file.name}: {e}")
+            logger.error("Failed to load %s: %s", py_file.name, e)
 
+    logger.info("Loaded %d profiles", len(profiles))
     return profiles
 
 
@@ -35,6 +41,7 @@ def load_profile(file_path: Path) -> Any | None:
     spec = spec_from_file_location(module_name, file_path)
 
     if spec is None or spec.loader is None:
+        logger.warning("Could not create spec for %s", file_path)
         return None
 
     module = module_from_spec(spec)
@@ -46,6 +53,7 @@ def load_profile(file_path: Path) -> Any | None:
     if hasattr(module, "PROFILE"):
         return module.PROFILE
 
+    logger.debug("No profile found in %s", file_path)
     return None
 
 

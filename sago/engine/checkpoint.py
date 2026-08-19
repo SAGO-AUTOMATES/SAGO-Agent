@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from sago.utils.safe import log_exception
+
 logger = logging.getLogger(__name__)
 
 
@@ -73,7 +75,7 @@ class CheckpointManager:
             resolved.relative_to(self.root.resolve())
             return True
         except ValueError:
-            pass
+            logger.debug("Path %s is not relative to workspace root", resolved)
 
         # Check if in allowed restore paths
         for allowed in self._allowed_restore_paths:
@@ -164,8 +166,8 @@ class CheckpointManager:
         # Automatic retention pruning (keep latest 20 by default)
         try:
             self.prune_checkpoints(keep_latest=20)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Automatic retention pruning failed")
         return meta
 
     def prune_checkpoints(
@@ -199,8 +201,8 @@ class CheckpointManager:
                     from sago.database import CheckpointStore
 
                     CheckpointStore().delete_checkpoint(snap.name)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_exception(e, f"Failed to delete checkpoint {snap.name} from SQLite")
             except OSError as e:
                 logger.debug("Failed to prune checkpoint %s: %s", snap, e)
 

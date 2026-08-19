@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ast
 import json
+import logging
 import os
 import re
 import threading
@@ -12,6 +14,9 @@ from pathlib import Path
 from typing import Any
 
 from sago.tools.base import BaseTool
+from sago.utils.safe import log_exception
+
+logger = logging.getLogger(__name__)
 
 # Auto-discover all tools
 _TOOL_CLASSES: dict[str, type[BaseTool]] = {}
@@ -373,8 +378,8 @@ def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
             for dep in framework_map:
                 if dep in deps:
                     context["frameworks"].append(framework_map[dep])
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to parse package.json for framework detection")
 
     # Detect Python frameworks from imports in existing files
     pyproject = os.path.join(work_dir, "pyproject.toml")
@@ -391,8 +396,8 @@ def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
             for keyword, framework in py_frameworks.items():
                 if keyword in content.lower():
                     context["frameworks"].append(framework)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to read pyproject.toml for framework detection")
 
     # Detect test frameworks
     test_indicators = {
@@ -439,8 +444,8 @@ def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
         if result.returncode == 0:
             files = result.stdout.strip().split("\n")[:30]
             context["project_structure"] = [os.path.relpath(f, work_dir) for f in files if f]
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Failed to detect project structure via subprocess")
 
     # Cache the result
     with _project_context_lock:
@@ -481,7 +486,7 @@ def _generate_plan_with_llm(
             if isinstance(steps, list) and all(isinstance(s, str) for s in steps):
                 return steps
         except (json.JSONDecodeError, ValueError):
-            pass
+            logger.debug("LLM plan response was not valid JSON, trying regex fallback")
         # Regex fallback: find first complete JSON array
         match = re.search(r"\[(?:[^\[\]]*(?:\"[^\"]*\")[^\[\]]*)*\]", content, re.DOTALL)
         if match:
@@ -490,9 +495,9 @@ def _generate_plan_with_llm(
                 if isinstance(steps, list) and all(isinstance(s, str) for s in steps):
                     return steps
             except (json.JSONDecodeError, ValueError):
-                pass
-    except Exception:
-        pass
+                logger.debug("Regex-extracted JSON array was invalid")
+    except Exception as e:
+        log_exception(e, "Failed to generate plan via LLM")
     # Fallback: create generic steps
     return [
         "Analyze the task and understand requirements",
@@ -528,7 +533,8 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
                         req = "REQ" if fi.is_required() else f"={fi.default}"
                         parts.append(f"{fn}({req})")
                     args = ", ".join(parts)
-                except Exception:
+                except Exception as e:
+                    log_exception(e, "Failed to extract tool argument fields")
                     args = ""
             lines.append(f"- {name}({args}): {desc}")
         _TOOL_DESCRIPTIONS = "\n".join(lines)
@@ -589,8 +595,8 @@ def _get_context(cwd: str | None = None) -> str:
             else:
                 summary = "\n".join(git_lines)
             lines.append(f"Git status:\n{summary}")
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Failed to get git status")
 
     return "\n".join(lines)
 
@@ -601,31 +607,185 @@ PROMPTS = {
 
 {project_ctx}
 
-- Answer questions, conversation, weather inquiries, greetings, explanations, and general requests naturally and accurately.
-- Respond conversationally without imposing unsolicited engineering templates or code scaffolding.
-- Only invoke tools if the user explicitly requests inspecting files, executing commands, or performing workspace operations.
-- Never hallucinate tool results or file contents.""",
+ABSOLUTE RULES - VIOLATION = FAILURE:
+1. NEVER hallucinate tool results or file contents. If you haven't read a file, don't claim what it contains.
+2. NEVER claim the user mentioned specific files or code unless they literally said the file names in their message.
+3. NEVER claim "the codebase has X files", "the project uses Y", or "there are Z classes" without using tools to verify.
+4. NEVER list files as "available" or "related" without first discovering them via tools.
+5. NEVER make structural or architectural claims without reading the relevant files.
+6. If uncertain about something, say "I'm not sure" rather than guessing.
+7. Keep responses concise and appropriate to the question complexity.
+
+COMPLEXITY CALIBRATION:
+- Simple questions ("hi", "what is 2+2", "what time is it") → answer in 1-2 sentences. Do NOT overthink.
+- Medium questions ("explain X", "what does Y do") → answer in a short paragraph.
+- Complex questions ("compare X and Y", "design a system for Z") → only then provide detailed analysis.
+
+THINKING STEP:
+Before responding, verify: Am I making ANY claims about files, code, structure, or tool results that I haven't actually verified with tools? If yes, use the appropriate tool first. Am I overcomplicating a simple question? If yes, simplify.""",
+    "query": """You are {agent_role}. The user has a quick information request about a specific file, function, or concept.
+
+{project_ctx}
+
+ABSOLUTE RULES - VIOLATION = FAILURE:
+1. NEVER claim what a file contains without reading it first with read_file tool.
+2. NEVER guess — if you haven't read it, say "I haven't read that file yet, let me check."
+3. NEVER claim the user mentioned specific files unless they literally said the names.
+4. NEVER list files as "available" without first discovering them via glob_files or grep_content.
+5. Report ONLY what you actually see in the tool results.
+6. If the user asks "what's in this file", read that ONE file and summarize briefly.
+7. If the user asks "where is X defined", search for X and report the location.
+
+STRICT LIMITS:
+- Maximum 1 tool call for simple questions ("what's in this file").
+- Maximum 2-3 tool calls for slightly broader questions ("where is X used").
+- NEVER read more than 2 files unless the user explicitly asks for comprehensive analysis.
+- NEVER run tests, linters, or build commands unless asked.
+- NEVER create or modify files unless asked.
+
+THINKING STEP:
+Before responding, ask yourself: (1) Did I actually read the file(s) the user asked about? (2) Am I making claims without tool evidence? (3) Am I overcomplicating this? If yes, simplify to 1-3 sentences.""",
     "create": """You are {agent_role}. The user wants you to create, implement, or modify code and files.
 
 {project_ctx}
 
-- Inspect existing code with tools first if needed.
-- Write or edit files cleanly with exact code.
-- Verify work and report results honestly without fabricating output.
-- Reply directly without calling tools for simple conversational queries.""",
+ABSOLUTE RULES - VIOLATION = FAILURE:
+1. You MUST use tools (read_file, write_file, edit_file, execute_shell) to interact with the system. NEVER fabricate tool results.
+2. NEVER claim a file was created, edited, read, or modified without actually calling the corresponding tool.
+3. NEVER say "the file contains", "I read the file", "the code shows", "I created the file" unless you actually used a tool to do so.
+4. NEVER claim the user mentioned specific files unless they literally said the names.
+5. NEVER list files as "available" or "related" without first discovering them via tools.
+6. If you need to read a file, use read_file tool FIRST. If you need to create/edit a file, use write_file or edit_file tool.
+7. Report tool results EXACTLY as the tool returns them. Do not embellish or fabricate additional details.
+8. ALWAYS verify code syntax before claiming it works. Use execute_shell to run syntax checks.
+9. NEVER claim "tests pass" or "all tests pass" without actually running the tests via execute_shell.
+10. NEVER claim code is "production-ready", "fully tested", or "complete" unless you have verified it with tools.
+
+WORKFLOW:
+- Inspect existing code with read_file tool FIRST if needed.
+- Use write_file or edit_file tools to create/modify files. Show exact code.
+- Use execute_shell to run tests or verify your work.
+- Report what tools actually returned. If a tool fails, say it failed.
+- For simple conversational queries, reply directly without calling tools.
+
+COMPLEXITY CALIBRATION:
+- For simple tasks (rename a variable, add a comment, fix a typo): do it directly, minimal explanation.
+- For medium tasks (add a function, fix a bug): show the change, brief explanation.
+- For complex tasks (refactor a module, implement a feature): structured approach with clear steps.
+
+QUALITY STANDARDS:
+- Write production-ready code with proper error handling, types, and documentation.
+- Follow existing code conventions in the project.
+- Use meaningful variable and function names.
+- Handle edge cases and error conditions.
+- Never leave TODO comments or placeholder code unless explicitly asked.
+
+THINKING STEP:
+Before responding, verify: (1) Did I actually use tools to read/create/modify files? (2) Am I claiming test results without running tests? (3) Am I claiming user said things they didn't? (4) Am I listing files without searching? (5) Is my code syntactically valid? Fix any issues before responding.""",
     "fix": """You are {agent_role}. The user wants you to fix an issue, bug, or error.
 
 {project_ctx}
 
-- Identify root cause and inspect relevant files before modifying.
-- Make precise, minimal fixes and verify changes.
-- Never guess file contents or pretend tool executions succeeded.""",
+ABSOLUTE RULES - VIOLATION = FAILURE:
+1. You MUST use tools to inspect and fix code. NEVER fabricate file contents or tool results.
+2. NEVER claim a file was fixed without actually calling edit_file or write_file tool.
+3. NEVER guess what code looks like. Always use read_file to see the actual code first.
+4. NEVER claim the user mentioned specific files unless they literally said the names.
+5. NEVER list files as "available" or "related" without first discovering them via tools.
+6. Report tool results EXACTLY as the tool returns them.
+7. NEVER claim "tests pass" without actually running them via execute_shell.
+8. NEVER claim "the issue is fixed" without verifying the fix actually works.
+9. NEVER claim code is "correct" or "working" without running it or its tests.
+
+WORKFLOW:
+- Use read_file to inspect ALL relevant files before making changes.
+- Identify root cause from actual file contents, not assumptions.
+- Use edit_file to make precise, minimal fixes.
+- Use execute_shell to run tests and verify changes work.
+- Report what tools actually returned.
+
+COMPLEXITY CALIBRATION:
+- For simple fixes (typo, missing import, off-by-one): fix it directly, show minimal context.
+- For moderate fixes (logic error, race condition): explain root cause briefly, show fix.
+- For complex fixes (architecture issue, security vulnerability): detailed analysis, structured fix.
+
+QUALITY STANDARDS:
+- Make the minimal change necessary to fix the issue.
+- Preserve existing code style and conventions.
+- Ensure the fix doesn't introduce new bugs.
+- Add comments explaining the fix if the root cause is non-obvious.
+
+THINKING STEP:
+Before responding, verify: (1) Did I actually read the problematic code? (2) Did I verify my fix works? (3) Am I claiming success without evidence? (4) Am I claiming user said things they didn't? (5) Is my fix minimal and targeted? If any answer is no, use the appropriate tool first.""",
     "analyze": """You are {agent_role}. The user wants you to analyze code or architecture.
 
 {project_ctx}
 
-- Inspect files thoroughly and provide structured, actionable analysis and insights.
-- Do not fabricate findings or tool outputs.""",
+ABSOLUTE RULES - VIOLATION = FAILURE:
+1. You MUST use read_file tool to inspect files. NEVER fabricate file contents.
+2. NEVER say "the file contains", "I can see that", "the code shows" unless you actually read the file with a tool.
+3. Report findings based ONLY on what tools actually returned.
+4. NEVER claim "the codebase has X files" or "there are Y classes" without actually counting via tools.
+5. NEVER claim "the architecture is" without actually reading the relevant files.
+6. NEVER claim code is "well-structured", "clean", or "production-ready" without evidence from tools.
+7. NEVER claim the user mentioned specific files unless they literally said the file names. If unsure what files exist, use glob_files or grep_content to search.
+8. NEVER list files as "available" or "related" without first discovering them via glob_files, file_search, or grep_content tools.
+
+WORKFLOW:
+- Use glob_files or file_search to discover relevant files FIRST.
+- Use read_file to inspect relevant files — start with the most likely candidates.
+- Use grep_content to search for specific patterns if needed.
+- Use ast_grep to find structural elements (functions, classes, decorators).
+- Provide structured, actionable analysis based on actual file contents.
+- If you cannot find something, say so honestly.
+
+COMPLEXITY CALIBRATION:
+- For simple questions ("what does X do"): read the ONE file that defines X, give a 1-2 sentence answer.
+- For moderate analysis ("review this function"): read the function and its immediate context, give focused findings.
+- For complex analysis ("review the architecture"): read key files systematically, give comprehensive report.
+- DO NOT read files the user didn't ask about unless you need them for context.
+
+QUALITY STANDARDS:
+- Provide specific file paths and line numbers for findings.
+- Quantify where possible (e.g., "3 classes, 12 functions").
+- Identify both strengths and weaknesses.
+- Prioritize findings by impact and severity.
+
+THINKING STEP:
+Before responding, verify: (1) Did I read the specific files relevant to the question? (2) Am I making claims about code structure without evidence? (3) Are my findings specific and verifiable? (4) Am I over-analyzing a simple question? If any answer is no, use the appropriate tool first.""",
+    "test": """You are {agent_role}. The user wants you to write, run, or fix tests.
+
+{project_ctx}
+
+ABSOLUTE RULES - VIOLATION = FAILURE:
+1. You MUST use tools (read_file, write_file, execute_shell) to interact with the system. NEVER fabricate test results.
+2. NEVER claim "tests pass" or "all tests pass" without actually running them via execute_shell.
+3. NEVER claim "coverage is X%" without actually measuring it.
+4. NEVER claim the user mentioned specific files unless they literally said the names.
+5. NEVER list files as "available" or "related" without first discovering them via tools.
+6. Report tool results EXACTLY as the tool returns them.
+7. NEVER claim tests are "comprehensive" or "complete" without evidence.
+8. NEVER claim code is "well-tested" without actually running the test suite.
+
+WORKFLOW:
+- Use read_file to understand the code you're testing.
+- Use write_file to create or modify test files.
+- Use execute_shell to run the tests.
+- Report actual test output, not fabricated results.
+
+COMPLEXITY CALIBRATION:
+- For simple test requests ("add a test for X"): write focused test, run it.
+- For moderate requests ("improve test coverage"): identify gaps, add targeted tests.
+- For complex requests ("test the entire module"): systematic approach, run full suite.
+
+QUALITY STANDARDS:
+- Write tests that cover both happy path and edge cases.
+- Use descriptive test names that explain what's being tested.
+- Include assertions that verify expected behavior.
+- Test error conditions and boundary cases.
+
+THINKING STEP:
+Before responding, verify: (1) Did I actually run the tests? (2) Am I claiming test results without evidence? (3) Am I claiming user said things they didn't? (4) Do my tests actually verify the behavior? If any answer is no, use the appropriate tool first.""",
 }
 
 
@@ -635,7 +795,8 @@ def _detect_task_type(task: str) -> str:
 
     try:
         return get_intent_classifier().classify(task).task_type
-    except Exception:
+    except Exception as e:
+        log_exception(e, "Failed to classify task intent, defaulting to create")
         return "create"
 
 
@@ -663,9 +824,754 @@ def _load_agent_profile(agent_name: str) -> dict[str, Any] | None:
                     "temperature": agent_def.temperature,
                     "max_iterations": agent_def.max_iterations,
                 }
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, f"Failed to load agent profile for '{agent_name}'")
     return None
+
+
+# ---- Module-level hallucination detection functions ----
+
+# Fabrication phrases: common LLM patterns that claim verification without tool evidence
+_FABRICATION_PHRASES = [
+    # Verification claims
+    r"\bi(?:'ve| have)\s+(?:verified|confirmed|checked|validated|tested|confirmed that|run)\b",
+    r"\bverified\s+(?:that\s+)?(?:the\s+)?(?:code|fix|change|implementation)\b",
+    r"\bconfirmed\s+(?:that\s+)?(?:the\s+)?(?:code|fix|change|implementation)\b",
+    r"\bchecked\s+(?:that\s+)?(?:the\s+)?(?:code|fix|change|implementation)\b",
+    # Test claims
+    r"\bthe\s+tests?\s+(?:pass|passes|passed|are\s+passing|all\s+pass)\b",
+    r"\b(?:all|every|each)\s+tests?\s+(?:pass|passes|passed|are\s+passing)\b",
+    r"\b(?:no|zero)\s+test\s+failures?\b",
+    r"\b(?:every|all)\s+assertions?\s+pass\b",
+    r"\btest\s+(?:suite|coverage)\s+(?:is|shows?|indicates?)\b",
+    r"\b\d+\s+(?:out\s+of|\/)\s+\d+\s+tests?\s+pass\b",
+    # Lint/type check claims
+    r"\b(?:lint|type\s*check|static\s+analysis)\s+(?:passes?|passes|clean|clear|no\s+errors?)\b",
+    r"\bno\s+(?:lint|linting|type)\s+errors?\b",
+    r"\bcode\s+(?:passes?|is)\s+(?:linting|type\s+checking|formatting)\b",
+    # Code quality claims
+    r"\bthe\s+code\s+(?:compiles?|builds?|works?|runs?)\b",
+    r"\bthe\s+code\s+(?:is|follows?)\s+(?:clean|proper|correct|valid)\b",
+    r"\bcode\s+(?:is|follows?)\s+PEP\s+\d+\b",
+    r"\bno\s+(?:syntax|runtime|type)\s+errors?\b",
+    # Fix claims
+    r"\bi(?:'ve| have)\s+(?:fixed|resolved|patched|corrected|addressed)\b",
+    r"\bthis\s+(?:fix|change|patch|modification)\s+(?:resolves?|fixes?|solves?|addresses?)\b",
+    r"\bthe\s+(?:fix|issue|bug|error)\s+(?:is|has\s+been)\s+(?:resolved|fixed|addressed)\b",
+    r"\bnow\s+(?:it|the\s+code|the\s+system)\s+(?:works?|functions?|runs?)\b",
+    # Success/completion claims
+    r"\bno\s+(?:errors?|issues?|problems?|bugs?)\s+(?:remain|left|found|detected)\b",
+    r"\b(?:everything|it)\s+(?:works?|is\s+working|should\s+work|looks?\s+good)\b",
+    r"\b(?:i'm|I'm)\s+(?:confident|certain|sure)\s+(?:that\s+)?(?:this|it)\b",
+    r"\bcorrectly\s+handles?\b",
+    r"\bproperly\s+(?:implements?|handles?|manages?|processes?)\b",
+    r"\bfully\s+(?:functional|implemented|working|tested)\b",
+    r"\bcomprehensive\s+(?:test|coverage|solution)\b",
+    r"\bwell[\s-]structured\b",
+    r"\bproduction[\s-]ready\b",
+    r"\bcompletely\s+(?:fixes?|resolves?|handles?)\b",
+    r"\bshould\s+(?:now|work|function|run)\s+(?:correctly|properly|as\s+expected)\b",
+    # Structural/architectural claims without tools
+    r"\bthe\s+(?:codebase|project|repository|repo)\s+(?:has|contains?|includes?)\s+\d+\b",
+    r"\bthere\s+(?:are|is)\s+\d+\s+(?:files?|classes?|functions?|methods?|modules?)\b",
+    r"\bthe\s+(?:project|codebase)\s+(?:uses?|relies?\s+on|is\s+built\s+(?:with|on))\b",
+    r"\bbased\s+on\s+(?:my\s+)?(?:analysis|review|inspection)\s+of\b",
+    r"\bafter\s+(?:analyzing|reviewing|inspecting|examining)\b",
+    r"\b(?:looking|looking)\s+at\s+the\s+(?:code|implementation|structure)\b",
+    r"\bfrom\s+what\s+(?:i|we)\s+(?:can\s+see|see|found)\b",
+    # Coverage/quality metrics without measurement
+    r"\btest\s+coverage\s+(?:is|shows?|indicates?)\s+\d+%\b",
+    r"\b\d+%\s+test\s+coverage\b",
+    r"\bno\s+security\s+(?:vulnerabilities?|issues?|risks?)\b",
+    r"\b(?:all|every)\s+(?:edge\s+cases?|corner\s+cases?)\s+(?:are|is)\s+handled\b",
+    # Recommendation claims without evidence
+    r"\bi\s+(?:recommend|suggest|advise)\s+(?:that\s+)?(?:you|we)\s+(?:should|could|can)\b",
+    r"\bthe\s+(?:best|optimal|recommended)\s+(?:approach|solution|way)\s+(?:is|would\s+be)\b",
+    r"\bthis\s+(?:is|will\s+be)\s+(?:more|less|better|worse|faster|slower)\s+efficient\b",
+]
+
+# Code block language patterns for multi-language syntax checking
+_CODE_BLOCK_LANGS = {
+    "python": ("py",),
+    "javascript": ("js",),
+    "typescript": ("ts", "tsx", "jsx"),
+    "go": ("go",),
+    "rust": ("rs",),
+    "java": ("java",),
+    "c": ("c",),
+    "cpp": ("cpp", "c++", "cxx"),
+    "csharp": ("cs",),
+    "ruby": ("rb",),
+    "php": ("php",),
+    "kotlin": ("kt", "kts"),
+    "swift": ("swift",),
+    "scala": ("scala",),
+    "dart": ("dart",),
+    "bash": ("sh",),
+    "shell": ("sh",),
+    "zsh": ("zsh",),
+}
+
+# Known standard library + common third-party modules per language
+_KNOWN_MODULES_PYTHON = {
+    "os",
+    "sys",
+    "re",
+    "json",
+    "ast",
+    "pathlib",
+    "typing",
+    "collections",
+    "datetime",
+    "time",
+    "math",
+    "random",
+    "subprocess",
+    "threading",
+    "unittest",
+    "pytest",
+    "asyncio",
+    "io",
+    "copy",
+    "functools",
+    "itertools",
+    "hashlib",
+    "base64",
+    "textwrap",
+    "string",
+    "struct",
+    "socket",
+    "http",
+    "urllib",
+    "email",
+    "html",
+    "xml",
+    "csv",
+    "sqlite3",
+    "logging",
+    "argparse",
+    "dataclasses",
+    "enum",
+    "abc",
+    "contextlib",
+    "operator",
+    "decimal",
+    "fractions",
+    "traceback",
+    "inspect",
+    "dis",
+    "token",
+    "tokenize",
+    "code",
+    "codeop",
+    "compile",
+    "compileall",
+    "py_compile",
+    "types",
+    "warnings",
+    "weakref",
+    "codecs",
+    "locale",
+    "gettext",
+    "unicodedata",
+    "stringprep",
+    "readline",
+    "rlcompleter",
+    "pdb",
+    "profile",
+    "timeit",
+    "trace",
+    "gc",
+    "zipfile",
+    "gzip",
+    "bz2",
+    "lzma",
+    "tarfile",
+    "shutil",
+    "tempfile",
+    "fnmatch",
+    "linecache",
+    "glob",
+    "numpy",
+    "pandas",
+    "requests",
+    "httpx",
+    "aiohttp",
+    "pydantic",
+    "fastapi",
+    "flask",
+    "django",
+    "click",
+    "rich",
+    "textual",
+    "yaml",
+    "toml",
+    "dotenv",
+    "sago",
+    "google",
+    "openai",
+    "anthropic",
+    "crewai",
+    "langchain",
+    "langgraph",
+    "celery",
+    "redis",
+    "sqlalchemy",
+    "alembic",
+    "psycopg",
+    "pymongo",
+    "boto3",
+    "botocore",
+    "google/cloud",
+    "uvicorn",
+    "gunicorn",
+    "starlette",
+    "jinja2",
+    "mako",
+    "chameleon",
+    "pillow",
+    "opencv",
+    "matplotlib",
+    "seaborn",
+    "scipy",
+    "sklearn",
+    "statsmodels",
+    "torch",
+    "tensorflow",
+    "transformers",
+    "paramiko",
+    "fabric",
+    "invoke",
+    "docker",
+    "kubernetes",
+    "prometheus",
+    "structlog",
+    "loguru",
+}
+
+
+def _detect_code_hallucinations(content: str, tool_history: list) -> list[str]:
+    """Detect hallucinated code, paths, imports, and fabrication signals in the response."""
+    issues: list[str] = []
+    if not content:
+        return issues
+
+    # 0. Detect fabrication phrases (LLM claiming verification without tool evidence)
+    tools_called = {tc.get("tool", "") for tc in tool_history}
+    has_shell = "execute_shell" in tools_called
+    has_read = any(t in tools_called for t in ("read_file", "grep_content", "grep", "ast_grep"))
+    has_edit = any(t in tools_called for t in ("write_file", "edit_file"))
+
+    for phrase_pattern in _FABRICATION_PHRASES:
+        for match in re.finditer(phrase_pattern, content, re.IGNORECASE):
+            phrase = match.group(0)
+            # Only flag if no relevant tool was called to back the claim
+            if "pass" in phrase.lower() or "test" in phrase.lower():
+                if not has_shell:
+                    issues.append(f"Fabrication: '{phrase}' — no execute_shell tool was called")
+            elif (
+                "read" in phrase.lower()
+                or "verified" in phrase.lower()
+                or "checked" in phrase.lower()
+            ):
+                if not has_read:
+                    issues.append(f"Fabrication: '{phrase}' — no read/search tool was called")
+            elif "fix" in phrase.lower() or "resolved" in phrase.lower():
+                if not has_edit:
+                    issues.append(f"Fabrication: '{phrase}' — no edit/write tool was called")
+
+    # 1. Check code blocks for syntax validity (multi-language)
+    for lang, extensions in _CODE_BLOCK_LANGS.items():
+        alt_pattern = "|".join(re.escape(ext) for ext in extensions)
+        code_block_pattern = rf"```(?:{re.escape(lang)}|{alt_pattern})\s*\n(.*?)```"
+        for match in re.finditer(code_block_pattern, content, re.DOTALL):
+            code_block = match.group(1).strip()
+            if not code_block:
+                continue
+            if lang == "python":
+                try:
+                    ast.parse(code_block)
+                except SyntaxError as e:
+                    issues.append(f"Python code block has syntax error: {e}")
+            elif lang == "go":
+                # Basic brace matching for Go
+                depth = 0
+                for ch in code_block:
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                    if depth < 0:
+                        issues.append("Go code block has unbalanced braces")
+                        break
+                if depth > 0:
+                    issues.append(f"Go code block has {depth} unclosed brace(s)")
+            elif lang == "rust":
+                depth = 0
+                for ch in code_block:
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                    if depth < 0:
+                        issues.append("Rust code block has unbalanced braces")
+                        break
+                if depth > 0:
+                    issues.append(f"Rust code block has {depth} unclosed brace(s)")
+            elif lang in ("javascript", "typescript"):
+                depth = 0
+                for ch in code_block:
+                    if ch == "{":
+                        depth += 1
+                    elif ch == "}":
+                        depth -= 1
+                    if depth < 0:
+                        issues.append(f"{lang.title()} code block has unbalanced braces")
+                        break
+                if depth > 0:
+                    issues.append(f"{lang.title()} code block has {depth} unclosed brace(s)")
+
+    # 2. Check for hallucinated file paths
+    # Broad patterns: backtick-quoted, plain text with extensions, and dotted names
+    _FILE_EXTS = (
+        ".py",
+        ".js",
+        ".ts",
+        ".go",
+        ".rs",
+        ".java",
+        ".c",
+        ".cpp",
+        ".tsx",
+        ".jsx",
+        ".pyc",
+        ".pyd",
+    )
+    file_path_patterns = [
+        r"(?:`|\"|')((?:\./|\.\./|\w+/)*[\w\-]+\.\w+)(?:`|\"|')",  # quoted paths
+        r"\b([\w\-/]+\.(?:py|js|ts|go|rs|java|c|cpp|tsx|jsx|pyc))\b",  # plain text file refs
+        r"\b([\w\-]+\.cpython-\d+\.\w+)\b",  # compiled Python files like analyze.cpython-311.pyc
+    ]
+    actual_files: set[str] = set()
+    for tc in tool_history:
+        args = tc.get("args", {})
+        fp = (
+            args.get("file_path", "")
+            or args.get("path", "")
+            or args.get("target_file", "")
+            or args.get("directory", "")
+        )
+        if fp:
+            actual_files.add(fp)
+            # Also add basename for partial matches
+            actual_files.add(os.path.basename(fp))
+
+    for pat in file_path_patterns:
+        for match in re.finditer(pat, content):
+            path = match.group(1)
+            if path.endswith(_FILE_EXTS) or "/" in path:
+                if not os.path.exists(path) and not path.startswith("./"):
+                    if path not in actual_files and os.path.basename(path) not in actual_files:
+                        issues.append(
+                            f"Referenced file '{path}' may not exist and was not accessed via tools"
+                        )
+
+    # 3. Check for hallucinated imports in code blocks
+    import_pattern = r"```(?:python|py)\s*\n(.*?)```"
+    for match in re.finditer(import_pattern, content, re.DOTALL):
+        code_block = match.group(1).strip()
+        for line in code_block.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("import ") or stripped.startswith("from "):
+                if stripped.startswith("from "):
+                    module = stripped.split()[1].split(".")[0]
+                else:
+                    module = stripped.split()[1].split(".")[0]
+                if module not in _KNOWN_MODULES_PYTHON and not module.startswith("_"):
+                    tools_content = " ".join(str(tc.get("result", "")) for tc in tool_history)
+                    if module not in tools_content.lower():
+                        issues.append(f"Potentially hallucinated import: '{module}'")
+
+    # 4. Check for hallucinated function/class names referenced in text
+    # Look for patterns like "the foo() function" or "class Bar" that reference things not in tool results
+    if tool_history:
+        all_tool_content = " ".join(str(tc.get("result", "")) for tc in tool_history).lower()
+        # Detect "the X() function" or "class X" references
+        func_ref_pattern = r"(?:the\s+)?(\w+)\(\)\s+(?:function|method|class)"
+        for match in re.finditer(func_ref_pattern, content, re.IGNORECASE):
+            name = match.group(1)
+            # Skip common English words
+            if name not in {
+                "the",
+                "this",
+                "that",
+                "which",
+                "what",
+                "where",
+                "when",
+                "your",
+                "our",
+                "my",
+                "its",
+            }:
+                if name.lower() not in all_tool_content and len(name) > 2:
+                    issues.append(f"Referenced symbol '{name}()' not found in tool results")
+
+    # 5. Detect overconfidence without evidence
+    if not tool_history:
+        overconfidence_patterns = [
+            r"\b(?:definitely|certainly|absolutely|guaranteed)\b",
+            r"\bworks?\s+(?:perfectly|flawlessly|correctly)\b",
+            r"\bno\s+(?:doubt|question|issue|problem)\b",
+        ]
+        for pat in overconfidence_patterns:
+            if re.search(pat, content, re.IGNORECASE):
+                issues.append("Overconfidence signal: making strong claims without any tool usage")
+                break
+
+    return issues
+
+
+def _verify_claims_against_history(content: str, tool_history: list) -> list[str]:
+    """Cross-reference claims in response against actual tool call history."""
+    issues: list[str] = []
+    if not content:
+        return issues
+
+    content_lower = content.lower()
+    tools_called = {tc.get("tool", "") for tc in tool_history}
+    shell_calls = [tc for tc in tool_history if tc.get("tool") == "execute_shell"]
+    read_calls = [
+        tc
+        for tc in tool_history
+        if tc.get("tool") in ("read_file", "grep_content", "grep", "ast_grep")
+    ]
+    write_calls = [tc for tc in tool_history if tc.get("tool") in ("write_file", "edit_file")]
+
+    # Collect all file paths touched by tools (from args AND results)
+    all_tool_files: set[str] = set()
+    for tc in tool_history:
+        args = tc.get("args", {})
+        for key in ("file_path", "path", "target_file", "directory"):
+            val = args.get(key, "")
+            if val:
+                all_tool_files.add(val.lower())
+                all_tool_files.add(os.path.basename(val).lower())
+        # Also scan tool results for file names (e.g. glob_files returns file lists)
+        result = str(tc.get("result", ""))
+        for file_match in re.finditer(r"[\w\-/]+\.\w+", result):
+            fname = file_match.group(0)
+            all_tool_files.add(fname.lower())
+
+    # 1. Check "I read X" claims
+    read_claims = re.findall(
+        r"(?:i\s+read|reading|examined?|inspected?|looked\s+at|checked|reviewed)\s+(?:the\s+)?(?:file\s+)?[`\"']?([^\s`\"'.]+\.\w+)",
+        content_lower,
+    )
+    for claimed_file in read_claims:
+        if not read_calls:
+            issues.append(
+                f"Claims to have read '{claimed_file}' but no read/search tool was called"
+            )
+        else:
+            file_found = any(claimed_file in str(tc.get("args", "")) for tc in read_calls)
+            if not file_found:
+                issues.append(
+                    f"Claims to have read '{claimed_file}' but it wasn't in read/search tool arguments"
+                )
+
+    # 2. Check "I created/wrote X" claims
+    write_claims = re.findall(
+        r"(?:i\s+(?:created|wrote|saved|added|generated|built|produced)|(?:created|wrote|saved|added|generated|built)\s+the\s+file)[\s]+[`\"']?([^\s`\"'.]+\.\w+)",
+        content_lower,
+    )
+    for claimed_file in write_claims:
+        if not write_calls:
+            issues.append(
+                f"Claims to have created '{claimed_file}' but no write_file/edit_file tool was called"
+            )
+
+    # 3. Check "tests pass" claims (expanded patterns)
+    test_claims = [
+        "all tests pass",
+        "tests pass",
+        "test passes",
+        "all tests passed",
+        "tests passed",
+        "test passed",
+        "all tests are passing",
+        "tests are passing",
+        "every test passes",
+        "all unit tests pass",
+        "test suite passes",
+        "tests run successfully",
+        "test results show",
+        "all assertions pass",
+    ]
+    if any(claim in content_lower for claim in test_claims):
+        if not shell_calls:
+            issues.append("Claims tests pass but no execute_shell tool was called")
+        else:
+            last_shell_result = shell_calls[-1].get("result", "").lower()
+            if "fail" in last_shell_result or "error" in last_shell_result:
+                issues.append("Claims tests pass but last shell execution shows failures")
+
+    # 4. Check "I fixed X" claims without edit_file
+    fix_claims = [
+        "fixed the",
+        "resolved the",
+        "patched the",
+        "corrected the",
+        "i fixed",
+        "i resolved",
+        "i patched",
+        "i corrected",
+        "the fix resolves",
+        "this fixes",
+        "this resolves",
+        "the issue is fixed",
+        "the bug is fixed",
+        "the error is fixed",
+    ]
+    if any(claim in content_lower for claim in fix_claims):
+        if not write_calls:
+            issues.append("Claims to have fixed something but no edit_file/write_file was called")
+
+    # 5. Check "I analyzed/inspected" claims without read tools
+    analyze_claims = [
+        "i analyzed",
+        "i examined",
+        "i inspected",
+        "i reviewed",
+        "after analyzing",
+        "upon inspection",
+        "looking at the code",
+        "examining the",
+        "reviewing the",
+    ]
+    if any(claim in content_lower for claim in analyze_claims):
+        if not read_calls:
+            issues.append("Claims to have analyzed/inspected but no read/search tool was called")
+
+    # 6. Check "I ran/executed" claims without execute_shell
+    exec_claims = [
+        "i ran the",
+        "i executed the",
+        "i ran a",
+        "i executed a",
+        "running the tests",
+        "executing the tests",
+        "i ran pytest",
+        "i ran npm",
+        "i ran cargo",
+        "the command succeeded",
+        "the output shows",
+    ]
+    if any(claim in content_lower for claim in exec_claims):
+        if not shell_calls:
+            issues.append(
+                "Claims to have run/executed something but no execute_shell tool was called"
+            )
+
+    # 7. Check "I searched/found" claims without grep/search tools
+    search_claims = [
+        "i searched for",
+        "i found that",
+        "searching revealed",
+        "grepping showed",
+        "grep shows",
+        "rg shows",
+        "i located",
+        "the search found",
+    ]
+    if any(claim in content_lower for claim in search_claims):
+        search_tools = {"grep_content", "grep", "rg", "ast_grep", "search_symbol"}
+        if not (search_tools & tools_called) and not read_calls:
+            issues.append("Claims to have searched/found something but no search tool was called")
+
+    # 8. Check file path claims against actual tool-touched files
+    path_claims = re.findall(
+        r"(?:in|from|at|to|into)\s+(?:the\s+)?(?:file\s+)?[`\"']?([^\s`\"'.]+\.(?:py|js|ts|go|rs|java|c|cpp|tsx|jsx))",
+        content_lower,
+    )
+    for claimed_path in path_claims:
+        if claimed_path not in all_tool_files and not os.path.exists(claimed_path):
+            # Only flag if it looks like a real file reference, not a common word
+            if "/" in claimed_path or len(claimed_path) > 10:
+                issues.append(f"References file '{claimed_path}' that was not accessed via tools")
+
+    # 9. Detect "the files you mentioned" / "you mentioned X" fabrication
+    #    when the user never actually mentioned specific files
+    user_mention_patterns = [
+        r"(?:the\s+)?(?:specific\s+)?files?\s+(?:you\s+)?(?:mentioned|said|referred\s+to|talked\s+about)",
+        r"you\s+(?:mentioned|said)\s+(?:the\s+)?(?:files?\s+)?[`\"']?([^\s`\"'.]+\.\w+)",
+        r"(?:files?\s+)?[`\"']([^\s`\"'.]+\.\w+)[`\"']\s+(?:and|that|you)",
+        r"(?:mentioned|said)\s+(?:the\s+)?(?:files?\s+)?[`\"']?([^\s`\"'.]+\.\w+)",
+    ]
+    for pat in user_mention_patterns:
+        for match in re.finditer(pat, content, re.IGNORECASE):
+            claimed_files = [match.group(1)] if match.lastindex and match.group(1) else []
+            # Extract snippet to the end of the sentence (look for period followed by space/newline/end)
+            sentence_end = -1
+            search_from = match.end()
+            while True:
+                dot_pos = content.find(".", search_from)
+                if dot_pos == -1:
+                    break
+                # Check if this is a sentence-ending period (followed by space, newline, or end)
+                after_dot = dot_pos + 1
+                if after_dot >= len(content) or content[after_dot] in (" ", "\n", "\r", "\t", ")"):
+                    sentence_end = dot_pos + 1
+                    break
+                search_from = dot_pos + 1
+            if sentence_end == -1:
+                sentence_end = min(match.end() + 200, len(content))
+            snippet = content[match.start() : sentence_end]
+            quoted_files = re.findall(r"[`\"']([^\s`\"'.]+\.\w+)[`\"']", snippet)
+            all_claimed = set(claimed_files) | set(quoted_files)
+            # Check if any of these files were found by tools
+            for cf in all_claimed:
+                if cf not in all_tool_files and not os.path.exists(cf):
+                    issue_msg = (
+                        f"Claims user mentioned '{cf}' but this file was not found via any tool"
+                    )
+                    if issue_msg not in issues:
+                        issues.append(issue_msg)
+
+    # 10. Detect listing specific files without using search/glob/read tools
+    #     Pattern: numbered list of .py/.js/etc files or bullet points with filenames
+    search_tools = {
+        "grep_content",
+        "grep",
+        "rg",
+        "ast_grep",
+        "search_symbol",
+        "glob_files",
+        "file_search",
+        "directory_scanner",
+    }
+    has_search = bool(search_tools & tools_called)
+    has_read = any(t in tools_called for t in ("read_file", "grep_content"))
+    if not has_search and not has_read:
+        # Look for patterns like "1. foo.py" or "- bar.js" or lists of filenames
+        file_listing_pattern = r"(?:^|\n)\s*(?:\d+\.\s*|[-*]\s*)[`\"']?([\w\-/]+\.\w+)[`\"']?"
+        file_listings = re.findall(file_listing_pattern, content)
+        if len(file_listings) >= 2:  # Listing 2+ specific files without tools is suspicious
+            issues.append(
+                f"Lists specific files ({', '.join(file_listings[:3])}) without using search/glob/read tools"
+            )
+
+    return issues
+
+
+def _strip_hallucinated_sentences(content: str, issues: list[str]) -> str:
+    """Remove sentences from content that contain hallucinated claims."""
+    if not content or not issues:
+        return content
+
+    # Extract file names mentioned in issues
+    hallucinated_files = set()
+    for issue in issues:
+        for match in re.finditer(r"'([^']+)'", issue):
+            val = match.group(1)
+            if "." in val:  # Likely a file name
+                hallucinated_files.add(val.lower())
+
+    # Split content into sentences
+    # Handle both . and newline as sentence boundaries
+    sentences = re.split(r"(?<=[.!?])\s+|\n{2,}", content)
+    cleaned = []
+    for sentence in sentences:
+        sentence_lower = sentence.lower()
+        is_hallucinated = False
+
+        # Check if sentence references hallucinated files
+        for hf in hallucinated_files:
+            if hf in sentence_lower:
+                is_hallucinated = True
+                break
+
+        # Check if sentence matches known fabrication patterns
+        _FAB_STRIP_PATTERNS = [
+            r"\bthe\s+(?:files?|code)\s+(?:you\s+)?(?:mentioned|said)\b",
+            r"\byou\s+(?:mentioned|said)\s+(?:the\s+)?(?:files?)\b",
+            r"\bthe\s+available\s+files?\s+(?:are|is|related)\b",
+            r"\brelated\s+files?\s+(?:are|is)\b",
+            r"\bthere\s+(?:are|is)\s+\d+\s+(?:files?|classes?|functions?|methods?)\b",
+            r"\bthe\s+(?:codebase|project|repo)\s+(?:has|contains?|includes?)\b",
+            r"\bbased\s+on\s+(?:my\s+)?(?:analysis|review)\b",
+            r"\bafter\s+(?:analyzing|reviewing|inspecting)\b",
+        ]
+        for pat in _FAB_STRIP_PATTERNS:
+            if re.search(pat, sentence_lower):
+                is_hallucinated = True
+                break
+
+        if not is_hallucinated:
+            cleaned.append(sentence)
+
+    return " ".join(cleaned)
+
+
+def _compute_confidence_score(
+    content: str,
+    tool_history: list,
+    files_created: list,
+    fabrication_issues: list,
+    code_issues: list,
+    claim_issues: list,
+) -> int:
+    """Compute a confidence score (0-100) for the response quality."""
+    score = 100
+
+    # Deductions for hallucination indicators
+    score -= len(fabrication_issues) * 15
+    score -= len(code_issues) * 10
+    score -= len(claim_issues) * 12
+
+    # Deductions for missing tool usage
+    if not tool_history:
+        score -= 20
+
+    # Deductions for very short responses (but not for simple chat)
+    if content and len(content.strip()) < 50:
+        score -= 15
+    elif content and len(content.strip()) < 100:
+        score -= 5
+
+    # Deductions for suspiciously long responses without tool evidence (overconfident rambling)
+    if content and len(content) > 5000 and not tool_history:
+        score -= 20
+
+    # Bonus for proper tool usage
+    if tool_history:
+        successful = sum(1 for t in tool_history if t.get("success", True))
+        total = len(tool_history)
+        if total > 0:
+            success_rate = successful / total
+            if success_rate >= 0.8:
+                score += 5
+            elif success_rate < 0.5:
+                score -= 10
+
+    # Bonus for file creation when appropriate
+    if files_created:
+        score += 5
+
+    # Bonus for tool diversity (used multiple different tools = better evidence)
+    if tool_history:
+        unique_tools = len(set(tc.get("tool", "") for tc in tool_history))
+        if unique_tools >= 3:
+            score += 5
+        elif unique_tools == 1 and len(tool_history) > 3:
+            score -= 5  # Repeated same tool without diversity is suspicious
+
+    # Deduction for excessive fabrication phrases
+    fabrication_count = sum(1 for issue in fabrication_issues if "Fabrication:" in issue)
+    if fabrication_count >= 3:
+        score -= 10  # Heavy penalty for multiple fabrication signals
+
+    return max(0, min(100, score))
 
 
 def execute_agent_task(
@@ -693,6 +1599,9 @@ def execute_agent_task(
         on_request_input: Called when a todo needs user input. Signature: (question: str) -> str
         pause_event: threading.Event to pause/resume execution. If provided and set, executor pauses.
     """
+    logger.info(
+        "execute_agent_task start: agent=%s, model=%s, task=%r", agent_role, model, task[:200]
+    )
     tools = _discover_tools()
 
     # --- Plugin: on_init hook (once per execution lifecycle) ---
@@ -711,10 +1620,10 @@ def execute_agent_task(
             if plugin.meta.enabled:
                 try:
                     plugin.on_init(_plugin_ctx)
-                except Exception:
-                    pass
-    except Exception:
-        pass
+                except Exception as e:
+                    log_exception(e, f"Plugin on_init failed for {plugin.meta.name}")
+    except Exception as e:
+        log_exception(e, "Failed to discover and initialize plugins")
 
     # --- Skill: discover matching skills for this task ---
     matched_skills = []
@@ -738,8 +1647,8 @@ def execute_agent_task(
                 custom_skills_context += f"\n\n{matched_skills_custom.to_prompt_context()}"
             elif not task_words.isdisjoint(cs_words | name_words):
                 custom_skills_context += f"\n\n{cs.to_prompt_context()}"
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Failed to discover and match skills")
 
     # --- Plugin: hook_user_message (transform/enrich the prompt) ---
     try:
@@ -754,8 +1663,8 @@ def execute_agent_task(
         }
         task = get_plugin_manager().hook_user_message(task, _hook_ctx)
         enhanced_task = task  # re-sync after plugin transformation
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Plugin hook_user_message failed")
 
     # Auto-resolve active model, key, and base_url if defaults or empty
     if not api_key or model == "openrouter/free":
@@ -773,8 +1682,8 @@ def execute_agent_task(
                 model = active_cfg["model"]
             if base_url is None:
                 base_url = active_cfg["base_url"]
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to resolve active LLM configuration")
 
     # Auto-detect base_url from model/provider if not provided
     if base_url is None:
@@ -819,7 +1728,8 @@ def execute_agent_task(
             available_tools=list(tools.keys()),
             session_id=session_id,
         )
-    except Exception:
+    except Exception as e:
+        log_exception(e, "Failed to assemble context")
         assembled = None
 
     # Detect existing project context (languages, frameworks, structure)
@@ -860,7 +1770,8 @@ def execute_agent_task(
                     ].confirmation_message = f"Please confirm: {task_plan.todos[i].description}"
             if on_todo_created:
                 on_todo_created(task_plan)
-        except Exception:
+        except Exception as e:
+            log_exception(e, "Failed to create task plan")
             task_plan = None
 
     # Auto-resolve specialist agent if default or generic agent was supplied
@@ -871,8 +1782,8 @@ def execute_agent_task(
             resolved = resolve_specialist_agent(task=task, cwd=cwd, default_agent=agent_role)
             if resolved and resolved != "general-assistant":
                 agent_role = resolved
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to resolve specialist agent")
 
     # Load agent profile metadata
     profile = _load_agent_profile(agent_role)
@@ -902,7 +1813,9 @@ def execute_agent_task(
         )
 
     # --- Skill: inject matched skill context into system prompt ---
-    if matched_skills and task_type != "chat":
+    # Skip heavy skill injection for lightweight tasks (chat, query)
+    _needs_heavy_context = task_type not in ("chat", "query")
+    if matched_skills and _needs_heavy_context:
         skill_sections = []
         for skill in matched_skills[:3]:  # Top 3 matching skills
             skill_sections.append(f"### Active Skill: {skill.name}\n{skill.description}")
@@ -919,11 +1832,11 @@ def execute_agent_task(
         )
 
     # --- Custom skill: inject SKILL.md instructions ---
-    if custom_skills_context and task_type != "chat":
+    if custom_skills_context and _needs_heavy_context:
         system_prompt += f"\n\n=== CUSTOM SKILL INSTRUCTIONS ===\n{custom_skills_context}"
 
     # --- Skill-based tool filtering: restrict tools to skill-defined subset ---
-    if matched_skills and task_type != "chat":
+    if matched_skills and _needs_heavy_context:
         # Union of all tools from matched skills
         skill_tool_names: set[str] = set()
         for skill in matched_skills:
@@ -944,11 +1857,11 @@ def execute_agent_task(
                 tools = filtered
 
     # Inject system-level enhancements (learning approach, known fixes, project instructions)
-    if assembled and task_type != "chat":
+    if assembled and _needs_heavy_context:
         system_enhancements = assembled.format_system_enhancements()
         if system_enhancements:
             system_prompt += f"\n\n{system_enhancements}"
-    elif task_type != "chat":
+    elif _needs_heavy_context:
         # Fallback to direct instructions / learning store lookup
         try:
             from sago.learning import get_learning_store
@@ -962,8 +1875,8 @@ def execute_agent_task(
                     f"{suggestion}\n"
                     f"Consider using a similar approach, but adapt to the current context."
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to load learning store suggestions")
 
         try:
             from sago.memory.project_instructions import get_project_instructions
@@ -972,8 +1885,8 @@ def execute_agent_task(
             instructions_prompt = pi.get_for_prompt()
             if instructions_prompt:
                 system_prompt += instructions_prompt
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to load project instructions")
 
     # State tracking
     tool_history: list[dict] = []
@@ -993,11 +1906,13 @@ def execute_agent_task(
         from sago.database import ToolUsageStore
 
         tool_usage_store = ToolUsageStore("simple_executor")
-    except Exception:
+    except Exception as e:
+        log_exception(e, "Failed to initialize ToolUsageStore")
         tool_usage_store = None
 
     # Build user message with rich reference data context (read-only)
-    if task_type == "chat":
+    # Skip heavy context for chat and lightweight query tasks
+    if task_type in ("chat", "query"):
         user_content = task
     elif assembled:
         context_block = assembled.format_user_context_block()
@@ -1019,7 +1934,11 @@ def execute_agent_task(
     ]
 
     # Build OpenAI function calling tool definitions
-    openai_tools = _build_openai_tools(tools)
+    # Skip tools for chat tasks to avoid Google API rate limits on tool-use quotas
+    if task_type == "chat":
+        openai_tools = []
+    else:
+        openai_tools = _build_openai_tools(tools)
 
     content = ""
 
@@ -1150,10 +2069,8 @@ def execute_agent_task(
             from sago.observability.tracing import record_marker
 
             record_marker("step", str(i), model=model)
-        except Exception:
-            pass
-
-        # Check if execution is paused (user input needed)
+        except Exception as e:
+            log_exception(e, "Failed to record observability trace marker")
         if pause_event and pause_event.is_set():
             if on_thinking:
                 on_thinking("Paused - waiting for user input...")
@@ -1192,11 +2109,14 @@ def execute_agent_task(
                         f"Rate limit hit for {provider_name}, backing off for {wait_sec:.1f}s..."
                     )
                 time.sleep(min(wait_sec, 60))
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to check token rate limit")
 
         try:
             temp = profile.get("temperature", 0.3) if profile else 0.3
+            # Clamp temperature: max 0.4 for tool tasks, 0.6 for chat
+            # Lower temperature = less hallucination
+            temp = min(temp, 0.4) if task_type != "chat" else min(temp, 0.6)
 
             # Use Google native SDK for gemini models
             if model.startswith("gemini"):
@@ -1334,7 +2254,8 @@ def execute_agent_task(
                     # calls, so guard against that.
                     try:
                         content = response.text or ""
-                    except Exception:
+                    except Exception as e:
+                        log_exception(e, "Failed to extract Gemini response text")
                         content = ""
                     if response.candidates:
                         for part in response.candidates[0].content.parts:
@@ -1357,6 +2278,7 @@ def execute_agent_task(
                         native_tool_calls = gemini_tool_calls
 
                 except ImportError:
+                    logger.error("google-genai SDK not installed")
                     return {
                         "success": False,
                         "error": "google-genai not installed. Run: pip install google-genai",
@@ -1402,8 +2324,15 @@ def execute_agent_task(
                     f"Model '{model}' not found. Try 'openrouter/free' or check available models."
                 )
             elif "insufficient" in error_msg.lower() or "credit" in error_msg.lower():
-                error_msg = f"Insufficient credits for model '{model}'. Add credits or use 'openrouter/free'."
+                error_msg = (
+                    f"Insufficient credits for model '{model}'. Add credits or use 'openrouter'."
+                )
 
+            logger.error(
+                "execute_agent_task failed at iteration %d: %s",
+                i + 1,
+                error_msg[:300],
+            )
             return {
                 "success": False,
                 "error": error_msg,
@@ -1485,10 +2414,8 @@ def execute_agent_task(
                     completion_tokens=response.usage.completion_tokens or 0,
                     model=model,
                 )
-            except Exception:
-                pass
-
-        # Append assistant message (with tool_calls if present)
+            except Exception as e:
+                log_exception(e, "Failed to record token usage in observability trace")
         assistant_msg: dict[str, Any] = {"role": "assistant", "content": content or None}
         if native_tool_calls:
             assistant_msg["tool_calls"] = [
@@ -1508,6 +2435,7 @@ def execute_agent_task(
         if not native_tool_calls:
             # Detect fabrication (claims to have done things without tool calls)
             fabrication_phrases = [
+                # File content claims
                 "the file contains",
                 "the contents are",
                 "i read the file",
@@ -1517,27 +2445,232 @@ def execute_agent_task(
                 "the code shows",
                 "i opened the file",
                 "the file shows",
+                "after reading the file",
+                "examining the file",
+                "reviewing the file",
+                "inspecting the file",
+                "checking the file",
+                "the file at",
+                "opening the file",
+                # File creation/modification claims
                 "successfully created",
                 "i saved the file",
                 "the file was created",
                 "i have created",
                 "i've created",
                 "done! the file",
+                "i've updated",
+                "i have updated",
+                "i've added",
+                "i have added",
+                "i've removed",
+                "i have removed",
+                "i've deleted",
+                "i have deleted",
+                "i've modified",
+                "i have modified",
+                "the updated file",
+                "the modified file",
+                "i've written",
+                "i have written",
+                "i went ahead and",
+                "i've gone ahead",
+                "just finished",
+                "i've already",
+                # Code content claims
+                "the code below",
+                "here's the code",
+                "here is the code",
+                "as shown in",
+                "as we can see",
+                "based on the file",
+                "after reviewing",
+                "the function returns",
+                "the class implements",
+                "the module provides",
+                "the implementation uses",
+                "the logic handles",
+                # Fix/analysis claims without tools
+                "the fix involves",
+                "the issue is",
+                "the problem is",
+                "the solution is",
+                "here's the fix",
+                "here is the fix",
+                "the error occurs because",
+                "the bug is in",
+                "fixed by",
+                "resolved by",
+                # Test/result claims
+                "i've tested",
+                "i have tested",
+                "all tests pass",
+                "the test passes",
+                "everything works",
+                "it's working",
+                "it works now",
+                "verified that",
+                "confirmed that",
+                "tested and",
+                "all checks pass",
+                "all linting passes",
+                "no test failures",
+                "every assertion passed",
+                "test coverage is",
+                # Structural/architectural claims without tools
+                "the codebase has",
+                "the project has",
+                "the repository has",
+                "the codebase uses",
+                "the project uses",
+                "the repository uses",
+                "there are",
+                "there is",
+                "based on my analysis",
+                "based on the analysis",
+                "after analyzing",
+                "after reviewing",
+                "after inspecting",
+                "looking at the code",
+                "looking at the implementation",
+                "from what i can see",
+                "from what we can see",
+                "the available files",
+                "the related files",
+                "the files you mentioned",
+                "the files in this",
+                # Recommendation/quality claims without tools
+                "i recommend",
+                "i suggest",
+                "the best approach",
+                "the optimal solution",
+                "this is more efficient",
+                "this is less efficient",
+                "no security vulnerabilities",
+                "all edge cases are handled",
+                # Action claims without tools
+                "let me walk you through",
+                "here's a summary",
+                "to summarize",
+                "in summary",
+                "i've analyzed",
+                "i have analyzed",
+                "i've inspected",
+                "i have inspected",
+                "i've reviewed",
+                "i have reviewed",
+                # Structural claims
+                "the project structure",
+                "the codebase has",
+                "the repository contains",
+                "there are \\d+ files",
+                "there are multiple",
+                # Hedging/subtle claims
+                "this should work",
+                "that should work",
+                "this will fix",
+                "this is the right approach",
+                "this is the correct",
+                "this looks correct",
+                "this looks good",
+                "works as expected",
+                "no breaking changes",
+                "trust me",
+                "rest assured",
+                "i'm confident",
+                "i'm sure that",
+                "no further issues",
             ]
             content_lower = content.lower() if content else ""
-            is_fabrication = not tool_history and any(
-                phrase in content_lower for phrase in fabrication_phrases
-            )
+
+            # Detect fabrication:
+            # 1. No tool calls at all + claims to have done things
+            # 2. Tool calls exist but response claims MORE than was actually done
+            is_fabrication = False
+            if not tool_history:
+                # No tools called at all - any fabrication phrase is suspicious
+                is_fabrication = any(phrase in content_lower for phrase in fabrication_phrases)
+            else:
+                # Tools were called - check if response claims actions beyond what tools did
+                tools_called = {tc.get("tool", "") for tc in tool_history}
+                # If agent claims file operations but no write/edit tool was called
+                file_claim_phrases = [
+                    "successfully created",
+                    "i saved the file",
+                    "the file was created",
+                    "i've created",
+                    "i have created",
+                    "i've updated",
+                    "i have updated",
+                    "i've modified",
+                    "i have modified",
+                    "done! the file",
+                    "i've written",
+                    "i have written",
+                ]
+                claims_file_ops = any(phrase in content_lower for phrase in file_claim_phrases)
+                made_file_ops = any(
+                    t in tools_called for t in ("write_file", "edit_file", "create_file")
+                )
+                if claims_file_ops and not made_file_ops:
+                    is_fabrication = True
+
+            # ---- Code-level hallucination detection ----
+            code_issues = _detect_code_hallucinations(content or "", tool_history)
+            claim_issues = _verify_claims_against_history(content or "", tool_history)
+
+            # Treat code-level issues as fabrication indicators
+            if code_issues or claim_issues:
+                is_fabrication = True
 
             if is_fabrication and i < max_iterations - 1:
+                logger.info("Fabrication detected at iteration %d, triggering retry", i + 1)
+                # Build specific guidance based on what was claimed
+                guidance = []
+                if any(
+                    p in content_lower
+                    for p in ["file contains", "i read", "the code shows", "i can see"]
+                ):
+                    guidance.append("Use read_file tool to actually read the file first.")
+                if any(
+                    p in content_lower
+                    for p in ["created", "saved", "written", "updated", "modified"]
+                ):
+                    guidance.append(
+                        "Use write_file or edit_file tool to actually create/modify the file."
+                    )
+                if any(p in content_lower for p in ["tested", "tests pass", "works"]):
+                    guidance.append("Use execute_shell tool to actually run the tests.")
+                if any(
+                    p in content_lower for p in ["files you mentioned", "you mentioned", "you said"]
+                ):
+                    guidance.append(
+                        "Do NOT claim the user mentioned specific files unless they literally said the names. "
+                        "Use glob_files or grep_content to discover files."
+                    )
+                if any(p in content_lower for p in ["the available files", "related files are"]):
+                    guidance.append(
+                        "Use glob_files or file_search tool to discover files before listing them."
+                    )
+                if code_issues:
+                    guidance.append(f"Code validation issues: {'; '.join(code_issues[:3])}")
+                if claim_issues:
+                    guidance.append(f"Claim verification issues: {'; '.join(claim_issues[:3])}")
+
+                guidance_text = (
+                    " ".join(guidance)
+                    if guidance
+                    else "Use the available tools to complete the task."
+                )
+
                 messages.append(
                     {
                         "role": "user",
                         "content": (
-                            "STOP. You are fabricating results without calling tools. "
-                            "You have NOT read any file. You have NOT created any file. "
-                            "You MUST use a tool to interact with the system. "
-                            "Do it NOW."
+                            "STOP. You are fabricating results without actually using tools. "
+                            f"{guidance_text} "
+                            "Do NOT claim file contents, file creation, or test results "
+                            "without actually calling the corresponding tool. Do it NOW."
                         ),
                     }
                 )
@@ -1579,14 +2712,127 @@ def execute_agent_task(
                 content = get_plugin_manager().hook_response(
                     content, {"task": task, "model": model}
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Plugin hook_response failed")
 
             # ---- Post-execution quality review ----
             quality_issues = _review_output_quality(content, files_created, tool_history)
 
+            # ---- Run hallucination detection on final response ----
+            final_fabrication_issues = _detect_code_hallucinations(content or "", tool_history)
+            final_claim_issues = _verify_claims_against_history(content or "", tool_history)
+
+            # Hedging/subtle claim detection
+            hedging_issues = []
+            try:
+                from sago.engine.hallucination_verifier import _detect_hedging_phrases
+
+                hedging_issues = _detect_hedging_phrases(content or "", tool_history)
+            except Exception as e:
+                log_exception(e, "Failed to detect hedging phrases")
+
+            # Tool result integrity check
+            integrity_issues = []
+            try:
+                from sago.engine.hallucination_verifier import get_tool_integrity
+
+                ti = get_tool_integrity()
+                for tc in tool_history:
+                    tc_issues = ti.check_after_plugin(
+                        tc.get("tool", ""), tc.get("args", {}), tc.get("result", "")
+                    )
+                    integrity_issues.extend(tc_issues)
+            except Exception as e:
+                log_exception(e, "Failed to run tool integrity check")
+
+            all_hallucination_issues = (
+                final_fabrication_issues + final_claim_issues + hedging_issues + integrity_issues
+            )
+
+            # If hallucinations detected in final response, try to get a corrected response
+            if all_hallucination_issues and i < max_iterations - 1:
+                logger.info(
+                    "Final hallucination check found %d issues at iteration %d, retrying",
+                    len(all_hallucination_issues),
+                    i + 1,
+                )
+                guidance_items = []
+                if any("user mentioned" in issue for issue in all_hallucination_issues):
+                    guidance_items.append(
+                        "Do NOT claim the user mentioned specific files unless they literally said the file names. "
+                        "If you're unsure what files exist, use glob_files or grep_content to search."
+                    )
+                if any("Lists specific files" in issue for issue in all_hallucination_issues):
+                    guidance_items.append(
+                        "Use glob_files or file_search tool to discover files before listing them."
+                    )
+                if any("Referenced file" in issue for issue in all_hallucination_issues):
+                    guidance_items.append(
+                        "Use read_file or glob_files to verify files exist before referencing them."
+                    )
+                guidance_text = (
+                    " ".join(guidance_items) if guidance_items else "Fix hallucination issues."
+                )
+
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": content,
+                    }
+                )
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "STOP. Your response contains hallucinated claims:\n"
+                            + "\n".join(f"- {issue}" for issue in all_hallucination_issues[:5])
+                            + f"\n\n{guidance_text}\n"
+                            "Revise your response to only state what you actually verified with tools."
+                        ),
+                    }
+                )
+                continue
+
+            # ---- Confidence scoring ----
+            confidence = _compute_confidence_score(
+                content or "",
+                tool_history,
+                files_created,
+                fabrication_issues=final_fabrication_issues,
+                code_issues=[],
+                claim_issues=final_claim_issues,
+            )
+            logger.debug(
+                "Hallucination verification: confidence=%d, fabrication=%d, claims=%d",
+                confidence,
+                len(final_fabrication_issues),
+                len(final_claim_issues),
+            )
+
+            # Determine if response should be flagged or rejected
+            has_hallucinations = bool(all_hallucination_issues)
+            low_confidence = confidence < 50
+
+            # Build warning message for user if hallucinations detected
+            hallucination_warning = ""
+            if has_hallucinations:
+                warning_lines = [
+                    "WARNING: This response may contain hallucinated claims:",
+                ]
+                for issue in all_hallucination_issues[:5]:
+                    warning_lines.append(f"  - {issue}")
+                warning_lines.append("Treat these claims with skepticism. Verify independently.")
+                hallucination_warning = "\n".join(warning_lines)
+
+            # If hallucinations detected on final iteration, strip them from output
+            if has_hallucinations and content:
+                # Remove sentences that contain hallucinated claims
+                cleaned_content = _strip_hallucinated_sentences(content, all_hallucination_issues)
+                if cleaned_content.strip():
+                    content = cleaned_content
+
             return {
-                "success": True,
+                "success": not (low_confidence and has_hallucinations),
                 "output": content,
                 "tool_calls": tool_history,
                 "iterations": i + 1,
@@ -1600,6 +2846,9 @@ def execute_agent_task(
                 "files_created": files_created,
                 "task_plan": task_plan.to_dict() if task_plan else None,
                 "quality_issues": quality_issues,
+                "confidence": confidence,
+                "hallucination_issues": all_hallucination_issues,
+                "hallucination_warning": hallucination_warning,
             }
 
         # ---- Execute native tool calls and return results as role:tool messages ----
@@ -1696,11 +2945,12 @@ def execute_agent_task(
                 from sago.plugins.base import get_plugin_manager
 
                 args = get_plugin_manager().hook_tool_call(name, args)
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Plugin hook_tool_call failed")
 
             if on_tool_call:
                 on_tool_call(name, args)
+            logger.debug("Tool call: %s, args=%s", name, {k: str(v)[:100] for k, v in args.items()})
 
             validation_error = _validate_tool_args(name, args)
             if validation_error:
@@ -1719,6 +2969,7 @@ def execute_agent_task(
             is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
             if is_error:
                 failed_calls.add(call_key)
+            logger.debug("Tool result: %s, success=%s, len=%d", name, not is_error, len(result_str))
 
             if name in ("write_file", "edit_file", "file_operations") and not is_error:
                 fp = (
@@ -1730,8 +2981,8 @@ def execute_agent_task(
                     from sago.engine.verifier import get_continuous_verifier
 
                     get_continuous_verifier().enqueue_files([fp] if fp else [])
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_exception(e, "Failed to enqueue file for continuous verification")
                 if fp and any(
                     fp.endswith(ext)
                     for ext in (
@@ -1754,8 +3005,8 @@ def execute_agent_task(
                         if not report.passed and report.issues:
                             feedback = report.to_prompt_feedback()
                             result_str = (result_str + "\n\n" + feedback)[:4000]
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log_exception(e, "Failed to run project verification on modified file")
 
             tool_history.append(
                 {"tool": name, "args": args, "result": result_str[:2000], "success": not is_error}
@@ -1770,10 +3021,8 @@ def execute_agent_task(
                         result=result_str[:1000],
                         success=not is_error,
                     )
-                except Exception:
-                    pass
-
-            if on_tool_result:
+                except Exception as e:
+                    log_exception(e, "Failed to log tool usage to store")
                 on_tool_result(name, args, result_str, not is_error)
 
             # --- Plugin: hook_tool_result (transform result after execution) ---
@@ -1781,8 +3030,17 @@ def execute_agent_task(
                 from sago.plugins.base import get_plugin_manager
 
                 result_str = str(get_plugin_manager().hook_tool_result(name, result_str))
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Plugin hook_tool_result failed")
+
+            # --- Tool result integrity check (plugin tamper detection) ---
+            try:
+                from sago.engine.hallucination_verifier import get_tool_integrity
+
+                integrity = get_tool_integrity()
+                integrity.record_original(name, args, result_str)
+            except Exception as e:
+                log_exception(e, "Failed to record tool result for integrity check")
 
             content = (
                 f"[ERROR] {name}:\n{result_str}\nTry a different approach."
@@ -1928,12 +3186,20 @@ def execute_agent_task(
                                     "content": "[PROGRESS] All steps completed. Provide final summary.",
                                 }
                             )
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Failed to update task plan progress")
 
         # Auto-compact if messages are getting too large
         if len(messages) > 40:
             messages = _compact_messages_if_needed(messages, max_tokens=80000)
+
+        logger.debug(
+            "Iteration %d complete: tools_used=%s, files_created=%d, messages=%d",
+            i + 1,
+            tools_used_in_iteration,
+            len(files_created),
+            len(messages),
+        )
 
     # Mark final todo as complete if plan exists
     if task_plan:
@@ -1948,8 +3214,8 @@ def execute_agent_task(
                     tm.complete_todo(task_plan.id, todo.id, result="Task completed")
             if on_todo_update:
                 on_todo_update(task_plan, current_todo_index, "completed")
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to mark remaining todos as complete")
 
         # === POST-EXECUTION: Test → Fix → Retry loop ===
     if files_created and on_thinking:
@@ -2013,6 +3279,34 @@ def execute_agent_task(
             fix_content = fix_message.content or ""
             if not fix_content and hasattr(fix_message, "reasoning") and fix_message.reasoning:
                 fix_content = fix_message.reasoning or ""
+
+            # Run hallucination detection on fix response
+            if fix_content:
+                fix_fab_issues = _detect_code_hallucinations(fix_content, tool_history)
+                fix_claim_issues = _verify_claims_against_history(fix_content, tool_history)
+                if fix_fab_issues or fix_claim_issues:
+                    # Add correction prompt if fix response contains hallucinations
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "content": fix_content,
+                        }
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "STOP. Your fix response contains hallucinated claims:\n"
+                                + "\n".join(
+                                    f"- {issue}"
+                                    for issue in (fix_fab_issues + fix_claim_issues)[:3]
+                                )
+                                + "\n\nUse actual tools (read_file, edit_file, execute_shell) to fix the tests. "
+                                "Do NOT claim tests pass without running them."
+                            ),
+                        }
+                    )
+                    continue
 
             if fix_message.tool_calls:
                 messages.append(
@@ -2086,48 +3380,62 @@ def execute_agent_task(
                 on_thinking(f"Fix attempt error: {type(e).__name__}: {e}")
             break
 
-    # Record learning from this execution
+    # Record learning from this execution (ONLY if no hallucinations and confidence is high)
     try:
         from sago.learning import get_learning_store
 
         ls = get_learning_store()
         task_type = _detect_task_type(task)
 
-        # Record success
-        successful_tools = [t["tool"] for t in tool_history if t.get("success")]
-        if successful_tools:
-            ls.record_success(
-                task_type, successful_tools, f"Used {', '.join(set(successful_tools[:5]))}"
-            )
+        # Only record success if the response was hallucination-free and confident
+        final_confidence = _compute_confidence_score(
+            content or "",
+            tool_history,
+            files_created,
+            fabrication_issues=[],
+            code_issues=[],
+            claim_issues=[],
+        )
+        final_hallucination_check = _detect_code_hallucinations(content or "", tool_history)
+        final_claim_check = _verify_claims_against_history(content or "", tool_history)
+        has_hallucinations = bool(final_hallucination_check or final_claim_check)
 
-        # Record tool effectiveness
-        for tool_record in tool_history:
-            ls.record_tool_effectiveness(tool_record["tool"], tool_record.get("success", False))
-
-        # Record language patterns if files were created
-        if files_created and project_context["languages"]:
-            for lang in project_context["languages"]:
-                ls.record_language_pattern(
-                    lang, "file_creation", f"Created {len(files_created)} files"
+        if final_confidence >= 70 and not has_hallucinations:
+            # Record success
+            successful_tools = [t["tool"] for t in tool_history if t.get("success")]
+            if successful_tools:
+                ls.record_success(
+                    task_type, successful_tools, f"Used {', '.join(set(successful_tools[:5]))}"
                 )
 
-        # Record error fixes if test fixes were applied
-        if test_fix_attempts > 0:
-            ls.record_success(
-                "test_fix",
-                ["edit_file", "write_file"],
-                f"Fixed tests in {test_fix_attempts} attempts",
-            )
-    except Exception:
-        pass
+            # Record tool effectiveness
+            for tool_record in tool_history:
+                ls.record_tool_effectiveness(tool_record["tool"], tool_record.get("success", False))
+
+            # Record language patterns if files were created
+            if files_created and project_context["languages"]:
+                for lang in project_context["languages"]:
+                    ls.record_language_pattern(
+                        lang, "file_creation", f"Created {len(files_created)} files"
+                    )
+
+            # Record error fixes if test fixes were applied
+            if test_fix_attempts > 0:
+                ls.record_success(
+                    "test_fix",
+                    ["edit_file", "write_file"],
+                    f"Fixed tests in {test_fix_attempts} attempts",
+                )
+    except Exception as e:
+        log_exception(e, "Failed to record learning from execution")
 
     # --- Plugin: hook_response (transform final response at end of execution) ---
     try:
         from sago.plugins.base import get_plugin_manager
 
         content = get_plugin_manager().hook_response(content, {"task": task, "model": model})
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Plugin hook_response failed on final response")
 
     # Get change summary
     change_summary = None
@@ -2136,8 +3444,8 @@ def execute_agent_task(
 
         tracker = get_change_tracker()
         change_summary = tracker.get_summary()
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Failed to get change summary from tracker")
 
     # Record token usage
     if total_tokens_in > 0 or total_tokens_out > 0:
@@ -2154,14 +3462,23 @@ def execute_agent_task(
                 metadata={"session_id": "simple_executor"},
             )
             tracker.save()
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to save token tracker")
 
     if tool_usage_store is not None:
         try:
             tool_usage_store.flush()
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to flush tool usage store")
+
+    logger.info(
+        "execute_agent_task complete: iterations=%d, tokens_in=%d, tokens_out=%d, files=%d, elapsed=%.1fs",
+        max_iterations + test_fix_attempts,
+        total_tokens_in,
+        total_tokens_out,
+        len(files_created),
+        time.time() - start_time,
+    )
 
     return {
         "success": True,
@@ -2179,4 +3496,12 @@ def execute_agent_task(
         "task_plan": task_plan.to_dict() if task_plan else None,
         "test_fixes_applied": test_fix_attempts,
         "change_summary": change_summary,
+        "confidence": _compute_confidence_score(
+            content or "",
+            tool_history,
+            files_created,
+            fabrication_issues=[],
+            code_issues=[],
+            claim_issues=[],
+        ),
     }

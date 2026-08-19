@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import logging
 import re
 import threading
 import time
@@ -12,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 from textual.widgets import Static
 
 from sago.tui.widgets import AgentStatus, get_task_manager
+
+logger = logging.getLogger("sago.tui.orchestrator")
 
 if TYPE_CHECKING:
     from sago.tui.app import SagoApp
@@ -23,6 +26,7 @@ class AgentOrchestrationMixin:
     """Mixin for multi-agent delegation, chaining, parallel execution, and approval flows."""
 
     def _process_delegation(self: SagoApp, agent_name: str, task: str) -> None:
+        logger.info("delegation requested: agent=%s task_len=%d", agent_name, len(task))
         self.is_thinking = True
         t = threading.Thread(
             target=self._process_delegation_thread, args=(agent_name, task), daemon=True
@@ -30,6 +34,7 @@ class AgentOrchestrationMixin:
         t.start()
 
     def _process_delegation_thread(self: SagoApp, agent_name: str, task: str) -> None:
+        logger.debug("delegation thread started: agent=%s", agent_name)
         tm = self._task_manager or get_task_manager()
         info = tm.create_task(agent_name, task)
         info.status = AgentStatus.RUNNING
@@ -47,8 +52,8 @@ class AgentOrchestrationMixin:
                 action=f"delegate -> @{agent_name}",
                 data={"agent": agent_name, "task": task},
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("dev tracer record failed (delegation start): %s", e)
 
         try:
             api_key = self._get_provider_api_key()
@@ -62,6 +67,7 @@ class AgentOrchestrationMixin:
 
             from sago.tools.file.spawn_agent import SpawnAgentTool
 
+            logger.debug("spawn_agent called: agent=%s task_len=%d", agent_name, len(task))
             tool = SpawnAgentTool()
             result = tool.run(task=task, agent_name=agent_name)
 
@@ -72,6 +78,13 @@ class AgentOrchestrationMixin:
                 or result.startswith("Error")
                 or result.startswith("Last error")
                 or "REJECTED" in result
+            )
+            logger.info(
+                "delegation complete: agent=%s dur_ms=%.1f result_len=%d error=%s",
+                agent_name,
+                dur_ms,
+                len(result),
+                result_is_error,
             )
             try:
                 from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
@@ -88,8 +101,8 @@ class AgentOrchestrationMixin:
                         "success": not result_is_error,
                     },
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("dev tracer record failed (delegation complete): %s", e)
 
             if result_is_error:
                 info.status = AgentStatus.FAILED
@@ -109,6 +122,7 @@ class AgentOrchestrationMixin:
             else:
                 self.call_from_thread(self._add_assistant_message, result, agent_name=agent_name)
         except Exception as e:
+            logger.error("delegation failed: agent=%s error=%s", agent_name, e, exc_info=True)
             dur_ms = (_time.time() - t0) * 1000
             try:
                 from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
@@ -121,8 +135,8 @@ class AgentOrchestrationMixin:
                     status="ERROR",
                     data={"agent": agent_name, "error": str(e)},
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("dev tracer record failed (delegation error): %s", e)
 
             info.status = AgentStatus.FAILED
             info.error = str(e)
@@ -133,6 +147,8 @@ class AgentOrchestrationMixin:
             self.is_thinking = False
 
     def _process_chain(self: SagoApp, chain_steps: list[list[str]], task: str) -> None:
+        step_summary = " -> ".join("+".join(s) for s in chain_steps)
+        logger.info("chain requested: steps=%s task_len=%d", step_summary, len(task))
         self.is_thinking = True
         t = threading.Thread(
             target=self._process_chain_thread, args=(chain_steps, task), daemon=True
@@ -140,6 +156,7 @@ class AgentOrchestrationMixin:
         t.start()
 
     def _process_chain_thread(self: SagoApp, chain_steps: list[list[str]], task: str) -> None:
+        logger.debug("chain thread started: %d steps", len(chain_steps))
         tm = self._task_manager or get_task_manager()
         flat_agents = [a for step in chain_steps for a in step]
         self.call_from_thread(
@@ -183,6 +200,7 @@ class AgentOrchestrationMixin:
                 if len(allowed_agents) == 1:
                     # Sequential single agent
                     agent = allowed_agents[0]
+                    logger.debug("chain step %d: sequential agent=%s", step_idx + 1, agent)
                     info = tm.create_task(agent, f"Step {step_idx + 1}: {task[:50]}")
                     info.status = AgentStatus.RUNNING
                     self.call_from_thread(self._update_dashboard)
@@ -202,8 +220,8 @@ class AgentOrchestrationMixin:
                                 "task": str(current_input)[:200],
                             },
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("dev tracer record failed (chain step routing): %s", e)
 
                     context_str = (
                         handoff_ctx.get_compact_handoff_prompt(agent)
@@ -225,10 +243,18 @@ class AgentOrchestrationMixin:
                             status="OK" if is_success else "ERROR",
                             data={"agent": agent, "result_preview": str(result)[:300]},
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("dev tracer record failed (chain step complete): %s", e)
 
                     handoff_ctx.add_result(agent, result, success=is_success)
+                    logger.info(
+                        "chain step %d result: agent=%s dur_ms=%.1f success=%s result_len=%d",
+                        step_idx + 1,
+                        agent,
+                        dur_ms,
+                        is_success,
+                        len(result),
+                    )
                     if "Files created/modified:" in result:
                         files_line = result.split("Files created/modified:")[1].split("\n")[0]
                         for f in files_line.split(","):
@@ -243,6 +269,11 @@ class AgentOrchestrationMixin:
                     current_input = result
                 else:
                     # Parallel agents
+                    logger.info(
+                        "chain step %d: parallel agents=%s",
+                        step_idx + 1,
+                        allowed_agents,
+                    )
                     self.call_from_thread(
                         self._update_spinner,
                         f"Step {step_idx + 1}: {len(allowed_agents)} agents in parallel",
@@ -292,10 +323,17 @@ class AgentOrchestrationMixin:
                             merged_parts.append(f"[{agent}] Error: {errors[agent]}")
 
                     current_input = "\n\n".join(merged_parts)
+                    logger.debug(
+                        "chain step %d parallel merge: ok=%d errors=%d",
+                        step_idx + 1,
+                        len(results),
+                        len(errors),
+                    )
 
                     for agent in allowed_agents:
                         guard.exit(agent)
 
+            logger.info("chain completed: %d steps", len(chain_steps))
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(
                 self._add_assistant_message,
@@ -303,6 +341,7 @@ class AgentOrchestrationMixin:
                 agent_name=flat_agents[-1] if flat_agents else "chain",
             )
         except Exception as e:
+            logger.error("chain failed: error=%s", e, exc_info=True)
             try:
                 from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
@@ -313,14 +352,15 @@ class AgentOrchestrationMixin:
                     status="ERROR",
                     data={"error": str(e), "error_type": type(e).__name__},
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("dev tracer record failed (chain failed): %s", exc)
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_error_inline, f"Chain error: {e}")
         finally:
             self.is_thinking = False
 
     def _process_orchestration(self: SagoApp, task: str) -> None:
+        logger.info("orchestration requested: task_len=%d", len(task))
         self.is_thinking = True
         t = threading.Thread(target=self._process_orchestration_thread, args=(task,), daemon=True)
         t.start()
@@ -354,24 +394,40 @@ class AgentOrchestrationMixin:
                 ]
             )
 
+            system_prompt = (
+                "You are a task orchestrator. Analyze the task and break it into steps.\n"
+                "For each step, specify which agent should handle it.\n"
+                'Reply with a JSON list of steps: [{"agent": "agent-name", "task": "what to do"}]\n\n'
+                f"Available agents:\n{agent_list_str}"
+            )
+            prompt_len = len(system_prompt) + len(task)
+            logger.info(
+                "planning LLM call: model=%s prompt_len=%d agent_count=%d",
+                self.current_model,
+                prompt_len,
+                len(agents),
+            )
+
             try:
                 response = client.chat.completions.create(
                     model=self.current_model,
                     messages=[
-                        {
-                            "role": "system",
-                            "content": (
-                                "You are a task orchestrator. Analyze the task and break it into steps.\n"
-                                "For each step, specify which agent should handle it.\n"
-                                'Reply with a JSON list of steps: [{"agent": "agent-name", "task": "what to do"}]\n\n'
-                                f"Available agents:\n{agent_list_str}"
-                            ),
-                        },
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": task},
                     ],
                     max_tokens=1024,
                 )
+                plan_text = response.choices[0].message.content or "[]"
+                logger.info(
+                    "planning LLM response: model=%s response_len=%d finish_reason=%s",
+                    self.current_model,
+                    len(plan_text),
+                    response.choices[0].finish_reason if response.choices else "unknown",
+                )
             except Exception as api_err:
+                logger.error(
+                    "planning LLM call failed: model=%s error=%s", self.current_model, api_err
+                )
                 self.call_from_thread(self._hide_spinner)
                 self.call_from_thread(
                     self._add_error_inline,
@@ -379,7 +435,6 @@ class AgentOrchestrationMixin:
                 )
                 return
 
-            plan_text = response.choices[0].message.content or "[]"
             try:
                 json_match = re.search(r"\[.*\]", plan_text, re.DOTALL)
                 if json_match:
@@ -387,7 +442,17 @@ class AgentOrchestrationMixin:
                 else:
                     plan = [{"agent": "python-engineer", "task": task}]
             except json.JSONDecodeError:
+                logger.debug("plan JSON parse failed, falling back to python-engineer")
                 plan = [{"agent": "python-engineer", "task": task}]
+
+            logger.debug("plan parsed: %d steps", len(plan))
+            for i, step in enumerate(plan):
+                logger.debug(
+                    "plan step %d: agent=%s task=%s",
+                    i + 1,
+                    step.get("agent", "python-engineer"),
+                    step.get("task", "")[:80],
+                )
 
             # Show plan and ask for confirmation
             plan_lines = []
@@ -407,6 +472,7 @@ class AgentOrchestrationMixin:
             self.pending_orchestration = {"task": task, "plan": plan}
 
         except Exception as e:
+            logger.error("orchestration planning failed: error=%s", e, exc_info=True)
             try:
                 from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
@@ -417,8 +483,8 @@ class AgentOrchestrationMixin:
                     status="ERROR",
                     data={"error": str(e), "error_type": type(e).__name__, "task": task[:200]},
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("dev tracer record failed (orchestration plan failed): %s", exc)
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_error_inline, f"Orchestration error: {e}")
         finally:
@@ -426,6 +492,7 @@ class AgentOrchestrationMixin:
 
     def _execute_orchestration_plan(self: SagoApp, plan: list[dict]) -> None:
         """Execute an approved orchestration plan — dispatches to background thread."""
+        logger.info("plan execution started: %d steps", len(plan))
         self.is_thinking = True
         self._show_spinner(f"Executing {len(plan)} steps...")
         t = threading.Thread(
@@ -459,6 +526,9 @@ class AgentOrchestrationMixin:
                     continue
 
                 guard.enter(agent)
+                logger.debug(
+                    "plan step %d/%d: agent=%s task=%s", i + 1, len(plan), agent, step_task[:80]
+                )
                 self.call_from_thread(self._update_spinner, f"Step {i + 1}/{len(plan)}: {agent}")
 
                 # Build structured context from previous steps
@@ -473,6 +543,14 @@ class AgentOrchestrationMixin:
                     result.startswith("Error")
                     or result.startswith("Last error")
                     or "REJECTED" in result
+                )
+                logger.info(
+                    "plan step %d/%d result: agent=%s success=%s result_len=%d",
+                    i + 1,
+                    len(plan),
+                    agent,
+                    is_success,
+                    len(result),
                 )
                 handoff_ctx.add_result(agent, result, success=is_success)
 
@@ -494,8 +572,8 @@ class AgentOrchestrationMixin:
                             "result_preview": result[:300],
                         },
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("dev tracer record failed (orchestrate step %d): %s", i + 1, exc)
 
                 # Extract files created
                 if "Files created/modified:" in result:
@@ -508,10 +586,12 @@ class AgentOrchestrationMixin:
                 results.append(f"**{agent}**: {result[:500]}")
                 guard.exit(agent)
 
+            logger.info("plan execution completed: %d steps", len(plan))
             self.call_from_thread(self._hide_spinner)
             final = f"Orchestration complete ({len(plan)} steps):\n\n" + "\n\n".join(results)
             self.call_from_thread(self._add_assistant_message, final)
         except Exception as e:
+            logger.error("plan execution failed: error=%s", e, exc_info=True)
             try:
                 from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
@@ -522,8 +602,8 @@ class AgentOrchestrationMixin:
                     status="ERROR",
                     data={"error": str(e), "error_type": type(e).__name__},
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("dev tracer record failed (orchestration failed): %s", exc)
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_error_inline, f"Execution error: {e}")
         finally:
@@ -531,12 +611,14 @@ class AgentOrchestrationMixin:
 
     def _process_parallel(self: SagoApp, agents: list[str], task: str) -> None:
         """Run multiple agents in parallel on the same task."""
+        logger.info("parallel requested: agents=%s task_len=%d", agents, len(task))
         self.is_thinking = True
         t = threading.Thread(target=self._process_parallel_thread, args=(agents, task), daemon=True)
         t.start()
 
     def _process_parallel_thread(self: SagoApp, agents: list[str], task: str) -> None:
         """Runs in a background thread."""
+        logger.info("parallel thread started: agents=%s", agents)
         tm = self._task_manager or get_task_manager()
 
         # Create task entries for each agent
@@ -624,6 +706,7 @@ class AgentOrchestrationMixin:
                         "success": False,
                     }
 
+            logger.info("parallel execution starting: %d agents", len(agents))
             # Execute all agents in parallel using ThreadPoolExecutor
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(agents)) as executor:
                 futures = {}
@@ -647,6 +730,13 @@ class AgentOrchestrationMixin:
             fail = len(results) - ok
             total_time = sum(r["elapsed"] for r in results)
             max_time = max(r["elapsed"] for r in results) if results else 0
+            logger.info(
+                "parallel completed: ok=%d fail=%d wall_time=%.1fs combined=%.1fs",
+                ok,
+                fail,
+                max_time,
+                total_time,
+            )
             self.call_from_thread(
                 self._add_system_message,
                 f"Parallel complete: {ok} ok, {fail} failed | "
@@ -654,6 +744,7 @@ class AgentOrchestrationMixin:
             )
 
         except Exception as e:
+            logger.error("parallel execution failed: error=%s", e, exc_info=True)
             self.call_from_thread(self._hide_parallel_bar)
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_error_inline, f"Parallel error: {e}")
@@ -686,8 +777,8 @@ class AgentOrchestrationMixin:
             safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", agent_name)
             node = self.query_one(f"#pagent-{safe_id}", Static)
             node.update(f"{agent_name}: {status_text}")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("parallel agent status update failed for %s: %s", agent_name, exc)
 
     def _hide_parallel_bar(self: SagoApp) -> None:
         """Hide the parallel agent status bar."""

@@ -12,6 +12,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Collapsible, Static
 
 from sago.tui.widgets import AgentStatus, get_agent_color
+from sago.utils.safe import log_exception
 
 if TYPE_CHECKING:
     from sago.tui.app import SagoApp
@@ -19,7 +20,11 @@ if TYPE_CHECKING:
 
 def _render_markdown(content: str) -> str:
     """Format markdown content cleanly into Rich terminal markup."""
-    text = content
+    from rich.markup import escape as _escape
+
+    # Escape any Rich markup in the raw content first to prevent LLM output
+    # from being interpreted as style tags (e.g. [c8caa51e] -> \[c8caa51e\])
+    text = _escape(content)
 
     # Headers: ### text -> [bold yellow]text[/bold yellow]
     text = re.sub(r"^###\s+(.+)$", r"[bold yellow]\1[/bold yellow]", text, flags=re.MULTILINE)
@@ -44,6 +49,18 @@ def _render_markdown(content: str) -> str:
     text = re.sub(r"^(\s*)(\d+\.)\s+", r"\1[bold cyan]\2[/bold cyan] ", text, flags=re.MULTILINE)
 
     return text
+
+
+def _render_markdown_rich(content: str) -> Any:
+    """Render markdown content as a Rich renderable (for proper formatting).
+
+    Escapes Rich markup in the raw content first to prevent LLM output
+    from being interpreted as style tags, then renders as Markdown.
+    """
+    from rich.markdown import Markdown as RichMarkdown
+
+    text = escape(content)
+    return RichMarkdown(text)
 
 
 def create_collapsible(
@@ -91,6 +108,7 @@ class ExchangeTurnCard(Vertical):
         self.meta_info = meta_info
         self.response_text: str = ""
         self.is_turn_collapsed = False
+        self._response_container: Vertical | None = None
 
     def compose(self):
         preview = self.prompt.replace("\n", " ").strip()
@@ -103,16 +121,21 @@ class ExchangeTurnCard(Vertical):
             markup=True,
         )
         with Vertical(classes="exchange-body"):
-            rendered_prompt = _render_markdown(self.prompt)
+            from rich.markdown import Markdown as RichMarkdown
+
             body_header = (
                 "User Prompt:" if self.card_type == "user" else f"{self.tag_label.title()} Target:"
             )
             yield Static(
-                f"[bold {self.tag_color}]{body_header}[/bold {self.tag_color}]\n{rendered_prompt}",
-                classes="exchange-user-prompt",
+                f"[bold {self.tag_color}]{body_header}[/bold {self.tag_color}]",
+                classes="exchange-user-prompt-header",
                 markup=True,
             )
+            yield Static(RichMarkdown(self.prompt), classes="exchange-user-prompt markdown-body")
             yield Static("─" * 40, classes="exchange-divider", markup=False)
+            # Response container - assistant messages mount here
+            self._response_container = Vertical(classes="exchange-response")
+            yield self._response_container
 
     @on(events.Click, ".exchange-prompt-header")
     def on_header_clicked(self, event: events.Click) -> None:
@@ -142,15 +165,16 @@ class ExchangeTurnCard(Vertical):
                 hdr.update(
                     f"[bold {self.tag_color}]{icon} {self.tag_label}[/bold {self.tag_color}]{meta_str}  {escape(title_snippet)}"
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "toggle exchange turn collapse")
 
     def mount_child(self, widget: Any) -> None:
         """Mount child widget inside exchange body."""
         try:
             body = self.query_one(".exchange-body")
             body.mount(widget)
-        except Exception:
+        except Exception as e:
+            log_exception(e, "fallback mount exchange turn widget")
             self.mount(widget)
 
 
@@ -194,8 +218,8 @@ class CollapsibleOutputCard(Vertical):
             safe_title = escape(self.card_title)
             icon = "▶" if self.is_collapsed else "▼"
             hdr.update(f"[dim]{icon}[/dim]  {safe_title}")
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "toggle collapsible output card")
 
 
 class ShellEscapeCard(Vertical):
@@ -232,8 +256,8 @@ class ShellEscapeCard(Vertical):
             hdr.update(
                 f"[dim]{icon}[/dim]  [bold white]$ {escape(self.command)}[/bold white]  {self._status_tag}"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "toggle shell escape card collapse")
 
     def update_result(self, output: str, returncode: int, duration_s: float) -> None:
         try:
@@ -250,8 +274,8 @@ class ShellEscapeCard(Vertical):
             )
             clean_out = output.strip() if output.strip() else "[dim](no output)[/dim]"
             body.update(clean_out)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "update shell escape card result")
 
 
 class UIHelpers:
@@ -262,7 +286,7 @@ class UIHelpers:
         self.messages.append({"role": "user", "content": content})
         self._save_message("user", content)
 
-        # Synthesize smart one-liner session title
+        # Synthesize smart one-liner session title (only for new sessions without a title)
         from sago.engine.prompt_enhancer import generate_session_title
 
         current_title = getattr(self, "current_session_title", "")
@@ -274,8 +298,8 @@ class UIHelpers:
                 s = Session(self.current_session_id)
                 s.update(title=self.current_session_title)
                 s.close()
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "update session title in database")
 
         # Create unified ExchangeTurnCard
         turn_card = ExchangeTurnCard(prompt=content, card_type="user")
@@ -367,10 +391,13 @@ class UIHelpers:
         target_card = getattr(self, "_active_exchange_card", None)
 
         def _mount_element(elem: Any) -> None:
-            if target_card is not None and hasattr(target_card, "mount_child"):
-                target_card.mount_child(elem)
-            elif target_card is not None:
-                target_card.mount(elem)
+            if target_card is not None:
+                # Use stored reference to response container
+                resp = getattr(target_card, "_response_container", None)
+                if resp is not None:
+                    resp.mount(elem)
+                else:
+                    target_card.mount(elem)
             else:
                 self.query_one("#messages").mount(elem)
 
@@ -405,22 +432,31 @@ class UIHelpers:
             agent_prefix = "[bold green][SAGO][/bold green]\n"
 
         if "```" not in display:
-            rendered = _render_markdown(display)
+            # Use Rich Markdown renderer for proper formatting
+            from rich.markdown import Markdown as RichMarkdown
+
+            md = RichMarkdown(display)
             _mount_element(
-                Static(f"{agent_prefix}{rendered}", classes="exchange-assistant", markup=True)
+                Static(agent_prefix, classes="exchange-assistant agent-tag", markup=True)
             )
+            _mount_element(Static(md, classes="exchange-assistant markdown-body"))
         else:
             parts = display.split("```")
             first_text = True
             for i, part in enumerate(parts):
                 if i % 2 == 0:
-                    rendered = _render_markdown(part.strip())
-                    if rendered.strip():
+                    text_content = part.strip()
+                    if text_content:
                         prefix = agent_prefix if first_text else ""
                         first_text = False
-                        _mount_element(
-                            Static(f"{prefix}{rendered}", classes="exchange-assistant", markup=True)
-                        )
+                        if prefix:
+                            _mount_element(
+                                Static(prefix, classes="exchange-assistant agent-tag", markup=True)
+                            )
+                        from rich.markdown import Markdown as RichMarkdown
+
+                        md = RichMarkdown(text_content)
+                        _mount_element(Static(md, classes="exchange-assistant markdown-body"))
                 else:
                     lines = part.split("\n", 1)
                     lang = lines[0].strip() if len(lines) > 1 else "text"
@@ -445,7 +481,8 @@ class UIHelpers:
                                 collapsed=False,
                             )
                         )
-                    except Exception:
+                    except Exception as e:
+                        log_exception(e, "render code syntax highlighting")
                         _mount_element(
                             Collapsible(
                                 Static(code, classes="code-block", markup=False),
@@ -537,8 +574,8 @@ class UIHelpers:
                     args=(self.current_session_id, list(self.messages), Path.cwd()),
                     daemon=True,
                 ).start()
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "export session dev artifacts in background")
 
         # Turn finished -> clear active exchange card
         self._active_exchange_card = None
@@ -562,10 +599,12 @@ class UIHelpers:
 
     def _add_plan_card(self: SagoApp, plan_text: str, step_count: int = 0) -> None:
         """Add a dedicated collapsible plan card inside active turn box."""
+        from rich.markup import escape as _escape
+
         target_card = getattr(self, "_active_exchange_card", None)
         title = f"● Execution Plan ({step_count} steps)" if step_count else "● Execution Plan"
         card = Collapsible(
-            Static(plan_text, classes="plan-text", markup=True),
+            Static(_escape(plan_text), classes="plan-text", markup=True),
             title=title,
             collapsed=True,
         )
@@ -581,20 +620,27 @@ class UIHelpers:
         """Add a message with explicit agent tagging."""
         self._add_assistant_message(content, agent_name=agent_name)
 
-    def _add_system_message(self: SagoApp, content: str) -> None:
+    def _add_system_message(self: SagoApp, content: str | Any) -> None:
         self._hide_welcome_screen()
         from rich.text import Text
 
-        clean_text = content.strip()
-        if clean_text.startswith("[") or "●" in clean_text or "⚡" in clean_text:
-            text_str = clean_text
+        if isinstance(content, Text):
+            renderable = content
         else:
-            text_str = f"[dim yellow]●[/dim yellow] [dim]{clean_text}[/dim]"
+            clean_text = content.strip()
+            has_prefix = (
+                clean_text.startswith("⚡")
+                or clean_text.startswith("●")
+                or clean_text.startswith("\\[")
+                or clean_text.startswith("[STOP]")
+            )
 
-        try:
-            renderable = Text.from_markup(text_str)
-        except Exception:
-            renderable = Text(clean_text)
+            if has_prefix:
+                renderable = Text.from_markup(clean_text)
+            else:
+                renderable = Text()
+                renderable.append("● ", style="dim yellow")
+                renderable.append_text(Text.from_markup(clean_text, style="dim"))
 
         self.query_one("#messages").mount(
             Static(
@@ -644,19 +690,23 @@ class UIHelpers:
     def _add_tool_call(
         self: SagoApp, tool_name: str, args: dict, result: str, success: bool = True
     ) -> None:
+        from rich.markup import escape as _escape
+
         if not hasattr(self, "session_tool_calls"):
             self.session_tool_calls = []
         self.session_tool_calls.append({"tool": tool_name, "success": success})
 
         status_tag = "[bold green]● OK[/bold green]" if success else "[bold red]✗ FAILED[/bold red]"
-        title = f"{status_tag} Tool: [bold cyan]{tool_name}[/bold cyan]"
+        title = f"{status_tag} Tool: [bold cyan]{_escape(tool_name)}[/bold cyan]"
 
         param_lines = []
         for k, v in args.items():
             val_str = str(v)
             if len(val_str) > 300:
                 val_str = val_str[:300] + "..."
-            param_lines.append(f"  [bold cyan]{k}[/bold cyan]: [white]{val_str}[/white]")
+            param_lines.append(
+                f"  [bold cyan]{_escape(k)}[/bold cyan]: [white]{_escape(val_str)}[/white]"
+            )
         args_str = "\n".join(param_lines) if param_lines else "  [dim](no parameters)[/dim]"
 
         preview_res = result[:2000] if result else "(empty)"
@@ -698,18 +748,22 @@ class UIHelpers:
             parts = result.split("```")
             for i, part in enumerate(parts):
                 if i % 2 == 0:
-                    rendered = _render_markdown(part.strip())
-                    if rendered.strip():
+                    text_content = part.strip()
+                    if text_content:
+                        from rich.markdown import Markdown as RichMarkdown
+
+                        md = RichMarkdown(text_content)
                         if i == 0:
                             container.mount(
                                 Static(
-                                    f"{header}\n\n{rendered}",
-                                    classes="msg-assistant",
+                                    header,
+                                    classes="msg-assistant agent-tag",
                                     markup=True,
                                 )
                             )
+                            container.mount(Static(md, classes="msg-assistant markdown-body"))
                         else:
-                            container.mount(Static(rendered, classes="msg-assistant", markup=True))
+                            container.mount(Static(md, classes="msg-assistant markdown-body"))
                 else:
                     lines = part.split("\n", 1)
                     lang = lines[0].strip() if len(lines) > 1 else ""
@@ -731,7 +785,8 @@ class UIHelpers:
                                     collapsed=False,
                                 )
                             )
-                        except Exception:
+                        except Exception as e:
+                            log_exception(e, "render code syntax in parallel result")
                             container.mount(
                                 Collapsible(
                                     Static(code, classes="code-block", markup=False),
@@ -740,8 +795,11 @@ class UIHelpers:
                                 )
                             )
         else:
-            rendered = _render_markdown(result)
-            container.mount(Static(f"{header}\n\n{rendered}", classes="msg-assistant", markup=True))
+            from rich.markdown import Markdown as RichMarkdown
+
+            md = RichMarkdown(result)
+            container.mount(Static(header, classes="msg-assistant agent-tag", markup=True))
+            container.mount(Static(md, classes="msg-assistant markdown-body"))
         container.scroll_end()
 
     def _add_summary(
@@ -864,12 +922,12 @@ class UIHelpers:
                         )
                 else:
                     lines.append("  [dim]No running tasks[/dim]")
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "fetch active tasks for dashboard")
 
             content_widget.update("\n".join(lines))
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "update agent dashboard")
 
     def _render_agent_entry(self, entry: Vertical, info: Any) -> None:
         """Render a single agent entry into a container."""
@@ -897,6 +955,9 @@ class UIHelpers:
             entry.mount(Static(f"  {info.elapsed:.1f}s", classes="agent-tools", markup=False))
 
     def _save_message(self: SagoApp, role: str, content: str, metadata: dict | None = None) -> None:
+        # Skip saving during session load
+        if getattr(self, "_loading_session", False):
+            return
         if self.current_session_id and self.current_session_id != "local":
             try:
                 from sago.database import MessageStore, Session
@@ -922,7 +983,7 @@ class UIHelpers:
                         ):
                             prompt_title = content.strip().split("\n")[0][:45]
                             s.update(title=prompt_title)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                    except Exception as e:
+                        log_exception(e, "update session title on user message")
+            except Exception as e:
+                log_exception(e, "save message to database")

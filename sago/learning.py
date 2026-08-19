@@ -7,12 +7,15 @@ to help the agent grow smarter over time.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from typing import Any
 
 from sago.paths import get_sago_home
 from sago.utils.errors import log_error
+
+logger = logging.getLogger("sago.learning")
 
 
 class LearningStore:
@@ -26,9 +29,13 @@ class LearningStore:
     def _load(self) -> dict[str, Any]:
         if self._path.exists():
             try:
+                logger.debug("Loading learning store from %s", self._path)
                 return json.loads(self._path.read_text())
             except Exception as e:
                 log_error("Failed to load learning store", e)
+                logger.error("Failed to load learning store: %s", e)
+        else:
+            logger.debug("No existing learning store, using defaults")
         return {
             "successful_patterns": {},
             "failed_patterns": {},
@@ -41,12 +48,15 @@ class LearningStore:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(json.dumps(self._data, indent=2, default=str))
+            logger.debug("Saved learning store to %s", self._path)
         except Exception as e:
             log_error("Failed to save learning store", e)
+            logger.error("Failed to save learning store: %s", e)
 
     def record_success(self, task_type: str, tools_used: list[str], approach: str) -> None:
         """Record a successful approach for a task type."""
         with self._lock:
+            logger.info("Recording success: task_type=%s, tools=%s", task_type, tools_used)
             if task_type not in self._data["successful_patterns"]:
                 self._data["successful_patterns"][task_type] = []
             self._data["successful_patterns"][task_type].append(
@@ -65,6 +75,7 @@ class LearningStore:
     def record_failure(self, task_type: str, error: str, context: str = "") -> None:
         """Record a failure to learn from."""
         with self._lock:
+            logger.info("Recording failure: task_type=%s, error=%s", task_type, error[:100])
             if task_type not in self._data["failed_patterns"]:
                 self._data["failed_patterns"][task_type] = []
             self._data["failed_patterns"][task_type].append(
@@ -83,6 +94,7 @@ class LearningStore:
         """Record how an error was fixed."""
         with self._lock:
             key = error_pattern[:100]
+            logger.info("Recording error fix: pattern=%s", key)
             self._data["error_fixes"][key] = {
                 "fix": fix_approach[:500],
                 "timestamp": time.time(),
@@ -133,7 +145,9 @@ class LearningStore:
         with self._lock:
             for key, fix_data in self._data["error_fixes"].items():
                 if key.lower() in error.lower():
+                    logger.info("Known fix found for error pattern: %s", key)
                     return fix_data["fix"]
+            logger.debug("No known fix for error: %s", error[:100])
             return None
 
     def get_tool_stats(self) -> dict[str, dict]:
@@ -158,9 +172,13 @@ class LearningStore:
         """Suggest an approach based on past successes."""
         successes = self.get_successful_approaches(task_type)
         if not successes:
+            logger.debug("No past successes for task_type=%s", task_type)
             return None
         for success in reversed(successes):
             if any(t in available_tools for t in success["tools"]):
+                logger.info(
+                    "Suggested approach for task_type=%s: %s", task_type, success["approach"][:100]
+                )
                 return success["approach"]
         return None
 

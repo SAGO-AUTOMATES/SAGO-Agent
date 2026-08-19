@@ -151,6 +151,11 @@ Screen { background: #0a0d12; }
     padding: 0;
     margin: 0;
 }
+.exchange-response {
+    background: transparent;
+    padding: 0;
+    height: auto;
+}
 .exchange-prompt {
     color: #58a6ff;
     text-style: bold;
@@ -161,6 +166,17 @@ Screen { background: #0a0d12; }
     color: #e6edf3;
     background: transparent;
     padding: 0;
+}
+.markdown-body {
+    background: transparent;
+    padding: 0;
+    margin: 0;
+}
+.agent-tag {
+    color: #58a6ff;
+    text-style: bold;
+    padding: 0;
+    margin: 0;
 }
 .thinking-text {
     color: #8b949e;

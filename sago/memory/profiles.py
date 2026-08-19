@@ -7,11 +7,16 @@ for persistent context across sessions.
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from sago.utils.safe import log_exception
+
+logger = logging.getLogger("sago.memory.profiles")
 
 
 @dataclass
@@ -412,8 +417,8 @@ class UserProfileManager:
                         recent_projects=profile_data.get("recent_projects", []),
                     )
                     self._profiles[profile.id] = profile
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Failed to load user profiles")
 
         # Load projects
         projects_file = self.persist_dir / "projects.json"
@@ -434,8 +439,8 @@ class UserProfileManager:
                         known_issues=project_data.get("known_issues", []),
                     )
                     self._projects[path] = project
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Failed to load project contexts")
 
     def _save(self) -> None:
         """Persist data to disk."""

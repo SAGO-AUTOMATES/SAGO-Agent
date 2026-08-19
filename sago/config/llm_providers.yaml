@@ -9,7 +9,7 @@ llm_providers:
     gemini:
       enabled: true
       api_key_env: "GEMINI_API_KEY"
-      model: "gemini-2.0-flash"
+      model: "gemini-2.5-flash"
       max_tokens: 8192
       temperature: 0.7
 

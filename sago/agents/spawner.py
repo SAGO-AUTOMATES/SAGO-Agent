@@ -446,8 +446,8 @@ class AgentSpawner:
             definition = get_agent(agent_name)
             if definition:
                 return definition.system_prompt
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to get agent definition for %s: %s", agent_name, e)
         return f"You are a {agent_name.replace('-', ' ')} specialist."
 
     def _plan_chain(self, task: str) -> list[str]:
@@ -462,8 +462,8 @@ class AgentSpawner:
             chain = route_for_chain(task, max_agents=4)
             if chain:
                 return chain
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Smart router failed for chain planning, using fallback: %s", e)
 
         # Fallback to basic keyword matching
         task_lower = task.lower()

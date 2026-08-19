@@ -7,6 +7,7 @@ into agent loops for autonomous self-healing.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -14,6 +15,10 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from sago.utils.safe import log_exception
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -258,8 +263,8 @@ class ProjectVerifier:
                             message=err_msg or "Syntax error during py_compile",
                         )
                     )
-                except Exception:
-                    # Fallback to subprocess if file system edge cases arise
+                except Exception as e:
+                    log_exception(e, f"py_compile failed for {pyf}, falling back to subprocess")
                     code, out = self.run_command_safe(
                         ["python3", "-m", "py_compile", pyf], timeout=10
                     )
@@ -375,7 +380,8 @@ class ContinuousVerifier:
         while self._running:
             try:
                 files, callback = self.queue.get(timeout=1.0)
-            except Exception:
+            except Exception as e:
+                logger.debug("Queue get timed out, retrying: %s", e)
                 continue
 
             callbacks = [callback] if callback else []
@@ -393,7 +399,8 @@ class ContinuousVerifier:
                     if next_cb:
                         callbacks.append(next_cb)
                     self.queue.task_done()
-                except Exception:
+                except Exception as e:
+                    logger.debug("Queue drain interrupted: %s", e)
                     break
 
             try:
@@ -413,10 +420,10 @@ class ContinuousVerifier:
                 for cb in callbacks:
                     try:
                         cb(report)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                    except Exception as e:
+                        log_exception(e, "Verification callback failed")
+            except Exception as e:
+                log_exception(e, "Continuous verification run failed")
             finally:
                 self.queue.task_done()
 

@@ -31,6 +31,7 @@ class IntentClassification:
     suggested_agent: str
     rationale: str = ""
     source: str = "llm"  # "cache", "llm", "heuristic"
+    complexity: str = "medium"  # "simple", "medium", "complex"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -39,7 +40,7 @@ class IntentClassification:
 class IntentClassifier:
     """Multi-tiered intent classifier with micro-LLM and LRU cache."""
 
-    VALID_TYPES = {"chat", "fix", "create", "analyze", "test", "devops"}
+    VALID_TYPES = {"chat", "fix", "create", "analyze", "test", "devops", "query"}
 
     def __init__(self, cache_size: int = 1024) -> None:
         self.cache_size = cache_size
@@ -65,6 +66,7 @@ class IntentClassifier:
                 suggested_agent="general-assistant",
                 rationale="Empty prompt",
                 source="heuristic",
+                complexity="simple",
             )
 
         clean_prompt = prompt.strip()
@@ -74,6 +76,7 @@ class IntentClassifier:
         with self._lock:
             if key in self._cache:
                 cached = self._cache[key]
+                logger.debug("Cache hit for prompt hash=%s -> type=%s", key, cached.task_type)
                 return IntentClassification(
                     task_type=cached.task_type,
                     needs_tools=cached.needs_tools,
@@ -81,10 +84,15 @@ class IntentClassifier:
                     suggested_agent=cached.suggested_agent,
                     rationale=cached.rationale,
                     source="cache",
+                    complexity=cached.complexity,
                 )
 
         # 2. Tier 2: Micro-LLM Intent Classification
         if use_llm:
+            logger.debug(
+                "Cache miss, attempting micro-LLM classification (prompt length=%d)",
+                len(clean_prompt),
+            )
             try:
                 classification = self._call_micro_llm(clean_prompt, timeout=timeout)
                 if classification:
@@ -93,15 +101,30 @@ class IntentClassifier:
                             # Evict oldest item
                             self._cache.pop(next(iter(self._cache)))
                         self._cache[key] = classification
+                    logger.info(
+                        "LLM classification: type=%s agent=%s complexity=%s confidence=%.2f",
+                        classification.task_type,
+                        classification.suggested_agent,
+                        classification.complexity,
+                        classification.confidence,
+                    )
                     return classification
             except Exception as e:
                 logger.debug("Micro-LLM intent classification skipped: %s", e)
 
         # 3. Tier 3: Resilient Heuristic Fallback
+        logger.debug("Falling back to heuristic classification")
         fallback = self._classify_heuristic(clean_prompt)
         with self._lock:
             if len(self._cache) < self.cache_size:
                 self._cache[key] = fallback
+        logger.debug(
+            "Heuristic classification: type=%s agent=%s complexity=%s confidence=%.2f",
+            fallback.task_type,
+            fallback.suggested_agent,
+            fallback.complexity,
+            fallback.confidence,
+        )
         return fallback
 
     def _call_micro_llm(self, prompt: str, timeout: float = 1.2) -> IntentClassification | None:
@@ -123,21 +146,26 @@ class IntentClassifier:
                 {
                     "api_key": api_key,
                     "model": model,
-                    "max_tokens": 40,
+                    "max_tokens": 50,
                     "temperature": 0.0,
                 },
             )
 
             system_prompt = (
                 "You are an ultra-fast strict intent classifier for an engineering AI assistant. "
-                "Classify the user's prompt into ONE category:\n"
-                "- chat: Casual conversation, jokes, tell more jokes/pun/riddles, greetings, questions about you, non-code banter (needs_tools: false)\n"
+                "Classify the user's prompt into ONE category AND assess complexity:\n"
+                "- chat: Casual conversation, jokes, greetings, questions about you, non-code banter (needs_tools: false)\n"
+                "- query: Quick information request — 'what's in X file', 'where is Y', 'how do I Z', 'explain this function' — read specific files only, give brief answer (needs_tools: true)\n"
                 "- fix: Debugging, fixing bugs, resolving errors/exceptions, repairing broken code (needs_tools: true)\n"
                 "- create: Writing new code, implementing new features, creating files, scaffolding (needs_tools: true)\n"
-                "- analyze: Explaining code, reviewing files, searching codebase, understanding concepts (needs_tools: true)\n"
+                "- analyze: Comprehensive code review, architecture analysis, full codebase inspection (needs_tools: true)\n"
                 "- test: Writing or running unit/integration tests, test suites, coverage (needs_tools: true)\n"
                 "- devops: Docker, Kubernetes, CI/CD, deployment, bash/powershell scripts (needs_tools: true)\n\n"
-                'Respond with ONLY a single raw JSON line: {"type": "<category>", "needs_tools": <bool>, "suggested_agent": "<agent_name>", "confidence": <float>}'
+                "Complexity levels:\n"
+                "- simple: Single-step, trivial, or greeting (e.g. 'rename X', 'what is 2+2', 'hello')\n"
+                "- medium: Standard task with clear scope (e.g. 'fix this bug', 'add a function')\n"
+                "- complex: Multi-step, ambiguous, or large-scope (e.g. 'refactor entire module', 'implement auth system')\n\n"
+                'Respond with ONLY a single raw JSON line: {"type": "<category>", "needs_tools": <bool>, "suggested_agent": "<agent_name>", "confidence": <float>, "complexity": "<simple|medium|complex>"}'
             )
 
             raw_text = provider.generate(prompt[:400], system_prompt=system_prompt)
@@ -147,6 +175,9 @@ class IntentClassifier:
             if m:
                 data = json.loads(m.group(0))
                 ttype = str(data.get("type", "")).lower().strip()
+                complexity = str(data.get("complexity", "medium")).lower().strip()
+                if complexity not in ("simple", "medium", "complex"):
+                    complexity = "medium"
                 if ttype in self.VALID_TYPES:
                     return IntentClassification(
                         task_type=ttype,
@@ -155,14 +186,40 @@ class IntentClassifier:
                         suggested_agent=str(data.get("suggested_agent", "python-engineer")),
                         rationale="Classified via micro-LLM",
                         source="llm",
+                        complexity=complexity,
                     )
         except Exception as e:
             logger.debug("Micro-LLM call failed: %s", e)
         return None
 
     def _classify_heuristic(self, task: str) -> IntentClassification:
-        """Enhanced regex and keyword boundary intent classification."""
+        """Enhanced regex and keyword boundary intent classification with complexity awareness."""
         task_lower = task.lower().strip()
+        word_count = len(task_lower.split())
+
+        # --- SIMPLE QUERY FAST-PATH: prevent overthinking on trivial queries ---
+        # Single-word responses, greetings, simple questions
+        simple_patterns = (
+            r"^(?:hi|hello|hey|yo|sup|howdy|greetings|bye|goodbye|cya)\b",
+            r"^(?:thanks|thank\s+you|thx|ty|cheers|np|no\s+problem)\b",
+            r"^(?:yes|no|ok|okay|sure|nope|yep|yeah|nah|y|n)\b",
+            r"^(?:good|bad|great|nice|cool|awesome|excellent|terrible|fine)\b",
+            r"^(?:what\s+is\s+\d+[\s+\-*/\d]*)\b",  # Simple math
+            r"^(?:what\s+time|what\s+date|what\s+day)\b",
+            r"^\w+\??$",  # Single word or single word + question mark
+        )
+        is_simple = any(re.search(p, task_lower) for p in simple_patterns)
+
+        if is_simple and word_count <= 8:
+            return IntentClassification(
+                task_type="chat",
+                needs_tools=False,
+                confidence=0.98,
+                suggested_agent="general-assistant",
+                rationale="Simple query — no tools needed, direct answer",
+                source="heuristic",
+                complexity="simple",
+            )
 
         chat_words = (
             "joke",
@@ -334,6 +391,7 @@ class IntentClassifier:
                 r"\b(pytest|docker|git\s+commit|git\s+push|refactor\s+code)\b", task_lower
             )
         ):
+            complexity = "simple" if word_count <= 15 else "medium"
             return IntentClassification(
                 task_type="chat",
                 needs_tools=False,
@@ -341,11 +399,69 @@ class IntentClassifier:
                 suggested_agent="general-assistant",
                 rationale="Conversational greeting, pleasantries, or capability inquiry",
                 source="heuristic",
+                complexity=complexity,
             )
 
         from sago.agents.registry import resolve_specialist_agent
 
         resolved_agent = resolve_specialist_agent(task=task_lower)
+
+        # Assess complexity for code-related tasks
+        complexity = self._assess_task_complexity(task_lower, has_file_pattern, word_count)
+
+        # 0. Lightweight information queries (e.g. "what's in this file", "how do I X", "where is Y")
+        #    Check FIRST — these are simple lookups that should NOT trigger aggressive analysis
+        query_patterns = (
+            r"\bwhat(?:'s|\s+is|\s+are)\s+(?:in\s+)?(?:this|the|that)\s+file\b",
+            r"\bwhat(?:'s|\s+is|\s+are)\s+(?:in\s+)?[\w\-/]+\.\w+\b",
+            r"\bshow\s+(?:me\s+)?(?:the\s+)?(?:contents?|code|content)\s+(?:of\s+)?(?:this|the|that)?\s*[\w\-/]*\.\w+\b",
+            r"\bexplain\s+(?:this|the|that)?\s*(?:function|method|class|variable|module|file|code)\b",
+            r"\bwhat\s+does\s+[\w\-]+\s+do\b",
+            r"\bwhat\s+is\s+this\b",
+            r"\bcan\s+you\s+(?:show|tell|explain|describe)\s+(?:me\s+)?(?:the\s+)?(?:contents?|code|how|what|where)\b",
+        )
+        # "where is X defined" — but not "where is the architecture" (that's analyze)
+        where_query = re.search(
+            r"\bwhere\s+is\s+(?:the\s+)?[\w\-]+\s+(?:[\w\-]+\s+)?(?:defined|implemented|located|found)\b",
+            task_lower,
+        )
+        if where_query and not re.search(r"\b(architecture|system|overall|entire)\b", task_lower):
+            return IntentClassification(
+                task_type="query",
+                needs_tools=True,
+                confidence=0.88,
+                suggested_agent="general-assistant",
+                rationale="Quick information request — locate specific symbol",
+                source="heuristic",
+                complexity="simple",
+            )
+        # "how do I X" — but not devops/test patterns
+        how_query = re.search(
+            r"\bhow\s+(?:do\s+i|to|can\s+i)\s+(?!run\s+this|start|deploy|setup|install)\b",
+            task_lower,
+        )
+        if how_query and not re.search(
+            r"\b(tests?|pytest|docker|deploy|k8s|kubernetes)\b", task_lower
+        ):
+            return IntentClassification(
+                task_type="query",
+                needs_tools=True,
+                confidence=0.85,
+                suggested_agent="general-assistant",
+                rationale="Quick how-to question — brief answer needed",
+                source="heuristic",
+                complexity="simple",
+            )
+        if any(re.search(p, task_lower) for p in query_patterns):
+            return IntentClassification(
+                task_type="query",
+                needs_tools=True,
+                confidence=0.88,
+                suggested_agent="general-assistant",
+                rationale="Quick information request — read specific file/concept, brief answer",
+                source="heuristic",
+                complexity="simple",
+            )
 
         # 1. Testing & Quality Assurance (e.g. "why is pytest failing", "run unit tests")
         test_patterns = (
@@ -360,6 +476,7 @@ class IntentClassifier:
                 suggested_agent="qa-engineer",
                 rationale="Testing suite execution and validation",
                 source="heuristic",
+                complexity=complexity,
             )
 
         # 2. Bug fixing & failure troubleshooting (e.g. "why is this not working", "it crashes", "why does this fail")
@@ -378,6 +495,7 @@ class IntentClassifier:
                 else resolved_agent,
                 rationale="Troubleshooting and error diagnosis",
                 source="heuristic",
+                complexity=complexity,
             )
 
         # 3. DevOps, Deployment, Docker & Environment Setup (e.g. "how do I run this", "deploy to docker")
@@ -407,6 +525,7 @@ class IntentClassifier:
                 suggested_agent=devops_target,
                 rationale="Infrastructure and deployment operations",
                 source="heuristic",
+                complexity=complexity,
             )
 
         # 4. Codebase Exploration, Architecture & Code Review (e.g. "projects", "what projects are in here", "how does X work", "compare files")
@@ -424,6 +543,7 @@ class IntentClassifier:
                 suggested_agent="code-reviewer",
                 rationale="Code review, exploration, and architecture analysis",
                 source="heuristic",
+                complexity=complexity,
             )
 
         # 5. Performance Optimization & Profiling (e.g. "this feels slow", "make it faster", "memory leak")
@@ -439,6 +559,7 @@ class IntentClassifier:
                 suggested_agent=resolved_agent,
                 rationale="Performance profiling and optimization",
                 source="heuristic",
+                complexity=complexity,
             )
 
         # 6. Refactoring & Code Cleanup (e.g. "clean this up", "make this cleaner")
@@ -453,6 +574,7 @@ class IntentClassifier:
                 suggested_agent=resolved_agent,
                 rationale="Code refactoring and modernization",
                 source="heuristic",
+                complexity=complexity,
             )
 
         # 7. General non-code questions & casual chat (only if no action patterns matched)
@@ -464,13 +586,27 @@ class IntentClassifier:
         )
 
         if (has_chat or is_general_qa) and not has_code:
+            # Simple questions that don't need tools
+            if word_count <= 20 and not re.search(
+                r"\b(?:file|code|function|class|module)\b", task_lower
+            ):
+                return IntentClassification(
+                    task_type="chat",
+                    needs_tools=False,
+                    confidence=0.95,
+                    suggested_agent="general-assistant",
+                    rationale="Conversational / general QA intent — no tools needed",
+                    source="heuristic",
+                    complexity="simple",
+                )
             return IntentClassification(
-                task_type="chat",
-                needs_tools=False,
-                confidence=0.95,
-                suggested_agent="general-assistant",
-                rationale="Conversational / general QA intent",
+                task_type="analyze",
+                needs_tools=True,
+                confidence=0.85,
+                suggested_agent="code-reviewer",
+                rationale="General question that may need codebase context",
                 source="heuristic",
+                complexity=complexity,
             )
 
         # Default fallback: feature creation & code implementation with resolved specialist
@@ -481,7 +617,47 @@ class IntentClassifier:
             suggested_agent=resolved_agent,
             rationale="Feature creation and code implementation",
             source="heuristic",
+            complexity=complexity,
         )
+
+    def _assess_task_complexity(
+        self, task_lower: str, has_file_pattern: bool, word_count: int
+    ) -> str:
+        """Assess the complexity of a code-related task."""
+        # Complex signals
+        complex_signals = 0
+        if re.search(
+            r"\b(?:entire|whole|full|complete|comprehensive|all|every|each)\b", task_lower
+        ):
+            complex_signals += 1
+        if re.search(r"\b(?:refactor|redesign|restructure|rewrite|overhaul|migrate)\b", task_lower):
+            complex_signals += 1
+        if re.search(r"\b(?:architecture|system|infrastructure|multi[\s-]step)\b", task_lower):
+            complex_signals += 1
+        if re.search(
+            r"\b(?:security|performance|scalability)\s+(?:audit|review|analysis)\b", task_lower
+        ):
+            complex_signals += 1
+        if word_count > 40:
+            complex_signals += 1
+        if has_file_pattern and word_count > 20:
+            complex_signals += 1
+
+        # Simple signals
+        simple_signals = 0
+        if re.search(r"\b(?:rename|typo|comment|docstring|type\s+hint)\b", task_lower):
+            simple_signals += 1
+        if word_count <= 12:
+            simple_signals += 1
+        if re.search(r"^(?:add|fix|update|change|remove|delete)\s+\w+", task_lower):
+            simple_signals += 1
+
+        if complex_signals >= 2:
+            return "complex"
+        elif simple_signals >= 2:
+            return "simple"
+        else:
+            return "medium"
 
 
 _global_intent_classifier: IntentClassifier | None = None

@@ -71,6 +71,29 @@ sago run "Build a REST API" --agent python-engineer
 
 ---
 
+## Logging & Debugging
+
+Sago writes detailed logs to `~/.sago/logs/sago.log` with daily rotation (7 days retention).
+
+- **File logs**: DEBUG level - every tool call, API request, error, and decision
+- **Console logs**: INFO level - important milestones only
+
+To enable verbose console output:
+```python
+import logging
+
+logging.getLogger().setLevel(logging.DEBUG)
+```
+
+Log files rotate daily at midnight. Each log entry includes:
+```
+2026-08-19 12:00:00 | INFO     | sago.engine.simple_executor | Task started: agent=python-engineer, model=gemini-2.5-flash
+```
+
+Keep log files when reporting bugs - they contain the full execution trace.
+
+---
+
 ## Installation
 
 ### From Source (Recommended)
@@ -485,7 +508,24 @@ Non-blocking background verifier automatically checks written code in real time:
 
 ---
 
-### 6. Detach Mode & Background Worker Daemon
+### 6. Hallucination Detection & Response Verification
+
+Multi-layer defense-in-depth system prevents LLM fabrication across all execution paths:
+
+- **Shared Verifier Module** (`sago/engine/hallucination_verifier.py`): 9-stage verification pipeline used by all execution paths (simple_executor, unified streaming, orchestrator, production).
+- **Fabrication Phrase Detection**: 80+ patterns detect common LLM lies ("I've verified", "tests pass", "all tests pass") with tool-category cross-referencing.
+- **Hedging/Subtle Claim Detection**: Catches unverifiable claims like "this should work", "trust me", "no breaking changes" without tool evidence.
+- **Claim vs Tool-History Verification**: Cross-references claims (read, write, search, analyze, execute) against actual tool calls made.
+- **Multi-Language Code Block Validation**: Brace matching and syntax checking for 15+ languages (Python, JS, TS, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Scala, Dart, Shell).
+- **External Syntax Checking**: Subprocess verification via `py_compile`, `gofmt`, `rustfmt`, `node --check`, `npx tsc`, `javac`, `gcc -fsyntax-only`, `bash -n`, `ruby -c`, `php -l`, `ktlint`, `swiftc -parse`, `scalac`.
+- **Tool Result Integrity**: SHA-256 hashing detects plugin tampering of tool results.
+- **Confidence Scoring**: 0-100 score based on tool usage, fabrication signals, hedging claims, and code validity.
+- **Response Sanitization**: Strips hallucinated sentences from output when confidence is low.
+- **User Mention Detection**: Flags fabricated claims about files "you mentioned" that were never stated.
+
+---
+
+### 7. Detach Mode & Background Worker Daemon
 
 Launch long-running jobs or multi-agent workflows and safely close your terminal:
 
@@ -506,7 +546,7 @@ sago attach task_1700000000
 
 ---
 
-### 7. Developer Diagnostics & OpenTelemetry Export
+### 8. Developer Diagnostics & OpenTelemetry Export
 
 Inspect internal function latencies, prompt payloads, and microsecond traces:
 
@@ -649,7 +689,7 @@ sago/
 
 Sago includes comprehensive coverage across unit, integration, and security categories.
 
-**622 tests** — 621 passed, 1 skipped. See [docs/ERRORS.md](docs/ERRORS.md) for error handling and [docs/FLOWS.md](docs/FLOWS.md) for system flowcharts.
+**645 tests passed**, 1 skipped. See [docs/ERRORS.md](docs/ERRORS.md) for error handling and [docs/FLOWS.md](docs/FLOWS.md) for system flowcharts.
 
 ### Quality Areas
 

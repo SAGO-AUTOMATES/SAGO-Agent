@@ -7,6 +7,7 @@ rate limiting, and usage analytics.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from collections import defaultdict
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from sago.utils.errors import log_error
+
+logger = logging.getLogger("sago.tracking.tokens")
 
 
 @dataclass
@@ -212,6 +215,17 @@ class TokenTracker:
         self._daily_usage[day]["tokens"] += usage.total_tokens
         self._daily_usage[day]["cost"] += cost
 
+        logger.debug(
+            "Recorded usage: %s/%s in=%d out=%d total=%d cost=$%.6f cached=%s latency=%.0fms",
+            provider,
+            model,
+            input_tokens,
+            output_tokens,
+            usage.total_tokens,
+            cost,
+            cached,
+            latency_ms,
+        )
         return usage
 
     def record_waste(
@@ -222,6 +236,7 @@ class TokenTracker:
         details: str = "",
     ) -> TokenWaste:
         """Record a token waste event (failed tool call, rejected args, etc.)."""
+        logger.warning("Token waste: reason=%s, tokens=%d, tool=%s", reason, tokens, tool)
         waste = TokenWaste(
             reason=reason,
             tokens_wasted=tokens,
@@ -267,6 +282,13 @@ class TokenTracker:
         if len(self._rate_limits[provider]) >= limit:
             oldest = self._rate_limits[provider][0]
             wait = window - (now - oldest)
+            logger.warning(
+                "Rate limit hit for %s: %d requests in %.0fs window, need to wait %.1fs",
+                provider,
+                limit,
+                window,
+                wait,
+            )
             return False, max(0, wait)
 
         self._rate_limits[provider].append(now)
@@ -300,6 +322,14 @@ class TokenTracker:
 
         latencies = [u.latency_ms for u in usages if u.latency_ms > 0]
         summary.avg_latency_ms = sum(latencies) / len(latencies) if latencies else 0.0
+
+        logger.info(
+            "Usage summary: requests=%d, tokens=%d, cost=$%.6f, cache_hit_rate=%.1f%%",
+            summary.total_requests,
+            summary.total_tokens,
+            summary.total_cost_usd,
+            summary.cache_hit_rate,
+        )
 
         # By provider
         for usage in usages:
@@ -358,8 +388,19 @@ class TokenTracker:
 
         input_cost = (input_tokens / 1000) * costs[0]
         output_cost = (output_tokens / 1000) * costs[1]
+        total = input_cost + output_cost
 
-        return input_cost + output_cost
+        logger.debug(
+            "Cost calculation: %s/%s in=%d($%.6f) out=%d($%.6f) total=$%.6f",
+            provider,
+            model,
+            input_tokens,
+            input_cost,
+            output_tokens,
+            output_cost,
+            total,
+        )
+        return total
 
     def _filter_by_time(
         self,
@@ -386,15 +427,23 @@ class TokenTracker:
         try:
             if self.persist_path and self.persist_path.exists():
                 data = json.loads(self.persist_path.read_text())
+                import dataclasses
+
+                field_names = {f.name for f in dataclasses.fields(TokenUsage)}
                 for usage_data in data.get("usages", []):
-                    usage = TokenUsage(**usage_data)
+                    filtered = {k: v for k, v in usage_data.items() if k in field_names}
+                    usage = TokenUsage(**filtered)
                     self._usages.append(usage)
                 self._daily_usage = defaultdict(
                     lambda: {"requests": 0, "tokens": 0, "cost": 0.0},
                     data.get("daily", {}),
                 )
+                logger.info(
+                    "Loaded %d token usage records from %s", len(self._usages), self.persist_path
+                )
         except Exception as e:
             log_error("Failed to load token usage data", e)
+            logger.error("Failed to load token usage data: %s", e)
 
     def save(self) -> None:
         """Persist usage data to disk."""
@@ -412,6 +461,7 @@ class TokenTracker:
 
         self.persist_path.parent.mkdir(parents=True, exist_ok=True)
         self.persist_path.write_text(json.dumps(data, default=str))
+        logger.debug("Saved %d token usage records to %s", len(self._usages), self.persist_path)
 
 
 # Global tracker instance

@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from sago.utils.safe import log_exception
+
 logger = logging.getLogger(__name__)
 
 
@@ -229,8 +231,8 @@ class LSPClient:
                     file_path, "pyright not installed. Run: pip install pyright"
                 )
             ]
-        except (subprocess.TimeoutExpired, json.JSONDecodeError):
-            pass
+        except (subprocess.TimeoutExpired, json.JSONDecodeError) as e:
+            log_exception(e, "pyright type check failed")
         return []
 
     def _parse_pyright_output(self, data: dict, file_path: str) -> list[Diagnostic]:
@@ -272,8 +274,8 @@ class LSPClient:
                     file_path, "tsc not installed. Run: npm install -g typescript"
                 )
             ]
-        except subprocess.TimeoutExpired:
-            pass
+        except subprocess.TimeoutExpired as e:
+            log_exception(e, "tsc type check timed out")
         return []
 
     def _parse_tsc_output(self, output: str, file_path: str) -> list[Diagnostic]:
@@ -327,8 +329,8 @@ class LSPClient:
             return diagnostics
         except FileNotFoundError:
             return [self._make_info_diagnostic(file_path, "go not installed")]
-        except subprocess.TimeoutExpired:
-            pass
+        except subprocess.TimeoutExpired as e:
+            log_exception(e, "go vet timed out")
         return []
 
     def _run_cargo_check(self, file_path: str) -> list[Diagnostic]:
@@ -369,8 +371,8 @@ class LSPClient:
             return diagnostics
         except FileNotFoundError:
             return [self._make_info_diagnostic(file_path, "cargo not installed")]
-        except subprocess.TimeoutExpired:
-            pass
+        except subprocess.TimeoutExpired as e:
+            log_exception(e, "cargo check timed out")
         return []
 
     def _run_javac_lint(self, file_path: str) -> list[Diagnostic]:
@@ -402,8 +404,8 @@ class LSPClient:
             return diagnostics
         except FileNotFoundError:
             return [self._make_info_diagnostic(file_path, "javac not installed")]
-        except subprocess.TimeoutExpired:
-            pass
+        except subprocess.TimeoutExpired as e:
+            log_exception(e, "javac lint timed out")
         return []
 
     def _run_gcc_syntax(self, file_path: str, language: str) -> list[Diagnostic]:
@@ -436,8 +438,8 @@ class LSPClient:
             return diagnostics
         except FileNotFoundError:
             return [self._make_info_diagnostic(file_path, f"{compiler} not installed")]
-        except subprocess.TimeoutExpired:
-            pass
+        except subprocess.TimeoutExpired as e:
+            log_exception(e, "gcc/g++ syntax check timed out")
         return []
 
     def _make_info_diagnostic(self, file_path: str, message: str) -> Diagnostic:
@@ -693,8 +695,8 @@ class LSPClient:
                         for w in sorted(all_words)
                         if w.startswith(prefix) and w != prefix
                     ][:20]
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to get completions")
         return []
 
     def format_code(self, file_path: str) -> str | None:
@@ -718,8 +720,8 @@ class LSPClient:
             )
             if result.returncode == 0:
                 return Path(file_path).read_text()
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            log_exception(e, "Code formatting failed")
         return None
 
 

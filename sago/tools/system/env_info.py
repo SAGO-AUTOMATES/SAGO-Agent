@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 from typing import Any
@@ -9,6 +10,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.env_info")
 
 
 class EnvInfoArgs(BaseModel):
@@ -118,9 +121,8 @@ class EnvInfo(BaseTool):
                         if line.startswith("MemTotal"):
                             total = int(line.split()[1]) // 1024
                             return f"Memory: {total} MB total"
-                except Exception:
-                    pass
-            return "Memory info not available (install psutil)"
+                except Exception as e:
+                    logger.debug("Failed to read /proc/meminfo: %s", e)
 
     def _get_network_info(self) -> str:
         """Get network information."""

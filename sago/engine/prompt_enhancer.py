@@ -10,7 +10,9 @@ full transparency by displaying the enhanced prompt and recording dev trace even
 
 from __future__ import annotations
 
+import fnmatch
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -18,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+from sago.utils.safe import log_exception
 
 logger = logging.getLogger("sago.engine.prompt_enhancer")
 
@@ -139,6 +142,51 @@ class PromptEnhancer:
         ],
     }
 
+    # Anti-hallucination constraints injected into all enhanced prompts
+    _ANTI_HALLUCINATION_CONSTRAINTS = [
+        "NEVER claim to have read a file without actually calling read_file tool first.",
+        "NEVER claim tests pass without actually running them via execute_shell tool.",
+        "NEVER claim a file was created or modified without calling write_file or edit_file.",
+        "NEVER claim the user mentioned specific files unless they literally said the file names in their message.",
+        "NEVER list files as 'available' or 'related' without first discovering them via glob_files, file_search, or grep_content tools.",
+        "NEVER make structural claims ('the codebase has X files', 'the project uses Y') without using tools to verify.",
+        "NEVER make architectural claims ('the architecture is', 'the design pattern is') without reading relevant files.",
+        "NEVER make quality claims ('clean code', 'well-structured', 'production-ready') without evidence from tools.",
+        "NEVER make performance claims ('this is faster', 'more efficient') without measurement.",
+        "NEVER make security claims ('no vulnerabilities', 'secure') without scanning tools.",
+        "If uncertain about code contents, state uncertainty rather than guessing.",
+        "Always verify tool results before reporting them as facts.",
+        "Cross-reference your claims against actual tool call history.",
+        "NEVER fabricate function names, class names, or API methods that don't exist in the codebase.",
+        "If you haven't searched the codebase, don't claim something 'doesn't exist' or 'isn't used'.",
+        "NEVER claim 'no errors' or 'all checks pass' without actually running linters/tests.",
+    ]
+
+    # Overthinking prevention: complexity signals that indicate simple queries
+    _SIMPLE_QUERY_SIGNALS = [
+        r"^(?:hi|hello|hey|yo|sup|howdy|greetings)\b",
+        r"^(?:thanks|thank\s+you|thx|ty|cheers)\b",
+        r"^(?:what\s+is|who\s+is|what\s+are)\s+\d+",
+        r"^(?:can\s+you\s+)?(?:explain|describe|what\s+does)\s+\w+\s+(?:do|mean)\b",
+        r"^(?:how\s+(?:do|can|to))\s+(?:i|we)\s+\w+",
+        r"^(?:where|when|why|how)\s+(?:is|are|was|were|do|does|did)\b",
+        r"^(?:yes|no|ok|okay|sure|nope|yep|yeah|nah)\b",
+        r"^(?:good|bad|great|nice|cool|awesome|excellent|terrible)\b",
+        r"^(?:what|which)\s+(?:file|function|class|method|variable)\s+(?:is|are|was)\b",
+        r"^\w+\??$",  # Single word questions
+    ]
+
+    # Complexity signals that indicate multi-step tasks
+    _COMPLEX_QUERY_SIGNALS = [
+        r"\b(?:refactor|redesign|restructure|rewrite)\s+(?:the\s+)?(?:entire|whole|full)\b",
+        r"\b(?:implement|build|create|add)\s+(?:a\s+)?(?:complete|full|entire|comprehensive)\b",
+        r"\b(?:migrate|upgrade|overhaul)\s+(?:from|to)\b",
+        r"\b(?:all|every|each)\s+(?:file|module|component|service)\b",
+        r"\b(?:architecture|system\s+design|infrastructure)\b",
+        r"\b(?:multi[\s-]step|step[\s-]by[\s-]step|phased)\b",
+        r"\b(?:security|performance|scalability)\s+(?:audit|review|analysis)\b",
+    ]
+
     def __init__(self, root_dir: str | Path | None = None) -> None:
         self.root_dir = Path(root_dir or ".").resolve()
 
@@ -165,6 +213,9 @@ class PromptEnhancer:
 
         # 1. Detect primary intent & domain
         intent_category, intent_description = self._classify_intent(raw_prompt)
+        logger.debug(
+            "Intent detected: category=%s description=%s", intent_category, intent_description
+        )
 
         # For casual conversation, greetings, weather questions — never inject forced coding boilerplate
         if intent_category == "casual_chat":
@@ -180,10 +231,32 @@ class PromptEnhancer:
                 agent_role=agent_role,
             )
 
+        # 2. Assess complexity to prevent overthinking on simple queries
+        complexity = self._assess_complexity(raw_prompt)
+        logger.debug("Complexity assessment: %s (prompt length=%d)", complexity, len(raw_prompt))
+        if complexity == "simple":
+            # For simple queries, return minimal enhancement to avoid overthinking
+            improvements.append("Simple query detected — minimal enhancement")
+            return PromptEnhancementResult(
+                original_prompt=raw_prompt,
+                enhanced_prompt=raw_prompt,
+                intent_summary=f"Simple {intent_category.replace('_', ' ')}: {raw_prompt}",
+                target_scope=[],
+                acceptance_criteria=[],
+                operational_constraints=[],
+                improvements=improvements,
+                was_modified=False,
+                agent_role=agent_role,
+            )
+
         improvements.append(f"Structured {intent_category.replace('_', ' ')} intent")
 
         # 2. Extract potential file / module targets from prompt & workspace
-        targets = self._extract_targets(raw_prompt, root)
+        #    Skip for explore_arch — user wants a high-level overview, not random file hits
+        if intent_category == "explore_arch":
+            targets = []
+        else:
+            targets = self._extract_targets(raw_prompt, root)
         if targets:
             improvements.append(f"Identified {len(targets)} workspace targets")
 
@@ -202,6 +275,10 @@ class PromptEnhancer:
         guidelines.append("Preserve unrelated existing comments and interfaces.")
         guidelines.append("Ensure no placeholders or unfinished mock code remain.")
         improvements.append("Injected domain & verification constraints")
+
+        # 6. Inject anti-hallucination constraints
+        guidelines.extend(self._ANTI_HALLUCINATION_CONSTRAINTS)
+        improvements.append("Injected anti-hallucination safeguards")
 
         # 6. Assemble enhanced structured prompt
         enhanced_parts = [
@@ -226,6 +303,14 @@ class PromptEnhancer:
 
         enhanced_text = "\n".join(enhanced_parts).strip()
 
+        logger.info(
+            "Prompt enhanced: intent=%s targets=%d criteria=%d improvements=%d",
+            intent_category,
+            len(targets),
+            len(criteria),
+            len(improvements),
+        )
+
         result = PromptEnhancementResult(
             original_prompt=raw_prompt,
             enhanced_prompt=enhanced_text,
@@ -248,35 +333,221 @@ class PromptEnhancer:
         text_lower = text.lower()
         for cat, (pattern, desc) in self._INTENT_MAP.items():
             if re.search(pattern, text_lower):
+                logger.debug("Intent matched pattern '%s' -> %s", cat, cat)
                 return cat, desc
+        logger.debug("No intent pattern matched, falling back to feature_create")
         return "feature_create", "Execute requested engineering task with precision"
 
+    def _assess_complexity(self, text: str) -> str:
+        """Assess query complexity to prevent overthinking on simple queries.
+
+        Returns 'simple', 'medium', or 'complex'.
+        Only returns 'simple' for truly trivial queries (greetings, single words,
+        basic questions) — NOT for code-related tasks.
+        """
+        text_lower = text.lower().strip()
+        word_count = len(text_lower.split())
+
+        # Check for complex query signals FIRST (don't skip these)
+        complex_signals = 0
+        for pattern in self._COMPLEX_QUERY_SIGNALS:
+            if re.search(pattern, text_lower):
+                complex_signals += 1
+
+        if complex_signals >= 2 or word_count > 50:
+            return "complex"
+        elif complex_signals >= 1 or word_count > 25:
+            return "medium"
+
+        # Only return 'simple' for genuinely trivial, non-code queries
+        # Check for code-related words — if present, never skip enhancement
+        code_indicators = (
+            "file",
+            "code",
+            "function",
+            "class",
+            "method",
+            "module",
+            "import",
+            "fix",
+            "bug",
+            "error",
+            "test",
+            "refactor",
+            "implement",
+            "create",
+            "delete",
+            "add",
+            "remove",
+            "update",
+            "change",
+            "rename",
+            ".py",
+            ".js",
+            ".ts",
+            ".go",
+            ".rs",
+            ".java",
+        )
+        has_code_intent = any(word in text_lower for word in code_indicators)
+
+        if has_code_intent:
+            # Code tasks are at least medium complexity
+            return "medium"
+
+        # Non-code: check for simple query patterns
+        simple_patterns = (
+            r"^(?:hi|hello|hey|yo|sup|howdy|greetings|bye|goodbye)\b",
+            r"^(?:thanks|thank\s+you|thx|ty|cheers)\b",
+            r"^(?:yes|no|ok|okay|sure|nope|yep|yeah|nah)\b",
+            r"^(?:good|bad|great|nice|cool|awesome|excellent|terrible)\b",
+            r"^(?:what\s+is\s+\d+[\s+\-*/\d]*)\b",
+            r"^(?:what\s+time|what\s+date|what\s+day)\b",
+            r"^\w+\??$",
+        )
+        is_simple = any(re.search(p, text_lower) for p in simple_patterns)
+
+        if is_simple and word_count <= 8:
+            return "simple"
+        elif word_count <= 5:
+            return "simple"
+        else:
+            return "medium"
+
+    # Directories to always skip when scanning for workspace targets.
+    # Language-agnostic: covers Python, Java, Rust, Go, C/C++, Node, .NET, Ruby, PHP.
+    _SKIP_DIRS: frozenset[str] = frozenset(
+        {
+            # Version control / IDE
+            ".git",
+            ".svn",
+            ".hg",
+            ".github",
+            ".gitlab",
+            ".bitbucket",
+            ".idea",
+            ".vscode",
+            ".vs",
+            ".eclipse",
+            ".project",
+            # Python
+            "__pycache__",
+            ".venv",
+            "venv",
+            "env",
+            ".tox",
+            ".nox",
+            ".mypy_cache",
+            ".ruff_cache",
+            ".pytest_cache",
+            ".pytype",
+            ".eggs",
+            "*.egg-info",
+            ".hypothesis",
+            # Node / JS / TS
+            "node_modules",
+            ".next",
+            ".nuxt",
+            ".cache",
+            "coverage",
+            ".turbo",
+            ".pnpm-store",
+            # Java / JVM
+            "target",
+            "build",
+            "out",
+            ".gradle",
+            ".mvn",
+            "bin",
+            "classes",
+            ".bsp",
+            ".bloop",
+            ".metals",
+            # Rust
+            "target",
+            # Go
+            "vendor",
+            # C / C++ / CMake
+            "cmake-build-*",
+            "obj",
+            "deps",
+            # .NET / C#
+            "bin",
+            "obj",
+            "packages",
+            ".nuget",
+            "TestResults",
+            # Ruby
+            ".bundle",
+            # PHP
+            "vendor",
+            # Dart / Flutter
+            ".dart_tool",
+            ".packages",
+            "build",
+            # General build / dist
+            "dist",
+            "build",
+            "out",
+            "output",
+            "release",
+            "debug",
+        }
+    )
+
     def _extract_targets(self, text: str, root: Path) -> list[str]:
-        """Extract explicit file paths, directories, or symbols mentioned in text."""
+        """Extract explicit file paths, directories, or symbols mentioned in text.
+
+        Only returns files that actually exist in the user's source tree.
+        Never scans .venv, .git, __pycache__, or other vendor/build dirs.
+        """
         targets: set[str] = set()
 
-        # Matches file-like patterns: src/foo.py, main.py, config.json, etc.
-        path_pattern = r"\b(?:[\w\-\./]+(?:\.[\w]{1,10}|/))\b"
+        # 1. Extract explicit file-like paths directly mentioned in the prompt
+        #    e.g. "src/foo.py", "config.json", "./main.py"
+        path_pattern = r"(?:[\w\-./]+\.[\w]{1,10})"
         matches = re.findall(path_pattern, text)
         for m in matches:
             cleaned = m.strip().strip("'\"`,:;")
             if cleaned and not cleaned.startswith("http") and not cleaned.startswith("v0."):
-                targets.add(cleaned)
+                # Only keep if the file actually exists relative to root
+                candidate = root / cleaned
+                if candidate.exists() and candidate.is_file():
+                    targets.add(cleaned)
 
-        # Check if mentioned names exist in workspace
+        # 2. Walk only user source dirs (skip vendor/build) to find mentioned symbols
+        def _should_skip_dir(dir_name: str) -> bool:
+            if dir_name.startswith(".") or dir_name in self._SKIP_DIRS:
+                return True
+            if dir_name.endswith(".egg-info"):
+                return True
+            # Handle wildcard patterns like cmake-build-*
+            for pat in self._SKIP_DIRS:
+                if "*" in pat and fnmatch.fnmatch(dir_name, pat):
+                    return True
+            return False
+
         try:
             words = re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_\-]{2,}\b", text)
             for w in words:
-                candidates = list(root.glob(f"**/{w}.*")) + list(root.glob(f"**/{w}"))
-                for c in candidates[:3]:
-                    if not c.name.startswith("."):
-                        try:
-                            rel = c.relative_to(root).as_posix()
+                found = False
+                for dirpath, dirnames, filenames in os.walk(root):
+                    # Prune vendor/build dirs before descending
+                    dirnames[:] = [d for d in dirnames if not _should_skip_dir(d)]
+
+                    rel_dir = Path(dirpath).relative_to(root)
+                    # Check direct children and one level of subdirectory
+                    for fname in filenames:
+                        stem = Path(fname).stem
+                        if stem == w or fname == w:
+                            rel = (rel_dir / fname).as_posix()
                             targets.add(rel)
-                        except Exception:
-                            pass
-        except Exception:
-            pass
+                            found = True
+                            break
+                    if found or len(targets) >= 6:
+                        break
+        except Exception as e:
+            log_exception(e, "Failed to walk workspace directory tree for target extraction")
 
         return sorted(list(targets))[:6]
 
@@ -346,6 +617,14 @@ class PromptEnhancer:
             criteria.append("Ensure robust input validation and defensive error handling.")
             criteria.append("Ensure proper documentation, typings, and tests are provided.")
             criteria.append("Verify execution correctness across target environments.")
+
+        # Universal anti-hallucination criteria for all task types
+        criteria.append(
+            "NEVER claim verification without running actual tools (tests, lints, syntax checks)."
+        )
+        criteria.append(
+            "Report only what was actually observed via tools — state uncertainty when unsure."
+        )
 
         return criteria
 

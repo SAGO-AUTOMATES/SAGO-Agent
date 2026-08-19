@@ -8,6 +8,7 @@ import os
 import re
 import threading
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from sago.tui.models import EFFORT_LEVELS
@@ -24,6 +25,13 @@ class MessageProcessorMixin:
 
     def _process_message(self: SagoApp, message: str) -> None:
         """Entry point — runs on main thread, dispatches work to a background thread."""
+        logger.info(
+            "Message processing started (agent=%s, model=%s, provider=%s, prompt_length=%d)",
+            self.current_agent,
+            self.current_model,
+            self.current_provider,
+            len(message),
+        )
         self.is_thinking = True
         self._active_cancel_event = threading.Event()
         self._show_spinner()
@@ -32,6 +40,7 @@ class MessageProcessorMixin:
 
     def _process_message_thread(self: SagoApp, message: str) -> None:
         """Runs in a background thread — all call_from_thread calls are safe here."""
+        thread_start = _time.time()
         # Direct shell execution escape (!command)
         clean_msg = message.strip()
         if clean_msg.startswith("!") and len(clean_msg) > 1:
@@ -84,6 +93,13 @@ class MessageProcessorMixin:
                 )
 
                 tools = _discover_tools()
+                logger.info(
+                    "LLM request starting: model=%s, provider=%s, tools_available=%d, prompt_length=%d",
+                    self.current_model,
+                    self.current_provider,
+                    len(tools),
+                    len(message),
+                )
 
                 # Get provider client (handles google, openai, openrouter, etc.)
                 try:
@@ -115,7 +131,7 @@ class MessageProcessorMixin:
                 try:
                     from sago.engine.context_assembler import get_context_assembler
 
-                    assembler = get_context_assembler()
+                    assembler = get_context_assembler(cwd=str(Path.cwd()))
                     agent_slug = (
                         self.current_agent.lower().replace(" ", "-") if self.current_agent else None
                     )
@@ -162,8 +178,9 @@ class MessageProcessorMixin:
 
                 # Load profile and build prompt
                 profile = _load_agent_profile(active_agent.replace("-", " ").title())
-                if task_type == "chat":
-                    template = PROMPTS.get("chat", PROMPTS["create"])
+                _is_lightweight = task_type == "chat"
+                if _is_lightweight:
+                    template = PROMPTS.get(task_type, PROMPTS.get("chat", PROMPTS["create"]))
                     system_prompt = template.format(
                         agent_role=active_agent.replace("-", " ").title(),
                         project_ctx="",
@@ -178,11 +195,11 @@ class MessageProcessorMixin:
                         system_prompt = profile["system_prompt"]
 
                 # Inject system-level enhancements (learning approach, known fixes, instructions)
-                if assembled and task_type != "chat":
+                if assembled and not _is_lightweight:
                     enhancements = assembled.format_system_enhancements()
                     if enhancements:
                         system_prompt += f"\n\n{enhancements}"
-                elif task_type != "chat":
+                elif not _is_lightweight:
                     try:
                         from sago.learning import get_learning_store
 
@@ -215,7 +232,7 @@ class MessageProcessorMixin:
                 current_todo_index = 0
                 todo_tool_counts: dict[str, int] = {}
 
-                if _is_complex_task(message) and task_type != "chat":
+                if _is_complex_task(message) and not _is_lightweight:
                     try:
                         from sago.tasks import TaskStatus, get_task_manager
 
@@ -270,7 +287,7 @@ class MessageProcessorMixin:
                     task=message,
                     agent_role=self.current_agent,
                 )
-                if enhancement.was_modified and task_type != "chat":
+                if enhancement.was_modified and not _is_lightweight:
                     self.call_from_thread(
                         self._update_spinner,
                         f"✨ Enhanced: {enhancement.intent_summary}",
@@ -283,9 +300,19 @@ class MessageProcessorMixin:
                 # Use enhanced structured prompt for engineering requests
                 user_msg_content = (
                     enhancement.enhanced_prompt
-                    if (task_type != "chat" and enhancement.was_modified)
+                    if (not _is_lightweight and enhancement.was_modified)
                     else message
                 )
+
+                # Inject assembled context (AST symbols, project graph, RAG) into user message
+                if assembled and not _is_lightweight:
+                    context_block = assembled.format_user_context_block()
+                    if context_block:
+                        user_msg_content = (
+                            f"## Reference Context (read-only workspace data)\n"
+                            f"{context_block}\n\n"
+                            f"## Task & Plan\n{user_msg_content}"
+                        )
 
                 messages = (
                     [{"role": "system", "content": system_prompt}]
@@ -477,6 +504,12 @@ class MessageProcessorMixin:
                             )
 
                         _llm_start_time = time.time()
+                        logger.info(
+                            "Streaming start: provider=google, model=%s, contents=%d parts, tools=%d",
+                            api_model,
+                            len(contents),
+                            len(google_tools),
+                        )
                         response = gemini_client.models.generate_content(
                             model=api_model,
                             contents=contents,
@@ -484,38 +517,51 @@ class MessageProcessorMixin:
                         )
                         content = response.text or ""
 
-                        # Usage metadata from Gemini response if available
-                        if hasattr(response, "usage_metadata") and response.usage_metadata:
-                            total_tokens_in = (
-                                getattr(response.usage_metadata, "prompt_token_count", 0) or 0
-                            )
-                            total_tokens_out = (
-                                getattr(response.usage_metadata, "candidates_token_count", 0) or 0
-                            )
-                            cumulative_tokens += total_tokens_out
+                    # Usage metadata from Gemini response if available
+                    if hasattr(response, "usage_metadata") and response.usage_metadata:
+                        total_tokens_in = (
+                            getattr(response.usage_metadata, "prompt_token_count", 0) or 0
+                        )
+                        total_tokens_out = (
+                            getattr(response.usage_metadata, "candidates_token_count", 0) or 0
+                        )
+                        cumulative_tokens += total_tokens_out
+                        logger.info(
+                            "LLM response received: model=%s, content_length=%d, tokens_in=%d, tokens_out=%d",
+                            api_model,
+                            len(content),
+                            total_tokens_in,
+                            total_tokens_out,
+                        )
+                    else:
+                        logger.info(
+                            "LLM response received: model=%s, content_length=%d (no usage metadata)",
+                            api_model,
+                            len(content),
+                        )
 
-                        # Extract tool calls and reasoning from Gemini response
-                        _gemini_raw_parts = []
-                        _gemini_thinking = ""
-                        if response.candidates and response.candidates[0].content:
-                            _gemini_raw_parts = list(response.candidates[0].content.parts or [])
-                            for part in _gemini_raw_parts:
-                                if getattr(part, "thought", None):
-                                    t_val = getattr(part, "text", "") or ""
-                                    if t_val:
-                                        _gemini_thinking += t_val + "\n"
-                                elif part.function_call:
-                                    native_tool_calls.append(
-                                        {
-                                            "id": f"gemini_{len(native_tool_calls)}",
-                                            "name": part.function_call.name,
-                                            "args": dict(part.function_call.args)
-                                            if part.function_call.args
-                                            else {},
-                                        }
-                                    )
-                                elif part.text and not content:
-                                    content = part.text
+                    # Extract tool calls and reasoning from Gemini response
+                    _gemini_raw_parts = []
+                    _gemini_thinking = ""
+                    if response.candidates and response.candidates[0].content:
+                        _gemini_raw_parts = list(response.candidates[0].content.parts or [])
+                        for part in _gemini_raw_parts:
+                            if getattr(part, "thought", None):
+                                t_val = getattr(part, "text", "") or ""
+                                if t_val:
+                                    _gemini_thinking += t_val + "\n"
+                            elif part.function_call:
+                                native_tool_calls.append(
+                                    {
+                                        "id": f"gemini_{len(native_tool_calls)}",
+                                        "name": part.function_call.name,
+                                        "args": dict(part.function_call.args)
+                                        if part.function_call.args
+                                        else {},
+                                    }
+                                )
+                            elif part.text and not content:
+                                content = part.text
                     else:
                         # OpenAI-compatible with native function calling (streaming)
                         api_kwargs = {
@@ -545,6 +591,13 @@ class MessageProcessorMixin:
                             )
 
                         _llm_start_time = time.time()
+                        logger.info(
+                            "Streaming start: provider=%s, model=%s, messages=%d, tools=%d, stream=True",
+                            self.current_provider,
+                            api_model,
+                            len(messages),
+                            len(openai_tools),
+                        )
                         stream = client.chat.completions.create(**api_kwargs)
 
                         content = ""
@@ -598,6 +651,16 @@ class MessageProcessorMixin:
                     from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
                     _llm_latency_ms = (time.time() - _llm_start_time) * 1000
+                    logger.info(
+                        "LLM response received: provider=%s, model=%s, content_length=%d, tool_calls=%d, latency_ms=%.0f, tokens_in=%d, tokens_out=%d",
+                        self.current_provider,
+                        api_model,
+                        len(content),
+                        len(native_tool_calls),
+                        _llm_latency_ms,
+                        total_tokens_in,
+                        total_tokens_out,
+                    )
 
                     # Extract thinking content if present (<thinking> tags or native Gemini thinking)
                     _thinking_content = (
@@ -652,6 +715,11 @@ class MessageProcessorMixin:
 
                     # Handle empty content with no tool calls
                     if not content and not native_tool_calls:
+                        logger.debug(
+                            "Empty response received: iteration=%d/%d",
+                            iteration + 1,
+                            effort["max_iterations"],
+                        )
                         if iteration < effort["max_iterations"] - 1:
                             messages.append(
                                 {
@@ -701,19 +769,119 @@ class MessageProcessorMixin:
                             "i have created",
                             "i've created",
                             "done! the file",
+                            "i've updated",
+                            "i have updated",
+                            "i've added",
+                            "i have added",
+                            "i've removed",
+                            "i have removed",
+                            "i've deleted",
+                            "i have deleted",
+                            "i've modified",
+                            "i have modified",
+                            "the updated file",
+                            "the modified file",
+                            "after修改ing",
+                            "the fix involves",
+                            "the issue is",
+                            "the problem is",
+                            "the solution is",
+                            "here's the fix",
+                            "here is the fix",
+                            "the error occurs because",
+                            "the bug is in",
+                            "i've written",
+                            "i have written",
+                            "the code below",
+                            "here's the code",
+                            "here is the code",
+                            "as shown in",
+                            "as we can see",
+                            "based on the file",
+                            "after reviewing",
+                            "i've tested",
+                            "i have tested",
+                            "all tests pass",
+                            "the test passes",
+                            "everything works",
+                            "it's working",
+                            "it works now",
+                            "fixed by",
+                            "resolved by",
                         ]
                         content_lower = content.lower() if content else ""
-                        is_fabrication = not tool_history and any(
-                            phrase in content_lower for phrase in fabrication_phrases
-                        )
+
+                        # Detect fabrication:
+                        # 1. No tool calls at all + claims to have done things
+                        # 2. Tool calls exist but response claims MORE than was actually done
+                        is_fabrication = False
+                        if not tool_history:
+                            # No tools called at all - any fabrication phrase is suspicious
+                            is_fabrication = any(
+                                phrase in content_lower for phrase in fabrication_phrases
+                            )
+                        else:
+                            # Tools were called - check if response claims actions beyond what tools did
+                            tools_called = {tc.get("tool", "") for tc in tool_history}
+                            # If agent claims file operations but no write/edit tool was called
+                            file_claim_phrases = [
+                                "successfully created",
+                                "i saved the file",
+                                "the file was created",
+                                "i've created",
+                                "i have created",
+                                "i've updated",
+                                "i have updated",
+                                "i've modified",
+                                "i have modified",
+                                "done! the file",
+                                "i've written",
+                                "i have written",
+                            ]
+                            claims_file_ops = any(
+                                phrase in content_lower for phrase in file_claim_phrases
+                            )
+                            made_file_ops = any(
+                                t in tools_called
+                                for t in ("write_file", "edit_file", "create_file")
+                            )
+                            if claims_file_ops and not made_file_ops:
+                                is_fabrication = True
 
                         if is_fabrication and iteration < effort["max_iterations"] - 1:
+                            # Build specific guidance based on what was claimed
+                            guidance = []
+                            if any(
+                                p in content_lower
+                                for p in ["file contains", "i read", "the code shows", "i can see"]
+                            ):
+                                guidance.append(
+                                    "Use read_file tool to actually read the file first."
+                                )
+                            if any(
+                                p in content_lower
+                                for p in ["created", "saved", "written", "updated", "modified"]
+                            ):
+                                guidance.append(
+                                    "Use write_file or edit_file tool to actually create/modify the file."
+                                )
+                            if any(p in content_lower for p in ["tested", "tests pass", "works"]):
+                                guidance.append("Use execute_shell tool to actually run the tests.")
+
+                            guidance_text = (
+                                " ".join(guidance)
+                                if guidance
+                                else "Use the available tools to complete the task."
+                            )
+
                             messages.append(
                                 {
                                     "role": "user",
                                     "content": (
-                                        "STOP. You are fabricating results without calling tools. "
-                                        "You MUST use a tool to interact with the system. Do it NOW."
+                                        "STOP. You are fabricating results without actually using tools. "
+                                        f"{guidance_text} "
+                                        "Do NOT claim file contents, file creation, or test results "
+                                        "without actually calling the corresponding tool. Do it NOW."
                                     ),
                                 }
                             )
@@ -748,6 +916,10 @@ class MessageProcessorMixin:
 
                     # ---- Execute native tool calls ----
                     tools_used_in_iteration = []
+                    logger.info(
+                        "Tool calls detected: %s",
+                        [(tc["name"], len(str(tc["args"]))) for tc in native_tool_calls],
+                    )
 
                     for tc in native_tool_calls:
                         if cancel_ev and cancel_ev.is_set():
@@ -801,6 +973,20 @@ class MessageProcessorMixin:
                             )
                             continue
 
+                        def _make_tool_approval_message(tool_name: str, risk_level: str) -> Any:
+                            from rich.text import Text
+
+                            msg = Text()
+                            msg.append("⚡ Tool '", style="bold")
+                            msg.append(tool_name, style="bold yellow")
+                            msg.append(f"' ({risk_level} risk) requires approval.\n", style="bold")
+                            msg.append("Press ", style="bold")
+                            msg.append("[Y]", style="bold green")
+                            msg.append(" Approve / ", style="bold")
+                            msg.append("[N]", style="bold red")
+                            msg.append(" Deny or type 'y' / 'n'.", style="bold")
+                            return msg
+
                         # Check permissions
                         from sago.permissions import RiskLevel, get_permission_manager
 
@@ -828,7 +1014,7 @@ class MessageProcessorMixin:
                                 )
                                 self.call_from_thread(
                                     self._add_system_message,
-                                    f"⚡ Tool '[bold yellow]{name}[/bold yellow]' ({risk.value} risk) requires approval.\nPress [bold green][Y] Approve[/bold green] / [bold red][N] Deny[/bold red] or type 'y' / 'n'.",
+                                    self._make_tool_approval_message(name, risk.value),
                                 )
                                 pause_event = threading.Event()
                                 self._executor_pause_event = pause_event
@@ -860,6 +1046,9 @@ class MessageProcessorMixin:
 
                         on_tool(name, args)
                         t_tool_start = time.perf_counter()
+                        logger.debug(
+                            "Tool execution started: name=%s, args_length=%d", name, len(str(args))
+                        )
                         try:
                             tool_cls = tools.get(name)
                             if tool_cls is None:
@@ -934,8 +1123,20 @@ class MessageProcessorMixin:
                         )
                         if is_error:
                             failed_calls.add(call_key)
+                            logger.error(
+                                "Tool execution failed: name=%s, duration_ms=%.0f, error=%s",
+                                name,
+                                tool_dur_ms,
+                                result_str[:200],
+                            )
                         else:
                             executed_calls.add(call_key)
+                            logger.debug(
+                                "Tool execution completed: name=%s, duration_ms=%.0f, result_length=%d",
+                                name,
+                                tool_dur_ms,
+                                len(result_str),
+                            )
 
                         from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
@@ -965,8 +1166,8 @@ class MessageProcessorMixin:
                                 from sago.engine.verifier import get_continuous_verifier
 
                                 get_continuous_verifier().enqueue_files([fp] if fp else [])
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug("Failed to enqueue files for verification: %s", e)
 
                         if name == "write_file" and not is_error:
                             # Nudge LLM to stop after successful file write
@@ -1015,8 +1216,8 @@ class MessageProcessorMixin:
                                     duration_ms=int(tool_dur_ms),
                                     success=not is_error,
                                 )
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug("Failed to log tool usage: %s", e)
 
                         messages.append(
                             {
@@ -1116,6 +1317,12 @@ class MessageProcessorMixin:
                             self.call_from_thread(self._add_system_message, "✅ All tests passed!")
                             break
 
+                        logger.info(
+                            "Post-verification LLM call: reason=tests_failed, attempt=%d/%d, test_output_length=%d",
+                            test_fix_attempts,
+                            max_test_fix_attempts,
+                            len(test_output),
+                        )
                         test_fix_attempts += 1
                         if test_fix_attempts >= max_test_fix_attempts:
                             self.call_from_thread(
@@ -1345,11 +1552,73 @@ class MessageProcessorMixin:
                         last_results.append(f"{status} {t['tool']}: {t.get('result', '')[:200]}")
                     summary = "\n".join(last_results)
                     if content and content.strip() and not content.strip().startswith("{"):
-                        # LLM also produced text output (not just tool calls)
+                        # Run shared hallucination verifier on the content
+                        try:
+                            from sago.engine.hallucination_verifier import get_verifier
+
+                            verifier = get_verifier()
+                            verification = verifier.verify(
+                                content, tool_history=tool_history, task_type=task_type
+                            )
+                            if verification.has_hallucinations:
+                                content = verification.cleaned_content
+                        except Exception as e:
+                            logger.debug("Hallucination verification failed: %s", e)
                         self.call_from_thread(self._add_assistant_message, content)
                     else:
                         self.call_from_thread(self._add_assistant_message, summary)
+
+                    # Show verification and confidence indicator
+                    try:
+                        from sago.engine.hallucination_verifier import get_verifier
+
+                        verifier = get_verifier()
+                        verification = verifier.verify(
+                            content or "",
+                            tool_history=tool_history,
+                            task_type=task_type,
+                        )
+                        confidence = verification.confidence
+                        all_issues = verification.all_issues
+                        if confidence < 50:
+                            detail_parts = all_issues[:4]
+                            detail = "; ".join(d[:80] for d in detail_parts)
+                            self.call_from_thread(
+                                self._add_system_message,
+                                f"⚠️ Low confidence ({confidence}/100): {detail}",
+                            )
+                        elif confidence < 80:
+                            detail_parts = all_issues[:2]
+                            detail = (
+                                "; ".join(d[:80] for d in detail_parts)
+                                if detail_parts
+                                else "minor verification notes"
+                            )
+                            self.call_from_thread(
+                                self._add_system_message,
+                                f"🔍 Confidence: {confidence}/100 — {detail}",
+                            )
+                        else:
+                            tool_count = len(tool_history)
+                            self.call_from_thread(
+                                self._add_system_message,
+                                f"✅ Confidence: {confidence}/100 — verified ({tool_count} tool calls)",
+                            )
+                    except Exception as e:
+                        logger.debug("Verification confidence check failed: %s", e)
                 elif content and content.strip():
+                    # Run shared hallucination verifier on content without tools
+                    try:
+                        from sago.engine.hallucination_verifier import get_verifier
+
+                        verifier = get_verifier()
+                        verification = verifier.verify(
+                            content, tool_history=[], task_type=task_type
+                        )
+                        if verification.has_hallucinations:
+                            content = verification.cleaned_content
+                    except Exception as e:
+                        logger.debug("Hallucination verification failed: %s", e)
                     self.call_from_thread(self._add_assistant_message, content)
                 elif tool_history:
                     tools_done = [t["tool"] for t in tool_history]
@@ -1457,6 +1726,13 @@ class MessageProcessorMixin:
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
             error_msg = str(e)
+            logger.error(
+                "Error during message processing: %s (model=%s, provider=%s, elapsed=%.1fs)",
+                error_msg,
+                self.current_model,
+                self.current_provider,
+                _time.time() - thread_start,
+            )
 
             from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
@@ -1488,3 +1764,4 @@ class MessageProcessorMixin:
             self.call_from_thread(self._add_assistant_message, f"❌ **Error:** {error_msg}")
         finally:
             self.is_thinking = False
+            logger.info("Message processing ended (elapsed=%.1fs)", _time.time() - thread_start)

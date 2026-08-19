@@ -6,10 +6,13 @@ Provides session compaction for maintaining context in long conversations.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger("sago.memory.compaction")
 
 
 @dataclass
@@ -70,7 +73,14 @@ class InputSummarizer:
     def should_summarize(self, text: str) -> bool:
         """Check if text should be summarized."""
         word_count = len(text.split())
-        return word_count > self.WORD_THRESHOLD
+        result = word_count > self.WORD_THRESHOLD
+        logger.debug(
+            "should_summarize: word_count=%d, threshold=%d, result=%s",
+            word_count,
+            self.WORD_THRESHOLD,
+            result,
+        )
+        return result
 
     def estimate_tokens(self, text: str) -> int:
         """Estimate token count."""
@@ -79,7 +89,15 @@ class InputSummarizer:
     def summarize_input(self, text: str, max_tokens: int = 1000) -> str:
         """Summarize a long input while preserving key information."""
         if not self.should_summarize(text):
+            logger.debug(
+                "Input below threshold, skipping summarization (%d tokens)",
+                self.estimate_tokens(text),
+            )
             return text
+
+        logger.info(
+            "Summarizing input: %d chars, ~%d tokens", len(text), self.estimate_tokens(text)
+        )
 
         # Extract key components
         errors = self.ERROR_PATTERN.findall(text)
@@ -154,7 +172,14 @@ class InputSummarizer:
         # Truncate if still too long
         if self.estimate_tokens(summary) > max_tokens:
             summary = summary[: max_tokens * self.TOKEN_ESTIMATE_RATIO]
+            logger.debug("Truncated summary to %d chars (~%d tokens)", len(summary), max_tokens)
 
+        logger.info(
+            "Summarized: %d chars -> %d chars (ratio=%.1f%%)",
+            len(text),
+            len(summary),
+            (1 - len(summary) / len(text)) * 100 if text else 0,
+        )
         return summary
 
     def extract_error_context(self, text: str) -> str:
@@ -193,6 +218,7 @@ class SessionCompactor:
         preserve_recent: int = 10,
     ) -> CompactedContext:
         """Compact a list of messages into a summary."""
+        logger.info("Compacting %d messages (preserve_recent=%d)", len(messages), preserve_recent)
         if not messages:
             return CompactedContext(
                 summary="",
@@ -276,7 +302,7 @@ class SessionCompactor:
 
         compacted_length = len(summary) + sum(len(c) for c in recent_context)
 
-        return CompactedContext(
+        result = CompactedContext(
             summary=summary,
             key_points=key_points[-10:],
             decisions=decisions[-5:],
@@ -285,6 +311,19 @@ class SessionCompactor:
             original_length=original_length,
             compacted_length=compacted_length,
         )
+        logger.info(
+            "Compaction result: original=%d, compacted=%d, ratio=%.1f%%",
+            original_length,
+            compacted_length,
+            result.compression_ratio * 100,
+        )
+        logger.debug(
+            "Decisions=%d, action_items=%d, entities=%d",
+            len(decisions),
+            len(action_items),
+            len(entities),
+        )
+        return result
 
     def compact_with_llm(
         self,
@@ -299,13 +338,14 @@ class SessionCompactor:
             api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
 
         if not api_key:
-            # Fallback to rule-based compaction
+            logger.warning("No API key available, falling back to rule-based compaction")
             compacted = self.compact_messages(messages)
             return compacted.summary
 
         try:
             from openai import OpenAI
 
+            logger.info("Calling LLM summarization: model=%s, messages=%d", model, len(messages))
             client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=30.0)
 
             # Build conversation for summarization
@@ -331,8 +371,11 @@ class SessionCompactor:
                 max_tokens=1024,
                 temperature=0.3,
             )
-            return response.choices[0].message.content or "Summary unavailable"
-        except Exception:
+            result = response.choices[0].message.content or "Summary unavailable"
+            logger.info("LLM summarization complete: %d chars returned", len(result))
+            return result
+        except Exception as e:
+            logger.error("LLM summarization failed, falling back to rule-based: %s", e)
             compacted = self.compact_messages(messages)
             return compacted.summary
 
@@ -444,7 +487,14 @@ class SessionCompactor:
     def should_compact(self, messages: list[dict[str, Any]]) -> bool:
         """Check if messages should be compacted."""
         total_tokens = sum(len(m.get("content", "")) // 4 for m in messages)
-        return total_tokens > self.max_context_tokens
+        result = total_tokens > self.max_context_tokens
+        logger.debug(
+            "should_compact: total_tokens=%d, max=%d, result=%s",
+            total_tokens,
+            self.max_context_tokens,
+            result,
+        )
+        return result
 
 
 @dataclass

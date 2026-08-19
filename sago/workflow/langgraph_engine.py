@@ -10,6 +10,7 @@ Uses LangGraph StateGraph for:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from collections.abc import Callable
@@ -21,16 +22,16 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
+logger = logging.getLogger("sago.workflow.langgraph")
+
 
 # Tool definitions - self-contained, no simple_executor dependency
 def _discover_tools() -> dict[str, Any]:
     """Discover all available tools."""
     import importlib
-    import logging
 
     from sago.tools.base import BaseTool
 
-    _log = logging.getLogger("sago.langgraph")
     tools: dict[str, Any] = {}
     tools_dir = Path(__file__).parent.parent / "tools"
 
@@ -46,7 +47,7 @@ def _discover_tools() -> dict[str, Any]:
         try:
             mod = importlib.import_module(module_name)
         except Exception as e:
-            _log.debug(f"Failed to import {module_name}: {e}")
+            logger.debug("Failed to import %s: %s", module_name, e)
             continue
 
         for attr_name in dir(mod):
@@ -56,8 +57,9 @@ def _discover_tools() -> dict[str, Any]:
                     if issubclass(obj, BaseTool) and obj.name:
                         tools[obj.name] = obj
                 except Exception as e:
-                    _log.debug(f"Failed to register tool {obj.__name__}: {e}")
+                    logger.debug("Failed to register tool %s: %s", obj.__name__, e)
 
+    logger.debug("Discovered %d tools", len(tools))
     return tools
 
 
@@ -88,8 +90,8 @@ def _get_context() -> str:
         if p.exists():
             try:
                 lines.append(f"\n--- {name} ---\n{p.read_text('utf-8')[:2000]}")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to read context file %s: %s", name, e)
 
     skip = {".git", "node_modules", "__pycache__", ".venv", "venv", "env"}
     files = []
@@ -105,8 +107,8 @@ def _get_context() -> str:
                     )
                 except Exception:
                     files.append(f"  {item.name}")
-    except PermissionError:
-        pass
+    except PermissionError as e:
+        logger.debug("Permission denied listing directory %s: %s", work_dir, e)
     if files:
         lines.append(f"\nFiles ({work_dir.name}/):")
         lines.extend(files[:30])
@@ -223,6 +225,7 @@ class SagoWorkflowEngine:
         """Make an LLM call and return content + token counts."""
         from openai import OpenAI
 
+        logger.debug("Making LLM call (model=%s, max_tokens=%d)", self.model, max_tokens)
         client = OpenAI(api_key=self.api_key, base_url="https://openrouter.ai/api/v1", timeout=90.0)
 
         response = client.chat.completions.create(
@@ -256,8 +259,10 @@ class SagoWorkflowEngine:
             result = tool_instance.run(**args)
             result_str = str(result)[:4000]
             is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
+            logger.debug("Tool %s executed successfully", name)
             return result_str, is_error
         except Exception as e:
+            logger.error("Tool %s failed: %s", name, e)
             return f"Tool error: {type(e).__name__}: {e}", True
 
     def _planner_node(self, state: WorkflowState) -> dict:
@@ -434,6 +439,7 @@ class SagoWorkflowEngine:
     ) -> WorkflowResult:
         """Execute a workflow synchronously."""
         start_time = time.time()
+        logger.info("Starting workflow (agent=%s, max_iter=%d)", agent, max_iterations)
         graph = self.build_graph()
 
         initial_state: WorkflowState = {
@@ -457,7 +463,7 @@ class SagoWorkflowEngine:
         try:
             final_state = graph.invoke(initial_state, config)
 
-            return WorkflowResult(
+            result = WorkflowResult(
                 success=final_state.get("status") == "completed",
                 output=final_state.get("result") or "",
                 tool_calls=final_state.get("tool_calls", []),
@@ -469,7 +475,15 @@ class SagoWorkflowEngine:
                 },
                 elapsed=time.time() - start_time,
             )
+            logger.info(
+                "Workflow completed in %.1fs (success=%s, iterations=%d)",
+                result.elapsed,
+                result.success,
+                result.iterations,
+            )
+            return result
         except Exception as e:
+            logger.error("Workflow failed: %s", e)
             return WorkflowResult(
                 success=False,
                 output=f"Workflow error: {e}",

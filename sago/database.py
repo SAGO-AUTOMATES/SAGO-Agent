@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import atexit
 import json
+import logging
 import sqlite3
 import threading
 import uuid
@@ -24,6 +25,8 @@ from typing import Any
 
 from sago.paths import get_db_path
 from sago.utils.errors import log_error
+
+logger = logging.getLogger("sago.database")
 
 # ---------------------------------------------------------------------------
 # Connection pool - single shared connection per thread
@@ -42,14 +45,20 @@ def _get_connection() -> sqlite3.Connection:
             return conn
 
     db_path = get_db_path()
-    conn = sqlite3.connect(str(db_path), timeout=30.0, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
+    logger.debug("Creating new connection for thread %s -> %s", tid, db_path)
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=30.0, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA busy_timeout=5000")
+    except Exception as e:
+        logger.error("Failed to create database connection for thread %s: %s", tid, e)
+        raise
 
     with _pool_lock:
         _connections[tid] = conn
+    logger.debug("Connection pool now has %d connections", len(_connections))
     return conn
 
 
@@ -58,6 +67,7 @@ def close_all_connections() -> None:
     with _pool_lock:
         conns = list(_connections.values())
         _connections.clear()
+    logger.debug("Closing %d pooled connections", len(conns))
     for conn in conns:
         try:
             conn.close()
@@ -65,6 +75,7 @@ def close_all_connections() -> None:
             pass
         except Exception as e:
             log_error("Failed to close database connection", e)
+            logger.error("Failed to close database connection: %s", e)
 
 
 atexit.register(close_all_connections)
@@ -76,6 +87,7 @@ def close_thread_connection() -> None:
     with _pool_lock:
         conn = _connections.pop(tid, None)
     if conn is not None:
+        logger.debug("Closing connection for thread %s", tid)
         conn.close()
 
 
@@ -92,6 +104,7 @@ def get_db():
 def init_db() -> None:
     """Initialize the database schema."""
     conn = _get_connection()
+    logger.info("Initializing database schema")
     try:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS sessions (
@@ -184,6 +197,10 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id);
         """)
         conn.commit()
+        logger.info("Database schema initialized successfully (6 tables, 14 indexes)")
+    except Exception as e:
+        logger.error("Failed to initialize database schema: %s", e)
+        raise
     finally:
         pass  # connection stays in pool
 
@@ -194,6 +211,7 @@ class Session:
     def __init__(self, session_id: str | None = None) -> None:
         self.id = session_id or str(uuid.uuid4())
         self.conn = _get_connection()
+        logger.debug("Session created: %s", self.id)
 
     def __enter__(self) -> Session:
         return self
@@ -205,6 +223,7 @@ class Session:
         """Create a new session."""
         now = datetime.now(UTC).isoformat()
         chain = json.dumps(agent_chain or ["sago"])
+        logger.debug("INSERT session id=%s title=%r", self.id, title)
         self.conn.execute(
             "INSERT INTO sessions (id, created_at, updated_at, title, agent_chain) VALUES (?, ?, ?, ?, ?)",
             (self.id, now, now, title, chain),
@@ -214,6 +233,7 @@ class Session:
 
     def get(self) -> dict[str, Any] | None:
         """Get session by ID."""
+        logger.debug("SELECT session id=%s", self.id)
         row = self.conn.execute("SELECT * FROM sessions WHERE id = ?", (self.id,)).fetchone()
         return dict(row) if row else None
 
@@ -227,11 +247,13 @@ class Session:
                 sets.append(f"{key} = ?")
                 values.append(json.dumps(val) if isinstance(val, (dict, list)) else val)
         values.append(self.id)
+        logger.debug("UPDATE session id=%s fields=%s", self.id, list(kwargs.keys()))
         self.conn.execute(f"UPDATE sessions SET {', '.join(sets)} WHERE id = ?", values)
         self.conn.commit()
 
     def list_all(self, limit: int = 50) -> list[dict[str, Any]]:
         """List all sessions."""
+        logger.debug("SELECT sessions ORDER BY created_at DESC LIMIT %d", limit)
         rows = self.conn.execute(
             "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?", (limit,)
         ).fetchall()
@@ -239,6 +261,7 @@ class Session:
 
     def find_by_prefix(self, prefix: str) -> dict[str, Any] | None:
         """Find a session by exact ID or prefix match."""
+        logger.debug("SELECT session by prefix=%r", prefix)
         row = self.conn.execute("SELECT * FROM sessions WHERE id = ?", (prefix,)).fetchone()
         if row:
             return dict(row)
@@ -251,6 +274,7 @@ class Session:
     def has_human_messages(self, session_id: str | None = None) -> bool:
         """Check if a session contains at least one real human message (not a slash command)."""
         sid = session_id or self.id
+        logger.debug("SELECT has_human_messages session_id=%s", sid)
         row = self.conn.execute(
             """SELECT 1 FROM messages
                WHERE session_id = ?
@@ -276,11 +300,13 @@ class Session:
             )
         """)
         deleted = cursor.rowcount
+        logger.info("Cleaned up %d useless sessions", deleted)
         self.conn.commit()
         return deleted
 
     def delete(self) -> None:
         """Delete session and all cascaded data."""
+        logger.debug("DELETE session id=%s (cascade)", self.id)
         self.conn.execute("DELETE FROM sessions WHERE id = ?", (self.id,))
         self.conn.commit()
 
@@ -289,6 +315,7 @@ class Session:
 
     def get_full_export(self) -> dict[str, Any]:
         """Get complete session data for export."""
+        logger.debug("Exporting full session data id=%s", self.id)
         session = self.get() or {}
         ms = MessageStore(self.id)
         ms.flush()
@@ -301,6 +328,12 @@ class Session:
         tool_usage = tus.get_all()
         ts = TaskStore(self.id)
         tasks = ts.get_all()
+        logger.debug(
+            "Export complete: %d messages, %d tool usages, %d tasks",
+            len(messages),
+            len(tool_usage),
+            len(tasks),
+        )
         return {
             "session": session,
             "messages": messages,
@@ -315,6 +348,7 @@ class TaskStore:
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
         self.conn = _get_connection()
+        logger.debug("TaskStore created for session %s", session_id)
 
     def __enter__(self) -> TaskStore:
         return self
@@ -333,6 +367,9 @@ class TaskStore:
         """Create a new task."""
         task_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
+        logger.debug(
+            "INSERT task id=%s agent=%s session=%s", task_id, assigned_agent, self.session_id
+        )
         self.conn.execute(
             """INSERT INTO tasks (id, session_id, parent_task_id, created_at, updated_at,
                assigned_agent, description, context, priority)
@@ -362,15 +399,18 @@ class TaskStore:
                 sets.append(f"{key} = ?")
                 values.append(json.dumps(val) if isinstance(val, (dict, list)) else val)
         values.append(task_id)
+        logger.debug("UPDATE task id=%s fields=%s", task_id, list(kwargs.keys()))
         self.conn.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", values)
         self.conn.commit()
 
     def get(self, task_id: str) -> dict[str, Any] | None:
+        logger.debug("SELECT task id=%s", task_id)
         row = self.conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         return dict(row) if row else None
 
     def get_all(self) -> list[dict[str, Any]]:
         """Get all tasks for this session."""
+        logger.debug("SELECT all tasks session_id=%s", self.session_id)
         rows = self.conn.execute(
             "SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at",
             (self.session_id,),
@@ -378,6 +418,7 @@ class TaskStore:
         return [dict(r) for r in rows]
 
     def get_by_status(self, status: str) -> list[dict[str, Any]]:
+        logger.debug("SELECT tasks session_id=%s status=%s", self.session_id, status)
         rows = self.conn.execute(
             "SELECT * FROM tasks WHERE session_id = ? AND status = ? ORDER BY priority",
             (self.session_id, status),
@@ -387,11 +428,13 @@ class TaskStore:
     def get_chain(self, task_id: str) -> list[dict[str, Any]]:
         """Get the full chain of tasks from root to this task.
         Guards against circular references."""
+        logger.debug("Traversing task chain from %s", task_id)
         chain = []
         seen: set[str] = set()
         current = task_id
         while current:
             if current in seen:
+                logger.warning("Circular reference detected in task chain at %s", current)
                 break  # circular reference guard
             seen.add(current)
             task = self.get(current)
@@ -400,6 +443,7 @@ class TaskStore:
                 current = task.get("parent_task_id")
             else:
                 break
+        logger.debug("Task chain length: %d", len(chain))
         return chain
 
     def close(self) -> None:
@@ -414,6 +458,7 @@ class MessageStore:
         self.conn = _get_connection()
         self._pending: list[tuple] = []
         self._batch_size = 50
+        logger.debug("MessageStore created for session %s", session_id)
 
     def __enter__(self) -> MessageStore:
         return self
@@ -444,6 +489,13 @@ class MessageStore:
                 json.dumps(metadata or {}),
             )
         )
+        logger.debug(
+            "Queued message id=%s role=%s agent=%s pending=%d",
+            msg_id,
+            role,
+            agent_name,
+            len(self._pending),
+        )
         if len(self._pending) >= self._batch_size:
             self.flush()
         return {"id": msg_id, "role": role, "content": content}
@@ -452,6 +504,8 @@ class MessageStore:
         """Flush pending messages to disk."""
         if not self._pending:
             return
+        count = len(self._pending)
+        logger.debug("Flushing %d messages for session %s", count, self.session_id)
         self.conn.executemany(
             """INSERT INTO messages (id, session_id, task_id, created_at, role, agent_name, content, metadata)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -463,6 +517,7 @@ class MessageStore:
     def get_history(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get message history."""
         self.flush()  # ensure pending are written
+        logger.debug("SELECT message history session_id=%s limit=%d", self.session_id, limit)
         rows = self.conn.execute(
             "SELECT * FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
             (self.session_id, limit),
@@ -471,6 +526,7 @@ class MessageStore:
 
     def get_for_task(self, task_id: str) -> list[dict[str, Any]]:
         """Get messages for a specific task."""
+        logger.debug("SELECT messages for task_id=%s", task_id)
         rows = self.conn.execute(
             "SELECT * FROM messages WHERE task_id = ? ORDER BY created_at",
             (task_id,),
@@ -479,6 +535,7 @@ class MessageStore:
 
     def count(self) -> int:
         """Count messages in session."""
+        logger.debug("SELECT COUNT messages session_id=%s", self.session_id)
         row = self.conn.execute(
             "SELECT COUNT(*) as cnt FROM messages WHERE session_id = ?",
             (self.session_id,),
@@ -498,6 +555,7 @@ class ToolUsageStore:
         self.conn = _get_connection()
         self._pending: list[tuple] = []
         self._batch_size = 20
+        logger.debug("ToolUsageStore created for session %s", session_id)
 
     def __enter__(self) -> ToolUsageStore:
         return self
@@ -530,6 +588,13 @@ class ToolUsageStore:
                 1 if success else 0,
             )
         )
+        logger.debug(
+            "Queued tool_usage tool=%s success=%s duration_ms=%d pending=%d",
+            tool_name,
+            success,
+            duration_ms,
+            len(self._pending),
+        )
         if len(self._pending) >= self._batch_size:
             self.flush()
 
@@ -537,6 +602,8 @@ class ToolUsageStore:
         """Flush pending tool usage logs to disk."""
         if not self._pending:
             return
+        count = len(self._pending)
+        logger.debug("Flushing %d tool_usage records for session %s", count, self.session_id)
         self.conn.executemany(
             """INSERT INTO tool_usage (id, session_id, task_id, created_at, tool_name,
                arguments, result, duration_ms, success)
@@ -549,6 +616,7 @@ class ToolUsageStore:
     def get_all(self) -> list[dict[str, Any]]:
         """Get all tool usage for this session."""
         self.flush()
+        logger.debug("SELECT all tool_usage session_id=%s", self.session_id)
         rows = self.conn.execute(
             "SELECT * FROM tool_usage WHERE session_id = ? ORDER BY created_at",
             (self.session_id,),
@@ -558,6 +626,7 @@ class ToolUsageStore:
     def get_stats(self) -> dict[str, Any]:
         """Get tool usage statistics."""
         self.flush()
+        logger.debug("SELECT tool_usage stats session_id=%s", self.session_id)
         rows = self.conn.execute(
             """SELECT tool_name, COUNT(*) as count, AVG(duration_ms) as avg_ms,
                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successes
@@ -577,6 +646,7 @@ class CheckpointStore:
     def __init__(self) -> None:
         init_db()
         self.conn = _get_connection()
+        logger.debug("CheckpointStore initialized")
 
     def record_checkpoint(
         self,
@@ -594,6 +664,12 @@ class CheckpointStore:
             datetime.fromtimestamp(timestamp, tz=UTC).isoformat()
             if timestamp
             else datetime.now(UTC).isoformat()
+        )
+        logger.debug(
+            "INSERT/REPLACE checkpoint id=%s files=%d git=%s",
+            checkpoint_id,
+            len(file_paths),
+            git_commit[:8] if git_commit else "",
         )
         self.conn.execute(
             """
@@ -617,10 +693,12 @@ class CheckpointStore:
 
     def get_checkpoint(self, checkpoint_id: str) -> dict[str, Any] | None:
         """Retrieve a specific checkpoint by ID."""
+        logger.debug("SELECT checkpoint id=%s", checkpoint_id)
         row = self.conn.execute(
             "SELECT * FROM checkpoints WHERE id = ?", (checkpoint_id,)
         ).fetchone()
         if not row:
+            logger.debug("Checkpoint %s not found", checkpoint_id)
             return None
         return {
             "id": row["id"],
@@ -639,11 +717,13 @@ class CheckpointStore:
     ) -> list[dict[str, Any]]:
         """List checkpoints ordered by creation time descending."""
         if workspace_root:
+            logger.debug("SELECT checkpoints workspace=%s limit=%d", workspace_root, limit)
             rows = self.conn.execute(
                 "SELECT * FROM checkpoints WHERE workspace_root = ? ORDER BY created_at DESC LIMIT ?",
                 (workspace_root, limit),
             ).fetchall()
         else:
+            logger.debug("SELECT checkpoints limit=%d", limit)
             rows = self.conn.execute(
                 "SELECT * FROM checkpoints ORDER BY created_at DESC LIMIT ?",
                 (limit,),
@@ -668,24 +748,36 @@ class CheckpointStore:
 
     def delete_checkpoint(self, checkpoint_id: str) -> bool:
         """Delete a checkpoint from SQLite."""
+        logger.debug("DELETE checkpoint id=%s", checkpoint_id)
         cur = self.conn.execute("DELETE FROM checkpoints WHERE id = ?", (checkpoint_id,))
         self.conn.commit()
-        return cur.rowcount > 0
+        deleted = cur.rowcount > 0
+        if not deleted:
+            logger.debug("Checkpoint %s not found for deletion", checkpoint_id)
+        return deleted
 
 
 def init() -> None:
     """Initialize the database."""
+    logger.info("Initializing database")
     init_db()
 
 
 def vacuum() -> None:
     """Reclaim disk space and optimize the database."""
+    logger.info("Running VACUUM on database")
     conn = _get_connection()
-    conn.execute("VACUUM")
+    try:
+        conn.execute("VACUUM")
+        logger.info("VACUUM completed successfully")
+    except Exception as e:
+        logger.error("VACUUM failed: %s", e)
+        raise
 
 
 def get_db_stats() -> dict[str, Any]:
     """Get database size and row counts."""
+    logger.debug("Retrieving database stats")
     conn = _get_connection()
     stats: dict[str, Any] = {}
     for table in ("sessions", "tasks", "messages", "agent_state", "tool_usage"):
@@ -696,4 +788,11 @@ def get_db_stats() -> dict[str, Any]:
     row = conn.execute("PRAGMA page_size").fetchone()
     page_size = row[0]
     stats["size_bytes"] = page_count * page_size
+    logger.debug(
+        "DB stats: sessions=%s tasks=%s messages=%s size=%d bytes",
+        stats.get("sessions"),
+        stats.get("tasks"),
+        stats.get("messages"),
+        stats["size_bytes"],
+    )
     return stats

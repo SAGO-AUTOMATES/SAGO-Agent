@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import platform
 import shutil
 import sys
@@ -11,6 +12,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.platform_diagnostics")
 
 
 class PlatformDiagnosticsArgs(BaseModel):
@@ -43,10 +46,8 @@ class PlatformDiagnosticsTool(BaseTool):
             lines.append(
                 f"• **Disk Usage**: {used // (2**30)}GB used / {total // (2**30)}GB total ({free // (2**30)}GB free)"
             )
-        except Exception:
-            pass
-
-        # 3. Environment & Tools
+        except Exception as e:
+            logger.debug("Failed to get disk usage: %s", e)
         common_binaries = [
             "git",
             "docker",

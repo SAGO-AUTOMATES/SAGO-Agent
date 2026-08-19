@@ -28,6 +28,7 @@ from sago.streaming.handler import (
     StreamingResponse,
     StreamPrinter,
 )
+from sago.utils.safe import log_exception
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +123,14 @@ class ProductionEngine:
         else:
             session = self.session_manager.create_session(task[:50])
 
+        task_start = time.time()
+        logger.info(
+            "run_task started: agent=%s effort=%s",
+            agent or "auto",
+            effort or self.config.default_effort,
+        )
+        logger.debug("Task: %.200s", task)
+
         # Determine effort level
         effort_level = EffortLevel(effort or self.config.default_effort)
 
@@ -143,6 +152,7 @@ class ProductionEngine:
 
             # Use specified agent or auto-delegate
             agent_name = agent or plan.primary_agent
+            logger.debug("Selected agent: %s (primary_agent=%s)", agent_name, plan.primary_agent)
 
             response.add_thinking(
                 f"Selected agent: {agent_name}",
@@ -205,10 +215,30 @@ class ProductionEngine:
             # Complete the response
             response.end()
 
+            # Run hallucination verification on result
+            try:
+                from sago.engine.hallucination_verifier import get_verifier
+
+                verifier = get_verifier()
+                verification = verifier.verify(result, tool_history=[], task_type="create")
+                if verification.has_hallucinations:
+                    result = verification.cleaned_content
+                    if verification.confidence < 50:
+                        result += "\n\n[Confidence Warning]\nThis response may contain unverified claims. Please verify independently."
+            except Exception as e:
+                log_exception(e, "Hallucination verification failed")
+
             # Update thread
             thread.result = result
             thread.status = ThreadStatus.COMPLETED
             thread.completed_at = time.time()
+
+            task_elapsed = time.time() - task_start
+            logger.info(
+                "run_task completed: agent=%s success=True elapsed=%.2fs",
+                agent_name,
+                task_elapsed,
+            )
 
             # Add message to session
             session.add_message("user", task)
@@ -237,6 +267,13 @@ class ProductionEngine:
             }
 
         except Exception as e:
+            task_elapsed = time.time() - task_start
+            logger.error(
+                "run_task failed: agent=%s error=%s elapsed=%.2fs",
+                locals().get("agent_name", agent or "unknown"),
+                e,
+                task_elapsed,
+            )
             response.add_error(str(e))
             response.end()
 
@@ -270,9 +307,13 @@ class ProductionEngine:
             else self.session_manager.create_session(task[:50])
         )
 
+        chain_start = time.time()
         current_input = task
         results = []
         effort_level = EffortLevel(effort or self.config.default_effort)
+
+        logger.info("Chain execution started: %d agents in chain", len(agent_chain))
+        logger.debug("Agent chain: %s", agent_chain)
 
         # Track context across chain
         handoff_ctx = HandoffContext(
@@ -281,7 +322,9 @@ class ProductionEngine:
         )
 
         for i, agent_name in enumerate(agent_chain):
-            logger.info("Chain step %d/%d: %s", i + 1, len(agent_chain), agent_name)
+            step_start = time.time()
+            logger.info("Chain step %d/%d: agent=%s", i + 1, len(agent_chain), agent_name)
+            logger.debug("Chain step %d/%d: task=%.200s", i + 1, len(agent_chain), current_input)
 
             # Build context-rich input for subsequent agents
             if i > 0 and handoff_ctx.completed_agents:
@@ -294,11 +337,18 @@ class ProductionEngine:
                 session_id=session.id,
             )
 
+            step_elapsed = time.time() - step_start
             results.append(result)
 
-            # Break chain on error — don't propagate error strings
             if not result.get("success"):
                 error_msg = result.get("error", "Unknown error")
+                logger.error(
+                    "Chain step %d/%d failed (agent=%s): %s",
+                    i + 1,
+                    len(agent_chain),
+                    agent_name,
+                    error_msg,
+                )
                 handoff_ctx.add_result(agent_name, error_msg, success=False)
                 return {
                     "success": False,
@@ -308,11 +358,20 @@ class ProductionEngine:
                     "context": handoff_ctx.to_dict(),
                 }
 
-            # Record successful result
+            logger.info(
+                "Chain step %d/%d completed (agent=%s) in %.2fs",
+                i + 1,
+                len(agent_chain),
+                agent_name,
+                step_elapsed,
+            )
+
             content = result.get("content", "")
             handoff_ctx.add_result(agent_name, content, success=True)
             current_input = content
 
+        total_elapsed = time.time() - chain_start
+        logger.info("Chain execution completed in %.2fs", total_elapsed)
         return {
             "success": True,
             "content": current_input,
@@ -418,6 +477,7 @@ class ProductionEngine:
                     }
                 )
             except Exception as e:
+                log_exception(e, f"Parallel task execution failed for thread {thread.id}")
                 results.append(
                     {
                         "thread_id": thread.id,

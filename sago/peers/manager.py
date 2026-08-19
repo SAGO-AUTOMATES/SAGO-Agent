@@ -17,12 +17,15 @@ Flow:
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class PeerStatus(StrEnum):
@@ -79,9 +82,13 @@ class PeerInfo:
             "alias": self.alias,
             "ssh_user": self.ssh_user,
             "ssh_port": self.ssh_port,
+            "ssh_key": self.ssh_key,
             "status": self.status.value,
             "sago_version": self.sago_version,
+            "sago_path": self.sago_path,
+            "python_version": self.python_version,
             "os_info": self.os_info,
+            "last_seen": self.last_seen,
             "latency_ms": round(self.latency_ms, 1),
             "tags": self.tags,
         }
@@ -141,8 +148,8 @@ class PeerManager:
                 for peer_data in data.get("peers", []):
                     peer = PeerInfo(**peer_data)
                     self.peers[peer.hostname] = peer
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to load peer configuration from %s: %s", self.config_path, e)
 
     def _save_config(self) -> None:
         """Save peer configuration."""

@@ -7,6 +7,7 @@ Each session can have multiple threads running in parallel.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import uuid
@@ -15,6 +16,10 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+from sago.utils.safe import log_exception
+
+logger = logging.getLogger("sago.sessions")
 
 
 class SessionStatus(Enum):
@@ -212,13 +217,19 @@ class SessionManager:
         session = Session(id=str(uuid.uuid4()), title=title)
         with self._lock:
             self.sessions[session.id] = session
+        logger.info("Session created: id=%s title=%s", session.id, title)
         self._notify("session_created", {"session_id": session.id})
         return session
 
     def get_session(self, session_id: str) -> Session | None:
         """Get a session by ID."""
         with self._lock:
-            return self.sessions.get(session_id)
+            session = self.sessions.get(session_id)
+        if session:
+            logger.debug("Session found: id=%s", session_id)
+        else:
+            logger.debug("Session not found: id=%s", session_id)
+        return session
 
     def list_sessions(self) -> list[dict[str, Any]]:
         """List all sessions."""
@@ -235,6 +246,7 @@ class SessionManager:
         """Create a new thread in a session."""
         session = self.sessions.get(session_id)
         if not session:
+            logger.error("create_thread failed: session not found id=%s", session_id)
             return None
 
         thread = Thread(
@@ -246,6 +258,12 @@ class SessionManager:
         )
         session.threads.append(thread)
         session.updated_at = time.time()
+        logger.info(
+            "Thread created: thread_id=%s session_id=%s agent=%s",
+            thread.id,
+            session_id,
+            agent_name,
+        )
         self._notify("thread_created", {"thread_id": thread.id})
         return thread
 
@@ -257,7 +275,10 @@ class SessionManager:
         """Execute a thread in the background."""
         thread = self._find_thread(thread_id)
         if not thread:
+            logger.error("execute_thread failed: thread not found id=%s", thread_id)
             return None
+
+        logger.info("Thread start: thread_id=%s agent=%s", thread.id, thread.agent_name)
 
         def _run() -> str:
             thread.status = ThreadStatus.RUNNING
@@ -268,15 +289,36 @@ class SessionManager:
                 result = executor_fn(thread)
                 thread.result = result
                 thread.status = ThreadStatus.COMPLETED
+            except TimeoutError as e:
+                thread.error = str(e)
+                thread.status = ThreadStatus.FAILED
+                logger.error(
+                    "Thread timed out: thread_id=%s agent=%s error=%s",
+                    thread.id,
+                    thread.agent_name,
+                    e,
+                )
             except Exception as e:
                 thread.error = str(e)
                 thread.status = ThreadStatus.FAILED
+                logger.error(
+                    "Thread failed: thread_id=%s agent=%s error=%s",
+                    thread.id,
+                    thread.agent_name,
+                    e,
+                )
             finally:
                 thread.completed_at = time.time()
                 session = self.sessions.get(thread.session_id)
                 if session:
                     session.updated_at = time.time()
 
+            logger.info(
+                "Thread completed: thread_id=%s status=%s duration=%.2fs",
+                thread.id,
+                thread.status.value,
+                thread.duration(),
+            )
             self._notify(
                 "thread_completed",
                 {"thread_id": thread.id, "status": thread.status.value},
@@ -295,24 +337,32 @@ class SessionManager:
         """Execute a thread synchronously."""
         future = self.execute_thread(thread_id, executor_fn)
         if future:
-            return future.result()
+            try:
+                return future.result()
+            except Exception as e:
+                logger.error("execute_thread_sync failed: thread_id=%s error=%s", thread_id, e)
+                return f"Error: {e}"
         return "Error: Thread not found"
 
     def wait_for_thread(self, thread_id: str, timeout: float = 300) -> str:
         """Wait for a thread to complete."""
         future = self._futures.get(thread_id)
         if not future:
+            logger.debug("wait_for_thread: thread not found id=%s", thread_id)
             return "Error: Thread not found"
 
         try:
-            return future.result(timeout=timeout)
+            result = future.result(timeout=timeout)
+            return result
         except TimeoutError:
+            logger.warning("Thread timed out: thread_id=%s timeout=%s", thread_id, timeout)
             return "Error: Thread timed out"
 
     def cancel_thread(self, thread_id: str) -> bool:
         """Cancel a running thread."""
         thread = self._find_thread(thread_id)
         if not thread:
+            logger.debug("cancel_thread: thread not found id=%s", thread_id)
             return False
 
         if thread.status == ThreadStatus.RUNNING:
@@ -321,6 +371,7 @@ class SessionManager:
                 future.cancel()
             thread.status = ThreadStatus.CANCELLED
             thread.completed_at = time.time()
+            logger.info("Thread cancelled: thread_id=%s agent=%s", thread.id, thread.agent_name)
             return True
         return False
 
@@ -364,8 +415,10 @@ class SessionManager:
             if session_id in self.sessions:
                 self.pause_session(session_id)
                 del self.sessions[session_id]
+                logger.info("Session deleted: id=%s", session_id)
                 self._notify("session_deleted", {"session_id": session_id})
                 return True
+            logger.error("delete_session failed: session not found id=%s", session_id)
             return False
 
     def _find_thread(self, thread_id: str) -> Thread | None:
@@ -382,8 +435,8 @@ class SessionManager:
         for callback in self._callbacks:
             try:
                 callback(event, data)
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Session callback failed")
 
     def shutdown(self) -> None:
         """Shutdown the executor."""
