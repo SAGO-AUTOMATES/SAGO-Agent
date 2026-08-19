@@ -88,6 +88,8 @@ def _build_unshare_args(config: SandboxConfig) -> list[str]:
     except (FileNotFoundError, PermissionError):
         logger.debug("User namespace not available for sandbox isolation")
 
+    return args
+
 
 class SandboxedExecutor:
     """Executes commands and code inside an isolated workspace jail."""
