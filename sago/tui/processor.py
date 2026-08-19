@@ -142,7 +142,8 @@ class MessageProcessorMixin:
                         available_tools=list(tools.keys()),
                         session_id=self.current_session_id or "default",
                     )
-                except Exception:
+                except Exception as ctx_err:
+                    logger.debug("Context assembler failed: %s", ctx_err)
                     assembled = None
 
                 # Detect project context
@@ -286,6 +287,8 @@ class MessageProcessorMixin:
                 enhancement = enhance_prompt(
                     task=message,
                     agent_role=self.current_agent,
+                    llm_client=client,
+                    llm_model=api_model,
                 )
                 if enhancement.was_modified and not _is_lightweight:
                     self.call_from_thread(
@@ -296,6 +299,14 @@ class MessageProcessorMixin:
                         self._add_prompt_enhancement_card,
                         enhancement,
                     )
+                    # Store enhancement data on the user message for export/resume
+                    if self.messages and self.messages[-1].get("role") == "user":
+                        enhancement_dict = enhancement.to_dict()
+                        self.messages[-1]["enhancement"] = enhancement_dict
+                        self.call_from_thread(
+                            self._update_last_user_message_metadata,
+                            {"enhancement": enhancement_dict},
+                        )
 
                 # Use enhanced structured prompt for engineering requests
                 user_msg_content = (
@@ -418,7 +429,10 @@ class MessageProcessorMixin:
                                         if isinstance(fargs, str):
                                             try:
                                                 fargs = json.loads(fargs) if fargs else {}
-                                            except Exception:
+                                            except (json.JSONDecodeError, TypeError) as parse_err:
+                                                logger.debug(
+                                                    "Failed to parse function args: %s", parse_err
+                                                )
                                                 fargs = {}
                                         parts.append(
                                             google_types.Part(
@@ -517,51 +531,51 @@ class MessageProcessorMixin:
                         )
                         content = response.text or ""
 
-                    # Usage metadata from Gemini response if available
-                    if hasattr(response, "usage_metadata") and response.usage_metadata:
-                        total_tokens_in = (
-                            getattr(response.usage_metadata, "prompt_token_count", 0) or 0
-                        )
-                        total_tokens_out = (
-                            getattr(response.usage_metadata, "candidates_token_count", 0) or 0
-                        )
-                        cumulative_tokens += total_tokens_out
-                        logger.info(
-                            "LLM response received: model=%s, content_length=%d, tokens_in=%d, tokens_out=%d",
-                            api_model,
-                            len(content),
-                            total_tokens_in,
-                            total_tokens_out,
-                        )
-                    else:
-                        logger.info(
-                            "LLM response received: model=%s, content_length=%d (no usage metadata)",
-                            api_model,
-                            len(content),
-                        )
+                        # Usage metadata from Gemini response if available
+                        if hasattr(response, "usage_metadata") and response.usage_metadata:
+                            total_tokens_in = (
+                                getattr(response.usage_metadata, "prompt_token_count", 0) or 0
+                            )
+                            total_tokens_out = (
+                                getattr(response.usage_metadata, "candidates_token_count", 0) or 0
+                            )
+                            cumulative_tokens += total_tokens_out
+                            logger.info(
+                                "LLM response received: model=%s, content_length=%d, tokens_in=%d, tokens_out=%d",
+                                api_model,
+                                len(content),
+                                total_tokens_in,
+                                total_tokens_out,
+                            )
+                        else:
+                            logger.info(
+                                "LLM response received: model=%s, content_length=%d (no usage metadata)",
+                                api_model,
+                                len(content),
+                            )
 
-                    # Extract tool calls and reasoning from Gemini response
-                    _gemini_raw_parts = []
-                    _gemini_thinking = ""
-                    if response.candidates and response.candidates[0].content:
-                        _gemini_raw_parts = list(response.candidates[0].content.parts or [])
-                        for part in _gemini_raw_parts:
-                            if getattr(part, "thought", None):
-                                t_val = getattr(part, "text", "") or ""
-                                if t_val:
-                                    _gemini_thinking += t_val + "\n"
-                            elif part.function_call:
-                                native_tool_calls.append(
-                                    {
-                                        "id": f"gemini_{len(native_tool_calls)}",
-                                        "name": part.function_call.name,
-                                        "args": dict(part.function_call.args)
-                                        if part.function_call.args
-                                        else {},
-                                    }
-                                )
-                            elif part.text and not content:
-                                content = part.text
+                        # Extract tool calls and reasoning from Gemini response
+                        _gemini_raw_parts = []
+                        _gemini_thinking = ""
+                        if response.candidates and response.candidates[0].content:
+                            _gemini_raw_parts = list(response.candidates[0].content.parts or [])
+                            for part in _gemini_raw_parts:
+                                if getattr(part, "thought", None):
+                                    t_val = getattr(part, "text", "") or ""
+                                    if t_val:
+                                        _gemini_thinking += t_val + "\n"
+                                elif part.function_call:
+                                    native_tool_calls.append(
+                                        {
+                                            "id": f"gemini_{len(native_tool_calls)}",
+                                            "name": part.function_call.name,
+                                            "args": dict(part.function_call.args)
+                                            if part.function_call.args
+                                            else {},
+                                        }
+                                    )
+                                elif part.text and not content:
+                                    content = part.text
                     else:
                         # OpenAI-compatible with native function calling (streaming)
                         api_kwargs = {
@@ -1568,7 +1582,7 @@ class MessageProcessorMixin:
                     else:
                         self.call_from_thread(self._add_assistant_message, summary)
 
-                    # Show verification and confidence indicator
+                    # Show verification and confidence indicator (dev mode only)
                     try:
                         from sago.engine.hallucination_verifier import get_verifier
 
@@ -1580,30 +1594,37 @@ class MessageProcessorMixin:
                         )
                         confidence = verification.confidence
                         all_issues = verification.all_issues
-                        if confidence < 50:
-                            detail_parts = all_issues[:4]
-                            detail = "; ".join(d[:80] for d in detail_parts)
-                            self.call_from_thread(
-                                self._add_system_message,
-                                f"⚠️ Low confidence ({confidence}/100): {detail}",
-                            )
-                        elif confidence < 80:
-                            detail_parts = all_issues[:2]
-                            detail = (
-                                "; ".join(d[:80] for d in detail_parts)
-                                if detail_parts
-                                else "minor verification notes"
-                            )
-                            self.call_from_thread(
-                                self._add_system_message,
-                                f"🔍 Confidence: {confidence}/100 — {detail}",
-                            )
-                        else:
-                            tool_count = len(tool_history)
-                            self.call_from_thread(
-                                self._add_system_message,
-                                f"✅ Confidence: {confidence}/100 — verified ({tool_count} tool calls)",
-                            )
+                        logger.info(
+                            "hallucination_check: confidence=%d issues=%d model=%s",
+                            confidence,
+                            len(all_issues),
+                            self.current_model,
+                        )
+                        if getattr(self, "developer_mode", False):
+                            if confidence < 50:
+                                detail_parts = all_issues[:4]
+                                detail = "; ".join(d[:80] for d in detail_parts)
+                                self.call_from_thread(
+                                    self._add_system_message,
+                                    f"⚠️ Low confidence ({confidence}/100): {detail}",
+                                )
+                            elif confidence < 80:
+                                detail_parts = all_issues[:2]
+                                detail = (
+                                    "; ".join(d[:80] for d in detail_parts)
+                                    if detail_parts
+                                    else "minor verification notes"
+                                )
+                                self.call_from_thread(
+                                    self._add_system_message,
+                                    f"🔍 Confidence: {confidence}/100 — {detail}",
+                                )
+                            else:
+                                tool_count = len(tool_history)
+                                self.call_from_thread(
+                                    self._add_system_message,
+                                    f"✅ Confidence: {confidence}/100 — verified ({tool_count} tool calls)",
+                                )
                     except Exception as e:
                         logger.debug("Verification confidence check failed: %s", e)
                 elif content and content.strip():
@@ -1734,15 +1755,18 @@ class MessageProcessorMixin:
                 _time.time() - thread_start,
             )
 
-            from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+            try:
+                from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
-            get_dev_tracer().record(
-                event_type=TraceEventType.ERROR,
-                source="sago.tui.app",
-                action=f"process_message_failed({self.current_provider})",
-                data={"error": error_msg, "model": self.current_model},
-                status="FAILED",
-            )
+                get_dev_tracer().record(
+                    event_type=TraceEventType.ERROR,
+                    source="sago.tui.app",
+                    action=f"process_message_failed({self.current_provider})",
+                    data={"error": error_msg, "model": self.current_model},
+                    status="FAILED",
+                )
+            except Exception as tracer_err:
+                logger.debug("Dev tracer record failed in error handler: %s", tracer_err)
 
             if "429" in error_msg or "rate" in error_msg.lower():
                 provider_urls = {
@@ -1761,7 +1785,27 @@ class MessageProcessorMixin:
                 error_msg = (
                     f"Model '{self.current_model}' not found. Try a different model with `/model`."
                 )
-            self.call_from_thread(self._add_assistant_message, f"❌ **Error:** {error_msg}")
+            try:
+                self.call_from_thread(self._add_assistant_message, f"❌ **Error:** {error_msg}")
+            except Exception as msg_err:
+                logger.debug("Failed to display error via _add_assistant_message: %s", msg_err)
+                # Absolute last resort: try to mount directly on #messages
+                try:
+
+                    def _fallback_error() -> None:
+                        try:
+                            from textual.widgets import Static
+
+                            self.query_one("#messages").mount(
+                                Static(f"❌ Error: {error_msg}", markup=False)
+                            )
+                            self.query_one("#messages").scroll_end(animate=False)
+                        except Exception as fb_err:
+                            logger.debug("Final fallback error mount failed: %s", fb_err)
+
+                    self.call_from_thread(_fallback_error)
+                except Exception as thread_err:
+                    logger.debug("call_from_thread fallback failed: %s", thread_err)
         finally:
             self.is_thinking = False
             logger.info("Message processing ended (elapsed=%.1fs)", _time.time() - thread_start)

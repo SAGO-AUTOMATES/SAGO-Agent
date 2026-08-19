@@ -573,6 +573,59 @@ def export_session_dev_artifacts(
 
         chat_lines.append(f"### Turn {idx}: {role}{agent_tag}{time_str}\n")
 
+        # Include enhanced prompt data if present
+        enhancement = msg.get("enhancement")
+        if enhancement:
+            chat_lines.append("<details>")
+            chat_lines.append("<summary>✨ <b>Prompt Enhancement</b></summary>\n")
+            orig = enhancement.get("original_prompt", "")
+            enhanced = enhancement.get("enhanced_prompt", "")
+            intent = enhancement.get("intent_summary", "")
+            targets = enhancement.get("target_scope", [])
+            criteria = enhancement.get("acceptance_criteria", [])
+            improvements = enhancement.get("improvements", [])
+
+            if orig:
+                chat_lines.append(f"**Original Prompt:** {orig}\n")
+            if intent:
+                chat_lines.append(f"**Goal:** {intent}\n")
+            if targets:
+                chat_lines.append(f"**Targets:** {', '.join(str(t) for t in targets)}\n")
+            if improvements:
+                chat_lines.append(
+                    f"**Enhancements:** {' • '.join(str(i) for i in improvements[:5])}\n"
+                )
+            if criteria:
+                chat_lines.append("**Acceptance Criteria:**\n")
+                for i, c in enumerate(criteria, 1):
+                    chat_lines.append(f"{i}. {c}")
+                chat_lines.append("")
+            if enhanced:
+                chat_lines.append(f"**Enhanced Prompt:**\n```\n{enhanced}\n```\n")
+            chat_lines.append("</details>\n")
+
+        # Include tool calls if present
+        tool_calls = msg.get("tool_calls", [])
+        if tool_calls:
+            chat_lines.append("<details>")
+            chat_lines.append(f"<summary>🔧 <b>Tool Calls ({len(tool_calls)})</b></summary>\n")
+            for tc in tool_calls:
+                tc_name = tc.get("name") or tc.get("tool_name", "unknown")
+                tc_args = tc.get("arguments", tc.get("args", {}))
+                tc_result = tc.get("result", "")
+                tc_success = tc.get("success", True)
+                status = "✅" if tc_success else "❌"
+                chat_lines.append(f"#### {status} `{tc_name}`")
+                if tc_args:
+                    args_str = (
+                        json.dumps(tc_args, indent=2) if isinstance(tc_args, dict) else str(tc_args)
+                    )
+                    chat_lines.append(f"**Arguments:**\n```json\n{args_str}\n```")
+                if tc_result:
+                    chat_lines.append(f"**Result:**\n```\n{tc_result[:2000]}\n```")
+                chat_lines.append("")
+            chat_lines.append("</details>\n")
+
         # Format reasoning / thinking process
         thinking_match = re.search(
             r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>", content, re.DOTALL
