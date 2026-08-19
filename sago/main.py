@@ -5,6 +5,7 @@ Main entry point for the Sago application.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -21,8 +22,50 @@ except ImportError:
     pass
 
 from sago import __version__
+from sago.logging_config import setup_logging
+from sago.utils.safe import log_exception
+
+setup_logging()
+
+logger = logging.getLogger("sago.main")
 
 console = Console()
+
+# Chat configuration constants
+_CHAT_HISTORY_MAX_SIZE = 50
+_CHAT_SYSTEM_PROMPT = (
+    "You are Sago, a helpful, knowledgeable, and friendly AI assistant.\n"
+    "- Answer questions, conversation, greetings, explanations, and general requests naturally.\n"
+    "- Respond conversationally without engineering templates or code scaffolding.\n"
+    "- Keep responses concise and natural.\n"
+    "- You have NO tools, NO function calling, NO web search. Never output <function=...> or XML tool tags. "
+    "Only respond with plain text. If you don't know something, say so directly."
+)
+
+
+def _mask_secret(value: str, show_chars: int = 4) -> str:
+    """Mask a secret string, showing only the first and last few characters."""
+    if not value or len(value) <= show_chars * 2:
+        return "****" if value else ""
+    return f"{value[:show_chars]}...{value[-show_chars:]}"
+
+
+def _sanitize_error_message(msg: str) -> str:
+    """Remove potential API keys/secrets from error messages."""
+    import os as _os
+
+    secret_keys = [
+        "OPENROUTER_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "ANTHROPIC_API_KEY",
+    ]
+    sanitized = msg
+    for key in secret_keys:
+        val = _os.environ.get(key, "")
+        if val and val in sanitized:
+            sanitized = sanitized.replace(val, _mask_secret(val))
+    return sanitized
 
 
 def _get_configured_model() -> str:
@@ -51,8 +94,8 @@ def _get_configured_model() -> str:
                     configured_key_env = getattr(providers[default_prov], "api_key_env", "")
                     if configured_key_env and os.environ.get(configured_key_env):
                         return configured_model
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Loading config for model selection")
             return default_model
     return "openrouter/free"
 
@@ -66,6 +109,15 @@ def cli() -> None:
     and a master orchestrator named Sago.
     """
     pass
+
+
+@cli.result_callback()
+@click.pass_context
+def cli_result_callback(ctx: click.Context, result: Any, **kwargs: Any) -> Any:
+    """Log CLI command completion."""
+    cmd_name = ctx.invoked_subcommand or ctx.info_name
+    logger.debug("CLI command '%s' completed", cmd_name)
+    return result
 
 
 @cli.command()
@@ -102,6 +154,13 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool, deta
     from sago.engine.simple_executor import execute_agent_task
     from sago.paths import get_sago_home
 
+    logger.info(
+        "CLI 'run' invoked: task_len=%d, agent=%s, chain=%s, detach=%s",
+        len(task),
+        agent,
+        chain,
+        detach,
+    )
     init()
 
     agent_name = agent or "python-engineer"
@@ -112,6 +171,8 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool, deta
         logs_dir.mkdir(parents=True, exist_ok=True)
         task_id = f"task_{int(time.time())}_{os.getpid()}"
         log_file = logs_dir / f"{task_id}.log"
+
+        logger.info("Submitting detached task: task_id=%s, agent=%s", task_id, agent_name)
 
         # Launch detached worker in background
         cmd = [
@@ -195,6 +256,13 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool, deta
         output = result.get("output", "No output")
         tool_calls = result.get("tool_calls", [])
         files = result.get("files_created", [])
+        logger.info(
+            "Task completed: agent=%s, output_len=%d, tool_calls=%d, files=%d",
+            agent_name,
+            len(output),
+            len(tool_calls),
+            len(files),
+        )
 
         if tool_calls:
             console.print("\n[bold]Tool calls:[/]")
@@ -253,7 +321,8 @@ def help_cmd(ctx: click.Context, command_name: str | None) -> None:
         total_skills = len(list_skills())
         try:
             total_plugins = len(get_plugin_manager().list_plugins())
-        except Exception:
+        except Exception as e:
+            log_exception(e, "Listing plugins for help dashboard")
             total_plugins = 0
 
         console.print(
@@ -459,6 +528,7 @@ def agents(query: str | None = None, show_all: bool = False) -> None:
 
     categories = list_categories()
     total_agents = sum(len(v) for v in categories.values())
+    logger.debug("Agents listed: total=%d, categories=%d", total_agents, len(categories))
 
     # Case 1: No query and not --all -> Show Category Overview
     if not query and not show_all:
@@ -830,12 +900,14 @@ def sessions(limit: int, clean: bool) -> None:
         try:
             ms = MessageStore(sid)
             msg_count = ms.count()
-        except Exception:
+        except Exception as e:
+            log_exception(e, "Counting messages for session")
             msg_count = 0
         try:
             tus = ToolUsageStore(sid)
             tool_count = len(tus.get_all())
-        except Exception:
+        except Exception as e:
+            log_exception(e, "Counting tool usage for session")
             tool_count = 0
 
         status_str = s.get("status", "active")
@@ -995,6 +1067,8 @@ def _run_interactive_setup() -> None:
     import yaml
     from rich.prompt import Confirm, Prompt
 
+    logger.info("Setup wizard started")
+
     console.print(
         Panel.fit(
             "[bold cyan]✨ Welcome to SAGO — Intelligent Multi-Agent Orchestration[/]\n"
@@ -1026,12 +1100,14 @@ def _run_interactive_setup() -> None:
     }
     provider, api_key_env, default_model = providers_map[choice]
 
+    logger.info("Setup wizard: provider selected=%s", provider)
+
     # 2. Get API key if needed
     saved_key: str | None = None
     if api_key_env:
         current_env = os.environ.get(api_key_env, "")
         prompt_msg = f"Enter {api_key_env}" + (
-            f" [dim](found in env: {current_env[:6]}...)[/]" if current_env else ""
+            f" [dim](found in env: {_mask_secret(current_env)})[/]" if current_env else ""
         )
         entered_key = Prompt.ask(prompt_msg, default=current_env)
         if entered_key:
@@ -1048,7 +1124,8 @@ def _run_interactive_setup() -> None:
     if config_file.exists():
         try:
             user_config = yaml.safe_load(config_file.read_text()) or {}
-        except Exception:
+        except Exception as e:
+            log_exception(e, "Reading existing user config YAML")
             user_config = {}
 
     user_config.setdefault("llm_providers", {})
@@ -1184,7 +1261,8 @@ def doctor() -> None:
                 table.add_row(name, "[green]● ACTIVE[/]", f"Port {port} in use / service running")
             else:
                 table.add_row(name, "[dim]○ READY[/]", f"Port {port} free for daemon/mesh")
-        except Exception:
+        except Exception as e:
+            log_exception(e, f"Checking port {port} availability")
             table.add_row(name, "[dim]○ READY[/]", f"Port {port} ready")
         finally:
             s.close()
@@ -1278,16 +1356,23 @@ def update(check: bool, pre: bool) -> None:
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode())
             latest_version = data.get("info", {}).get("version")
-    except Exception:
+    except Exception as e:
+        log_exception(e, "Fetching latest version from PyPI")
         latest_version = None
 
     if latest_version:
         console.print(f"  • Current Installed Version: [bold]{__version__}[/]")
         console.print(f"  • Latest PyPI Version:      [bold green]{latest_version}[/]")
         if latest_version == __version__ and not pre:
+            logger.info("Update check: already up to date (v%s)", __version__)
             console.print("\n[green]✓ SAGO is already up to date![/]\n")
             return
+        else:
+            logger.info(
+                "Update check: update available current=%s latest=%s", __version__, latest_version
+            )
     else:
+        logger.warning("Update check: could not fetch latest version from PyPI")
         console.print(f"  • Current Installed Version: [bold]{__version__}[/]")
         console.print("  • [yellow]Note:[/] Checking PyPI for updates...")
 
@@ -1305,7 +1390,8 @@ def update(check: bool, pre: bool) -> None:
             res = subprocess.run(["uv", "tool", "list"], capture_output=True, text=True, timeout=5)
             if res.returncode == 0 and "sago-agent" in res.stdout:
                 is_uv_tool = True
-        except Exception:
+        except Exception as e:
+            log_exception(e, "Checking uv tool installation status")
             is_uv_tool = False
 
     # Check if installed via `pipx`
@@ -1315,7 +1401,8 @@ def update(check: bool, pre: bool) -> None:
             res = subprocess.run(["pipx", "list"], capture_output=True, text=True, timeout=5)
             if res.returncode == 0 and "sago-agent" in res.stdout:
                 is_pipx = True
-        except Exception:
+        except Exception as e:
+            log_exception(e, "Checking pipx installation status")
             is_pipx = False
 
     update_cmd = []
@@ -1395,6 +1482,8 @@ def smart(task: str, effort: str, thinking: bool) -> None:
     from sago.agents.registry import get_agent, list_agents
     from sago.engine.simple_executor import execute_agent_task
 
+    logger.info("CLI 'smart' invoked: task_len=%d, effort=%s", len(task), effort)
+
     api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
     if not api_key:
         console.print("[red]Error: No API key found. Set OPENROUTER_API_KEY or OPENAI_API_KEY[/]")
@@ -1441,7 +1530,8 @@ def smart(task: str, effort: str, thinking: bool) -> None:
                 if a["name"] in router_response.choices[0].message.reasoning:
                     agent_name = a["name"]
                     break
-    except Exception:
+    except Exception as e:
+        log_exception(e, "Routing task to best agent via LLM")
         agent_name = None
     if agent_name:
         agent_name = agent_name.strip().strip('"').strip("'")
@@ -1463,6 +1553,7 @@ def smart(task: str, effort: str, thinking: bool) -> None:
         agent_def = get_agent(agent_name)
 
     agent_role = agent_def.role if agent_def else agent_name
+    logger.info("Smart command: selected agent=%s", agent_name)
 
     console.print(
         Panel.fit(
@@ -1544,6 +1635,8 @@ def chain(task: str, chain: str, effort: str) -> None:
 
     engine = ProductionEngine()
     agent_list = [a.strip() for a in chain.split(",")]
+
+    logger.info("CLI 'chain' invoked: task_len=%d, chain=%s", len(task), agent_list)
 
     enhancement = enhance_prompt(
         task=task,
@@ -1769,16 +1862,11 @@ def chat(message: str | None) -> None:
     base_url = resolved["base_url"]
     console.print(f"[dim]Using {provider}/{model}[/]\n")
 
+    logger.info("Chat session starting: provider=%s, model=%s", provider, model)
+
     # Build client and conversation history
     history: list[dict] = []
-    system_prompt = (
-        "You are Sago, a helpful, knowledgeable, and friendly AI assistant.\n"
-        "- Answer questions, conversation, greetings, explanations, and general requests naturally.\n"
-        "- Respond conversationally without engineering templates or code scaffolding.\n"
-        "- Keep responses concise and natural.\n"
-        "- You have NO tools, NO function calling, NO web search. Never output <function=...> or XML tool tags. "
-        "Only respond with plain text. If you don't know something, say so directly."
-    )
+    system_prompt = _CHAT_SYSTEM_PROMPT
 
     def _send_to_llm(user_msg: str) -> str:
         """Send a message to the LLM and return the response text."""
@@ -1804,6 +1892,9 @@ def chat(message: str | None) -> None:
         console.print(f"\n[green]Sago:[/] {response}\n")
         history.append({"role": "user", "content": message})
         history.append({"role": "assistant", "content": response})
+        # Truncate history to prevent unbounded memory usage
+        if len(history) > _CHAT_HISTORY_MAX_SIZE:
+            history = history[-_CHAT_HISTORY_MAX_SIZE:]
 
     # Interactive loop
     from rich.prompt import Prompt as _Prompt
@@ -1812,6 +1903,7 @@ def chat(message: str | None) -> None:
         try:
             user_input = _Prompt.ask("[cyan]You[/]")
         except (KeyboardInterrupt, EOFError):
+            logger.info("Chat session interrupted: messages=%d", len(history) // 2)
             console.print("\n[dim]Bye![/]")
             break
 
@@ -1819,6 +1911,7 @@ def chat(message: str | None) -> None:
         if not user_input:
             continue
         if user_input.lower() in ("exit", "quit"):
+            logger.info("Chat session ending: messages=%d", len(history) // 2)
             console.print("[dim]Bye![/]")
             break
         if user_input.lower() == "help":
@@ -1829,12 +1922,15 @@ def chat(message: str | None) -> None:
             try:
                 response = _send_to_llm(user_input)
             except Exception as e:
-                console.print(f"\n[red]Error: {e}[/]\n")
+                console.print(f"\n[red]Error: {_sanitize_error_message(str(e))}[/]\n")
                 continue
 
         console.print(f"\n[green]Sago:[/] {response}\n")
         history.append({"role": "user", "content": user_input})
         history.append({"role": "assistant", "content": response})
+        # Truncate history to prevent unbounded memory usage
+        if len(history) > _CHAT_HISTORY_MAX_SIZE:
+            history = history[-_CHAT_HISTORY_MAX_SIZE:]
 
 
 def _print_chat_help() -> None:
@@ -1856,9 +1952,15 @@ def _chat_gemini(
     history: list[dict],
     user_msg: str,
 ) -> str:
-    """Single-turn call to Gemini using native SDK."""
+    """Single-turn call to Gemini using native SDK with rate limit retry."""
+    import time
+
     from google import genai as google_genai
     from google.genai import types as google_types
+
+    logger.debug(
+        "Gemini call: model=%s, history_len=%d, prompt_len=%d", model, len(history), len(user_msg)
+    )
 
     client = google_genai.Client(api_key=api_key)
 
@@ -1878,8 +1980,34 @@ def _chat_gemini(
         temperature=0.7,
     )
 
-    response = client.models.generate_content(model=model, contents=contents, config=config)
-    return response.text or ""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(model=model, contents=contents, config=config)
+            resp_text = response.text or ""
+            logger.debug(
+                "Gemini response: attempt=%d, response_len=%d, model=%s",
+                attempt,
+                len(resp_text),
+                model,
+            )
+            return resp_text
+        except Exception as e:
+            err_str = str(e).lower()
+            is_rate_limit = "429" in err_str or "rate" in err_str or "quota" in err_str
+            if is_rate_limit and attempt < max_retries - 1:
+                wait = 2 ** (attempt + 1)
+                logger.warning(
+                    "Gemini rate limited on attempt %d/%d, retrying in %ds",
+                    attempt + 1,
+                    max_retries,
+                    wait,
+                )
+                console.print(f"[yellow]Rate limited. Retrying in {wait}s...[/yellow]")
+                time.sleep(wait)
+                continue
+            logger.error("Gemini call failed after %d attempts: %s", attempt + 1, type(e).__name__)
+            raise
 
 
 def _chat_openai_compatible(
@@ -1891,8 +2019,18 @@ def _chat_openai_compatible(
     history: list[dict],
     user_msg: str,
 ) -> str:
-    """Single-turn call to OpenAI-compatible API (OpenAI, OpenRouter, etc.)."""
-    from openai import OpenAI
+    """Single-turn call to OpenAI-compatible API with rate limit retry."""
+    import time
+
+    from openai import OpenAI, RateLimitError
+
+    logger.debug(
+        "OpenAI-compatible call: provider=%s, model=%s, history_len=%d, prompt_len=%d",
+        provider,
+        model,
+        len(history),
+        len(user_msg),
+    )
 
     if provider == "openrouter":
         base_url = base_url or "https://openrouter.ai/api/v1"
@@ -1906,13 +2044,60 @@ def _chat_openai_compatible(
         messages.append({"role": msg["role"], "content": msg.get("content", "")})
     messages.append({"role": "user", "content": user_msg})
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        max_tokens=2048,
-        temperature=0.7,
-    )
-    return response.choices[0].message.content or ""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=2048,
+                temperature=0.7,
+            )
+            resp_text = response.choices[0].message.content or ""
+            usage = getattr(response, "usage", None)
+            logger.debug(
+                "OpenAI-compatible response: attempt=%d, response_len=%d, model=%s, "
+                "prompt_tokens=%s, completion_tokens=%s",
+                attempt,
+                len(resp_text),
+                model,
+                getattr(usage, "prompt_tokens", None) if usage else None,
+                getattr(usage, "completion_tokens", None) if usage else None,
+            )
+            return resp_text
+        except RateLimitError:
+            if attempt < max_retries - 1:
+                wait = 2 ** (attempt + 1)
+                logger.warning(
+                    "OpenAI-compatible rate limited on attempt %d/%d, retrying in %ds",
+                    attempt + 1,
+                    max_retries,
+                    wait,
+                )
+                console.print(f"[yellow]Rate limited. Retrying in {wait}s...[/yellow]")
+                time.sleep(wait)
+                continue
+            logger.error("OpenAI-compatible rate limit exceeded after %d attempts", attempt + 1)
+            raise
+        except Exception as e:
+            err_str = str(e).lower()
+            is_rate_limit = "429" in err_str or "rate" in err_str or "quota" in err_str
+            if is_rate_limit and attempt < max_retries - 1:
+                wait = 2 ** (attempt + 1)
+                logger.warning(
+                    "OpenAI-compatible rate limited (via exception) on attempt %d/%d, "
+                    "retrying in %ds",
+                    attempt + 1,
+                    max_retries,
+                    wait,
+                )
+                console.print(f"[yellow]Rate limited. Retrying in {wait}s...[/yellow]")
+                time.sleep(wait)
+                continue
+            logger.error(
+                "OpenAI-compatible call failed after %d attempts: %s", attempt + 1, type(e).__name__
+            )
+            raise
 
 
 @cli.command()
@@ -2149,6 +2334,13 @@ def workflow(task: str, agent: str, iterations: int, stream: bool) -> None:
     from sago.workflow.langgraph_engine import SagoWorkflowEngine
 
     engine = SagoWorkflowEngine(api_key=api_key, model=_get_configured_model())
+    logger.info(
+        "CLI 'workflow' invoked: task_len=%d, agent=%s, iterations=%d, stream=%s",
+        len(task),
+        agent,
+        iterations,
+        stream,
+    )
 
     console.print(
         Panel.fit(
@@ -2801,7 +2993,9 @@ def parse_cmd(file_path: str, output: str | None) -> None:
 
 def main() -> None:
     """Main entry point."""
+    logger.info("Sago v%s starting", __version__)
     cli()
+    logger.debug("Sago CLI exited")
 
 
 if __name__ == "__main__":

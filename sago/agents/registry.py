@@ -10,9 +10,12 @@ For customization:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("sago.agents.registry")
 
 
 @dataclass
@@ -45,8 +48,11 @@ def _load_profiles() -> None:
     profiles_dir = Path(__file__).parent / "profiles"
 
     if not profiles_dir.exists():
+        logger.debug("Profiles directory does not exist: %s", profiles_dir)
         return
 
+    logger.info("Loading agent profiles from %s", profiles_dir)
+    loaded = 0
     for py_file in sorted(profiles_dir.glob("*.py")):
         if py_file.name.startswith("_"):
             continue
@@ -125,9 +131,15 @@ def _load_profiles() -> None:
                     temperature=temp,
                 )
                 AGENTS[agent.name] = agent
+                loaded += 1
+                logger.debug(
+                    "Loaded agent: %s (category=%s, temp=%.2f)", agent.name, agent.category, temp
+                )
 
         except Exception as e:
-            print(f"Warning: Failed to load profile {py_file.name}: {e}")
+            logger.warning("Failed to load profile %s: %s", py_file.name, e)
+
+    logger.info("Loaded %d agent profiles", loaded)
 
 
 # Load profiles on module import
@@ -141,6 +153,7 @@ def _load_plugin_agents() -> None:
         from sago.plugins.base import get_plugin_manager
 
         pm = get_plugin_manager()
+        loaded = 0
         for plugin in pm.discover_plugins():
             if not plugin.meta.enabled:
                 continue
@@ -150,6 +163,7 @@ def _load_plugin_agents() -> None:
                         continue
                     name = agent_data["name"]
                     if name in AGENTS:
+                        logger.debug("Skipping plugin agent %s (already registered)", name)
                         continue  # Don't override built-in agents
                     agent = AgentDefinition(
                         name=name,
@@ -166,10 +180,16 @@ def _load_plugin_agents() -> None:
                         temperature=agent_data.get("temperature", 0.7),
                     )
                     AGENTS[agent.name] = agent
+                    loaded += 1
+                    logger.info(
+                        "Registered plugin agent: %s from plugin %s", name, plugin.meta.name
+                    )
             except Exception as e:
-                print(f"Warning: Plugin {plugin.meta.name} failed to provide agents: {e}")
-    except Exception:
-        pass
+                logger.error("Plugin %s failed to provide agents: %s", plugin.meta.name, e)
+        if loaded:
+            logger.info("Loaded %d plugin agents", loaded)
+    except Exception as e:
+        logger.debug("Plugin system not available: %s", e)
 
 
 _load_plugin_agents()
@@ -200,7 +220,12 @@ AGENT_ALIASES: dict[str, str] = {
 def get_agent(name: str) -> AgentDefinition | None:
     """Get an agent definition by name or alias."""
     resolved_name = AGENT_ALIASES.get(name, name)
-    return AGENTS.get(resolved_name)
+    agent = AGENTS.get(resolved_name)
+    if agent:
+        logger.debug("Agent lookup: %s -> %s (found)", name, resolved_name)
+    else:
+        logger.debug("Agent lookup: %s -> %s (not found)", name, resolved_name)
+    return agent
 
 
 def list_agents() -> list[dict[str, Any]]:
@@ -256,6 +281,7 @@ def get_handoff_targets(agent_name: str) -> list[AgentDefinition]:
 
 def reload_agents() -> None:
     """Reload all agent profiles from disk."""
+    logger.info("Reloading all agent profiles")
     AGENTS.clear()
     _load_profiles()
 

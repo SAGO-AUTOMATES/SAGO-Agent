@@ -12,6 +12,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Collapsible, Static
 
 from sago.tui.widgets import AgentStatus, get_agent_color
+from sago.utils.safe import log_exception
 
 if TYPE_CHECKING:
     from sago.tui.app import SagoApp
@@ -51,10 +52,15 @@ def _render_markdown(content: str) -> str:
 
 
 def _render_markdown_rich(content: str) -> Any:
-    """Render markdown content as a Rich renderable (for proper formatting)."""
+    """Render markdown content as a Rich renderable (for proper formatting).
+
+    Escapes Rich markup in the raw content first to prevent LLM output
+    from being interpreted as style tags, then renders as Markdown.
+    """
     from rich.markdown import Markdown as RichMarkdown
 
-    return RichMarkdown(content)
+    text = escape(content)
+    return RichMarkdown(text)
 
 
 def create_collapsible(
@@ -159,15 +165,16 @@ class ExchangeTurnCard(Vertical):
                 hdr.update(
                     f"[bold {self.tag_color}]{icon} {self.tag_label}[/bold {self.tag_color}]{meta_str}  {escape(title_snippet)}"
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "toggle exchange turn collapse")
 
     def mount_child(self, widget: Any) -> None:
         """Mount child widget inside exchange body."""
         try:
             body = self.query_one(".exchange-body")
             body.mount(widget)
-        except Exception:
+        except Exception as e:
+            log_exception(e, "fallback mount exchange turn widget")
             self.mount(widget)
 
 
@@ -211,8 +218,8 @@ class CollapsibleOutputCard(Vertical):
             safe_title = escape(self.card_title)
             icon = "▶" if self.is_collapsed else "▼"
             hdr.update(f"[dim]{icon}[/dim]  {safe_title}")
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "toggle collapsible output card")
 
 
 class ShellEscapeCard(Vertical):
@@ -249,8 +256,8 @@ class ShellEscapeCard(Vertical):
             hdr.update(
                 f"[dim]{icon}[/dim]  [bold white]$ {escape(self.command)}[/bold white]  {self._status_tag}"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "toggle shell escape card collapse")
 
     def update_result(self, output: str, returncode: int, duration_s: float) -> None:
         try:
@@ -267,8 +274,8 @@ class ShellEscapeCard(Vertical):
             )
             clean_out = output.strip() if output.strip() else "[dim](no output)[/dim]"
             body.update(clean_out)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "update shell escape card result")
 
 
 class UIHelpers:
@@ -291,8 +298,8 @@ class UIHelpers:
                 s = Session(self.current_session_id)
                 s.update(title=self.current_session_title)
                 s.close()
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "update session title in database")
 
         # Create unified ExchangeTurnCard
         turn_card = ExchangeTurnCard(prompt=content, card_type="user")
@@ -474,7 +481,8 @@ class UIHelpers:
                                 collapsed=False,
                             )
                         )
-                    except Exception:
+                    except Exception as e:
+                        log_exception(e, "render code syntax highlighting")
                         _mount_element(
                             Collapsible(
                                 Static(code, classes="code-block", markup=False),
@@ -566,8 +574,8 @@ class UIHelpers:
                     args=(self.current_session_id, list(self.messages), Path.cwd()),
                     daemon=True,
                 ).start()
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "export session dev artifacts in background")
 
         # Turn finished -> clear active exchange card
         self._active_exchange_card = None
@@ -777,7 +785,8 @@ class UIHelpers:
                                     collapsed=False,
                                 )
                             )
-                        except Exception:
+                        except Exception as e:
+                            log_exception(e, "render code syntax in parallel result")
                             container.mount(
                                 Collapsible(
                                     Static(code, classes="code-block", markup=False),
@@ -913,12 +922,12 @@ class UIHelpers:
                         )
                 else:
                     lines.append("  [dim]No running tasks[/dim]")
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "fetch active tasks for dashboard")
 
             content_widget.update("\n".join(lines))
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "update agent dashboard")
 
     def _render_agent_entry(self, entry: Vertical, info: Any) -> None:
         """Render a single agent entry into a container."""
@@ -974,7 +983,7 @@ class UIHelpers:
                         ):
                             prompt_title = content.strip().split("\n")[0][:45]
                             s.update(title=prompt_title)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                    except Exception as e:
+                        log_exception(e, "update session title on user message")
+            except Exception as e:
+                log_exception(e, "save message to database")

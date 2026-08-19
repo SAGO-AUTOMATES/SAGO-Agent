@@ -6,6 +6,7 @@ Supports environment variable overrides and user-level customization.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from pathlib import Path
@@ -14,7 +15,10 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
+from sago.utils.safe import log_exception
 from sago.version import __version__
+
+logger = logging.getLogger("sago.config")
 
 
 class ProjectConfig(BaseModel):
@@ -213,39 +217,86 @@ def load_config(
     if config_dir is None:
         config_dir = Path(__file__).parent
 
+    logger.info("Loading config from directory: %s", config_dir)
+
     # Load main config
     sago_yaml = config_dir / "sago.yaml"
     raw_config: dict[str, Any] = {}
     if sago_yaml.exists():
-        with open(sago_yaml) as f:
-            raw_config = yaml.safe_load(f) or {}
+        size = sago_yaml.stat().st_size
+        logger.info("Loading main config: %s (%d bytes)", sago_yaml, size)
+        try:
+            with open(sago_yaml) as f:
+                raw_config = yaml.safe_load(f) or {}
+            logger.info("Successfully loaded main config: %d top-level keys", len(raw_config))
+        except Exception as e:
+            logger.error("Failed to load main config %s: %s", sago_yaml, e)
+            raise
+    else:
+        logger.info("Main config not found: %s, using defaults", sago_yaml)
 
     # Load agents config
     agents_yaml = config_dir / "agents.yaml"
     if agents_yaml.exists():
-        with open(agents_yaml) as f:
-            agents_data = yaml.safe_load(f) or {}
+        size = agents_yaml.stat().st_size
+        logger.info("Loading agents config: %s (%d bytes)", agents_yaml, size)
+        try:
+            with open(agents_yaml) as f:
+                agents_data = yaml.safe_load(f) or {}
             raw_config["agents"] = _deep_merge(raw_config.get("agents", {}), agents_data)
+            logger.info("Successfully loaded agents config")
+        except Exception as e:
+            logger.error("Failed to load agents config %s: %s", agents_yaml, e)
+            raise
+    else:
+        logger.info("Agents config not found: %s, using defaults", agents_yaml)
 
     # Load tools config
     tools_yaml = config_dir / "tools.yaml"
     if tools_yaml.exists():
-        with open(tools_yaml) as f:
-            tools_data = yaml.safe_load(f) or {}
+        size = tools_yaml.stat().st_size
+        logger.info("Loading tools config: %s (%d bytes)", tools_yaml, size)
+        try:
+            with open(tools_yaml) as f:
+                tools_data = yaml.safe_load(f) or {}
             raw_config["tools"] = _deep_merge(raw_config.get("tools", {}), tools_data)
+            logger.info("Successfully loaded tools config")
+        except Exception as e:
+            logger.error("Failed to load tools config %s: %s", tools_yaml, e)
+            raise
+    else:
+        logger.info("Tools config not found: %s, using defaults", tools_yaml)
 
     # Load LLM providers config
     llm_yaml = config_dir / "llm_providers.yaml"
     if llm_yaml.exists():
-        with open(llm_yaml) as f:
-            llm_data = yaml.safe_load(f) or {}
+        size = llm_yaml.stat().st_size
+        logger.info("Loading LLM providers config: %s (%d bytes)", llm_yaml, size)
+        try:
+            with open(llm_yaml) as f:
+                llm_data = yaml.safe_load(f) or {}
             raw_config["llm_providers"] = _deep_merge(raw_config.get("llm_providers", {}), llm_data)
+            logger.info("Successfully loaded LLM providers config")
+        except Exception as e:
+            logger.error("Failed to load LLM providers config %s: %s", llm_yaml, e)
+            raise
+    else:
+        logger.info("LLM providers config not found: %s, using defaults", llm_yaml)
 
     # Merge user config if provided
     if user_config_path and user_config_path.exists():
-        with open(user_config_path) as f:
-            user_data = yaml.safe_load(f) or {}
+        size = user_config_path.stat().st_size
+        logger.info("Merging user config: %s (%d bytes)", user_config_path, size)
+        try:
+            with open(user_config_path) as f:
+                user_data = yaml.safe_load(f) or {}
             raw_config = _deep_merge(raw_config, user_data)
+            logger.info("Successfully merged user config")
+        except Exception as e:
+            logger.error("Failed to load user config %s: %s", user_config_path, e)
+            raise
+    elif user_config_path:
+        logger.debug("User config path provided but does not exist: %s", user_config_path)
 
     # Expand paths in settings
     if "settings" in raw_config:
@@ -254,7 +305,13 @@ def load_config(
             if key in settings:
                 settings[key] = str(_expand_path(settings[key]))
 
-    return SagoConfig(**raw_config)
+    try:
+        config = SagoConfig(**raw_config)
+        logger.info("Config validation succeeded")
+        return config
+    except Exception as e:
+        logger.error("Config validation failed: %s", e)
+        raise
 
 
 _config_cache: SagoConfig | None = None
@@ -285,8 +342,10 @@ def get_config() -> SagoConfig:
     cache_key = f"{config_dir}:{user_path}"
     with _config_lock:
         if _config_cache is not None and _config_cache_key == cache_key:
+            logger.debug("Config cache hit (key=%s)", cache_key)
             return _config_cache
 
+        logger.debug("Config cache miss (key=%s), loading config", cache_key)
         _config_cache = load_config(config_dir=config_dir, user_config_path=user_path)
         _config_cache_key = cache_key
         return _config_cache
@@ -296,6 +355,7 @@ def invalidate_config_cache() -> None:
     """Invalidate the cached configuration, forcing reload on next get_config()."""
     global _config_cache, _config_cache_key
     with _config_lock:
+        logger.debug("Invalidating config cache")
         _config_cache = None
         _config_cache_key = None
 
@@ -311,7 +371,13 @@ def is_dev_mode_enabled() -> bool:
     """
     env_val = os.environ.get("SAGO_DEV_MODE") or os.environ.get("DEV_MODE")
     if env_val is not None:
-        return env_val.strip().lower() in ("1", "true", "yes", "on")
+        enabled = env_val.strip().lower() in ("1", "true", "yes", "on")
+        logger.info(
+            "Dev mode from env var: %s -> %s",
+            "SAGO_DEV_MODE" if os.environ.get("SAGO_DEV_MODE") else "DEV_MODE",
+            enabled,
+        )
+        return enabled
 
     # Inspect ~/.sago/ and workspace configs directly
     candidates = [
@@ -339,24 +405,30 @@ def is_dev_mode_enabled() -> bool:
 
                 if isinstance(data, dict):
                     if data.get("dev_mode") is True:
+                        logger.info("Dev mode enabled via config file: %s", p)
                         return True
                     if (
                         isinstance(data.get("settings"), dict)
                         and data["settings"].get("dev_mode") is True
                     ):
+                        logger.info("Dev mode enabled via settings in: %s", p)
                         return True
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "parsing dev_mode config file")
 
     try:
         cfg = get_config()
-        return bool(cfg.settings.dev_mode)
-    except Exception:
+        enabled = bool(cfg.settings.dev_mode)
+        logger.info("Dev mode from SagoConfig.settings.dev_mode: %s", enabled)
+        return enabled
+    except Exception as e:
+        log_exception(e, "getting config for dev_mode check")
         return False
 
 
 def set_dev_mode(enabled: bool, persist: bool = True) -> None:
     """Enable or disable developer mode in ~/.sago/settings.json."""
+    logger.info("Setting dev_mode=%s (persist=%s)", enabled, persist)
     if persist:
         import json
 
@@ -367,7 +439,8 @@ def set_dev_mode(enabled: bool, persist: bool = True) -> None:
         if settings_file.exists():
             try:
                 data = json.loads(settings_file.read_text(encoding="utf-8"))
-            except Exception:
+            except Exception as e:
+                log_exception(e, "reading existing settings file")
                 data = {}
         data["dev_mode"] = enabled
         settings_file.write_text(json.dumps(data, indent=2), encoding="utf-8")

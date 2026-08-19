@@ -5,12 +5,17 @@ Provides a consistent interface whether using simple_executor, CrewAI, or LangGr
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from collections.abc import Callable
 from typing import Any
 
 from openai import OpenAI
+
+from sago.utils.safe import log_exception
+
+logger = logging.getLogger(__name__)
 
 
 class UnifiedExecutor:
@@ -56,6 +61,12 @@ class UnifiedExecutor:
         """
         from sago.tracking.dev_tracer import get_dev_tracer
 
+        logger.info(
+            "Task execution started: agent=%s, backend=%s, model=%s",
+            agent_name,
+            backend,
+            self.model,
+        )
         tracer = get_dev_tracer()
         with tracer.trace_block(
             source=f"sago.engine.{backend}",
@@ -80,6 +91,13 @@ class UnifiedExecutor:
                 )
             trace_data["tool_calls"] = len(res.get("tool_calls", []))
             trace_data["iterations"] = res.get("iterations", 1)
+            logger.info(
+                "Task execution completed: success=%s, iterations=%d, tokens_in=%d, tokens_out=%d",
+                res.get("success"),
+                res.get("iterations", 1),
+                res.get("tokens", {}).get("input", 0),
+                res.get("tokens", {}).get("output", 0),
+            )
             return res
 
     def _execute_simple(
@@ -356,11 +374,13 @@ class UnifiedExecutor:
                             }
                         )
                         continue
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_exception(e, "checking permission for tool call")
 
                 if on_tool_call:
                     on_tool_call(name, args)
+
+                logger.debug("Tool dispatched: %s, args=%s", name, args)
 
                 try:
                     tool_cls = tools.get(name)
@@ -407,6 +427,13 @@ class UnifiedExecutor:
                     }
                 )
 
+                logger.debug(
+                    "Tool result: %s, success=%s, result_len=%d",
+                    name,
+                    not is_error,
+                    len(result_str),
+                )
+
                 # Log tool usage to DB
                 try:
                     from sago.database import ToolUsageStore, init_db
@@ -420,8 +447,8 @@ class UnifiedExecutor:
                         success=not is_error,
                     )
                     _tus.flush()
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_exception(e, "logging tool usage to database")
 
                 messages.append(
                     {
@@ -439,14 +466,17 @@ class UnifiedExecutor:
 
             verifier = get_verifier()
             verification = verifier.verify(content, tool_history=tool_history, task_type=task_type)
+            logger.info(
+                "Hallucination verification: confidence=%d, has_hallucinations=%s",
+                verification.confidence,
+                verification.has_hallucinations,
+            )
             if verification.has_hallucinations:
                 content = verification.cleaned_content
                 if verification.confidence < 50:
                     content += f"\n\n[Confidence Warning] ({verification.confidence}/100)\nThis response may contain unverified claims."
-        except Exception:
-            pass
-
-        # Record token usage
+        except Exception as e:
+            log_exception(e, "verifying hallucinations in streaming response")
         if total_tokens_in > 0 or total_tokens_out > 0:
             try:
                 from sago.tracking.token_tracker import get_token_tracker
@@ -461,8 +491,16 @@ class UnifiedExecutor:
                     metadata={"session_id": "unified"},
                 )
                 tracker.save()
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "recording token usage")
+
+        logger.info(
+            "Stream execution completed: iterations=%d, tokens_in=%d, tokens_out=%d, elapsed=%.2fs",
+            min(last_iteration + 1, max_iterations),
+            total_tokens_in,
+            total_tokens_out,
+            elapsed,
+        )
 
         return {
             "success": True,

@@ -25,6 +25,13 @@ class MessageProcessorMixin:
 
     def _process_message(self: SagoApp, message: str) -> None:
         """Entry point — runs on main thread, dispatches work to a background thread."""
+        logger.info(
+            "Message processing started (agent=%s, model=%s, provider=%s, prompt_length=%d)",
+            self.current_agent,
+            self.current_model,
+            self.current_provider,
+            len(message),
+        )
         self.is_thinking = True
         self._active_cancel_event = threading.Event()
         self._show_spinner()
@@ -33,6 +40,7 @@ class MessageProcessorMixin:
 
     def _process_message_thread(self: SagoApp, message: str) -> None:
         """Runs in a background thread — all call_from_thread calls are safe here."""
+        thread_start = _time.time()
         # Direct shell execution escape (!command)
         clean_msg = message.strip()
         if clean_msg.startswith("!") and len(clean_msg) > 1:
@@ -85,6 +93,13 @@ class MessageProcessorMixin:
                 )
 
                 tools = _discover_tools()
+                logger.info(
+                    "LLM request starting: model=%s, provider=%s, tools_available=%d, prompt_length=%d",
+                    self.current_model,
+                    self.current_provider,
+                    len(tools),
+                    len(message),
+                )
 
                 # Get provider client (handles google, openai, openrouter, etc.)
                 try:
@@ -489,6 +504,12 @@ class MessageProcessorMixin:
                             )
 
                         _llm_start_time = time.time()
+                        logger.info(
+                            "Streaming start: provider=google, model=%s, contents=%d parts, tools=%d",
+                            api_model,
+                            len(contents),
+                            len(google_tools),
+                        )
                         response = gemini_client.models.generate_content(
                             model=api_model,
                             contents=contents,
@@ -496,38 +517,51 @@ class MessageProcessorMixin:
                         )
                         content = response.text or ""
 
-                        # Usage metadata from Gemini response if available
-                        if hasattr(response, "usage_metadata") and response.usage_metadata:
-                            total_tokens_in = (
-                                getattr(response.usage_metadata, "prompt_token_count", 0) or 0
-                            )
-                            total_tokens_out = (
-                                getattr(response.usage_metadata, "candidates_token_count", 0) or 0
-                            )
-                            cumulative_tokens += total_tokens_out
+                    # Usage metadata from Gemini response if available
+                    if hasattr(response, "usage_metadata") and response.usage_metadata:
+                        total_tokens_in = (
+                            getattr(response.usage_metadata, "prompt_token_count", 0) or 0
+                        )
+                        total_tokens_out = (
+                            getattr(response.usage_metadata, "candidates_token_count", 0) or 0
+                        )
+                        cumulative_tokens += total_tokens_out
+                        logger.info(
+                            "LLM response received: model=%s, content_length=%d, tokens_in=%d, tokens_out=%d",
+                            api_model,
+                            len(content),
+                            total_tokens_in,
+                            total_tokens_out,
+                        )
+                    else:
+                        logger.info(
+                            "LLM response received: model=%s, content_length=%d (no usage metadata)",
+                            api_model,
+                            len(content),
+                        )
 
-                        # Extract tool calls and reasoning from Gemini response
-                        _gemini_raw_parts = []
-                        _gemini_thinking = ""
-                        if response.candidates and response.candidates[0].content:
-                            _gemini_raw_parts = list(response.candidates[0].content.parts or [])
-                            for part in _gemini_raw_parts:
-                                if getattr(part, "thought", None):
-                                    t_val = getattr(part, "text", "") or ""
-                                    if t_val:
-                                        _gemini_thinking += t_val + "\n"
-                                elif part.function_call:
-                                    native_tool_calls.append(
-                                        {
-                                            "id": f"gemini_{len(native_tool_calls)}",
-                                            "name": part.function_call.name,
-                                            "args": dict(part.function_call.args)
-                                            if part.function_call.args
-                                            else {},
-                                        }
-                                    )
-                                elif part.text and not content:
-                                    content = part.text
+                    # Extract tool calls and reasoning from Gemini response
+                    _gemini_raw_parts = []
+                    _gemini_thinking = ""
+                    if response.candidates and response.candidates[0].content:
+                        _gemini_raw_parts = list(response.candidates[0].content.parts or [])
+                        for part in _gemini_raw_parts:
+                            if getattr(part, "thought", None):
+                                t_val = getattr(part, "text", "") or ""
+                                if t_val:
+                                    _gemini_thinking += t_val + "\n"
+                            elif part.function_call:
+                                native_tool_calls.append(
+                                    {
+                                        "id": f"gemini_{len(native_tool_calls)}",
+                                        "name": part.function_call.name,
+                                        "args": dict(part.function_call.args)
+                                        if part.function_call.args
+                                        else {},
+                                    }
+                                )
+                            elif part.text and not content:
+                                content = part.text
                     else:
                         # OpenAI-compatible with native function calling (streaming)
                         api_kwargs = {
@@ -557,6 +591,13 @@ class MessageProcessorMixin:
                             )
 
                         _llm_start_time = time.time()
+                        logger.info(
+                            "Streaming start: provider=%s, model=%s, messages=%d, tools=%d, stream=True",
+                            self.current_provider,
+                            api_model,
+                            len(messages),
+                            len(openai_tools),
+                        )
                         stream = client.chat.completions.create(**api_kwargs)
 
                         content = ""
@@ -610,6 +651,16 @@ class MessageProcessorMixin:
                     from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
                     _llm_latency_ms = (time.time() - _llm_start_time) * 1000
+                    logger.info(
+                        "LLM response received: provider=%s, model=%s, content_length=%d, tool_calls=%d, latency_ms=%.0f, tokens_in=%d, tokens_out=%d",
+                        self.current_provider,
+                        api_model,
+                        len(content),
+                        len(native_tool_calls),
+                        _llm_latency_ms,
+                        total_tokens_in,
+                        total_tokens_out,
+                    )
 
                     # Extract thinking content if present (<thinking> tags or native Gemini thinking)
                     _thinking_content = (
@@ -664,6 +715,11 @@ class MessageProcessorMixin:
 
                     # Handle empty content with no tool calls
                     if not content and not native_tool_calls:
+                        logger.debug(
+                            "Empty response received: iteration=%d/%d",
+                            iteration + 1,
+                            effort["max_iterations"],
+                        )
                         if iteration < effort["max_iterations"] - 1:
                             messages.append(
                                 {
@@ -860,6 +916,10 @@ class MessageProcessorMixin:
 
                     # ---- Execute native tool calls ----
                     tools_used_in_iteration = []
+                    logger.info(
+                        "Tool calls detected: %s",
+                        [(tc["name"], len(str(tc["args"]))) for tc in native_tool_calls],
+                    )
 
                     for tc in native_tool_calls:
                         if cancel_ev and cancel_ev.is_set():
@@ -986,6 +1046,9 @@ class MessageProcessorMixin:
 
                         on_tool(name, args)
                         t_tool_start = time.perf_counter()
+                        logger.debug(
+                            "Tool execution started: name=%s, args_length=%d", name, len(str(args))
+                        )
                         try:
                             tool_cls = tools.get(name)
                             if tool_cls is None:
@@ -1060,8 +1123,20 @@ class MessageProcessorMixin:
                         )
                         if is_error:
                             failed_calls.add(call_key)
+                            logger.error(
+                                "Tool execution failed: name=%s, duration_ms=%.0f, error=%s",
+                                name,
+                                tool_dur_ms,
+                                result_str[:200],
+                            )
                         else:
                             executed_calls.add(call_key)
+                            logger.debug(
+                                "Tool execution completed: name=%s, duration_ms=%.0f, result_length=%d",
+                                name,
+                                tool_dur_ms,
+                                len(result_str),
+                            )
 
                         from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
@@ -1242,6 +1317,12 @@ class MessageProcessorMixin:
                             self.call_from_thread(self._add_system_message, "✅ All tests passed!")
                             break
 
+                        logger.info(
+                            "Post-verification LLM call: reason=tests_failed, attempt=%d/%d, test_output_length=%d",
+                            test_fix_attempts,
+                            max_test_fix_attempts,
+                            len(test_output),
+                        )
                         test_fix_attempts += 1
                         if test_fix_attempts >= max_test_fix_attempts:
                             self.call_from_thread(
@@ -1645,6 +1726,13 @@ class MessageProcessorMixin:
         except Exception as e:
             self.call_from_thread(self._hide_spinner)
             error_msg = str(e)
+            logger.error(
+                "Error during message processing: %s (model=%s, provider=%s, elapsed=%.1fs)",
+                error_msg,
+                self.current_model,
+                self.current_provider,
+                _time.time() - thread_start,
+            )
 
             from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
@@ -1676,3 +1764,4 @@ class MessageProcessorMixin:
             self.call_from_thread(self._add_assistant_message, f"❌ **Error:** {error_msg}")
         finally:
             self.is_thinking = False
+            logger.info("Message processing ended (elapsed=%.1fs)", _time.time() - thread_start)

@@ -28,6 +28,14 @@ import tempfile
 from dataclasses import dataclass, field
 from typing import Any
 
+# ---- Constants ----
+_MIN_CODE_LENGTH = 20
+_SYNTAX_CHECK_TIMEOUT = 30
+_ERROR_MESSAGE_MAX_LEN = 200
+_CONFIDENCE_THRESHOLD = 50
+_CHAT_SKIP_CONFIDENCE = 85
+_HISTORY_MAX_SIZE = 50
+
 
 @dataclass
 class VerificationResult:
@@ -442,81 +450,49 @@ def _detect_fabrication_phrases(content: str, tool_history: list[dict]) -> list[
     issues = []
     tools_called = {tc.get("tool", "") for tc in tool_history}
 
-    # Categories of phrases and the tools that should back them
-    _PHRASE_CATEGORIES = [
-        {
-            "patterns": [
-                r"\b(?:all|every|each)\s+tests?\s+(?:pass|passes|passed|are\s+passing)\b",
-                r"\b(?:no|zero)\s+test\s+failures?\b",
-                r"\b(?:every|all)\s+assertions?\s+pass\b",
-                r"\btest\s+(?:suite|coverage)\s+(?:is|shows?|indicates?)\b",
-                r"\b\d+\s+(?:out\s+of|\/)\s+\d+\s+tests?\s+pass\b",
-                r"\bthe\s+tests?\s+(?:pass|passes|passed|are\s+passing|all\s+pass)\b",
-                r"\bno\s+(?:lint|linting|type)\s+errors?\b",
-                r"\bcode\s+(?:passes?|is)\s+(?:linting|type\s+checking|formatting)\b",
-                r"\b(?:lint|type\s*check|static\s+analysis)\s+(?:passes?|passes|clean|clear|no\s+errors?)\b",
-                r"\bthe\s+code\s+(?:compiles?|builds?|works?|runs?)\b",
-            ],
-            "required_tool": "execute_shell",
-            "description": "test/lint/build",
-        },
-        {
-            "patterns": [
-                r"\bi(?:'ve| have)\s+(?:verified|confirmed|checked|validated|tested|confirmed that|run)\b",
-                r"\bverified\s+(?:that\s+)?(?:the\s+)?(?:code|fix|change|implementation)\b",
-                r"\bconfirmed\s+(?:that\s+)?(?:the\s+)?(?:code|fix|change|implementation)\b",
-                r"\bchecked\s+(?:that\s+)?(?:the\s+)?(?:code|fix|change|implementation)\b",
-                r"\bthe\s+code\s+(?:is|follows?)\s+(?:clean|proper|correct|valid)\b",
-                r"\bcode\s+(?:is|follows?)\s+PEP\s+\d+\b",
-                r"\bno\s+(?:syntax|runtime|type)\s+errors?\b",
-            ],
-            "required_tool": None,  # No specific tool - these are always suspicious
-            "tool_names": {"read_file", "grep_content", "grep", "ast_grep"},
-            "description": "read/verify",
-        },
-        {
-            "patterns": [
-                r"\bi(?:'ve| have)\s+(?:fixed|resolved|patched|corrected|addressed)\b",
-                r"\bthis\s+(?:fix|change|patch|modification)\s+(?:resolves?|fixes?|solves?|addresses?)\b",
-                r"\bthe\s+(?:fix|issue|bug|error)\s+(?:is|has\s+been)\s+(?:resolved|fixed|addressed)\b",
-                r"\bnow\s+(?:it|the\s+code|the\s+system)\s+(?:works?|functions?|runs?)\b",
-            ],
-            "required_tool": None,
-            "tool_names": {"write_file", "edit_file"},
-            "description": "fix/edit",
-        },
-    ]
-
     for pattern in _FABRICATION_PHRASES:
         for match in re.finditer(pattern, content, re.IGNORECASE):
             phrase = match.group(0)
+
+            # Determine which category this pattern belongs to by checking against
+            # the original phrase list indices (test/lint/build, read/verify, fix/edit)
             matched = False
 
-            for cat in _PHRASE_CATEGORIES:
-                for cat_pattern in cat["patterns"]:
+            # Test/lint/build claims (indices 4-11 of _FABRICATION_PHRASES)
+            _TEST_LINT_PATTERNS = _FABRICATION_PHRASES[4:12]
+            # Read/verify claims (indices 0-3, 20-21 of _FABRICATION_PHRASES)
+            _READ_VERIFY_PATTERNS = _FABRICATION_PHRASES[0:4] + _FABRICATION_PHRASES[20:22]
+            # Fix/edit claims (indices 12-15 of _FABRICATION_PHRASES)
+            _FIX_EDIT_PATTERNS = _FABRICATION_PHRASES[12:16]
+
+            for cat_pattern in _TEST_LINT_PATTERNS:
+                if re.search(cat_pattern, phrase, re.IGNORECASE):
+                    if "execute_shell" not in tools_called:
+                        issues.append(
+                            f"Fabrication: '{phrase}' — no test/lint/build tool was called"
+                        )
+                    matched = True
+                    break
+
+            if not matched:
+                for cat_pattern in _READ_VERIFY_PATTERNS:
                     if re.search(cat_pattern, phrase, re.IGNORECASE):
-                        required = cat.get("required_tool")
-                        tool_names = cat.get("tool_names", set())
-                        if required:
-                            if required not in tools_called:
-                                issues.append(
-                                    f"Fabrication: '{phrase}' — no {cat['description']} tool was called"
-                                )
-                        elif tool_names:
-                            if not (tool_names & tools_called):
-                                issues.append(
-                                    f"Fabrication: '{phrase}' — no {cat['description']} tool was called"
-                                )
-                        else:
-                            # No specific tool required - flag if no tools at all
-                            if not tools_called:
-                                issues.append(
-                                    f"Fabrication: '{phrase}' — no tools called to verify"
-                                )
+                        read_tools = {"read_file", "grep_content", "grep", "ast_grep"}
+                        if not (read_tools & tools_called):
+                            issues.append(
+                                f"Fabrication: '{phrase}' — no read/verify tool was called"
+                            )
                         matched = True
                         break
-                if matched:
-                    break
+
+            if not matched:
+                for cat_pattern in _FIX_EDIT_PATTERNS:
+                    if re.search(cat_pattern, phrase, re.IGNORECASE):
+                        write_tools = {"write_file", "edit_file"}
+                        if not (write_tools & tools_called):
+                            issues.append(f"Fabrication: '{phrase}' — no fix/edit tool was called")
+                        matched = True
+                        break
 
             # Catch-all: if phrase matched but not in any category, flag if no tools
             if not matched and not tools_called:
@@ -882,29 +858,33 @@ def _external_syntax_check(content: str) -> list[str]:
     py_pattern = r"```(?:python|py)\s*\n(.*?)```"
     for match in re.finditer(py_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
                 f.write(code)
                 f.flush()
-                result = subprocess.run(
-                    ["python", "-m", "py_compile", f.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if result.returncode != 0:
-                    issues.append(f"Python compilation error: {result.stderr.strip()[:200]}")
-                os.unlink(f.name)
+                tmp_path = f.name
+            result = subprocess.run(
+                ["python", "-m", "py_compile", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
+            )
+            if result.returncode != 0:
+                issues.append(f"Python compilation error: {result.stderr.strip()[:200]}")
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     # Go: use gofmt
     go_pattern = r"```go\s*\n(.*?)```"
     for match in re.finditer(go_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
         try:
             result = subprocess.run(
@@ -912,10 +892,10 @@ def _external_syntax_check(content: str) -> list[str]:
                 input=code,
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
             )
             if result.returncode != 0:
-                issues.append(f"Go format error: {result.stderr.strip()[:200]}")
+                issues.append(f"Go format error: {result.stderr.strip()[:_ERROR_MESSAGE_MAX_LEN]}")
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
 
@@ -923,7 +903,7 @@ def _external_syntax_check(content: str) -> list[str]:
     rs_pattern = r"```rust\s*\n(.*?)```"
     for match in re.finditer(rs_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
         try:
             result = subprocess.run(
@@ -931,10 +911,12 @@ def _external_syntax_check(content: str) -> list[str]:
                 input=code,
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
             )
             if result.returncode != 0:
-                issues.append(f"Rust format error: {result.stdout.strip()[:200]}")
+                issues.append(
+                    f"Rust format error: {result.stdout.strip()[:_ERROR_MESSAGE_MAX_LEN]}"
+                )
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
 
@@ -942,275 +924,330 @@ def _external_syntax_check(content: str) -> list[str]:
     js_pattern = r"```(?:javascript|js)\s*\n(.*?)```"
     for match in re.finditer(js_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".js", delete=False) as f:
                 f.write(code)
                 f.flush()
-                result = subprocess.run(
-                    ["node", "--check", f.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
+                tmp_path = f.name
+            result = subprocess.run(
+                ["node", "--check", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
+            )
+            if result.returncode != 0:
+                issues.append(
+                    f"JavaScript syntax error: {result.stderr.strip()[:_ERROR_MESSAGE_MAX_LEN]}"
                 )
-                if result.returncode != 0:
-                    issues.append(f"JavaScript syntax error: {result.stderr.strip()[:200]}")
-                os.unlink(f.name)
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     # TypeScript: use npx tsc --noEmit or node --check on transpiled
     ts_pattern = r"```(?:typescript|ts|tsx)\s*\n(.*?)```"
     for match in re.finditer(ts_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".ts", delete=False) as f:
                 f.write(code)
                 f.flush()
-                # Try tsc first, fall back to node --check
-                result = subprocess.run(
-                    ["npx", "tsc", "--noEmit", "--allowJs", f.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                )
-                if result.returncode != 0:
-                    issues.append(f"TypeScript error: {result.stderr.strip()[:200]}")
-                os.unlink(f.name)
+                tmp_path = f.name
+            result = subprocess.run(
+                ["npx", "tsc", "--noEmit", "--allowJs", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
+            )
+            if result.returncode != 0:
+                issues.append(f"TypeScript error: {result.stderr.strip()[:_ERROR_MESSAGE_MAX_LEN]}")
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     # Java: use javac -proc:none
     java_pattern = r"```java\s*\n(.*?)```"
     for match in re.finditer(java_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".java", delete=False) as f:
                 f.write(code)
                 f.flush()
-                result = subprocess.run(
-                    ["javac", "-proc:none", f.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
+                tmp_path = f.name
+            result = subprocess.run(
+                ["javac", "-proc:none", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
+            )
+            if result.returncode != 0:
+                issues.append(
+                    f"Java compilation error: {result.stderr.strip()[:_ERROR_MESSAGE_MAX_LEN]}"
                 )
-                if result.returncode != 0:
-                    issues.append(f"Java compilation error: {result.stderr.strip()[:200]}")
-                os.unlink(f.name)
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     # C: use gcc -fsyntax-only
     c_pattern = r"```c\s*\n(.*?)```"
     for match in re.finditer(c_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".c", delete=False) as f:
                 f.write(code)
                 f.flush()
-                result = subprocess.run(
-                    ["gcc", "-fsyntax-only", "-std=c11", f.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if result.returncode != 0:
-                    issues.append(f"C syntax error: {result.stderr.strip()[:200]}")
-                os.unlink(f.name)
+                tmp_path = f.name
+            result = subprocess.run(
+                ["gcc", "-fsyntax-only", "-std=c11", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
+            )
+            if result.returncode != 0:
+                issues.append(f"C syntax error: {result.stderr.strip()[:_ERROR_MESSAGE_MAX_LEN]}")
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     # C++: use g++ -fsyntax-only
     cpp_pattern = r"```(?:cpp|c\+\+)\s*\n(.*?)```"
     for match in re.finditer(cpp_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".cpp", delete=False) as f:
                 f.write(code)
                 f.flush()
-                result = subprocess.run(
-                    ["g++", "-fsyntax-only", "-std=c++17", f.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if result.returncode != 0:
-                    issues.append(f"C++ syntax error: {result.stderr.strip()[:200]}")
-                os.unlink(f.name)
+                tmp_path = f.name
+            result = subprocess.run(
+                ["g++", "-fsyntax-only", "-std=c++17", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
+            )
+            if result.returncode != 0:
+                issues.append(f"C++ syntax error: {result.stderr.strip()[:_ERROR_MESSAGE_MAX_LEN]}")
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     # Shell/Bash: use bash -n
     shell_pattern = r"```(?:bash|sh|shell|zsh)\s*\n(.*?)```"
     for match in re.finditer(shell_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
                 f.write(code)
                 f.flush()
-                result = subprocess.run(
-                    ["bash", "-n", f.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
+                tmp_path = f.name
+            result = subprocess.run(
+                ["bash", "-n", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
+            )
+            if result.returncode != 0:
+                issues.append(
+                    f"Shell syntax error: {result.stderr.strip()[:_ERROR_MESSAGE_MAX_LEN]}"
                 )
-                if result.returncode != 0:
-                    issues.append(f"Shell syntax error: {result.stderr.strip()[:200]}")
-                os.unlink(f.name)
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     # Ruby: use ruby -c
     ruby_pattern = r"```(?:ruby|rb)\s*\n(.*?)```"
     for match in re.finditer(ruby_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".rb", delete=False) as f:
                 f.write(code)
                 f.flush()
-                result = subprocess.run(
-                    ["ruby", "-c", f.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
+                tmp_path = f.name
+            result = subprocess.run(
+                ["ruby", "-c", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
+            )
+            if result.returncode != 0:
+                issues.append(
+                    f"Ruby syntax error: {result.stderr.strip()[:_ERROR_MESSAGE_MAX_LEN]}"
                 )
-                if result.returncode != 0:
-                    issues.append(f"Ruby syntax error: {result.stderr.strip()[:200]}")
-                os.unlink(f.name)
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     # PHP: use php -l
     php_pattern = r"```php\s*\n(.*?)```"
     for match in re.finditer(php_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".php", delete=False) as f:
                 f.write(code)
                 f.flush()
-                result = subprocess.run(
-                    ["php", "-l", f.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if result.returncode != 0:
-                    issues.append(f"PHP syntax error: {result.stderr.strip()[:200]}")
-                os.unlink(f.name)
+                tmp_path = f.name
+            result = subprocess.run(
+                ["php", "-l", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
+            )
+            if result.returncode != 0:
+                issues.append(f"PHP syntax error: {result.stderr.strip()[:_ERROR_MESSAGE_MAX_LEN]}")
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     # Kotlin: use kotlinc -script or ktlint
     kotlin_pattern = r"```(?:kotlin|kt)\s*\n(.*?)```"
     for match in re.finditer(kotlin_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".kt", delete=False) as f:
                 f.write(code)
                 f.flush()
-                # Try ktlint first (lighter weight)
+                tmp_path = f.name
+            result = subprocess.run(
+                ["ktlint", "--format", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
+            )
+            if result.returncode != 0:
                 result = subprocess.run(
-                    ["ktlint", "--format", f.name],
+                    ["kotlinc", "-script", tmp_path],
                     capture_output=True,
                     text=True,
-                    timeout=15,
+                    timeout=_SYNTAX_CHECK_TIMEOUT,
                 )
                 if result.returncode != 0:
-                    # Fall back to kotlinc
-                    result = subprocess.run(
-                        ["kotlinc", "-script", f.name],
-                        capture_output=True,
-                        text=True,
-                        timeout=15,
-                    )
-                    if result.returncode != 0:
-                        issues.append(f"Kotlin error: {result.stderr.strip()[:200]}")
-                os.unlink(f.name)
+                    issues.append(f"Kotlin error: {result.stderr.strip()[:_ERROR_MESSAGE_MAX_LEN]}")
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     # Swift: use swiftc -parse
     swift_pattern = r"```swift\s*\n(.*?)```"
     for match in re.finditer(swift_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".swift", delete=False) as f:
                 f.write(code)
                 f.flush()
-                result = subprocess.run(
-                    ["swiftc", "-parse", f.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
+                tmp_path = f.name
+            result = subprocess.run(
+                ["swiftc", "-parse", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
+            )
+            if result.returncode != 0:
+                issues.append(
+                    f"Swift syntax error: {result.stderr.strip()[:_ERROR_MESSAGE_MAX_LEN]}"
                 )
-                if result.returncode != 0:
-                    issues.append(f"Swift syntax error: {result.stderr.strip()[:200]}")
-                os.unlink(f.name)
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     # Scala: use scalac -print
     scala_pattern = r"```scala\s*\n(.*?)```"
     for match in re.finditer(scala_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".scala", delete=False) as f:
                 f.write(code)
                 f.flush()
-                result = subprocess.run(
-                    ["scalac", "-print", f.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                )
-                if result.returncode != 0:
-                    issues.append(f"Scala error: {result.stderr.strip()[:200]}")
-                os.unlink(f.name)
+                tmp_path = f.name
+            result = subprocess.run(
+                ["scalac", "-print", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
+            )
+            if result.returncode != 0:
+                issues.append(f"Scala error: {result.stderr.strip()[:_ERROR_MESSAGE_MAX_LEN]}")
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     # C#: use dotnet-script or csc
     csharp_pattern = r"```(?:csharp|cs)\s*\n(.*?)```"
     for match in re.finditer(csharp_pattern, content, re.DOTALL):
         code = match.group(1).strip()
-        if not code or len(code) < 20:
+        if not code or len(code) < _MIN_CODE_LENGTH:
             continue
+        tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
                 f.write(code)
                 f.flush()
-                result = subprocess.run(
-                    ["dotnet", "script", f.name],
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                )
-                if result.returncode != 0:
-                    issues.append(f"C# error: {result.stderr.strip()[:200]}")
-                os.unlink(f.name)
+                tmp_path = f.name
+            result = subprocess.run(
+                ["dotnet", "script", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=_SYNTAX_CHECK_TIMEOUT,
+            )
+            if result.returncode != 0:
+                issues.append(f"C# error: {result.stderr.strip()[:_ERROR_MESSAGE_MAX_LEN]}")
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             pass
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     return issues
 
@@ -1226,43 +1263,56 @@ def _compute_confidence(
     """Compute confidence score (0-100)."""
     score = 100
 
+    # Deductions per issue type (higher = more severe)
+    FABRICATION_PENALTY = 15
+    CODE_PENALTY = 10
+    CLAIM_PENALTY = 12
+    EXTERNAL_PENALTY = 8
+    NO_TOOLS_PENALTY = 20
+    SHORT_RESPONSE_PENALTY = 15
+    MEDIUM_RESPONSE_PENALTY = 5
+    LONG_NO_TOOL_PENALTY = 20
+    TOOL_SUCCESS_BONUS = 5
+    TOOL_DIVERSITY_BONUS = 5
+    MULTI_FABRICATION_PENALTY = 10
+
     # Deductions for hallucination indicators
-    score -= len(fabrication_issues) * 15
-    score -= len(code_issues) * 10
-    score -= len(claim_issues) * 12
-    score -= len(external_issues) * 8
+    score -= len(fabrication_issues) * FABRICATION_PENALTY
+    score -= len(code_issues) * CODE_PENALTY
+    score -= len(claim_issues) * CLAIM_PENALTY
+    score -= len(external_issues) * EXTERNAL_PENALTY
 
     # Deductions for missing tool usage
     if not tool_history:
-        score -= 20
+        score -= NO_TOOLS_PENALTY
 
     # Deductions for response length issues
     if content and len(content.strip()) < 50:
-        score -= 15
+        score -= SHORT_RESPONSE_PENALTY
     elif content and len(content.strip()) < 100:
-        score -= 5
+        score -= MEDIUM_RESPONSE_PENALTY
 
     # Deductions for suspiciously long responses without tools
     if content and len(content) > 5000 and not tool_history:
-        score -= 20
+        score -= LONG_NO_TOOL_PENALTY
 
     # Bonus for proper tool usage
     if tool_history:
         successful = sum(1 for t in tool_history if t.get("success", True))
         total = len(tool_history)
         if total > 0 and successful / total >= 0.8:
-            score += 5
+            score += TOOL_SUCCESS_BONUS
 
     # Bonus for tool diversity
     if tool_history:
         unique_tools = len(set(tc.get("tool", "") for tc in tool_history))
         if unique_tools >= 3:
-            score += 5
+            score += TOOL_DIVERSITY_BONUS
 
     # Heavy penalty for multiple fabrication signals
     fabrication_count = sum(1 for issue in fabrication_issues if "Fabrication:" in issue)
     if fabrication_count >= 3:
-        score -= 10
+        score -= MULTI_FABRICATION_PENALTY
 
     return max(0, min(100, score))
 

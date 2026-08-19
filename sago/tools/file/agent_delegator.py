@@ -9,12 +9,15 @@ Smart routing of tasks to appropriate agents based on:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.agent_delegator")
 
 # Language to agent mapping
 LANGUAGE_AGENTS: dict[str, list[str]] = {
@@ -124,6 +127,7 @@ class AgentDelegator:
             for agent in LANGUAGE_AGENTS[language][:2]:
                 scores[agent] = scores.get(agent, 0) + 0.4
             reasons.append(f"language:{language}")
+            logger.debug("Language '%s' scored agents: %s", language, LANGUAGE_AGENTS[language][:2])
 
         # Score by category
         if category and category in CATEGORY_AGENTS:
@@ -143,12 +147,20 @@ class AgentDelegator:
         if not scores:
             scores = {"fullstack-engineer": 0.5}
             reasons.append("default")
+            logger.debug("No language/category/task signals matched, using default agent")
 
         # Sort by score
         sorted_agents = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         recommended = [a[0] for a in sorted_agents[:5]]
         primary = sorted_agents[0][0]
         confidence = min(sorted_agents[0][1], 1.0)
+
+        logger.info(
+            "Delegation result: primary=%s confidence=%.2f reason=%s",
+            primary,
+            confidence,
+            " + ".join(reasons),
+        )
 
         return DelegationResult(
             recommended_agents=recommended,
@@ -235,6 +247,11 @@ class AgentDelegator:
         """Delegate and actually execute the task with the best agent."""
         result = self.delegate(task, file_path, language, category)
         agent_name = result.primary_agent
+        logger.info(
+            "Executing delegated task with agent '%s' (confidence=%.2f)",
+            agent_name,
+            result.confidence,
+        )
 
         try:
             from sago.engine.simple_executor import execute_agent_task
@@ -274,6 +291,7 @@ class AgentDelegator:
                     output = exec_result.get("output", "")
                     # Check for real response
                     if output and not output.startswith("Error:") and len(output.strip()) > 10:
+                        logger.info("Agent '%s' succeeded with model '%s'", agent_name, try_model)
                         return {
                             "delegated_to": agent_name,
                             "confidence": result.confidence,
@@ -289,6 +307,9 @@ class AgentDelegator:
                     continue
 
             # All models failed
+            logger.error(
+                "Agent '%s' failed all model attempts. Last error: %s", agent_name, last_error
+            )
             return {
                 "delegated_to": agent_name,
                 "confidence": result.confidence,
@@ -302,6 +323,7 @@ class AgentDelegator:
                 ],
             }
         except Exception as e:
+            logger.error("Delegation to agent '%s' failed with exception: %s", agent_name, e)
             return {
                 "delegated_to": agent_name,
                 "confidence": result.confidence,

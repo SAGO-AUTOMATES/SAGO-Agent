@@ -19,6 +19,7 @@ from sago.learning import get_learning_store
 from sago.memory.compaction import HierarchicalMemoryPyramid
 from sago.memory.project_instructions import get_project_instructions
 from sago.utils.errors import log_error
+from sago.utils.safe import log_exception
 
 logger = logging.getLogger("sago.engine.context_assembler")
 
@@ -236,8 +237,8 @@ class ContextAssembler:
                         summary_lines.append(
                             f"\nCodebase Topology ({len(pg.nodes)} components, {len(pg.edges)} relations):\n{hub_summary[:800]}"
                         )
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_exception(e, "Project graph topology summary")
 
             ctx.project_summary = token_budget.consume_strict("\n".join(summary_lines))
         except Exception as e:

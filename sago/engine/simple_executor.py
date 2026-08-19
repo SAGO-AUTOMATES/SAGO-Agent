@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import os
 import re
 import threading
@@ -13,6 +14,9 @@ from pathlib import Path
 from typing import Any
 
 from sago.tools.base import BaseTool
+from sago.utils.safe import log_exception
+
+logger = logging.getLogger(__name__)
 
 # Auto-discover all tools
 _TOOL_CLASSES: dict[str, type[BaseTool]] = {}
@@ -374,8 +378,8 @@ def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
             for dep in framework_map:
                 if dep in deps:
                     context["frameworks"].append(framework_map[dep])
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to parse package.json for framework detection")
 
     # Detect Python frameworks from imports in existing files
     pyproject = os.path.join(work_dir, "pyproject.toml")
@@ -392,8 +396,8 @@ def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
             for keyword, framework in py_frameworks.items():
                 if keyword in content.lower():
                     context["frameworks"].append(framework)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to read pyproject.toml for framework detection")
 
     # Detect test frameworks
     test_indicators = {
@@ -440,8 +444,8 @@ def _detect_project_context(cwd: str | None = None) -> dict[str, Any]:
         if result.returncode == 0:
             files = result.stdout.strip().split("\n")[:30]
             context["project_structure"] = [os.path.relpath(f, work_dir) for f in files if f]
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Failed to detect project structure via subprocess")
 
     # Cache the result
     with _project_context_lock:
@@ -492,8 +496,8 @@ def _generate_plan_with_llm(
                     return steps
             except (json.JSONDecodeError, ValueError):
                 pass
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Failed to generate plan via LLM")
     # Fallback: create generic steps
     return [
         "Analyze the task and understand requirements",
@@ -529,7 +533,8 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
                         req = "REQ" if fi.is_required() else f"={fi.default}"
                         parts.append(f"{fn}({req})")
                     args = ", ".join(parts)
-                except Exception:
+                except Exception as e:
+                    log_exception(e, "Failed to extract tool argument fields")
                     args = ""
             lines.append(f"- {name}({args}): {desc}")
         _TOOL_DESCRIPTIONS = "\n".join(lines)
@@ -590,8 +595,8 @@ def _get_context(cwd: str | None = None) -> str:
             else:
                 summary = "\n".join(git_lines)
             lines.append(f"Git status:\n{summary}")
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Failed to get git status")
 
     return "\n".join(lines)
 
@@ -790,7 +795,8 @@ def _detect_task_type(task: str) -> str:
 
     try:
         return get_intent_classifier().classify(task).task_type
-    except Exception:
+    except Exception as e:
+        log_exception(e, "Failed to classify task intent, defaulting to create")
         return "create"
 
 
@@ -818,8 +824,8 @@ def _load_agent_profile(agent_name: str) -> dict[str, Any] | None:
                     "temperature": agent_def.temperature,
                     "max_iterations": agent_def.max_iterations,
                 }
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, f"Failed to load agent profile for '{agent_name}'")
     return None
 
 
@@ -1593,6 +1599,9 @@ def execute_agent_task(
         on_request_input: Called when a todo needs user input. Signature: (question: str) -> str
         pause_event: threading.Event to pause/resume execution. If provided and set, executor pauses.
     """
+    logger.info(
+        "execute_agent_task start: agent=%s, model=%s, task=%r", agent_role, model, task[:200]
+    )
     tools = _discover_tools()
 
     # --- Plugin: on_init hook (once per execution lifecycle) ---
@@ -1611,10 +1620,10 @@ def execute_agent_task(
             if plugin.meta.enabled:
                 try:
                     plugin.on_init(_plugin_ctx)
-                except Exception:
-                    pass
-    except Exception:
-        pass
+                except Exception as e:
+                    log_exception(e, f"Plugin on_init failed for {plugin.meta.name}")
+    except Exception as e:
+        log_exception(e, "Failed to discover and initialize plugins")
 
     # --- Skill: discover matching skills for this task ---
     matched_skills = []
@@ -1638,8 +1647,8 @@ def execute_agent_task(
                 custom_skills_context += f"\n\n{matched_skills_custom.to_prompt_context()}"
             elif not task_words.isdisjoint(cs_words | name_words):
                 custom_skills_context += f"\n\n{cs.to_prompt_context()}"
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Failed to discover and match skills")
 
     # --- Plugin: hook_user_message (transform/enrich the prompt) ---
     try:
@@ -1654,8 +1663,8 @@ def execute_agent_task(
         }
         task = get_plugin_manager().hook_user_message(task, _hook_ctx)
         enhanced_task = task  # re-sync after plugin transformation
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Plugin hook_user_message failed")
 
     # Auto-resolve active model, key, and base_url if defaults or empty
     if not api_key or model == "openrouter/free":
@@ -1673,8 +1682,8 @@ def execute_agent_task(
                 model = active_cfg["model"]
             if base_url is None:
                 base_url = active_cfg["base_url"]
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to resolve active LLM configuration")
 
     # Auto-detect base_url from model/provider if not provided
     if base_url is None:
@@ -1719,7 +1728,8 @@ def execute_agent_task(
             available_tools=list(tools.keys()),
             session_id=session_id,
         )
-    except Exception:
+    except Exception as e:
+        log_exception(e, "Failed to assemble context")
         assembled = None
 
     # Detect existing project context (languages, frameworks, structure)
@@ -1760,7 +1770,8 @@ def execute_agent_task(
                     ].confirmation_message = f"Please confirm: {task_plan.todos[i].description}"
             if on_todo_created:
                 on_todo_created(task_plan)
-        except Exception:
+        except Exception as e:
+            log_exception(e, "Failed to create task plan")
             task_plan = None
 
     # Auto-resolve specialist agent if default or generic agent was supplied
@@ -1771,8 +1782,8 @@ def execute_agent_task(
             resolved = resolve_specialist_agent(task=task, cwd=cwd, default_agent=agent_role)
             if resolved and resolved != "general-assistant":
                 agent_role = resolved
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to resolve specialist agent")
 
     # Load agent profile metadata
     profile = _load_agent_profile(agent_role)
@@ -1864,8 +1875,8 @@ def execute_agent_task(
                     f"{suggestion}\n"
                     f"Consider using a similar approach, but adapt to the current context."
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to load learning store suggestions")
 
         try:
             from sago.memory.project_instructions import get_project_instructions
@@ -1874,8 +1885,8 @@ def execute_agent_task(
             instructions_prompt = pi.get_for_prompt()
             if instructions_prompt:
                 system_prompt += instructions_prompt
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to load project instructions")
 
     # State tracking
     tool_history: list[dict] = []
@@ -1895,7 +1906,8 @@ def execute_agent_task(
         from sago.database import ToolUsageStore
 
         tool_usage_store = ToolUsageStore("simple_executor")
-    except Exception:
+    except Exception as e:
+        log_exception(e, "Failed to initialize ToolUsageStore")
         tool_usage_store = None
 
     # Build user message with rich reference data context (read-only)
@@ -2057,10 +2069,8 @@ def execute_agent_task(
             from sago.observability.tracing import record_marker
 
             record_marker("step", str(i), model=model)
-        except Exception:
-            pass
-
-        # Check if execution is paused (user input needed)
+        except Exception as e:
+            log_exception(e, "Failed to record observability trace marker")
         if pause_event and pause_event.is_set():
             if on_thinking:
                 on_thinking("Paused - waiting for user input...")
@@ -2099,8 +2109,8 @@ def execute_agent_task(
                         f"Rate limit hit for {provider_name}, backing off for {wait_sec:.1f}s..."
                     )
                 time.sleep(min(wait_sec, 60))
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to check token rate limit")
 
         try:
             temp = profile.get("temperature", 0.3) if profile else 0.3
@@ -2244,7 +2254,8 @@ def execute_agent_task(
                     # calls, so guard against that.
                     try:
                         content = response.text or ""
-                    except Exception:
+                    except Exception as e:
+                        log_exception(e, "Failed to extract Gemini response text")
                         content = ""
                     if response.candidates:
                         for part in response.candidates[0].content.parts:
@@ -2267,6 +2278,7 @@ def execute_agent_task(
                         native_tool_calls = gemini_tool_calls
 
                 except ImportError:
+                    logger.error("google-genai SDK not installed")
                     return {
                         "success": False,
                         "error": "google-genai not installed. Run: pip install google-genai",
@@ -2312,8 +2324,15 @@ def execute_agent_task(
                     f"Model '{model}' not found. Try 'openrouter/free' or check available models."
                 )
             elif "insufficient" in error_msg.lower() or "credit" in error_msg.lower():
-                error_msg = f"Insufficient credits for model '{model}'. Add credits or use 'openrouter/free'."
+                error_msg = (
+                    f"Insufficient credits for model '{model}'. Add credits or use 'openrouter'."
+                )
 
+            logger.error(
+                "execute_agent_task failed at iteration %d: %s",
+                i + 1,
+                error_msg[:300],
+            )
             return {
                 "success": False,
                 "error": error_msg,
@@ -2395,10 +2414,8 @@ def execute_agent_task(
                     completion_tokens=response.usage.completion_tokens or 0,
                     model=model,
                 )
-            except Exception:
-                pass
-
-        # Append assistant message (with tool_calls if present)
+            except Exception as e:
+                log_exception(e, "Failed to record token usage in observability trace")
         assistant_msg: dict[str, Any] = {"role": "assistant", "content": content or None}
         if native_tool_calls:
             assistant_msg["tool_calls"] = [
@@ -2607,6 +2624,7 @@ def execute_agent_task(
                 is_fabrication = True
 
             if is_fabrication and i < max_iterations - 1:
+                logger.info("Fabrication detected at iteration %d, triggering retry", i + 1)
                 # Build specific guidance based on what was claimed
                 guidance = []
                 if any(
@@ -2694,8 +2712,8 @@ def execute_agent_task(
                 content = get_plugin_manager().hook_response(
                     content, {"task": task, "model": model}
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Plugin hook_response failed")
 
             # ---- Post-execution quality review ----
             quality_issues = _review_output_quality(content, files_created, tool_history)
@@ -2710,8 +2728,8 @@ def execute_agent_task(
                 from sago.engine.hallucination_verifier import _detect_hedging_phrases
 
                 hedging_issues = _detect_hedging_phrases(content or "", tool_history)
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Failed to detect hedging phrases")
 
             # Tool result integrity check
             integrity_issues = []
@@ -2724,8 +2742,8 @@ def execute_agent_task(
                         tc.get("tool", ""), tc.get("args", {}), tc.get("result", "")
                     )
                     integrity_issues.extend(tc_issues)
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Failed to run tool integrity check")
 
             all_hallucination_issues = (
                 final_fabrication_issues + final_claim_issues + hedging_issues + integrity_issues
@@ -2733,6 +2751,11 @@ def execute_agent_task(
 
             # If hallucinations detected in final response, try to get a corrected response
             if all_hallucination_issues and i < max_iterations - 1:
+                logger.info(
+                    "Final hallucination check found %d issues at iteration %d, retrying",
+                    len(all_hallucination_issues),
+                    i + 1,
+                )
                 guidance_items = []
                 if any("user mentioned" in issue for issue in all_hallucination_issues):
                     guidance_items.append(
@@ -2778,6 +2801,12 @@ def execute_agent_task(
                 fabrication_issues=final_fabrication_issues,
                 code_issues=[],
                 claim_issues=final_claim_issues,
+            )
+            logger.debug(
+                "Hallucination verification: confidence=%d, fabrication=%d, claims=%d",
+                confidence,
+                len(final_fabrication_issues),
+                len(final_claim_issues),
             )
 
             # Determine if response should be flagged or rejected
@@ -2916,11 +2945,12 @@ def execute_agent_task(
                 from sago.plugins.base import get_plugin_manager
 
                 args = get_plugin_manager().hook_tool_call(name, args)
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Plugin hook_tool_call failed")
 
             if on_tool_call:
                 on_tool_call(name, args)
+            logger.debug("Tool call: %s, args=%s", name, {k: str(v)[:100] for k, v in args.items()})
 
             validation_error = _validate_tool_args(name, args)
             if validation_error:
@@ -2939,6 +2969,7 @@ def execute_agent_task(
             is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
             if is_error:
                 failed_calls.add(call_key)
+            logger.debug("Tool result: %s, success=%s, len=%d", name, not is_error, len(result_str))
 
             if name in ("write_file", "edit_file", "file_operations") and not is_error:
                 fp = (
@@ -2950,8 +2981,8 @@ def execute_agent_task(
                     from sago.engine.verifier import get_continuous_verifier
 
                     get_continuous_verifier().enqueue_files([fp] if fp else [])
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_exception(e, "Failed to enqueue file for continuous verification")
                 if fp and any(
                     fp.endswith(ext)
                     for ext in (
@@ -2974,8 +3005,8 @@ def execute_agent_task(
                         if not report.passed and report.issues:
                             feedback = report.to_prompt_feedback()
                             result_str = (result_str + "\n\n" + feedback)[:4000]
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log_exception(e, "Failed to run project verification on modified file")
 
             tool_history.append(
                 {"tool": name, "args": args, "result": result_str[:2000], "success": not is_error}
@@ -2990,10 +3021,8 @@ def execute_agent_task(
                         result=result_str[:1000],
                         success=not is_error,
                     )
-                except Exception:
-                    pass
-
-            if on_tool_result:
+                except Exception as e:
+                    log_exception(e, "Failed to log tool usage to store")
                 on_tool_result(name, args, result_str, not is_error)
 
             # --- Plugin: hook_tool_result (transform result after execution) ---
@@ -3001,8 +3030,8 @@ def execute_agent_task(
                 from sago.plugins.base import get_plugin_manager
 
                 result_str = str(get_plugin_manager().hook_tool_result(name, result_str))
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Plugin hook_tool_result failed")
 
             # --- Tool result integrity check (plugin tamper detection) ---
             try:
@@ -3010,8 +3039,8 @@ def execute_agent_task(
 
                 integrity = get_tool_integrity()
                 integrity.record_original(name, args, result_str)
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Failed to record tool result for integrity check")
 
             content = (
                 f"[ERROR] {name}:\n{result_str}\nTry a different approach."
@@ -3157,12 +3186,20 @@ def execute_agent_task(
                                     "content": "[PROGRESS] All steps completed. Provide final summary.",
                                 }
                             )
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Failed to update task plan progress")
 
         # Auto-compact if messages are getting too large
         if len(messages) > 40:
             messages = _compact_messages_if_needed(messages, max_tokens=80000)
+
+        logger.debug(
+            "Iteration %d complete: tools_used=%s, files_created=%d, messages=%d",
+            i + 1,
+            tools_used_in_iteration,
+            len(files_created),
+            len(messages),
+        )
 
     # Mark final todo as complete if plan exists
     if task_plan:
@@ -3177,8 +3214,8 @@ def execute_agent_task(
                     tm.complete_todo(task_plan.id, todo.id, result="Task completed")
             if on_todo_update:
                 on_todo_update(task_plan, current_todo_index, "completed")
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to mark remaining todos as complete")
 
         # === POST-EXECUTION: Test → Fix → Retry loop ===
     if files_created and on_thinking:
@@ -3389,16 +3426,16 @@ def execute_agent_task(
                     ["edit_file", "write_file"],
                     f"Fixed tests in {test_fix_attempts} attempts",
                 )
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Failed to record learning from execution")
 
     # --- Plugin: hook_response (transform final response at end of execution) ---
     try:
         from sago.plugins.base import get_plugin_manager
 
         content = get_plugin_manager().hook_response(content, {"task": task, "model": model})
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Plugin hook_response failed on final response")
 
     # Get change summary
     change_summary = None
@@ -3407,8 +3444,8 @@ def execute_agent_task(
 
         tracker = get_change_tracker()
         change_summary = tracker.get_summary()
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Failed to get change summary from tracker")
 
     # Record token usage
     if total_tokens_in > 0 or total_tokens_out > 0:
@@ -3425,14 +3462,23 @@ def execute_agent_task(
                 metadata={"session_id": "simple_executor"},
             )
             tracker.save()
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to save token tracker")
 
     if tool_usage_store is not None:
         try:
             tool_usage_store.flush()
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to flush tool usage store")
+
+    logger.info(
+        "execute_agent_task complete: iterations=%d, tokens_in=%d, tokens_out=%d, files=%d, elapsed=%.1fs",
+        max_iterations + test_fix_attempts,
+        total_tokens_in,
+        total_tokens_out,
+        len(files_created),
+        time.time() - start_time,
+    )
 
     return {
         "success": True,

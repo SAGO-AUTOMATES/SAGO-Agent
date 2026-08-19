@@ -6,15 +6,19 @@ Tools are designed to be cross-platform (Windows, Mac, Linux).
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import subprocess
+import time
 from abc import ABC, abstractmethod
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger("sago.tools.base")
 
 
 class ToolCategory(StrEnum):
@@ -86,12 +90,23 @@ class BaseTool(ABC):
         Returns:
             String result of the tool execution.
         """
+        logger.debug("Tool run start: %s kwargs=%s", self.name, list(kwargs.keys()))
+        _start = time.monotonic()
         try:
             from sago.observability.tracing import end_span, record_tool_call, start_span
 
-            _span = start_span(f"tool:{self.name}", tool=self.name)
+            _span_name = f"tool:{self.name}"
+            logger.debug("Tracing span start: %s", _span_name)
+            _span = start_span(_span_name, tool=self.name)
             try:
                 result = self._run(**kwargs)
+                _elapsed = time.monotonic() - _start
+                logger.debug(
+                    "Tool run success: %s result_len=%d elapsed=%.3fs",
+                    self.name,
+                    len(result),
+                    _elapsed,
+                )
                 try:
                     record_tool_call(self.name, duration=_span.duration, success=True)
                 except Exception:
@@ -109,15 +124,26 @@ class BaseTool(ABC):
                 except Exception:
                     pass
         except Exception as e:
+            _elapsed = time.monotonic() - _start
             error_msg = f"{type(e).__name__}: {e}"
+            logger.error(
+                "Tool run error: %s elapsed=%.3fs error=%s",
+                self.name,
+                _elapsed,
+                error_msg,
+            )
 
             # Try to find a known fix from learning store
             try:
                 from sago.learning import get_learning_store
 
+                logger.debug(
+                    "Learning store lookup for known fix: %s error=%s", self.name, error_msg
+                )
                 ls = get_learning_store()
                 known_fix = ls.get_known_fixes(error_msg)
                 if known_fix:
+                    logger.debug("Known fix found for %s", self.name)
                     return f"Error in {self.name}: {error_msg}\nKnown fix: {known_fix}"
             except Exception:
                 pass
@@ -126,6 +152,7 @@ class BaseTool(ABC):
             try:
                 from sago.learning import get_learning_store
 
+                logger.debug("Learning store record_failure: %s error=%s", self.name, error_msg)
                 ls = get_learning_store()
                 ls.record_failure("tool_error", error_msg, f"Tool: {self.name}")
             except Exception:

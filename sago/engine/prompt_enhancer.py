@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+from sago.utils.safe import log_exception
 
 logger = logging.getLogger("sago.engine.prompt_enhancer")
 
@@ -212,6 +213,9 @@ class PromptEnhancer:
 
         # 1. Detect primary intent & domain
         intent_category, intent_description = self._classify_intent(raw_prompt)
+        logger.debug(
+            "Intent detected: category=%s description=%s", intent_category, intent_description
+        )
 
         # For casual conversation, greetings, weather questions — never inject forced coding boilerplate
         if intent_category == "casual_chat":
@@ -229,6 +233,7 @@ class PromptEnhancer:
 
         # 2. Assess complexity to prevent overthinking on simple queries
         complexity = self._assess_complexity(raw_prompt)
+        logger.debug("Complexity assessment: %s (prompt length=%d)", complexity, len(raw_prompt))
         if complexity == "simple":
             # For simple queries, return minimal enhancement to avoid overthinking
             improvements.append("Simple query detected — minimal enhancement")
@@ -298,6 +303,14 @@ class PromptEnhancer:
 
         enhanced_text = "\n".join(enhanced_parts).strip()
 
+        logger.info(
+            "Prompt enhanced: intent=%s targets=%d criteria=%d improvements=%d",
+            intent_category,
+            len(targets),
+            len(criteria),
+            len(improvements),
+        )
+
         result = PromptEnhancementResult(
             original_prompt=raw_prompt,
             enhanced_prompt=enhanced_text,
@@ -320,7 +333,9 @@ class PromptEnhancer:
         text_lower = text.lower()
         for cat, (pattern, desc) in self._INTENT_MAP.items():
             if re.search(pattern, text_lower):
+                logger.debug("Intent matched pattern '%s' -> %s", cat, cat)
                 return cat, desc
+        logger.debug("No intent pattern matched, falling back to feature_create")
         return "feature_create", "Execute requested engineering task with precision"
 
     def _assess_complexity(self, text: str) -> str:
@@ -531,8 +546,8 @@ class PromptEnhancer:
                             break
                     if found or len(targets) >= 6:
                         break
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to walk workspace directory tree for target extraction")
 
         return sorted(list(targets))[:6]
 

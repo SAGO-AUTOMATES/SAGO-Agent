@@ -76,6 +76,7 @@ class IntentClassifier:
         with self._lock:
             if key in self._cache:
                 cached = self._cache[key]
+                logger.debug("Cache hit for prompt hash=%s -> type=%s", key, cached.task_type)
                 return IntentClassification(
                     task_type=cached.task_type,
                     needs_tools=cached.needs_tools,
@@ -88,6 +89,10 @@ class IntentClassifier:
 
         # 2. Tier 2: Micro-LLM Intent Classification
         if use_llm:
+            logger.debug(
+                "Cache miss, attempting micro-LLM classification (prompt length=%d)",
+                len(clean_prompt),
+            )
             try:
                 classification = self._call_micro_llm(clean_prompt, timeout=timeout)
                 if classification:
@@ -96,15 +101,30 @@ class IntentClassifier:
                             # Evict oldest item
                             self._cache.pop(next(iter(self._cache)))
                         self._cache[key] = classification
+                    logger.info(
+                        "LLM classification: type=%s agent=%s complexity=%s confidence=%.2f",
+                        classification.task_type,
+                        classification.suggested_agent,
+                        classification.complexity,
+                        classification.confidence,
+                    )
                     return classification
             except Exception as e:
                 logger.debug("Micro-LLM intent classification skipped: %s", e)
 
         # 3. Tier 3: Resilient Heuristic Fallback
+        logger.debug("Falling back to heuristic classification")
         fallback = self._classify_heuristic(clean_prompt)
         with self._lock:
             if len(self._cache) < self.cache_size:
                 self._cache[key] = fallback
+        logger.debug(
+            "Heuristic classification: type=%s agent=%s complexity=%s confidence=%.2f",
+            fallback.task_type,
+            fallback.suggested_agent,
+            fallback.complexity,
+            fallback.confidence,
+        )
         return fallback
 
     def _call_micro_llm(self, prompt: str, timeout: float = 1.2) -> IntentClassification | None:

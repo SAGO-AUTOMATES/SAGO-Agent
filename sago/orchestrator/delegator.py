@@ -9,9 +9,12 @@ Intelligently routes tasks to the best agents based on:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+logger = logging.getLogger("sago.orchestrator.delegator")
 
 
 class TaskType(Enum):
@@ -323,32 +326,39 @@ class TaskDelegator:
 
     def analyze_task(self, task: str) -> TaskPlan:
         """Analyze a task and create an execution plan."""
+        logger.info("Analyzing task: %s", task[:80])
         task_lower = task.lower()
 
         # Classify task type
         task_type = self._classify_task_type(task_lower)
+        logger.info("Classified task type: %s", task_type.value)
 
         # Assess complexity
         complexity = self._assess_complexity(task_lower)
+        logger.info("Assessed complexity: %s", complexity.value)
 
         # Determine effort
         effort = self._determine_effort(complexity)
 
         # Select agents
         primary, supporting = self._select_agents(task_type, task_lower)
+        logger.info("Selected agents: primary=%s, supporting=%s", primary, supporting)
 
         # Build execution chain
         chain = self._build_chain(task_type, complexity)
+        logger.info("Built execution chain: %s", chain)
 
         # Build parallel groups
         parallel_groups = self.get_parallel_groups(chain)
+        logger.debug("Parallel groups: %s", parallel_groups)
 
         # Estimate tokens
         estimated_tokens = self._estimate_tokens(complexity, effort)
 
         reasoning = self._generate_reasoning(task_type, complexity, primary)
+        logger.debug("Reasoning: %s", reasoning)
 
-        return TaskPlan(
+        plan = TaskPlan(
             task_type=task_type,
             complexity=complexity,
             primary_agent=primary,
@@ -359,6 +369,14 @@ class TaskDelegator:
             effort=effort,
             reasoning=reasoning,
         )
+        logger.info(
+            "Task plan created: type=%s complexity=%s effort=%s tokens=%d",
+            task_type.value,
+            complexity.value,
+            effort,
+            estimated_tokens,
+        )
+        return plan
 
     def _classify_task_type(self, task: str) -> TaskType:
         """Classify the task type based on keywords."""
@@ -370,7 +388,10 @@ class TaskDelegator:
                 scores[task_type] = score
 
         if scores:
-            return max(scores, key=scores.get)  # type: ignore
+            chosen = max(scores, key=scores.get)  # type: ignore
+            logger.debug("Task type scores: %s, selected: %s", scores, chosen.value)
+            return chosen
+        logger.debug("No keyword matches, defaulting to GENERAL")
         return TaskType.GENERAL
 
     def _assess_complexity(self, task: str) -> TaskComplexity:
@@ -383,13 +404,19 @@ class TaskDelegator:
                 scores[complexity] = score
 
         if scores:
-            return max(scores, key=scores.get)  # type: ignore
+            chosen = max(scores, key=scores.get)  # type: ignore
+            logger.debug("Complexity indicator scores: %s, selected: %s", scores, chosen.value)
+            return chosen
 
         # Default based on task length
-        if len(task.split()) > 50:
+        word_count = len(task.split())
+        if word_count > 50:
+            logger.debug("No indicators matched, word count %d -> COMPLEX", word_count)
             return TaskComplexity.COMPLEX
-        elif len(task.split()) > 20:
+        elif word_count > 20:
+            logger.debug("No indicators matched, word count %d -> MODERATE", word_count)
             return TaskComplexity.MODERATE
+        logger.debug("No indicators matched, word count %d -> SIMPLE", word_count)
         return TaskComplexity.SIMPLE
 
     def _determine_effort(self, complexity: TaskComplexity) -> str:
@@ -406,11 +433,17 @@ class TaskDelegator:
     def _select_agents(self, task_type: TaskType, task: str) -> tuple[str, list[str]]:
         """Select primary and supporting agents."""
         candidates = self.AGENT_MAP.get(task_type, self.AGENT_MAP[TaskType.GENERAL])
+        logger.debug("Agent candidates for %s: %s", task_type.value, candidates)
 
         # Simple matching based on task content
         primary = candidates[0] if candidates else "developer"
         supporting = candidates[1:3] if len(candidates) > 1 else []
 
+        logger.debug(
+            "Agent selection result: primary=%s, supporting=%s",
+            primary,
+            supporting,
+        )
         return primary, supporting
 
     def _build_chain(self, task_type: TaskType, complexity: TaskComplexity) -> list[str]:
@@ -431,12 +464,15 @@ class TaskDelegator:
         }
 
         chain = chains.get(task_type, ["developer"])
+        logger.debug("Base chain for %s: %s", task_type.value, chain)
 
         # For complex tasks, add more steps
         if complexity in (TaskComplexity.COMPLEX, TaskComplexity.EXPERT):
             if "code-reviewer" not in chain:
                 chain.append("code-reviewer")
+                logger.debug("Added code-reviewer to chain for %s complexity", complexity.value)
 
+        logger.debug("Final execution chain: %s", chain)
         return chain
 
     def _estimate_tokens(self, complexity: TaskComplexity, effort: str) -> int:

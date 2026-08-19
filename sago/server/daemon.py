@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import signal
 import sys
@@ -17,6 +18,8 @@ import time
 from typing import Any
 
 from sago.paths import get_sago_home
+
+logger = logging.getLogger("sago.server")
 
 _sago_home = get_sago_home()
 PID_FILE = _sago_home / "daemon.pid"
@@ -57,27 +60,38 @@ class SagoDaemon:
         """Load existing API key or create a new one."""
         if AUTH_FILE.exists():
             try:
+                logger.info("Loaded existing API key from %s", AUTH_FILE)
                 return AUTH_FILE.read_text().strip()
-            except Exception:
+            except Exception as exc:
+                logger.error("Failed to load API key from %s: %s", AUTH_FILE, exc)
                 pass
         # Generate new key
+        logger.info("Generating new API key")
         key = hashlib.sha256(os.urandom(32)).hexdigest()[:32]
         AUTH_FILE.parent.mkdir(parents=True, exist_ok=True)
         AUTH_FILE.write_text(key)
         # Restrict permissions
         try:
             AUTH_FILE.chmod(0o600)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Could not set permissions on %s: %s", AUTH_FILE, exc)
             pass
         return key
 
     def _verify_api_key(self, provided_key: str) -> bool:
         """Verify API key using constant-time comparison to prevent timing attacks."""
         if not self._api_key:
+            logger.debug("No API key configured, auth skipped")
             return True  # No auth required if no key set
         if not provided_key:
+            logger.warning("Auth failed: no API key provided")
             return False
-        return hmac.compare_digest(provided_key, self._api_key)
+        result = hmac.compare_digest(provided_key, self._api_key)
+        if not result:
+            logger.warning("Auth failed: invalid API key")
+        else:
+            logger.debug("Auth succeeded")
+        return result
 
     def is_running(self) -> bool:
         """Check if daemon is running."""
@@ -103,9 +117,11 @@ class SagoDaemon:
     def start(self, foreground: bool = False) -> bool:
         """Start daemon."""
         if self.is_running():
+            logger.warning("Daemon already running (PID: %s)", self.get_pid())
             print(f"Daemon already running (PID: {self.get_pid()})")
             return True
 
+        logger.info("Starting daemon on %s:%d", self.host, self.port)
         if foreground:
             return self._run_foreground()
         return self._start_background()
@@ -116,6 +132,7 @@ class SagoDaemon:
         sys.stderr.flush()
         pid = os.fork()
         if pid > 0:
+            logger.info("Daemon forked, child PID: %d", pid)
             print(f"Daemon started (PID: {pid})")
             print(f"API key saved to: {AUTH_FILE}")
             return True
@@ -155,6 +172,7 @@ class SagoDaemon:
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
 
+        logger.info("Daemon started in foreground on %s:%d", self.host, self.port)
         print(f"Sago daemon running on {self.host}:{self.port}")
         print(f"API key: {self._api_key[:8]}...")
         print("Ctrl+C to stop")
@@ -175,6 +193,7 @@ class SagoDaemon:
             server.listen(5)
             server.settimeout(1.0)
 
+            logger.info("Server listening on %s:%d", self.host, self.port)
             print(f"Listening on {self.host}:{self.port}")
 
             while self._running:
@@ -182,6 +201,12 @@ class SagoDaemon:
                     if self._active_connections >= self._max_connections:
                         try:
                             client, addr = server.accept()
+                            logger.warning(
+                                "Rejected connection from %s: connection limit reached (%d/%d)",
+                                addr,
+                                self._active_connections,
+                                self._max_connections,
+                            )
                             client.send(
                                 json.dumps({"error": "Connection limit reached"}).encode() + b"\n"
                             )
@@ -193,6 +218,12 @@ class SagoDaemon:
 
                     client, addr = server.accept()
                     self._active_connections += 1
+                    logger.info(
+                        "Connection from %s (active: %d/%d)",
+                        addr,
+                        self._active_connections,
+                        self._max_connections,
+                    )
                     print(
                         f"Connection from {addr} ({self._active_connections}/{self._max_connections})"
                     )
@@ -207,14 +238,20 @@ class SagoDaemon:
                 except TimeoutError:
                     continue
                 except Exception as e:
+                    logger.error("Server loop error: %s", e, exc_info=True)
                     print(f"Error: {e}")
 
+        except OSError as exc:
+            logger.error("Failed to bind server to %s:%d: %s", self.host, self.port, exc)
+            raise
         finally:
             server.close()
             self.pid_file.unlink(missing_ok=True)
+            logger.info("Server shutdown complete")
 
     def _handle_client(self, client: Any) -> None:
         """Handle client connection with auth and size limits."""
+        request_start = time.time()
 
         try:
             client.settimeout(CLIENT_TIMEOUT)
@@ -225,28 +262,42 @@ class SagoDaemon:
                     break
                 data += chunk
                 if len(data) > MAX_REQUEST_SIZE:
+                    logger.warning("Request too large (%d bytes)", len(data))
                     client.send(json.dumps({"error": "Request too large"}).encode() + b"\n")
                     return
                 if b"\n" in data:
                     break
 
             request = json.loads(data.decode().strip())
+            action = request.get("action", "unknown")
+            logger.debug("Received request: action=%s", action)
 
             # Verify API key
             provided_key = request.pop("api_key", "")
             if not self._verify_api_key(provided_key):
+                logger.warning("Auth failed for action=%s", action)
                 client.send(json.dumps({"error": "Unauthorized: invalid API key"}).encode() + b"\n")
                 return
 
             response = self._process_request(request)
+            duration_ms = (time.time() - request_start) * 1000
+            logger.debug(
+                "Request completed: action=%s duration=%.1fms",
+                action,
+                duration_ms,
+            )
             client.send((json.dumps(response) + "\n").encode())
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            logger.warning("Invalid JSON from client: %s", exc)
             client.send(json.dumps({"error": "Invalid JSON"}).encode() + b"\n")
         except TimeoutError:
+            logger.warning("Client request timed out after %ds", CLIENT_TIMEOUT)
             client.send(json.dumps({"error": "Request timeout"}).encode() + b"\n")
         except (BrokenPipeError, ConnectionResetError):
+            logger.debug("Client disconnected before response could be sent")
             pass  # Client disconnected, nothing to send
         except Exception as e:
+            logger.error("Error handling client request: %s", e, exc_info=True)
             try:
                 client.send(json.dumps({"error": str(e)}).encode() + b"\n")
             except (BrokenPipeError, ConnectionResetError, OSError):
@@ -257,35 +308,44 @@ class SagoDaemon:
         action = request.get("action")
 
         if action == "ping":
+            logger.debug("Handling ping request")
             return {"status": "ok", "pid": os.getpid()}
 
         elif action == "execute":
             task = request.get("task", "")
             agent = request.get("agent")
+            logger.info("Task execution requested: agent=%s task_length=%d", agent, len(task))
             return self._execute_task(task, agent)
 
         elif action == "status":
+            logger.debug("Handling status request")
             return self._get_status()
 
         elif action == "peers":
+            logger.debug("Handling peers request")
             return self._get_peers()
 
         elif action == "stop":
+            logger.info("Stop requested by client")
             self._running = False
             return {"status": "stopping"}
 
+        logger.warning("Unknown action requested: %s", action)
         return {"error": f"Unknown action: {action}"}
 
     def _execute_task(self, task: str, agent: str | None = None) -> dict[str, Any]:
         """Execute a task using simple executor."""
+        task_start = time.time()
+        agent_role = agent.replace("-", " ").title() if agent else "Sago Orchestrator"
+        logger.info("Executing task: agent=%s", agent_role)
+
         try:
             from sago.engine.simple_executor import execute_agent_task
 
             api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
             if not api_key:
+                logger.error("No API key configured for task execution")
                 return {"status": "failed", "error": "No API key set (OPENROUTER_API_KEY)"}
-
-            agent_role = agent.replace("-", " ").title() if agent else "Sago Orchestrator"
 
             try:
                 from sago.config.loader import get_config
@@ -303,6 +363,14 @@ class SagoDaemon:
                 max_iterations=8,
             )
 
+            elapsed = time.time() - task_start
+            logger.info(
+                "Task completed: agent=%s elapsed=%.2fs tokens=%s",
+                agent_role,
+                elapsed,
+                result.get("tokens", {}),
+            )
+
             return {
                 "status": "completed",
                 "result": result.get("output", "No output"),
@@ -311,6 +379,14 @@ class SagoDaemon:
                 "elapsed": result.get("elapsed", 0),
             }
         except Exception as e:
+            elapsed = time.time() - task_start
+            logger.error(
+                "Task execution failed: agent=%s elapsed=%.2fs error=%s",
+                agent_role,
+                elapsed,
+                e,
+                exc_info=True,
+            )
             return {"status": "failed", "error": str(e)}
 
     def _get_status(self) -> dict[str, Any]:
@@ -334,17 +410,20 @@ class SagoDaemon:
             pm = PeerManager()
             peers = pm.list_peers()
             return {"peers": [p.to_dict() for p in peers]}
-        except Exception:
+        except Exception as exc:
+            logger.error("Failed to fetch peers: %s", exc, exc_info=True)
             return {"peers": []}
 
     def _handle_signal(self, signum: int, frame: Any) -> None:
         """Handle shutdown signal gracefully."""
+        logger.info("Received signal %d, initiating shutdown", signum)
         print(f"\nReceived signal {signum}, shutting down...")
         self._running = False
 
     def stop(self) -> bool:
         """Stop daemon."""
         if not self.is_running():
+            logger.info("Daemon not running, nothing to stop")
             print("Daemon not running")
             return True
 
@@ -352,19 +431,23 @@ class SagoDaemon:
         if pid is None:
             return False
 
+        logger.info("Stopping daemon (PID: %d)", pid)
         try:
             os.kill(pid, signal.SIGTERM)
             time.sleep(0.5)
 
             if not self.is_running():
+                logger.info("Daemon stopped gracefully")
                 print("Daemon stopped")
                 return True
             else:
+                logger.warning("Daemon did not stop gracefully, force killing")
                 print("Force killing...")
                 os.kill(pid, signal.SIGKILL)
                 self.pid_file.unlink(missing_ok=True)
                 return True
         except ProcessLookupError:
+            logger.info("Daemon process %d already gone, cleaning up", pid)
             self.pid_file.unlink(missing_ok=True)
             return True
 
@@ -377,6 +460,7 @@ class SagoDaemon:
 
     def restart(self) -> bool:
         """Restart daemon."""
+        logger.info("Restarting daemon")
         self.stop()
         time.sleep(1)
         return self.start()

@@ -12,6 +12,7 @@ Stateful workflow execution with:
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from collections.abc import Callable
@@ -19,6 +20,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("sago.workflow")
 
 
 class StepStatus(Enum):
@@ -346,6 +349,7 @@ class WorkflowEngine:
         workflow.status = WorkflowStatus.RUNNING
         workflow.started_at = time.time()
         self._notify("workflow_started", {"workflow_id": workflow_id})
+        logger.info("Executing workflow %s (%s)", workflow_id, workflow.name)
 
         try:
             from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -390,6 +394,7 @@ class WorkflowEngine:
             workflow.updated_at = time.time()
             self._save(workflow)
             self._notify("workflow_completed", {"workflow_id": workflow_id})
+            logger.info("Workflow %s completed", workflow_id)
 
             return workflow.to_dict()
 
@@ -397,6 +402,7 @@ class WorkflowEngine:
             workflow.status = WorkflowStatus.FAILED
             workflow.completed_at = time.time()
             self._save(workflow)
+            logger.error("Workflow %s failed: %s", workflow_id, e)
             return {"error": str(e), "workflow": workflow.to_dict()}
 
     def pause_workflow(self, workflow_id: str) -> bool:
@@ -411,6 +417,7 @@ class WorkflowEngine:
                 step.status = StepStatus.WAITING
         self._save(workflow)
         self._notify("workflow_paused", {"workflow_id": workflow_id})
+        logger.info("Workflow %s paused", workflow_id)
         return True
 
     def resume_workflow(self, workflow_id: str) -> bool:
@@ -425,6 +432,7 @@ class WorkflowEngine:
                 step.status = StepStatus.PENDING
         self._save(workflow)
         self._notify("workflow_resumed", {"workflow_id": workflow_id})
+        logger.info("Workflow %s resumed", workflow_id)
         return True
 
     def cancel_workflow(self, workflow_id: str) -> bool:
@@ -439,6 +447,7 @@ class WorkflowEngine:
                 step.status = StepStatus.CANCELLED
         self._save(workflow)
         self._notify("workflow_cancelled", {"workflow_id": workflow_id})
+        logger.info("Workflow %s cancelled", workflow_id)
         return True
 
     def get_workflow(self, workflow_id: str) -> Workflow | None:
@@ -451,6 +460,7 @@ class WorkflowEngine:
         """Execute a single workflow step."""
         step.status = StepStatus.RUNNING
         step.started_at = time.time()
+        logger.debug("Step %s (%s) started in workflow %s", step.id, step.name, workflow.id)
         self._notify(
             "step_started",
             {
@@ -465,6 +475,7 @@ class WorkflowEngine:
             step.error = f"No executor for step type: {step.type}"
             step.status = StepStatus.FAILED
             step.completed_at = time.time()
+            logger.warning("No executor for step type %s in step %s", step.type, step.id)
             return
 
         try:
@@ -489,9 +500,17 @@ class WorkflowEngine:
                 step.retry_count += 1
                 step.status = StepStatus.PENDING
                 step.error = f"Retry {step.retry_count}/{step.max_retries}: {e}"
+                logger.warning(
+                    "Step %s failed (retry %d/%d): %s",
+                    step.id,
+                    step.retry_count,
+                    step.max_retries,
+                    e,
+                )
             else:
                 step.error = str(e)
                 step.status = StepStatus.FAILED
+                logger.error("Step %s failed permanently: %s", step.id, e)
 
         finally:
             step.completed_at = time.time()
@@ -503,24 +522,17 @@ class WorkflowEngine:
         if not self.persist_dir:
             return
 
-        import logging
-
-        _log = logging.getLogger("sago.workflow")
-
         path = self.persist_dir / f"{workflow.id}.json"
         try:
             path.write_text(json.dumps(workflow.to_dict(), default=str))
+            logger.debug("Saved workflow %s to %s", workflow.id, path.name)
         except Exception as e:
-            _log.debug(f"Failed to save workflow {workflow.id}: {e}")
+            logger.debug("Failed to save workflow %s: %s", workflow.id, e)
 
     def _load_all(self) -> None:
         """Load all workflows from disk."""
         if not self.persist_dir:
             return
-
-        import logging
-
-        _log = logging.getLogger("sago.workflow")
 
         for path in self.persist_dir.glob("*.json"):
             try:
@@ -562,8 +574,9 @@ class WorkflowEngine:
                 workflow.state.context = state_data.get("context", {})
                 workflow.state.history = state_data.get("history", [])
                 self.workflows[workflow.id] = workflow
+                logger.debug("Loaded workflow %s from %s", workflow.id, path.name)
             except Exception as e:
-                _log.debug(f"Failed to load workflow from {path.name}: {e}")
+                logger.debug("Failed to load workflow from %s: %s", path.name, e)
 
     def _notify(self, event: str, data: dict[str, Any]) -> None:
         """Notify callbacks of workflow events."""

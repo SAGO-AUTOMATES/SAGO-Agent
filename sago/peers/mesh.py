@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import socket
 import time
@@ -19,6 +20,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sago.version import __version__
+
+logger = logging.getLogger("sago.peers.mesh")
 
 MESH_PORT = int(os.environ.get("SAGO_MESH_PORT", "7655"))
 MESH_BROADCAST = "255.255.255.255"
@@ -133,14 +136,16 @@ class MeshNetwork:
         self._socket.settimeout(0.1)
         try:
             self._socket.bind(("", self.port))
-        except OSError:
-            pass  # Port may be in use
+            logger.info("Mesh listener started on port %s", self.port)
+        except OSError as exc:
+            logger.warning("Failed to bind mesh socket on port %s: %s", self.port, exc)
 
     def stop(self) -> None:
         """Stop mesh listener."""
         self._running = False
         if self._socket:
             self._socket.close()
+            logger.info("Mesh listener stopped")
 
     def broadcast_discovery(self) -> None:
         """Broadcast discovery message."""
@@ -152,6 +157,7 @@ class MeshNetwork:
         if self.auth_secret:
             msg.sign(self.auth_secret)
         self._broadcast(msg.to_json())
+        logger.debug("Broadcast discovery from %s", self.node_id)
 
     def send_heartbeat(self) -> None:
         """Send heartbeat to all known nodes."""
@@ -181,6 +187,7 @@ class MeshNetwork:
         if self.auth_secret:
             msg.sign(self.auth_secret)
         self._unicast(target, msg.to_json())
+        logger.debug("Sent task request to %s (task_id=%s)", target, task_id)
 
     def send_task_result(
         self,
@@ -203,6 +210,7 @@ class MeshNetwork:
         if self.auth_secret:
             msg.sign(self.auth_secret)
         self._unicast(target, msg.to_json())
+        logger.debug("Sent task result to %s (task_id=%s, success=%s)", target, task_id, success)
 
     def get_best_node(self, task: str | None = None) -> MeshNode | None:
         """Get best available node for a task."""
@@ -266,10 +274,16 @@ class MeshNetwork:
 
                 # Verify HMAC signature if auth_secret is set
                 if self.auth_secret and not msg.verify(self.auth_secret):
+                    logger.debug("Rejected message with invalid HMAC from %s", msg.sender)
                     continue
 
                 # Replay protection: reject packets older than 300 seconds
                 if abs(time.time() - msg.timestamp) > 300:
+                    logger.debug(
+                        "Rejected stale message from %s (age=%.1fs)",
+                        msg.sender,
+                        abs(time.time() - msg.timestamp),
+                    )
                     continue
 
                 # Update node registry
@@ -286,6 +300,7 @@ class MeshNetwork:
                             port=addr[1],
                             last_heartbeat=time.time(),
                         )
+                        logger.info("Discovered new node: %s (%s)", msg.sender, addr[0])
 
                 # Process task requests and return execution results
                 elif msg.type == "task_request" and (
@@ -294,6 +309,7 @@ class MeshNetwork:
                     task_str = msg.payload.get("task", "")
                     agent_name = msg.payload.get("agent")
                     task_id = msg.payload.get("task_id") or f"task_{int(time.time() * 1000)}"
+                    logger.info("Received task request from %s (task_id=%s)", msg.sender, task_id)
 
                     def _run_task() -> str:
                         if self.task_executor:
@@ -316,6 +332,7 @@ class MeshNetwork:
                             target=msg.sender, task_id=task_id, result=str(res), success=True
                         )
                     except FuturesTimeoutError:
+                        logger.warning("Task %s timed out after %ss", task_id, MESH_TASK_TIMEOUT)
                         self.send_task_result(
                             target=msg.sender,
                             task_id=task_id,
@@ -323,6 +340,7 @@ class MeshNetwork:
                             success=False,
                         )
                     except Exception as e:  # noqa: BLE001
+                        logger.error("Task %s failed: %s", task_id, e)
                         self.send_task_result(
                             target=msg.sender,
                             task_id=task_id,
@@ -351,6 +369,7 @@ class MeshCoordinator:
         """Start mesh coordinator."""
         self.mesh.start()
         self.mesh.broadcast_discovery()
+        logger.info("Mesh coordinator started (node=%s)", self.mesh.node_id)
 
     def stop(self) -> None:
         """Stop mesh coordinator."""
@@ -373,10 +392,12 @@ class MeshCoordinator:
         """
         node = self.mesh.get_best_node(task)
         if not node:
+            logger.debug("No alive node available for delegation")
             return None
 
         task_id = f"task_{uuid.uuid4().hex}"
         self.mesh.send_task_request(node.id, task, agent, task_id=task_id)
+        logger.info("Delegated task %s to node %s", task_id, node.id)
 
         # Wait for result, correlating by task_id to avoid mismatches when
         # multiple delegations target the same node concurrently.
@@ -392,6 +413,7 @@ class MeshCoordinator:
                     return node.id, msg.payload.get("result", "")
             time.sleep(0.1)
 
+        logger.warning("Delegation of task %s to node %s timed out", task_id, node.id)
         return None
 
     def get_status(self) -> dict[str, Any]:

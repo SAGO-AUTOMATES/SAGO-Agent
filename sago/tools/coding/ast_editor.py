@@ -58,11 +58,19 @@ class CodeNode:
             "parent": self.parent,
             "decorators": self.decorators,
             "signature": self.signature,
+            "docstring": self.docstring,
+            "children": self.children,
             "return_type": self.return_type,
             "type_annotations": self.type_annotations,
+            "defaults": self.defaults,
             "is_async": self.is_async,
             "is_private": self.is_private,
+            "is_static": self.is_static,
+            "is_classmethod": self.is_classmethod,
+            "is_property": self.is_property,
             "base_classes": self.base_classes,
+            "imports_from": self.imports_from,
+            "complexity_estimate": self.complexity_estimate,
         }
 
 

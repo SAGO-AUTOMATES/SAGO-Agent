@@ -76,6 +76,33 @@ class MyNewTool(BaseTool):
 2. Add routing triggers to `sago/config/sago.yaml`
 3. Add the agent to `config.agents.enabled`
 
+## Error Handling & Logging
+
+### Use `log_exception()` instead of silent `pass`
+
+```python
+# BAD - silent error, impossible to debug
+except Exception:
+    pass
+
+# GOOD - error is logged with context
+except Exception as e:
+    log_exception(e, "Failed to load config")
+```
+
+Import from: `from sago.utils.safe import log_exception`
+
+### Logging Levels
+
+- `logger.debug()` - Verbose details (tool args, API responses, file contents)
+- `logger.info()` - Important milestones (task started, agent selected, verification complete)
+- `logger.warning()` - Recoverable issues (fallback used, retry needed)
+- `logger.error()` - Failures that need attention
+
+### Log Files
+
+Logs are written to `~/.sago/logs/sago.log` with daily rotation. When reporting bugs, include relevant log excerpts.
+
 ## Reporting Issues
 
 - Use GitHub Issues

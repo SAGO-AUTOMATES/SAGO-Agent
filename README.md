@@ -71,6 +71,29 @@ sago run "Build a REST API" --agent python-engineer
 
 ---
 
+## Logging & Debugging
+
+Sago writes detailed logs to `~/.sago/logs/sago.log` with daily rotation (7 days retention).
+
+- **File logs**: DEBUG level - every tool call, API request, error, and decision
+- **Console logs**: INFO level - important milestones only
+
+To enable verbose console output:
+```python
+import logging
+
+logging.getLogger().setLevel(logging.DEBUG)
+```
+
+Log files rotate daily at midnight. Each log entry includes:
+```
+2026-08-19 12:00:00 | INFO     | sago.engine.simple_executor | Task started: agent=python-engineer, model=gemini-2.5-flash
+```
+
+Keep log files when reporting bugs - they contain the full execution trace.
+
+---
+
 ## Installation
 
 ### From Source (Recommended)

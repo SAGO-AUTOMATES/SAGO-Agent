@@ -7,9 +7,12 @@ Also loads .sago/instructions.md, .cursorrules, .windsurfrules.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("sago.memory.instructions")
 
 # Priority files loaded first (in order)
 PRIORITY_FILES = [
@@ -102,7 +105,10 @@ class ProjectInstructions:
         if not files:
             self._instructions = ""
             self._metadata = {"files": [], "total_size": 0}
+            logger.debug("No instruction files found in %s", self.cwd)
             return ""
+
+        logger.debug("Found %d instruction files in %s", len(files), self.cwd)
 
         parts: list[str] = []
         loaded_files: list[dict[str, Any]] = []
@@ -179,6 +185,12 @@ class ProjectInstructions:
             "file_count": len(loaded_files),
         }
 
+        logger.info(
+            "Loaded %d instruction files (%d chars) from %s",
+            len(loaded_files),
+            total_size,
+            self.cwd,
+        )
         return self._instructions
 
     def get_metadata(self) -> dict[str, Any]:
@@ -197,6 +209,9 @@ class ProjectInstructions:
         file_count = meta.get("file_count", 0)
         total_size = meta.get("total_size", 0)
 
+        logger.debug(
+            "Formatting instructions for prompt (%d files, %d chars)", file_count, total_size
+        )
         return (
             f"\n\n=== PROJECT INSTRUCTIONS ({file_count} files, {total_size} chars) ===\n"
             f"Follow these project-specific rules:\n"

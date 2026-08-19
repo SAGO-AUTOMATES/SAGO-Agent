@@ -17,6 +17,7 @@ from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.reactive import reactive
 from textual.widgets import Button, Input, Static
 
+from sago.logging_config import setup_logging
 from sago.tui.commands import CommandHandlers
 from sago.tui.helpers import UIHelpers
 from sago.tui.models import COMMANDS
@@ -157,6 +158,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     MAX_COMMAND_HISTORY = 200
 
     def on_mount(self) -> None:
+        setup_logging()
         self._spinner = None
         self._spinner_timer = None
         self._pending_resume = getattr(self, "_pending_resume", None)

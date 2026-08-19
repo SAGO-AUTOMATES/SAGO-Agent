@@ -4,6 +4,15 @@ All notable changes to the SAGO project are documented in this file.
 
 ## [0.1.11] - 2026-08-19
 
+### Added
+- **Centralized logging** (`sago/logging_config.py`): daily file rotation to `~/.sago/logs/sago.log`, 7 days retention, DEBUG in file + INFO on console
+- **Comprehensive logging across 30+ modules**: database, LLM calls, orchestrator, TUI processor, tools, sessions, permissions, config, memory, workflows, agents, peers, token tracking
+- `log_exception()` utility for consistent error logging
+- Rate limit retry with exponential backoff for chat (Gemini + OpenAI)
+- API key masking in error messages (`_mask_secret()`, `_sanitize_error_message()`)
+- Chat history size limit (50 messages) to prevent memory growth
+- Version fallback in `sago/version.py` fixed (0.1.7 -> 0.1.11)
+
 ### Fixed
 - **TUI Session Resume Card Rendering (`sago/tui/commands.py`)**:
   - Fixed ExchangeTurnCard responses rendering outside the card boundary when loading/resuming a session.
@@ -23,6 +32,12 @@ All notable changes to the SAGO project are documented in this file.
   - `_init_session` now skips creating a new session when `--resume` flag is passed, preventing orphaned empty sessions.
 - **TUI Session Flag Initialization (`sago/tui/app.py`)**:
   - `_loading_session`, `_active_exchange_card`, `_message_store`, and `current_session_title` are now initialized in `on_mount` for reliable session state management.
+- **Temp file resource leaks** in `hallucination_verifier.py` (12 sections, all use `try/finally` with guaranteed `os.unlink()`)
+- **Markup escaping inconsistency** in TUI markdown rendering (`_render_markdown_rich()` now escapes before rendering)
+- **Silent `except: pass` patterns** replaced with proper logging (~50+ blocks across 9 files)
+- **CodeNode.to_dict()** now includes all fields (docstring, defaults, is_classmethod, etc.)
+- **Duplicate pattern definitions** consolidated in hallucination verifier
+- **Click `resultcallback`** deprecated API fixed to `result_callback`
 - **`sago chat` Rate Limit on Gemini (`sago/engine/simple_executor.py`)**:
   - Chat tasks now skip tool definitions when calling the LLM. Previously ~30 tools were sent even for simple greetings, hitting Google's tool-use rate quotas.
 - **`sago chat` Multi-Turn Interactive Mode (`sago/main.py`)**:

@@ -5,12 +5,15 @@ Controls which tools can be executed based on risk level and user consent.
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
 from sago.paths import get_sago_home
+
+logger = logging.getLogger("sago.permissions")
 
 
 class RiskLevel(Enum):
@@ -175,13 +178,20 @@ class PermissionManager:
 
     def get_risk_level(self, tool_name: str) -> RiskLevel:
         """Get the risk level for a tool."""
-        return TOOL_RISK_LEVELS.get(tool_name, RiskLevel.HIGH)
+        risk = TOOL_RISK_LEVELS.get(tool_name, RiskLevel.HIGH)
+        if tool_name not in TOOL_RISK_LEVELS:
+            logger.warning("Unknown tool '%s' defaulted to HIGH risk", tool_name)
+        else:
+            logger.debug("Risk level for '%s': %s", tool_name, risk.value)
+        return risk
 
     def is_blocked(self, tool_name: str) -> bool:
         """Check if a tool is blocked."""
         if tool_name in self.config.blocked_tools:
+            logger.info("Tool '%s' is in blocked list", tool_name)
             return True
         if self.config.allowed_tools and tool_name not in self.config.allowed_tools:
+            logger.info("Tool '%s' is not in allowed list", tool_name)
             return True
         return False
 
@@ -191,22 +201,27 @@ class PermissionManager:
         Explicitly handles every risk level to avoid fallthrough bugs.
         """
         if self.is_blocked(tool_name):
+            logger.info("Consent requested for '%s' — tool is blocked", tool_name)
             return True
 
         risk = self.get_risk_level(tool_name)
 
         if risk == RiskLevel.SAFE:
-            return not self.config.auto_approve_safe
-        if risk == RiskLevel.LOW:
-            return not self.config.auto_approve_low
-        if risk == RiskLevel.MEDIUM:
-            return self.config.require_approval_medium
-        if risk == RiskLevel.HIGH:
-            return self.config.require_approval_high
-        if risk == RiskLevel.CRITICAL:
-            return self.config.require_approval_critical
+            result = not self.config.auto_approve_safe
+        elif risk == RiskLevel.LOW:
+            result = not self.config.auto_approve_low
+        elif risk == RiskLevel.MEDIUM:
+            result = self.config.require_approval_medium
+        elif risk == RiskLevel.HIGH:
+            result = self.config.require_approval_high
+        elif risk == RiskLevel.CRITICAL:
+            result = self.config.require_approval_critical
+        else:
+            result = True  # unknown risk -> require approval
 
-        return True  # unknown risk -> require approval
+        if result:
+            logger.info("Consent requested for '%s' (risk: %s)", tool_name, risk.value)
+        return result
 
     def approve_tool(self, tool_name: str, session_id: str = "default") -> bool:
         """Approve a tool for execution."""
@@ -215,6 +230,7 @@ class PermissionManager:
             self._approvals[key] = True
             self.config.session_approvals[key] = True
             self._save_config()
+        logger.info("Tool '%s' approved for session '%s'", tool_name, session_id)
         return True
 
     def deny_tool(self, tool_name: str, session_id: str = "default") -> bool:
@@ -224,6 +240,7 @@ class PermissionManager:
             self._approvals[key] = False
             self.config.session_approvals[key] = False
             self._save_config()
+        logger.info("Tool '%s' denied for session '%s'", tool_name, session_id)
         return False
 
     def is_approved(self, tool_name: str, session_id: str = "default") -> bool | None:
@@ -231,9 +248,22 @@ class PermissionManager:
         key = f"{tool_name}:{session_id}"
         with self._lock:
             if key in self._approvals:
+                logger.debug(
+                    "Permission cache hit for '%s' (session '%s'): %s",
+                    tool_name,
+                    session_id,
+                    self._approvals[key],
+                )
                 return self._approvals[key]
             if key in self.config.session_approvals:
+                logger.debug(
+                    "Permission config hit for '%s' (session '%s'): %s",
+                    tool_name,
+                    session_id,
+                    self.config.session_approvals[key],
+                )
                 return self.config.session_approvals[key]
+        logger.debug("Permission cache miss for '%s' (session '%s')", tool_name, session_id)
         return None
 
     def check_permission(
@@ -244,26 +274,34 @@ class PermissionManager:
         Returns:
             Tuple of (allowed, reason).
         """
+        risk = self.get_risk_level(tool_name)
+
         # YOLO mode bypasses all permission checks
         if self.is_yolo(session_id):
+            logger.info("GRANTED '%s' (risk: %s) — YOLO mode", tool_name, risk.value)
             return True, "YOLO mode"
 
         if self.is_blocked(tool_name):
+            logger.info("DENIED '%s' (risk: %s) — blocked", tool_name, risk.value)
             return False, f"Tool '{tool_name}' is blocked"
 
         # Explicit user approvals or denials take highest priority
         approved = self.is_approved(tool_name, session_id)
         if approved is True:
+            logger.info("GRANTED '%s' (risk: %s) — user approved", tool_name, risk.value)
             return True, "User approved"
         if approved is False:
+            logger.info("DENIED '%s' (risk: %s) — user denied", tool_name, risk.value)
             return False, "User denied"
 
         if not self.requires_approval(tool_name, args):
+            logger.info("GRANTED '%s' (risk: %s) — auto-approved", tool_name, risk.value)
             return True, "Auto-approved"
 
+        logger.info("DENIED '%s' (risk: %s) — requires approval", tool_name, risk.value)
         return (
             False,
-            f"Tool '{tool_name}' requires approval (risk: {self.get_risk_level(tool_name).value})",
+            f"Tool '{tool_name}' requires approval (risk: {risk.value})",
         )
 
 
