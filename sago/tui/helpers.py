@@ -102,6 +102,7 @@ class ExchangeTurnCard(Vertical):
         self.meta_info = meta_info
         self.response_text: str = ""
         self.is_turn_collapsed = False
+        self._response_container: Vertical | None = None
 
     def compose(self):
         preview = self.prompt.replace("\n", " ").strip()
@@ -126,6 +127,9 @@ class ExchangeTurnCard(Vertical):
             )
             yield Static(RichMarkdown(self.prompt), classes="exchange-user-prompt markdown-body")
             yield Static("─" * 40, classes="exchange-divider", markup=False)
+            # Response container - assistant messages mount here
+            self._response_container = Vertical(classes="exchange-response")
+            yield self._response_container
 
     @on(events.Click, ".exchange-prompt-header")
     def on_header_clicked(self, event: events.Click) -> None:
@@ -275,7 +279,7 @@ class UIHelpers:
         self.messages.append({"role": "user", "content": content})
         self._save_message("user", content)
 
-        # Synthesize smart one-liner session title
+        # Synthesize smart one-liner session title (only for new sessions without a title)
         from sago.engine.prompt_enhancer import generate_session_title
 
         current_title = getattr(self, "current_session_title", "")
@@ -380,10 +384,13 @@ class UIHelpers:
         target_card = getattr(self, "_active_exchange_card", None)
 
         def _mount_element(elem: Any) -> None:
-            if target_card is not None and hasattr(target_card, "mount_child"):
-                target_card.mount_child(elem)
-            elif target_card is not None:
-                target_card.mount(elem)
+            if target_card is not None:
+                # Use stored reference to response container
+                resp = getattr(target_card, "_response_container", None)
+                if resp is not None:
+                    resp.mount(elem)
+                else:
+                    target_card.mount(elem)
             else:
                 self.query_one("#messages").mount(elem)
 
@@ -939,6 +946,9 @@ class UIHelpers:
             entry.mount(Static(f"  {info.elapsed:.1f}s", classes="agent-tools", markup=False))
 
     def _save_message(self: SagoApp, role: str, content: str, metadata: dict | None = None) -> None:
+        # Skip saving during session load
+        if getattr(self, "_loading_session", False):
+            return
         if self.current_session_id and self.current_session_id != "local":
             try:
                 from sago.database import MessageStore, Session

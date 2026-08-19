@@ -151,6 +151,11 @@ Screen { background: #0a0d12; }
     padding: 0;
     margin: 0;
 }
+.exchange-response {
+    background: transparent;
+    padding: 0;
+    height: auto;
+}
 .exchange-prompt {
     color: #58a6ff;
     text-style: bold;

@@ -425,7 +425,10 @@ class CommandHandlers:
             s.close()
             for ses in sessions:
                 if ses["id"].startswith(sid):
+                    self._hide_welcome_screen()
                     self.current_session_id = ses["id"]
+                    # CRITICAL: Reset stale _message_store so new messages go to this session
+                    self._message_store = None
                     ms = MessageStore(ses["id"])
                     msgs = ms.get_history(limit=200)
                     ms.close()
@@ -439,23 +442,119 @@ class CommandHandlers:
                         }
                         for m in msgs
                     ]
-                    # Refresh the UI
-                    container = self.query_one("#messages")
-                    container.remove_children()
-                    for m in self.messages:
-                        if m["role"] == "user":
-                            container.mount(
-                                Static(f"> {m['content']}", classes="msg-user", markup=False)
-                            )
-                        elif m["role"] == "assistant":
-                            agent = m.get("agent_name") or ""
-                            prefix = f"[{agent}] " if agent else ""
-                            container.mount(
-                                Static(
-                                    f"{prefix}{m['content']}", classes="msg-assistant", markup=False
+                    # Restore session title from database
+                    if ses.get("title"):
+                        self.current_session_title = ses["title"]
+                    # Refresh the UI using ExchangeTurnCard for consistent rendering
+                    self._loading_session = True
+                    try:
+                        import re
+
+                        from rich.markdown import Markdown as RichMarkdown
+                        from textual.widgets import Collapsible, Static
+
+                        from sago.tui.helpers import ExchangeTurnCard
+                        from sago.tui.widgets import get_agent_color
+
+                        container = self.query_one("#messages")
+                        container.remove_children()
+
+                        # Phase 1: Mount all user cards, collect assistant responses
+                        current_card = None
+                        deferred_responses: list[tuple] = []
+
+                        for m in self.messages:
+                            role = m["role"]
+                            content = m["content"]
+                            agent_name = m.get("agent_name") or "sago"
+
+                            if role == "user":
+                                turn_card = ExchangeTurnCard(prompt=content, card_type="user")
+                                container.mount(turn_card)
+                                current_card = turn_card
+                            elif role == "assistant":
+                                # Extract thinking blocks
+                                thinking_match = re.search(
+                                    r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>",
+                                    content,
+                                    re.DOTALL,
                                 )
-                            )
-                    container.scroll_end()
+                                display_content = content
+                                thinking_html = ""
+                                if thinking_match:
+                                    thinking_content = thinking_match.group(1).strip()
+                                    if thinking_content:
+                                        thinking_html = thinking_content
+                                    display_content = re.sub(
+                                        r"<(?:thinking|thought)>.*?</(?:thinking|thought)>",
+                                        "",
+                                        content,
+                                        flags=re.DOTALL,
+                                    ).strip()
+
+                                # Defer mounting until after compose() has run
+                                deferred_responses.append(
+                                    (
+                                        current_card,
+                                        thinking_html,
+                                        display_content,
+                                        agent_name,
+                                    )
+                                )
+
+                        # Phase 2: Mount all deferred responses after compose() has run
+                        last_card_switch = current_card  # capture for closure
+
+                        def _mount_deferred_switch() -> None:
+                            for (
+                                card,
+                                thinking_html,
+                                display_content,
+                                agent_name,
+                            ) in deferred_responses:
+                                if card is None:
+                                    continue
+                                try:
+                                    resp = card.query_one(".exchange-response")
+                                except Exception:
+                                    resp = None
+                                target = resp if resp is not None else card
+
+                                if thinking_html:
+                                    target.mount(
+                                        Collapsible(
+                                            Static(
+                                                thinking_html, classes="thinking-text", markup=False
+                                            ),
+                                            title="Technical Reasoning & Analysis",
+                                            collapsed=True,
+                                        )
+                                    )
+
+                                color = get_agent_color(agent_name)
+                                target.mount(
+                                    Static(
+                                        f"[{color}][{agent_name.upper()}][/{color}]",
+                                        classes="exchange-assistant agent-tag",
+                                        markup=True,
+                                    )
+                                )
+                                target.mount(
+                                    Static(
+                                        RichMarkdown(display_content),
+                                        classes="exchange-assistant markdown-body",
+                                    )
+                                )
+
+                            # Set active exchange card so new messages attach here
+                            if last_card_switch is not None:
+                                self._active_exchange_card = last_card_switch
+
+                        self.call_after_refresh(_mount_deferred_switch)
+                    finally:
+                        self._loading_session = False
+
+                    container.scroll_end(animate=False)
                     self._add_system_message(
                         f"Loaded session: {ses.get('title', 'Untitled')} ({len(msgs)} messages)"
                     )
@@ -766,7 +865,7 @@ class CommandHandlers:
     def _load_session(self: SagoApp, sid: str) -> None:
         """Load a previous session's messages."""
         try:
-            from sago.database import MessageStore, Session, init_db
+            from sago.database import MessageStore, Session, ToolUsageStore, init_db
 
             init_db()
             s = Session()
@@ -778,39 +877,249 @@ class CommandHandlers:
                 history = ms.get_history(limit=50)
                 ms.close()
                 if history:
+                    self._hide_welcome_screen()
                     self.messages.clear()
                     self.query_one("#messages").remove_children()
                     self.current_session_id = actual_sid
+                    # CRITICAL: Reset stale _message_store so new messages go to this session
+                    self._message_store = None
+
+                    # Restore session title from database
+                    try:
+                        s2 = Session(actual_sid)
+                        session_data = s2.get()
+                        s2.close()
+                        if session_data and session_data.get("title"):
+                            self.current_session_title = session_data["title"]
+                    except Exception:
+                        pass
+
+                    # Load tool usage data for this session
+                    tool_logs = []
+                    try:
+                        tus = ToolUsageStore(actual_sid)
+                        tool_logs = tus.get_all()
+                        tus.close()
+                    except Exception:
+                        pass
+
                     self._add_system_message(
                         f"Loaded session {actual_sid[:8]} ({len(history)} messages)"
                     )
-                    # Mount messages directly without saving to DB
-                    from rich.markdown import Markdown as RichMarkdown
-                    from textual.widgets import Static
 
-                    from sago.tui.widgets import get_agent_color
+                    # Use a flag to prevent re-saving messages to DB during load
+                    self._loading_session = True
+                    try:
+                        import re
 
-                    container = self.query_one("#messages")
-                    for msg in history:
-                        role = msg["role"]
-                        content = msg["content"]
-                        if role == "user":
-                            # Mount user message directly
-                            from sago.tui.helpers import ExchangeTurnCard
+                        from rich.markdown import Markdown as RichMarkdown
+                        from rich.markup import escape as _escape
+                        from textual.widgets import Collapsible, Static
 
-                            turn_card = ExchangeTurnCard(prompt=content, card_type="user")
-                            container.mount(turn_card)
-                            self.messages.append({"role": "user", "content": content})
-                        elif role == "assistant":
-                            # Mount assistant message directly with Rich Markdown
-                            color = get_agent_color("sago")
-                            agent_prefix = f"[{color}][SAGO][/{color}]"
-                            container.mount(Static(agent_prefix, classes="agent-tag", markup=True))
-                            md = RichMarkdown(content)
-                            container.mount(Static(md, classes="markdown-body"))
-                            self.messages.append(
-                                {"role": "assistant", "content": content, "agent_name": "sago"}
-                            )
+                        from sago.tui.helpers import ExchangeTurnCard
+                        from sago.tui.widgets import get_agent_color
+
+                        container = self.query_one("#messages")
+
+                        # Phase 1: Mount all user cards first, collect assistant
+                        # responses to mount after compose() has run on each card
+                        current_card = None
+                        deferred_responses: list[tuple] = []
+                        # Track (timestamp, card) pairs for matching tool usage to cards
+                        message_cards: list[tuple[str, object]] = []
+
+                        for msg in history:
+                            role = msg["role"]
+                            content = msg["content"]
+                            agent_name = msg.get("agent_name") or "sago"
+                            created_at = msg.get("created_at", "")
+
+                            if role == "user":
+                                turn_card = ExchangeTurnCard(prompt=content, card_type="user")
+                                container.mount(turn_card)
+                                current_card = turn_card
+                                if created_at:
+                                    message_cards.append((created_at, turn_card))
+                                self.messages.append(
+                                    {
+                                        "role": "user",
+                                        "content": content,
+                                        "agent_name": agent_name,
+                                    }
+                                )
+
+                            elif role == "assistant":
+                                # Extract thinking blocks
+                                thinking_match = re.search(
+                                    r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>",
+                                    content,
+                                    re.DOTALL,
+                                )
+                                display_content = content
+                                thinking_html = ""
+                                if thinking_match:
+                                    thinking_content = thinking_match.group(1).strip()
+                                    if thinking_content:
+                                        thinking_html = thinking_content
+                                    display_content = re.sub(
+                                        r"<(?:thinking|thought)>.*?</(?:thinking|thought)>",
+                                        "",
+                                        content,
+                                        flags=re.DOTALL,
+                                    ).strip()
+
+                                # Defer mounting until after compose() has run
+                                deferred_responses.append(
+                                    (
+                                        current_card,
+                                        thinking_html,
+                                        display_content,
+                                        agent_name,
+                                    )
+                                )
+
+                                if created_at:
+                                    message_cards.append((created_at, current_card))
+
+                                self.messages.append(
+                                    {
+                                        "role": "assistant",
+                                        "content": content,
+                                        "agent_name": agent_name,
+                                    }
+                                )
+
+                        # Phase 2: Mount all deferred responses after compose() has run
+                        # on all cards (call_after_refresh ensures the DOM is ready)
+                        last_card = current_card  # capture for closure
+
+                        def _mount_deferred() -> None:
+                            for (
+                                card,
+                                thinking_html,
+                                display_content,
+                                agent_name,
+                            ) in deferred_responses:
+                                if card is None:
+                                    continue
+                                try:
+                                    resp = card.query_one(".exchange-response")
+                                except Exception:
+                                    resp = None
+                                target = resp if resp is not None else card
+
+                                if thinking_html:
+                                    target.mount(
+                                        Collapsible(
+                                            Static(
+                                                thinking_html, classes="thinking-text", markup=False
+                                            ),
+                                            title="Technical Reasoning & Analysis",
+                                            collapsed=True,
+                                        )
+                                    )
+
+                                color = get_agent_color(agent_name)
+                                target.mount(
+                                    Static(
+                                        f"[{color}][{agent_name.upper()}][/{color}]",
+                                        classes="exchange-assistant agent-tag",
+                                        markup=True,
+                                    )
+                                )
+                                target.mount(
+                                    Static(
+                                        RichMarkdown(display_content),
+                                        classes="exchange-assistant markdown-body",
+                                    )
+                                )
+
+                            # Mount tool usage cards into the correct exchange cards
+                            # by matching tool timestamps to message timestamps
+                            if tool_logs and message_cards:
+                                # Sort message_cards by timestamp for binary search
+                                sorted_cards = sorted(message_cards, key=lambda x: x[0])
+
+                                for tl in tool_logs:
+                                    tool_time = tl.get("created_at", "")
+                                    if not tool_time:
+                                        continue
+
+                                    # Find the card whose timestamp is closest and <= tool_time
+                                    # (i.e., the card that was active when this tool was called)
+                                    target_card = None
+                                    for msg_time, card in reversed(sorted_cards):
+                                        if msg_time <= tool_time:
+                                            target_card = card
+                                            break
+
+                                    if target_card is None:
+                                        target_card = last_card
+
+                                    if target_card is None:
+                                        continue
+
+                                    # Build tool call widget matching _add_tool_call format
+                                    tool_name = tl.get("tool_name", "unknown")
+                                    success = bool(tl.get("success", True))
+                                    duration_ms = tl.get("duration_ms", 0)
+                                    result_str = (tl.get("result") or "")[:2000]
+
+                                    status_tag = (
+                                        "[bold green]● OK[/bold green]"
+                                        if success
+                                        else "[bold red]✗ FAILED[/bold red]"
+                                    )
+                                    title = f"{status_tag} Tool: [bold cyan]{_escape(tool_name)}[/bold cyan] [dim]({duration_ms}ms)[/dim]"
+
+                                    body = (
+                                        f"[bold green]Result:[/bold green]\n{_escape(result_str)}"
+                                    )
+                                    if len(tl.get("result") or "") > 2000:
+                                        body += f"\n... [dim]({len(tl.get('result', ''))} chars total)[/dim]"
+
+                                    tool_widget = Collapsible(
+                                        Static(body, classes="msg-system", markup=True),
+                                        title=title,
+                                        collapsed=True,
+                                    )
+
+                                    try:
+                                        resp = target_card.query_one(".exchange-response")
+                                    except Exception:
+                                        resp = None
+                                    mount_target = resp if resp is not None else target_card
+                                    mount_target.mount(tool_widget)
+                            elif tool_logs:
+                                # Fallback: no message cards, mount all in last card
+                                if last_card is not None:
+                                    tool_lines = []
+                                    for tl in tool_logs[-20:]:
+                                        status = "✓" if tl.get("success") else "✗"
+                                        tool_lines.append(
+                                            f"{status} {tl['tool_name']} ({tl.get('duration_ms', 0)}ms)"
+                                        )
+                                    try:
+                                        resp = last_card.query_one(".exchange-response")
+                                    except Exception:
+                                        resp = None
+                                    mount_target = resp if resp is not None else last_card
+                                    mount_target.mount(
+                                        Collapsible(
+                                            Static("\n".join(tool_lines), markup=False),
+                                            title=f"Tool Usage ({len(tool_logs)} calls)",
+                                            collapsed=True,
+                                        )
+                                    )
+
+                            # Set active exchange card so new messages attach here
+                            if last_card is not None:
+                                self._active_exchange_card = last_card
+
+                        self.call_after_refresh(_mount_deferred)
+                    finally:
+                        self._loading_session = False
+
                     container.scroll_end(animate=False)
                     return
             self._add_system_message(

@@ -165,6 +165,10 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         self.session_tool_calls: list[dict[str, Any]] = []
         self._orchestration_lock = threading.Lock()
         self._parallel_lock = threading.Lock()
+        self._loading_session = False
+        self._active_exchange_card = None
+        self._message_store = None
+        self.current_session_title = "TUI Session"
         self._init_db()
         self._init_session()
         self._load_settings()
@@ -536,6 +540,9 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             from sago.database import Session, init_db
 
             init_db()
+            # Skip creating a new session if we're about to resume an existing one
+            if self._pending_resume:
+                return
             session = Session()
             result = session.create(title="TUI Session")
             self.current_session_id = result["id"]
