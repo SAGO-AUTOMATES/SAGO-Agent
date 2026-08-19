@@ -791,6 +791,8 @@ class CommandHandlers:
                             self._add_user_message(content)
                         elif role == "assistant":
                             self._add_assistant_message(content)
+                        # Clear exchange card so each message mounts independently
+                        self._active_exchange_card = None
                     return
             self._add_system_message(
                 f"Session not found: {sid}\nUse /sessions to list available sessions"

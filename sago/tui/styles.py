@@ -162,6 +162,17 @@ Screen { background: #0a0d12; }
     background: transparent;
     padding: 0;
 }
+.markdown-body {
+    background: transparent;
+    padding: 0;
+    margin: 0;
+}
+.agent-tag {
+    color: #58a6ff;
+    text-style: bold;
+    padding: 0;
+    margin: 0;
+}
 .thinking-text {
     color: #8b949e;
     text-style: italic;

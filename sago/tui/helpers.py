@@ -50,6 +50,13 @@ def _render_markdown(content: str) -> str:
     return text
 
 
+def _render_markdown_rich(content: str) -> Any:
+    """Render markdown content as a Rich renderable (for proper formatting)."""
+    from rich.markdown import Markdown as RichMarkdown
+
+    return RichMarkdown(content)
+
+
 def create_collapsible(
     *content: Any,
     title: str = "",
@@ -107,15 +114,17 @@ class ExchangeTurnCard(Vertical):
             markup=True,
         )
         with Vertical(classes="exchange-body"):
-            rendered_prompt = _render_markdown(self.prompt)
+            from rich.markdown import Markdown as RichMarkdown
+
             body_header = (
                 "User Prompt:" if self.card_type == "user" else f"{self.tag_label.title()} Target:"
             )
             yield Static(
-                f"[bold {self.tag_color}]{body_header}[/bold {self.tag_color}]\n{rendered_prompt}",
-                classes="exchange-user-prompt",
+                f"[bold {self.tag_color}]{body_header}[/bold {self.tag_color}]",
+                classes="exchange-user-prompt-header",
                 markup=True,
             )
+            yield Static(RichMarkdown(self.prompt), classes="exchange-user-prompt markdown-body")
             yield Static("─" * 40, classes="exchange-divider", markup=False)
 
     @on(events.Click, ".exchange-prompt-header")
@@ -409,22 +418,31 @@ class UIHelpers:
             agent_prefix = "[bold green][SAGO][/bold green]\n"
 
         if "```" not in display:
-            rendered = _render_markdown(display)
+            # Use Rich Markdown renderer for proper formatting
+            from rich.markdown import Markdown as RichMarkdown
+
+            md = RichMarkdown(display)
             _mount_element(
-                Static(f"{agent_prefix}{rendered}", classes="exchange-assistant", markup=True)
+                Static(agent_prefix, classes="exchange-assistant agent-tag", markup=True)
             )
+            _mount_element(Static(md, classes="exchange-assistant markdown-body"))
         else:
             parts = display.split("```")
             first_text = True
             for i, part in enumerate(parts):
                 if i % 2 == 0:
-                    rendered = _render_markdown(part.strip())
-                    if rendered.strip():
+                    text_content = part.strip()
+                    if text_content:
                         prefix = agent_prefix if first_text else ""
                         first_text = False
-                        _mount_element(
-                            Static(f"{prefix}{rendered}", classes="exchange-assistant", markup=True)
-                        )
+                        if prefix:
+                            _mount_element(
+                                Static(prefix, classes="exchange-assistant agent-tag", markup=True)
+                            )
+                        from rich.markdown import Markdown as RichMarkdown
+
+                        md = RichMarkdown(text_content)
+                        _mount_element(Static(md, classes="exchange-assistant markdown-body"))
                 else:
                     lines = part.split("\n", 1)
                     lang = lines[0].strip() if len(lines) > 1 else "text"
@@ -715,18 +733,22 @@ class UIHelpers:
             parts = result.split("```")
             for i, part in enumerate(parts):
                 if i % 2 == 0:
-                    rendered = _render_markdown(part.strip())
-                    if rendered.strip():
+                    text_content = part.strip()
+                    if text_content:
+                        from rich.markdown import Markdown as RichMarkdown
+
+                        md = RichMarkdown(text_content)
                         if i == 0:
                             container.mount(
                                 Static(
-                                    f"{header}\n\n{rendered}",
-                                    classes="msg-assistant",
+                                    header,
+                                    classes="msg-assistant agent-tag",
                                     markup=True,
                                 )
                             )
+                            container.mount(Static(md, classes="msg-assistant markdown-body"))
                         else:
-                            container.mount(Static(rendered, classes="msg-assistant", markup=True))
+                            container.mount(Static(md, classes="msg-assistant markdown-body"))
                 else:
                     lines = part.split("\n", 1)
                     lang = lines[0].strip() if len(lines) > 1 else ""
@@ -757,8 +779,11 @@ class UIHelpers:
                                 )
                             )
         else:
-            rendered = _render_markdown(result)
-            container.mount(Static(f"{header}\n\n{rendered}", classes="msg-assistant", markup=True))
+            from rich.markdown import Markdown as RichMarkdown
+
+            md = RichMarkdown(result)
+            container.mount(Static(header, classes="msg-assistant agent-tag", markup=True))
+            container.mount(Static(md, classes="msg-assistant markdown-body"))
         container.scroll_end()
 
     def _add_summary(
