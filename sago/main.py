@@ -401,6 +401,10 @@ def help_cmd(ctx: click.Context, command_name: str | None) -> None:
                 ("setup", "Interactive setup wizard for LLM providers and workspace preferences"),
                 ("onboard", "Seamless first-time onboarding wizard"),
                 ("clean", "Garbage collect stale caches, backups, logs, and empty DB sessions"),
+                (
+                    "logs",
+                    "View, filter, and manage Sago log files with dashboard and smart cleanup",
+                ),
                 ("usage", "Inspect token consumption, API costs, and cache hit rates"),
                 ("telemetry", "Export traces and metrics (OpenTelemetry, Prometheus, JSON, HTML)"),
                 ("hook", "Manage Git pre-commit hooks for automatic syntax and symbol indexing"),
@@ -2752,6 +2756,188 @@ def clean_cmd(
         console.print(
             f"\n[bold green]✓ Cleanup complete:[/] Purged {total_deleted} items and reclaimed [bold cyan]{rec_str}[/bold cyan] disk space."
         )
+
+
+# ---------------------------------------------------------------------------
+# sago logs — Interactive log viewer & manager
+# ---------------------------------------------------------------------------
+
+
+@cli.group(invoke_without_command=True)
+@click.pass_context
+@click.option("--errors", "errors_only", is_flag=True, help="Show only ERROR+ log lines")
+@click.option("--session", "-s", default=None, help="Filter by session ID")
+@click.option("--module", "-m", default=None, help="Filter by module name (partial match)")
+@click.option(
+    "--level",
+    "-l",
+    default=None,
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
+    help="Filter by exact log level",
+)
+@click.option("--search", "-q", default=None, help="Full-text search in log messages")
+@click.option(
+    "--since", default=None, help="Show logs since (e.g. '1h', '30m', '7d', '2w', or ISO date)"
+)
+@click.option("--limit", "-n", default=100, help="Max lines to display (default: 100)")
+@click.option("--tail", "-f", is_flag=True, help="Follow logs in real-time (tail -f)")
+def logs(
+    ctx: click.Context,
+    errors_only: bool,
+    session: str | None,
+    module: str | None,
+    level: str | None,
+    search: str | None,
+    since: str | None,
+    limit: int,
+    tail: bool,
+) -> None:
+    """View, filter, and manage Sago log files.
+
+    Examples:
+        sago logs                    # Show last 100 log lines
+        sago logs --errors           # Show only errors
+        sago logs --session abc123   # Filter by session
+        sago logs --since 1h         # Logs from last hour
+        sago logs --module sago.config
+        sago logs --search "timeout" # Full-text search
+        sago logs --tail             # Follow in real-time
+        sago logs stats              # Show statistics dashboard
+        sago logs sessions           # List session IDs
+        sago logs clean              # Smart cleanup wizard
+        sago logs export output.txt  # Export filtered logs
+    """
+    from sago.log_manager import LogManager
+    from sago.log_viewer import display_logs, follow_logs
+
+    if ctx.invoked_subcommand is not None:
+        return
+
+    manager = LogManager()
+
+    if tail:
+        follow_logs(manager)
+        return
+
+    display_logs(
+        manager,
+        level=level,
+        session_id=session,
+        module=module,
+        search=search,
+        since=since,
+        limit=limit,
+        errors_only=errors_only,
+    )
+
+
+@logs.command("stats")
+@click.option(
+    "--quick", "-q", is_flag=True, help="Quick mode — file metadata only (no line parsing)"
+)
+def logs_stats(quick: bool) -> None:
+    """Show log statistics dashboard with charts and top errors."""
+    from sago.log_manager import LogManager
+    from sago.log_viewer import display_stats
+
+    manager = LogManager()
+    display_stats(manager, quick=quick)
+
+
+@logs.command("sessions")
+def logs_sessions() -> None:
+    """List all session IDs found in log files."""
+    from sago.log_manager import LogManager
+    from sago.log_viewer import display_sessions
+
+    manager = LogManager()
+    display_sessions(manager)
+
+
+@logs.command("clean")
+@click.option("--max-size", default=100.0, help="Max total log directory size in MB (default: 100)")
+@click.option("--max-age", default=None, type=float, help="Delete logs older than N days")
+@click.option(
+    "--max-file",
+    default=5.0,
+    help="Max individual log file size in MB before truncation (default: 5)",
+)
+@click.option(
+    "--keep",
+    default=0,
+    type=int,
+    help="Number of rotated log files to keep (default: 0 = delete all)",
+)
+@click.option("--dry-run", is_flag=True, help="Show what would be cleaned without deleting")
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation prompt")
+def logs_clean(
+    max_size: float, max_age: float | None, max_file: float, keep: int, dry_run: bool, force: bool
+) -> None:
+    """Smart log cleanup — deletes rotated backups, truncates large files, enforces budget.
+
+    By default, deletes all rotated log files and truncates active logs over 5MB.
+    Use --keep N to retain N rotated backups.
+    Use --max-file N to set the truncation threshold in MB.
+    Use --max-age N to also delete files older than N days.
+    """
+    from sago.log_manager import LogManager
+
+    manager = LogManager()
+    stats = manager.get_stats(quick=True)
+
+    console.print(f"[dim]Current logs: {stats.total_files} files, {stats.size_human}[/dim]")
+
+    if not force and not dry_run:
+        if not click.confirm("Proceed with cleanup?"):
+            console.print("[dim]Cancelled.[/dim]")
+            return
+
+    deleted, reclaimed = manager.prune(
+        max_total_mb=max_size,
+        max_age_days=max_age,
+        keep_rotated=keep,
+        max_file_mb=max_file,
+        dry_run=dry_run,
+    )
+
+    if reclaimed < 1024 * 1024:
+        rec_str = f"{reclaimed / 1024:.1f} KB"
+    else:
+        rec_str = f"{reclaimed / (1024 * 1024):.2f} MB"
+
+    prefix = "[yellow]DRY RUN:[/yellow] " if dry_run else ""
+    console.print(
+        f"{prefix}[bold green]✓ Log cleanup:[/] Deleted {deleted} files, reclaimed [bold cyan]{rec_str}[/bold cyan]"
+    )
+
+
+@logs.command("export")
+@click.argument("output_path")
+@click.option("--errors", "errors_only", is_flag=True, help="Export only ERROR+ lines")
+@click.option("--session", "-s", default=None, help="Filter by session ID")
+@click.option("--module", "-m", default=None, help="Filter by module name")
+@click.option("--since", default=None, help="Export logs since (e.g. '7d', '2025-01-15')")
+def logs_export(
+    output_path: str, errors_only: bool, session: str | None, module: str | None, since: str | None
+) -> None:
+    """Export filtered logs to a file."""
+    from sago.log_manager import LogManager
+    from sago.log_viewer import export_logs
+
+    manager = LogManager()
+    export_logs(
+        manager,
+        output_path,
+        session_id=session,
+        module=module,
+        since=since,
+        errors_only=errors_only,
+    )
+
+
+# ---------------------------------------------------------------------------
+# sago search
+# ---------------------------------------------------------------------------
 
 
 @cli.command()
