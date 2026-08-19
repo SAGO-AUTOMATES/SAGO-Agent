@@ -523,8 +523,8 @@ def resolve_specialist_agent(
                     return "angular-engineer"
                 elif "express" in all_deps or "fastify" in all_deps or "nestjs" in all_deps:
                     return "node-engineer"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to read package.json for agent resolution: %s", e)
 
         if os.path.exists(os.path.join(cwd, "pom.xml")) or os.path.exists(
             os.path.join(cwd, "build.gradle")

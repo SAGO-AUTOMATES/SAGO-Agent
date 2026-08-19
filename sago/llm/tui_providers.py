@@ -75,7 +75,7 @@ def resolve_active_llm_config(
             if hasattr(cfg, "orchestrator") and getattr(cfg.orchestrator, "model", None):
                 resolved_model = cfg.orchestrator.model
         except Exception:
-            pass
+            logger.debug("Could not load config for model resolution")
 
     # If provider was fallback-changed, use the new provider's default model
     if resolved_provider != _original_provider and not model:

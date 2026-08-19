@@ -18,6 +18,7 @@ import time
 from typing import Any
 
 from sago.paths import get_sago_home
+from sago.utils.safe import log_exception
 
 logger = logging.getLogger("sago.server")
 
@@ -64,7 +65,6 @@ class SagoDaemon:
                 return AUTH_FILE.read_text().strip()
             except Exception as exc:
                 logger.error("Failed to load API key from %s: %s", AUTH_FILE, exc)
-                pass
         # Generate new key
         logger.info("Generating new API key")
         key = hashlib.sha256(os.urandom(32)).hexdigest()[:32]
@@ -75,7 +75,6 @@ class SagoDaemon:
             AUTH_FILE.chmod(0o600)
         except Exception as exc:
             logger.warning("Could not set permissions on %s: %s", AUTH_FILE, exc)
-            pass
         return key
 
     def _verify_api_key(self, provided_key: str) -> bool:
@@ -212,7 +211,7 @@ class SagoDaemon:
                             )
                             client.close()
                         except (TimeoutError, OSError):
-                            pass
+                            logger.debug("Failed to reject connection: timeout or OS error")
                         time.sleep(0.1)
                         continue
 
@@ -295,13 +294,12 @@ class SagoDaemon:
             client.send(json.dumps({"error": "Request timeout"}).encode() + b"\n")
         except (BrokenPipeError, ConnectionResetError):
             logger.debug("Client disconnected before response could be sent")
-            pass  # Client disconnected, nothing to send
         except Exception as e:
             logger.error("Error handling client request: %s", e, exc_info=True)
             try:
                 client.send(json.dumps({"error": str(e)}).encode() + b"\n")
             except (BrokenPipeError, ConnectionResetError, OSError):
-                pass
+                logger.debug("Client disconnected during error response")
 
     def _process_request(self, request: dict[str, Any]) -> dict[str, Any]:
         """Process API request."""
@@ -481,8 +479,8 @@ class SagoClient:
         if AUTH_FILE.exists():
             try:
                 return AUTH_FILE.read_text().strip()
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Failed to load API key in client")
         return ""
 
     def _send(self, request: dict[str, Any]) -> dict[str, Any]:

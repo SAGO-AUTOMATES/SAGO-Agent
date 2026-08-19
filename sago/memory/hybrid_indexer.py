@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from sago.paths import get_sago_home
+from sago.utils.safe import log_exception
 
 logger = logging.getLogger("sago.memory.hybrid_indexer")
 
@@ -256,8 +257,8 @@ class HybridCodeIndexer:
                             for chunk in parsed:
                                 chunk.vector = _compute_dense_vector(chunk.tokens)
                             new_chunks.extend(parsed)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log_exception(e, "Failed to parse file for cache update")
 
             self.chunks = unchanged_chunks + new_chunks
             self.total_docs = len(self.chunks)

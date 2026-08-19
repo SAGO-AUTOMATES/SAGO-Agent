@@ -521,8 +521,8 @@ class SmartRouter:
                             if fw.lower() in agent_text:
                                 score += 0.5
                                 reasons.append(f"project fw: {fw}")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to load project config for agent scoring: %s", e)
 
         return min(score, 3.0), reasons[:2]
 

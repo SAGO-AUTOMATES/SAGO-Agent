@@ -37,7 +37,7 @@ def _get_retryable_exception_types() -> tuple[type[Exception], ...]:
             ]
         )
     except ImportError:
-        pass
+        logger.debug("openai not installed, skipping its exception types for retry")
 
     try:
         import anthropic
@@ -51,14 +51,14 @@ def _get_retryable_exception_types() -> tuple[type[Exception], ...]:
             ]
         )
     except ImportError:
-        pass
+        logger.debug("anthropic not installed, skipping its exception types for retry")
 
     try:
         import httpx
 
         exc_types.extend([httpx.TimeoutException, httpx.ConnectError])
     except ImportError:
-        pass
+        logger.debug("httpx not installed, skipping its exception types for retry")
 
     TRANSIENT_ERRORS = tuple(exc_types)
     return TRANSIENT_ERRORS
@@ -121,7 +121,7 @@ def retry_with_backoff(
                     try:
                         delay = max(delay, float(retry_after))
                     except (ValueError, TypeError):
-                        pass
+                        logger.debug("Could not parse retry-after header value: %s", retry_after)
 
             logger.warning(
                 "LLM API call failed (attempt %d/%d): %s. Retrying in %.1fs",

@@ -19,6 +19,7 @@ from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from typing import Any
 
+from sago.utils.safe import log_exception
 from sago.version import __version__
 
 logger = logging.getLogger("sago.peers.mesh")
@@ -231,8 +232,8 @@ class MeshNetwork:
                 data.encode(),
                 (MESH_BROADCAST, self.port),
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to broadcast UDP message")
 
     def _unicast(self, target: str, data: str) -> None:
         """Send UDP message to specific node."""
@@ -246,8 +247,8 @@ class MeshNetwork:
                 data.encode(),
                 (node.ip_address, node.port),
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to send unicast UDP message")
 
     def _get_load(self) -> float:
         """Get current node load."""
@@ -352,8 +353,8 @@ class MeshNetwork:
 
         except TimeoutError:
             pass
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Unexpected error processing mesh messages")
 
         return messages
 

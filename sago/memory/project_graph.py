@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sago.utils.safe import log_exception
+
 logger = logging.getLogger(__name__)
 
 # Global thread-safe graph cache: root_dir -> (cached_timestamp, ProjectGraph)
@@ -119,10 +121,8 @@ class ProjectGraph:
                         for p in expanded:
                             if Path(p).is_dir() and p not in [str(w) for w in workspaces]:
                                 workspaces.append(Path(p))
-            except Exception:
-                pass
-
-        # Cargo workspaces (Rust)
+            except Exception as e:
+                log_exception(e, "Failed to parse npm/yarn workspace config")
         cargo_toml = root / "Cargo.toml"
         if cargo_toml.exists():
             try:
@@ -137,10 +137,8 @@ class ProjectGraph:
                         for ep in expanded:
                             if Path(ep).is_dir() and ep not in [str(w) for w in workspaces]:
                                 workspaces.append(Path(ep))
-            except Exception:
-                pass
-
-        # Nx/Turbo/Lerna
+            except Exception as e:
+                log_exception(e, "Failed to parse Cargo workspace config")
         for config_file in ["nx.json", "turbo.json", "lerna.json"]:
             config_path = root / config_file
             if config_path.exists():
@@ -157,10 +155,8 @@ class ProjectGraph:
                             for p in expanded:
                                 if Path(p).is_dir() and p not in [str(w) for w in workspaces]:
                                     workspaces.append(Path(p))
-                except Exception:
-                    pass
-
-        # Python workspace detection (pyproject.toml [tool.poetry.workspaces])
+                except Exception as e:
+                    log_exception(e, "Failed to parse Nx/Turbo/Lerna workspace config")
         pyproject = root / "pyproject.toml"
         if pyproject.exists():
             try:
@@ -177,10 +173,8 @@ class ProjectGraph:
                             for ep in expanded:
                                 if Path(ep).is_dir() and ep not in [str(w) for w in workspaces]:
                                     workspaces.append(Path(ep))
-            except Exception:
-                pass
-
-        # Also add root itself as a workspace
+            except Exception as e:
+                log_exception(e, "Failed to parse pyproject.toml workspace config")
         if root not in workspaces:
             workspaces.insert(0, root)
 
@@ -1901,6 +1895,7 @@ def get_cached_project_graph(
     import json
 
     from sago.paths import get_sago_home
+    from sago.utils.safe import log_exception
 
     target_path = Path(root_dir).resolve() if root_dir else Path.cwd().resolve()
     cache_key = str(target_path)
@@ -1928,8 +1923,8 @@ def get_cached_project_graph(
                 with _GRAPH_CACHE_LOCK:
                     _GRAPH_CACHE[cache_key] = (now, pg)
                 return pg
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to load cached project graph")
 
     # 3. Build fresh graph and persist
     pg = ProjectGraph(root_dir=target_path)
@@ -1937,8 +1932,8 @@ def get_cached_project_graph(
 
     try:
         disk_cache_file.write_text(json.dumps(pg.to_dict(), indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        log_exception(e, "Failed to persist project graph cache")
 
     with _GRAPH_CACHE_LOCK:
         _GRAPH_CACHE[cache_key] = (now, pg)

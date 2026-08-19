@@ -106,8 +106,8 @@ class OllamaProvider(BaseLLMProvider):
             if resp.status_code == 200:
                 data = resp.json()
                 return [m["name"] for m in data.get("models", [])]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to list Ollama models: %s", e)
         return []
 
     def get_langchain_llm(self) -> Any:

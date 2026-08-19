@@ -7,6 +7,7 @@ with the ability to undo changes.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import time
@@ -15,6 +16,9 @@ from pathlib import Path
 from typing import Any
 
 from sago.paths import get_sago_home
+from sago.utils.safe import log_exception
+
+logger = logging.getLogger("sago.memory.change_tracker")
 
 
 @dataclass
@@ -70,10 +74,10 @@ class ChangeTracker:
                     if old_dir != self._backup_dir:
                         try:
                             shutil.rmtree(old_dir, ignore_errors=True)
-                        except Exception:
-                            pass
-        except Exception:
-            pass
+                        except Exception as e:
+                            log_exception(e, "Failed to prune old backup directory")
+        except Exception as e:
+            log_exception(e, "Failed during backup session pruning")
 
     def _prune_session_backups(self) -> None:
         """Limit the number of backup files within the current session."""
@@ -86,8 +90,8 @@ class ChangeTracker:
                 to_remove = len(bak_files) - self._MAX_SESSION_BACKUPS
                 for f in bak_files[:to_remove]:
                     f.unlink(missing_ok=True)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to prune session backups")
 
     def _should_track(self, file_path: str) -> bool:
         """Check if a file path should be tracked cross-platform."""
@@ -243,8 +247,8 @@ class ChangeTracker:
             index_path = self._backup_dir / "index.json"
             data = [c.to_dict() for c in self.changes]
             index_path.write_text(json.dumps(data, indent=2))
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to save change index")
 
     def _load_index(self) -> None:
         """Load change index from disk."""
@@ -253,8 +257,8 @@ class ChangeTracker:
             if index_path.exists():
                 data = json.loads(index_path.read_text())
                 self.changes = [FileChange(**item) for item in data]
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to load change index")
 
 
 # Global change tracker

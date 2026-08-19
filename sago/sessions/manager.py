@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from sago.utils.safe import log_exception
+
 logger = logging.getLogger("sago.sessions")
 
 
@@ -433,8 +435,8 @@ class SessionManager:
         for callback in self._callbacks:
             try:
                 callback(event, data)
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Session callback failed")
 
     def shutdown(self) -> None:
         """Shutdown the executor."""

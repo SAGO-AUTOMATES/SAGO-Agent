@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, create_model
 from sago.mcp.client import MCPClient
 from sago.paths import get_sago_home
 from sago.tools.base import BaseTool
+from sago.utils.safe import log_exception
 
 logger = logging.getLogger("sago.mcp.manager")
 
@@ -244,8 +245,8 @@ class MCPManager:
         for client in self._clients.values():
             try:
                 client.close()
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Failed to close MCP client")
         self._clients.clear()
 
 

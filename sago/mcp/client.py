@@ -14,6 +14,7 @@ from typing import Any
 
 from sago.errors.exceptions import ToolExecutionError
 from sago.utils.errors import log_error
+from sago.utils.safe import log_exception
 
 logger = logging.getLogger("sago.mcp.client")
 
@@ -341,10 +342,11 @@ class MCPClient:
                 try:
                     self._process.terminate()
                     self._process.wait(timeout=2.0)
-                except Exception:
-                    try:
-                        self._process.kill()
-                    except Exception:
-                        pass
+                except Exception as e:
+                    log_exception(e, "Failed to terminate MCP process")
+                try:
+                    self._process.kill()
+                except Exception as e:
+                    log_exception(e, "Failed to kill MCP process")
                 self._process = None
             self.is_connected = False

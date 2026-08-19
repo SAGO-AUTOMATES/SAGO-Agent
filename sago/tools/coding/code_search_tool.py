@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+from sago.utils.safe import log_exception
 
 
 class CodeSearchArgs(BaseModel):
@@ -71,8 +72,8 @@ class CodeSearchTool(BaseTool):
                     )
                     if res.success and res.output and not res.output.startswith("No matching"):
                         return res.output
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_exception(e, "Hybrid search fallback failed")
                 return f"No results for: {query}"
 
             lines = [f"=== Search Results for: {query} ==="]

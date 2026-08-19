@@ -261,8 +261,8 @@ def detect_project_languages(project_path: Path) -> list[str]:
                 for lang, extensions in language_extensions.items():
                     if ext_files.suffix in extensions:
                         detected.add(lang)
-    except PermissionError:
-        pass
+    except PermissionError as e:
+        logger.warning("Permission denied walking project directory %s: %s", project_path, e)
 
     return sorted(detected)
 
@@ -281,8 +281,8 @@ def detect_project_frameworks(project_path: Path) -> list[str]:
                 frameworks.append("fastapi")
             if "flask" in reqs:
                 frameworks.append("flask")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to read requirements.txt for framework detection: %s", e)
 
     if (project_path / "pyproject.toml").exists():
         try:
@@ -293,8 +293,8 @@ def detect_project_frameworks(project_path: Path) -> list[str]:
                 frameworks.append("fastapi")
             if "flask" in pyproject:
                 frameworks.append("flask")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to read pyproject.toml for framework detection: %s", e)
 
     # JavaScript/TypeScript frameworks
     if (project_path / "package.json").exists():
@@ -317,8 +317,8 @@ def detect_project_frameworks(project_path: Path) -> list[str]:
                 frameworks.append("express")
             if "fastify" in deps:
                 frameworks.append("fastify")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to read/parse package.json for framework detection: %s", e)
 
     # Go frameworks
     if (project_path / "go.mod").exists():
@@ -328,7 +328,7 @@ def detect_project_frameworks(project_path: Path) -> list[str]:
                 frameworks.append("gin")
             if "labstack/echo" in gomod:
                 frameworks.append("echo")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to read go.mod for framework detection: %s", e)
 
     return sorted(set(frameworks))

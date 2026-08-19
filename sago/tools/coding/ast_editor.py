@@ -16,11 +16,16 @@ Enhanced with:
 from __future__ import annotations
 
 import ast
+import logging
 import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from sago.utils.safe import log_exception
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -224,8 +229,8 @@ class ASTEditor:
                     if arg.annotation:
                         try:
                             type_annotations[arg.arg] = ast.unparse(arg.annotation)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            log_exception(e, "Failed to extract type annotation")
 
                 # Extract defaults
                 defaults = {}
@@ -237,16 +242,16 @@ class ASTEditor:
                         arg_name = args_list[offset + idx].arg
                         try:
                             defaults[arg_name] = ast.unparse(default)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            log_exception(e, "Failed to extract default value")
 
                 # Return type
                 return_type = None
                 if node.returns:
                     try:
                         return_type = ast.unparse(node.returns)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log_exception(e, "Failed to extract return type")
 
                 # Decorators
                 decorators = []
@@ -325,8 +330,8 @@ class ASTEditor:
                     elif isinstance(base, ast.Attribute):
                         try:
                             bases.append(ast.unparse(base))
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            log_exception(e, "Failed to extract base class")
 
                 docstring = ast.get_docstring(node)
 
@@ -391,8 +396,8 @@ class ASTEditor:
                 if node.annotation:
                     try:
                         ann = ast.unparse(node.annotation)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log_exception(e, "Failed to extract annotation")
                 nodes.append(
                     CodeNode(
                         name=node.target.id,

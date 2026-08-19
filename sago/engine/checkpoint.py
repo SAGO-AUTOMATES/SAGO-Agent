@@ -75,7 +75,7 @@ class CheckpointManager:
             resolved.relative_to(self.root.resolve())
             return True
         except ValueError:
-            pass
+            logger.debug("Path %s is not relative to workspace root", resolved)
 
         # Check if in allowed restore paths
         for allowed in self._allowed_restore_paths:

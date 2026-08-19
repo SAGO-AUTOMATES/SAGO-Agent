@@ -486,7 +486,7 @@ def _generate_plan_with_llm(
             if isinstance(steps, list) and all(isinstance(s, str) for s in steps):
                 return steps
         except (json.JSONDecodeError, ValueError):
-            pass
+            logger.debug("LLM plan response was not valid JSON, trying regex fallback")
         # Regex fallback: find first complete JSON array
         match = re.search(r"\[(?:[^\[\]]*(?:\"[^\"]*\")[^\[\]]*)*\]", content, re.DOTALL)
         if match:
@@ -495,7 +495,7 @@ def _generate_plan_with_llm(
                 if isinstance(steps, list) and all(isinstance(s, str) for s in steps):
                     return steps
             except (json.JSONDecodeError, ValueError):
-                pass
+                logger.debug("Regex-extracted JSON array was invalid")
     except Exception as e:
         log_exception(e, "Failed to generate plan via LLM")
     # Fallback: create generic steps

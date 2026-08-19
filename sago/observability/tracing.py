@@ -348,5 +348,5 @@ def trace_tool(name: str, fn: Any, *args: Any, **kwargs: Any) -> Any:
         finally:
             try:
                 end_span(_span)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("end_span failed for %s", name, exc_info=e)

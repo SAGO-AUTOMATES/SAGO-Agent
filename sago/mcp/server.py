@@ -7,6 +7,7 @@ and integrating external MCP tools.
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -15,6 +16,8 @@ from typing import Any
 
 from sago.permissions import get_permission_manager
 from sago.utils.errors import log_error
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -139,7 +142,7 @@ class MCPServer:
                     try:
                         arguments[arg_name] = float(arg_value)
                     except (ValueError, TypeError):
-                        pass
+                        logger.debug("Could not convert argument '%s' to number", arg_name)
 
         return tool.handler(**arguments)
 
