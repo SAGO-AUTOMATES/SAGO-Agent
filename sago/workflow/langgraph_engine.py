@@ -90,8 +90,8 @@ def _get_context() -> str:
         if p.exists():
             try:
                 lines.append(f"\n--- {name} ---\n{p.read_text('utf-8')[:2000]}")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to read context file %s: %s", name, e)
 
     skip = {".git", "node_modules", "__pycache__", ".venv", "venv", "env"}
     files = []
@@ -107,8 +107,8 @@ def _get_context() -> str:
                     )
                 except Exception:
                     files.append(f"  {item.name}")
-    except PermissionError:
-        pass
+    except PermissionError as e:
+        logger.debug("Permission denied listing directory %s: %s", work_dir, e)
     if files:
         lines.append(f"\nFiles ({work_dir.name}/):")
         lines.extend(files[:30])

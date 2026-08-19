@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import difflib
+import logging
 import os
 import subprocess
 import time
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("sago.tui.smart_suggest")
 
 # In-memory cache for git modified files
 _GIT_CACHE: dict[str, tuple[float, set[str]]] = {}
@@ -85,10 +88,8 @@ def get_git_modified_files(cwd: Path) -> set[str]:
                     modified.add(rel_path)
                     # Also add filename
                     modified.add(Path(rel_path).name)
-    except Exception:
-        pass
-
-    _GIT_CACHE[key] = (now, modified)
+    except Exception as e:
+        logger.debug("Failed to get git modified files: %s", e)
     return modified
 
 
@@ -193,10 +194,8 @@ def get_workspace_files(root: Path, max_files: int = 3000) -> list[tuple[str, bo
 
             if len(results) >= max_files:
                 break
-    except Exception:
-        pass
-
-    _WORKSPACE_FILES_CACHE[key] = (now, results)
+    except Exception as e:
+        logger.debug("Failed to list workspace files: %s", e)
     return results
 
 
@@ -468,9 +467,8 @@ def get_subcommand_completions(raw: str) -> tuple[list[str], list[str]] | None:
                         f"[bold magenta]@{a['name']:<22}[/bold magenta] [dim]{a.get('description', '')[:38]}[/dim]"
                     )
                     values.append(f"/agent {a['name']}")
-            except Exception:
-                pass
-            return items, values
+            except Exception as e:
+                logger.debug("Failed to load agent registry for suggestions: %s", e)
 
     # /git subcommands
     if cmd == "/git":
@@ -536,10 +534,8 @@ def get_subcommand_completions(raw: str) -> tuple[list[str], list[str]] | None:
                         f"[bold cyan]{t_short:<10}[/bold cyan] [white]{title[:32]}[/white]"
                     )
                     values.append(f"/session {t_short}")
-        except Exception:
-            pass
-
-        # 2. Add subcommand options
+        except Exception as e:
+            logger.debug("Failed to load sessions for suggestions: %s", e)
         for k, desc in session_opts.items():
             if not arg or fuzzy_score(arg, k) > 0:
                 items.append(f"[bold blue]{k:<10}[/bold blue] [dim]{desc}[/dim]")
@@ -578,12 +574,8 @@ def get_subcommand_completions(raw: str) -> tuple[list[str], list[str]] | None:
                         f"[bold cyan]restore {cid}[/bold cyan] [dim]{desc[:26]} ({len(cp.file_paths)} files)[/dim]"
                     )
                     values.append(f"/checkpoint restore {cid}")
-        except Exception:
-            pass
-
-        return items, values
-
-    # /chain workflows and agent sequence auto-completions
+        except Exception as e:
+            logger.debug("Failed to load checkpoints for suggestions: %s", e)
     if cmd == "/chain":
         chain_workflows = {
             "architect -> python-engineer -> test-engineer": "Plan architecture, implement in Python, run tests",

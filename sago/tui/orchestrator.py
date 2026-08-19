@@ -52,8 +52,8 @@ class AgentOrchestrationMixin:
                 action=f"delegate -> @{agent_name}",
                 data={"agent": agent_name, "task": task},
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("dev tracer record failed (delegation start): %s", e)
 
         try:
             api_key = self._get_provider_api_key()
@@ -101,8 +101,8 @@ class AgentOrchestrationMixin:
                         "success": not result_is_error,
                     },
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("dev tracer record failed (delegation complete): %s", e)
 
             if result_is_error:
                 info.status = AgentStatus.FAILED
@@ -135,8 +135,8 @@ class AgentOrchestrationMixin:
                     status="ERROR",
                     data={"agent": agent_name, "error": str(e)},
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("dev tracer record failed (delegation error): %s", e)
 
             info.status = AgentStatus.FAILED
             info.error = str(e)
@@ -220,8 +220,8 @@ class AgentOrchestrationMixin:
                                 "task": str(current_input)[:200],
                             },
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("dev tracer record failed (chain step routing): %s", e)
 
                     context_str = (
                         handoff_ctx.get_compact_handoff_prompt(agent)
@@ -243,8 +243,8 @@ class AgentOrchestrationMixin:
                             status="OK" if is_success else "ERROR",
                             data={"agent": agent, "result_preview": str(result)[:300]},
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("dev tracer record failed (chain step complete): %s", e)
 
                     handoff_ctx.add_result(agent, result, success=is_success)
                     logger.info(
@@ -352,8 +352,8 @@ class AgentOrchestrationMixin:
                     status="ERROR",
                     data={"error": str(e), "error_type": type(e).__name__},
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("dev tracer record failed (chain failed): %s", exc)
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_error_inline, f"Chain error: {e}")
         finally:
@@ -483,8 +483,8 @@ class AgentOrchestrationMixin:
                     status="ERROR",
                     data={"error": str(e), "error_type": type(e).__name__, "task": task[:200]},
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("dev tracer record failed (orchestration plan failed): %s", exc)
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_error_inline, f"Orchestration error: {e}")
         finally:
@@ -572,8 +572,8 @@ class AgentOrchestrationMixin:
                             "result_preview": result[:300],
                         },
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("dev tracer record failed (orchestrate step %d): %s", i + 1, exc)
 
                 # Extract files created
                 if "Files created/modified:" in result:
@@ -602,8 +602,8 @@ class AgentOrchestrationMixin:
                     status="ERROR",
                     data={"error": str(e), "error_type": type(e).__name__},
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("dev tracer record failed (orchestration failed): %s", exc)
             self.call_from_thread(self._hide_spinner)
             self.call_from_thread(self._add_error_inline, f"Execution error: {e}")
         finally:
@@ -777,8 +777,8 @@ class AgentOrchestrationMixin:
             safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", agent_name)
             node = self.query_one(f"#pagent-{safe_id}", Static)
             node.update(f"{agent_name}: {status_text}")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("parallel agent status update failed for %s: %s", agent_name, exc)
 
     def _hide_parallel_bar(self: SagoApp) -> None:
         """Hide the parallel agent status bar."""

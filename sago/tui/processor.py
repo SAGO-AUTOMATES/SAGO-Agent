@@ -1166,8 +1166,8 @@ class MessageProcessorMixin:
                                 from sago.engine.verifier import get_continuous_verifier
 
                                 get_continuous_verifier().enqueue_files([fp] if fp else [])
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug("Failed to enqueue files for verification: %s", e)
 
                         if name == "write_file" and not is_error:
                             # Nudge LLM to stop after successful file write
@@ -1216,8 +1216,8 @@ class MessageProcessorMixin:
                                     duration_ms=int(tool_dur_ms),
                                     success=not is_error,
                                 )
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug("Failed to log tool usage: %s", e)
 
                         messages.append(
                             {
@@ -1562,8 +1562,8 @@ class MessageProcessorMixin:
                             )
                             if verification.has_hallucinations:
                                 content = verification.cleaned_content
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("Hallucination verification failed: %s", e)
                         self.call_from_thread(self._add_assistant_message, content)
                     else:
                         self.call_from_thread(self._add_assistant_message, summary)
@@ -1604,8 +1604,8 @@ class MessageProcessorMixin:
                                 self._add_system_message,
                                 f"✅ Confidence: {confidence}/100 — verified ({tool_count} tool calls)",
                             )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Verification confidence check failed: %s", e)
                 elif content and content.strip():
                     # Run shared hallucination verifier on content without tools
                     try:
@@ -1617,8 +1617,8 @@ class MessageProcessorMixin:
                         )
                         if verification.has_hallucinations:
                             content = verification.cleaned_content
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Hallucination verification failed: %s", e)
                     self.call_from_thread(self._add_assistant_message, content)
                 elif tool_history:
                     tools_done = [t["tool"] for t in tool_history]

@@ -6,6 +6,7 @@ record-type queries via the system `dig` binary when available.
 
 from __future__ import annotations
 
+import logging
 import socket
 import subprocess
 from typing import Any
@@ -13,6 +14,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.dns_lookup")
 
 
 class DNSLookupArgs(BaseModel):
@@ -82,10 +85,8 @@ class DNSLookupTool(BaseTool):
             lines.append(f"\nHost name: {host_info[0]}")
             lines.append(f"Aliases: {host_info[1]}")
             lines.append(f"IPs: {host_info[2]}")
-        except (socket.herror, socket.gaierror):
-            pass
-
-        # Optional record-type queries via dig (skipped for "simple").
+        except (socket.herror, socket.gaierror) as e:
+            logger.debug("Hostname info lookup failed for %s: %s", hostname, e)
         if requested != "simple":
             for rtype in ("A", "AAAA", "MX", "NS", "CNAME"):
                 if requested in ("all", rtype.lower()):

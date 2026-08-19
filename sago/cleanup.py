@@ -79,7 +79,7 @@ def _get_dir_size_and_count(path: Path) -> tuple[int, int]:
                 except OSError:
                     continue
     except OSError:
-        pass
+        logger.debug("Failed to walk directory for size calculation: %s", path)
     return total_bytes, total_files
 
 
@@ -91,16 +91,16 @@ def _force_rmtree(path: Path | str) -> None:
         try:
             os.chmod(p, stat.S_IWRITE)
             func(p)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to force remove file %s: %s", p, e)
 
     try:
         shutil.rmtree(path, onerror=_onerror)
     except Exception:
         try:
             shutil.rmtree(path, ignore_errors=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to rmtree %s: %s", path, e)
 
 
 def clean_caches(
@@ -174,8 +174,8 @@ def clean_caches(
                         try:
                             if dp.exists() and not any(dp.iterdir()):
                                 dp.rmdir()
-                        except OSError:
-                            pass
+                        except OSError as e:
+                            logger.debug("Failed to remove empty subdir %s: %s", dp, e)
         except Exception as e:
             res.error = str(e)
             logger.error("Error during cache cleanup: %s", e)
@@ -198,10 +198,8 @@ def clean_caches(
                         sc_file.unlink(missing_ok=True)
                     res.items_deleted += 1
                     res.bytes_reclaimed += sz
-            except OSError:
-                pass
-
-    # Clean empty temporary folders in sago home
+            except OSError as e:
+                logger.debug("Failed to clean standalone cache file %s: %s", sc_file, e)
     if not dry_run:
         for empty_cand in ("prompts", "sessions"):
             d = sago_home / empty_cand
@@ -209,10 +207,8 @@ def clean_caches(
                 try:
                     if not any(d.iterdir()):
                         d.rmdir()
-                except OSError:
-                    pass
-
-    res.details.append(f"Deleted {res.items_deleted} cache files ({res.human_bytes})")
+                except OSError as e:
+                    logger.debug("Failed to remove empty dir %s: %s", d, e)
     return res
 
 
@@ -628,8 +624,8 @@ def clean_logs(
                             tail = fp.read()
                         with open(lf, "wb") as fp:
                             fp.write(tail)
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        logger.debug("Failed to truncate log file %s: %s", lf, e)
                 res.items_deleted += 1
                 res.bytes_reclaimed += reclaimed
         except OSError:

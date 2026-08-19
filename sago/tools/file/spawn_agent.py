@@ -108,8 +108,8 @@ class SpawnAgentTool(BaseTool):
                 return AGENT_ALIASES[candidate]
             if f"{candidate}-engineer" in AGENTS:
                 return f"{candidate}-engineer"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to resolve agent name from registry: %s", e)
 
         return candidate or "software-engineer"
 
@@ -234,10 +234,8 @@ class SpawnAgentTool(BaseTool):
                     "depth": guard.depth + 1,
                 },
             )
-        except Exception:
-            pass
-
-        # Register this agent in the guard
+        except Exception as e:
+            logger.debug("Failed to record dev trace event: %s", e)
         guard.enter(resolved_agent)
         logger.info(
             "Spawning agent '%s' (depth %d/%d)", resolved_agent, guard.depth + 1, guard.max_depth
@@ -489,8 +487,8 @@ Do NOT just say "I completed the task" — show evidence of your work.
             definition = get_agent(agent_name)
             if definition:
                 return definition.system_prompt
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to load agent prompt from registry: %s", e)
 
         # Fallback prompts for common agents
         prompts = {

@@ -67,8 +67,8 @@ def _infer_category_from_path(file_path: Path, tools_root: Path, tool_cls: type[
         rel_parts = resolved_file.relative_to(resolved_root).parts
         if len(rel_parts) > 1:
             return rel_parts[0].lower().strip()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to infer category from path %s: %s", file_path, e)
 
     return "general"
 

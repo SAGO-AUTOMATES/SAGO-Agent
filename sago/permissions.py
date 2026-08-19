@@ -150,8 +150,8 @@ class PermissionManager:
 
                 data = json.loads(config_path.read_text())
                 return PermissionConfig(**data)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to load permission config: %s", e)
         return PermissionConfig()
 
     def _save_config(self) -> None:

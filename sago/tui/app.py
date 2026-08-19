@@ -30,6 +30,7 @@ from sago.tui.widgets import (
     Spinner,
     get_task_manager,
 )
+from sago.utils.safe import log_exception
 
 logger = logging.getLogger("sago.tui.app")
 
@@ -295,8 +296,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                     context_parts.append(
                         f"--- File: {rel_label} ---\n```{path.suffix.lstrip('.')}\n{content}\n```"
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, f"Failed to read file reference #{ref}")
 
         return "\n\n".join(context_parts)
 
@@ -329,8 +330,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                         t_name = e.data.get("tool_name", e.action)
                         tool_counts[t_name] = tool_counts.get(t_name, 0) + 1
                 total_tools = sum(tool_counts.values())
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Failed to load dev tracer traces for exit summary")
 
         # Token stats
         t_in = getattr(self, "total_input_tokens", 0)
@@ -520,8 +521,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             pm.set_global_yolo(value)
             if hasattr(self, "current_session_id") and self.current_session_id:
                 pm.set_yolo_mode(self.current_session_id, value)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to sync yolo mode to permission manager")
 
     def watch_show_summary(self, value: bool) -> None:
         """Auto-save summary visibility when changed."""
@@ -604,8 +605,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             def _reset() -> None:
                 try:
                     event.button.label = "📋 Copy Code"
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_exception(e, "Failed to reset copy button label")
 
             self.set_timer(2.0, _reset)
 
@@ -764,15 +765,15 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 event.prevent_default()
                 try:
                     self.query_one("#messages").scroll_page_up(animate=False)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_exception(e, "Failed to scroll page up via keyboard")
                 return
             elif event.key in ("pagedown", "shift+down"):
                 event.prevent_default()
                 try:
                     self.query_one("#messages").scroll_page_down(animate=False)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_exception(e, "Failed to scroll page down via keyboard")
                 return
 
             # Command history navigation when no suggestions visible
@@ -825,8 +826,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             if is_highlighted:
                 try:
                     item.scroll_visible(animate=False)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_exception(e, "Failed to scroll suggestion item into view")
 
     def _add_to_history(self, cmd: str) -> None:
         if cmd and (not self.command_history or self.command_history[-1] != cmd):
@@ -1067,8 +1068,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 values = [f"{prefix_cmd} {a['name']}" for a in matches[:35]]
                 self._show_suggestions(items, values)
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Failed to load agent list for /delegate suggestions")
 
         # 6. /chain or @chain suggestions
         if raw.startswith("/chain") or raw.startswith("@chain"):
@@ -1099,8 +1100,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                     values = [f"{prefix_cmd} {a['name']}" for a in matches[:35]]
                 self._show_suggestions(items, values)
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Failed to load agent list for /chain suggestions")
 
         # 7. /agent or @agent suggestions
         if raw.startswith("/agent") or raw.startswith("@agent"):
@@ -1118,8 +1119,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 values = [f"{prefix_cmd} {a['name']}" for a in matches[:35]]
                 self._show_suggestions(items, values)
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                log_exception(e, "Failed to load agent list for /agent suggestions")
 
         # Dynamic subcommand completions (/git, /pr, /session, /checkpoint)
         from sago.tui.smart_suggest import fuzzy_score, get_subcommand_completions
@@ -1202,8 +1203,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 ]
                 values = [f"@{a['name']}" for a in matches[:35]]
             self._show_suggestions(items, values)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to load agent list for @agent suggestions")
 
     def _show_file_suggestions(self, prefix: str, home: bool = False) -> None:
         from sago.tui.smart_suggest import rank_files_smart
@@ -1417,43 +1418,43 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         """Scroll message viewport page up."""
         try:
             self.query_one("#messages").scroll_page_up(animate=True)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to scroll page up")
 
     def action_scroll_page_down(self) -> None:
         """Scroll message viewport page down."""
         try:
             self.query_one("#messages").scroll_page_down(animate=True)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to scroll page down")
 
     def action_scroll_line_up(self) -> None:
         """Scroll message viewport line up."""
         try:
             self.query_one("#messages").scroll_up(animate=False)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to scroll line up")
 
     def action_scroll_line_down(self) -> None:
         """Scroll message viewport line down."""
         try:
             self.query_one("#messages").scroll_down(animate=False)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to scroll line down")
 
     def action_scroll_home(self) -> None:
         """Scroll message viewport to top."""
         try:
             self.query_one("#messages").scroll_home(animate=True)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to scroll to home")
 
     def action_scroll_end(self) -> None:
         """Scroll message viewport to bottom."""
         try:
             self.query_one("#messages").scroll_end(animate=True)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exception(e, "Failed to scroll to end")
 
 
 def main():

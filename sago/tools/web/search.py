@@ -8,6 +8,7 @@ Multi-engine search client with automatic fallback:
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from html.parser import HTMLParser
@@ -17,6 +18,8 @@ from urllib.parse import quote_plus, unquote
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.web.search")
 
 
 class WebSearchArgs(BaseModel):
@@ -121,10 +124,8 @@ class WebSearchTool(BaseTool):
                             return f"## Web Search Results for: '{query}'\n\n" + "\n\n".join(
                                 results
                             )
-            except Exception:
-                pass
-
-        # 2. Scrape DuckDuckGo HTML Lite for rich organic technical results
+            except Exception as e:
+                logger.debug("Tavily/Serper search failed: %s", e)
         try:
             with httpx.Client(timeout=10.0, follow_redirects=True) as client:
                 resp = client.post(
@@ -142,10 +143,8 @@ class WebSearchTool(BaseTool):
                                 f"### [{res['title']}]({res['url']})\n{res['snippet']}"
                             )
                         return f"## Web Search Results for: '{query}'\n\n" + "\n\n".join(formatted)
-        except Exception:
-            pass
-
-        # 3. Instant Answers API fallback
+        except Exception as e:
+            logger.debug("DuckDuckGo HTML Lite search failed: %s", e)
         try:
             with httpx.Client(timeout=8.0) as client:
                 url = f"https://api.duckduckgo.com/?q={quote_plus(query)}&format=json&no_html=1&skip_disambig=1"

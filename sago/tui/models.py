@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from sago.paths import get_sago_home
+
+logger = logging.getLogger("sago.tui.models")
 
 COMMANDS = {
     # Core & Session
@@ -106,8 +109,8 @@ def _load_models_data() -> dict:
     if MODELS_FILE.exists():
         try:
             return json.loads(MODELS_FILE.read_text())
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to load models data: %s", e)
     return {"custom": [], "fetched": [], "costs": {}, "fetched_at": 0}
 
 

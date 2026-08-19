@@ -583,8 +583,8 @@ class WorkflowEngine:
         for callback in self._callbacks:
             try:
                 callback(event, data)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Workflow callback error for event %s: %s", event, e)
 
 
 class WorkflowBuilder:

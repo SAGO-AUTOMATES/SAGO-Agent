@@ -6,6 +6,7 @@ and network namespace blocking to provide actual security boundaries.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -17,6 +18,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool, ToolCategory, ToolResult
+
+logger = logging.getLogger("sago.tools.sandbox")
 
 
 @dataclass
@@ -83,9 +86,7 @@ def _build_unshare_args(config: SandboxConfig) -> list[str]:
             if f.read().strip() == "1":
                 args.append("--user")
     except (FileNotFoundError, PermissionError):
-        pass
-
-    return args
+        logger.debug("User namespace not available for sandbox isolation")
 
 
 class SandboxedExecutor:
@@ -125,10 +126,10 @@ class SandboxedExecutor:
                             shutil.copytree(item, dest, dirs_exist_ok=True)
                         else:
                             shutil.copy2(item, dest)
-                    except Exception:
-                        pass
-
-            # Construct safe minimal environment
+                    except Exception as e:
+                        logger.debug(
+                            "Failed to copy workspace item %s to sandbox: %s", item.name, e
+                        )
             safe_env: dict[str, str] = {
                 k: os.environ[k] for k in self.config.allowed_env_vars if k in os.environ
             }

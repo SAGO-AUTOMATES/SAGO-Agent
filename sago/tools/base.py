@@ -109,20 +109,20 @@ class BaseTool(ABC):
                 )
                 try:
                     record_tool_call(self.name, duration=_span.duration, success=True)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to record tool call success: %s", e)
                 return result
             except Exception:
                 try:
                     record_tool_call(self.name, duration=_span.duration, success=False)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to record tool call failure: %s", e)
                 raise
             finally:
                 try:
                     end_span(_span)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Failed to end tracing span: %s", e)
         except Exception as e:
             _elapsed = time.monotonic() - _start
             error_msg = f"{type(e).__name__}: {e}"
@@ -145,8 +145,8 @@ class BaseTool(ABC):
                 if known_fix:
                     logger.debug("Known fix found for %s", self.name)
                     return f"Error in {self.name}: {error_msg}\nKnown fix: {known_fix}"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Learning store lookup failed: %s", e)
 
             # Record this error for future learning
             try:
@@ -155,8 +155,8 @@ class BaseTool(ABC):
                 logger.debug("Learning store record_failure: %s error=%s", self.name, error_msg)
                 ls = get_learning_store()
                 ls.record_failure("tool_error", error_msg, f"Tool: {self.name}")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Learning store record_failure failed: %s", e)
 
             return f"Error in {self.name}: {error_msg}"
 
