@@ -129,7 +129,10 @@ def display_logs(
 
 def display_stats(manager: LogManager, quick: bool = False) -> None:
     """Display a rich statistics dashboard."""
+    from sago.logging_config import get_log_level
+
     stats = manager.get_stats(quick=quick)
+    current_level = get_log_level().upper()
 
     # Header panel
     header = Text()
@@ -138,6 +141,16 @@ def display_stats(manager: LogManager, quick: bool = False) -> None:
         f"\n{stats.total_files} files  |  {stats.size_human}  |  {stats.total_lines:,} lines  |  {stats.total_sessions} sessions",
         style="dim",
     )
+    header.append("\nLog Level: ", style="dim")
+    level_style = {
+        "DEBUG": "dim",
+        "INFO": "green",
+        "WARNING": "yellow",
+        "ERROR": "red",
+        "CRITICAL": "bold red",
+    }.get(current_level, "white")
+    header.append(current_level, style=level_style)
+    header.append("  (change with: sago logs level --set <level>)", style="dim")
     if stats.date_range:
         header.append(f"\nDate range: {stats.date_range[0]} — {stats.date_range[1]}", style="dim")
 

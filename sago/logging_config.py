@@ -4,6 +4,9 @@ Sets up file-only logging with daily rotation and smart cleanup.
 No logs are printed to console/screen/TUI — only CRITICAL exceptions
 surface in TUI status bar. All logs go to ~/.sago/logs/sago.log.
 
+Log level is configurable via ~/.sago/settings.json ("log_level" key).
+Valid values: debug, info, warning, error. Default: info.
+
 Log files: ~/.sago/logs/sago.log (rotated daily, 14 days retention, 10MB max)
 """
 
@@ -17,6 +20,9 @@ from contextvars import ContextVar
 from pathlib import Path
 
 _INITIALIZED = False
+
+# Valid log levels
+VALID_LOG_LEVELS = {"debug", "info", "warning", "error", "critical"}
 
 # Session context — every log line includes this ID for filtering
 _session_id: ContextVar[str] = ContextVar("sago_session_id", default="")
@@ -33,6 +39,56 @@ def set_session_id(session_id: str | None = None) -> str:
         session_id = uuid.uuid4().hex[:12]
     _session_id.set(session_id)
     return session_id
+
+
+def get_log_level() -> str:
+    """Get the configured log level from settings.json.
+
+    Returns the level name in lowercase (e.g. 'info', 'debug').
+    Falls back to 'info' if not configured or invalid.
+    """
+    from sago.settings import load_setting
+
+    level = load_setting("log_level", "info")
+    if isinstance(level, str) and level.lower() in VALID_LOG_LEVELS:
+        return level.lower()
+    return "info"
+
+
+def set_log_level(level: str) -> None:
+    """Save log level to settings.json and reconfigure the root logger.
+
+    Args:
+        level: One of 'debug', 'info', 'warning', 'error', 'critical'.
+    """
+    from sago.settings import save_setting
+
+    level = level.lower()
+    if level not in VALID_LOG_LEVELS:
+        raise ValueError(
+            f"Invalid log level: {level!r}. Must be one of: {', '.join(sorted(VALID_LOG_LEVELS))}"
+        )
+
+    save_setting("log_level", level)
+
+    # Reconfigure root logger immediately
+    numeric_level = getattr(logging, level.upper(), logging.INFO)
+    root = logging.getLogger()
+    root.setLevel(numeric_level)
+    for handler in root.handlers:
+        # Keep emergency handler at CRITICAL always — only surface fatal crashes
+        if isinstance(handler, logging.StreamHandler) and handler.stream is sys.stderr:
+            handler.setLevel(logging.CRITICAL)
+        else:
+            handler.setLevel(numeric_level)
+
+    logger = logging.getLogger("sago.logging")
+    logger.info("Log level changed to %s", level.upper())
+
+
+def _level_from_name(name: str) -> int:
+    """Convert level name string to logging constant."""
+    return getattr(logging, name.upper(), logging.INFO)
 
 
 class SessionFilter(logging.Filter):
@@ -70,7 +126,7 @@ class _MaxSizeRotatingFileHandler(logging.handlers.RotatingFileHandler):
 
 
 def setup_logging(
-    level: int = logging.DEBUG,
+    level: int | None = None,
     log_dir: Path | None = None,
     max_bytes: int = 10 * 1024 * 1024,
     backup_count: int = 14,
@@ -79,7 +135,7 @@ def setup_logging(
     """Initialize Sago logging — file only, no console output.
 
     Args:
-        level: Root log level for file output.
+        level: Root log level. If None, reads from settings.json (default: INFO).
         log_dir: Directory for log files. Defaults to ~/.sago/logs/.
         max_bytes: Max size per log file before rotation.
         backup_count: Number of rotated log files to keep (days).
@@ -89,6 +145,10 @@ def setup_logging(
     if _INITIALIZED:
         return
     _INITIALIZED = True
+
+    # Read level from settings if not explicitly provided
+    if level is None:
+        level = _level_from_name(get_log_level())
 
     if log_dir is None:
         from sago.paths import get_logs_dir

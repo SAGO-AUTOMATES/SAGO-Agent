@@ -2803,6 +2803,8 @@ def logs(
         sago logs --search "timeout" # Full-text search
         sago logs --tail             # Follow in real-time
         sago logs stats              # Show statistics dashboard
+        sago logs level              # Show current log level
+        sago logs level --set debug  # Change log level
         sago logs sessions           # List session IDs
         sago logs clean              # Smart cleanup wizard
         sago logs export output.txt  # Export filtered logs
@@ -2852,6 +2854,58 @@ def logs_sessions() -> None:
 
     manager = LogManager()
     display_sessions(manager)
+
+
+@logs.command("level")
+@click.option(
+    "--set",
+    "set_level",
+    default=None,
+    type=click.Choice(["debug", "info", "warning", "error"], case_sensitive=False),
+    help="Set the log level (saved to settings.json)",
+)
+def logs_level(set_level: str | None) -> None:
+    """View or change the current log level.
+
+    Without --set, shows the current level.
+    With --set, saves the new level to ~/.sago/settings.json and applies immediately.
+
+    Examples:
+        sago logs level              # Show current level
+        sago logs level --set debug  # Enable debug logging
+        sago logs level --set error  # Only log errors
+    """
+    from rich.text import Text
+
+    from sago.logging_config import get_log_level, set_log_level
+
+    if set_level:
+        set_log_level(set_level)
+        level_name = set_level.upper()
+        level_style = {
+            "DEBUG": "dim",
+            "INFO": "green",
+            "WARNING": "yellow",
+            "ERROR": "red",
+        }.get(level_name, "white")
+        console.print(
+            Text("Log level set to ", style="bold green")
+            + Text(level_name, style=level_style)
+            + Text(" (saved to ~/.sago/settings.json)", style="dim")
+        )
+    else:
+        current = get_log_level().upper()
+        level_style = {
+            "DEBUG": "dim",
+            "INFO": "green",
+            "WARNING": "yellow",
+            "ERROR": "red",
+        }.get(current, "white")
+        console.print(Text("Current log level: ", style="bold") + Text(current, style=level_style))
+        console.print(
+            Text("  Change with: ", style="dim")
+            + Text("sago logs level --set <level>", style="cyan")
+        )
 
 
 @logs.command("clean")
