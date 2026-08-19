@@ -784,15 +784,34 @@ class CommandHandlers:
                     self._add_system_message(
                         f"Loaded session {actual_sid[:8]} ({len(history)} messages)"
                     )
+                    # Mount messages directly without saving to DB
+                    from rich.markdown import Markdown as RichMarkdown
+                    from textual.widgets import Static
+
+                    from sago.tui.widgets import get_agent_color
+
+                    container = self.query_one("#messages")
                     for msg in history:
                         role = msg["role"]
                         content = msg["content"]
                         if role == "user":
-                            self._add_user_message(content)
+                            # Mount user message directly
+                            from sago.tui.helpers import ExchangeTurnCard
+
+                            turn_card = ExchangeTurnCard(prompt=content, card_type="user")
+                            container.mount(turn_card)
+                            self.messages.append({"role": "user", "content": content})
                         elif role == "assistant":
-                            self._add_assistant_message(content)
-                        # Clear exchange card so each message mounts independently
-                        self._active_exchange_card = None
+                            # Mount assistant message directly with Rich Markdown
+                            color = get_agent_color("sago")
+                            agent_prefix = f"[{color}][SAGO][/{color}]"
+                            container.mount(Static(agent_prefix, classes="agent-tag", markup=True))
+                            md = RichMarkdown(content)
+                            container.mount(Static(md, classes="markdown-body"))
+                            self.messages.append(
+                                {"role": "assistant", "content": content, "agent_name": "sago"}
+                            )
+                    container.scroll_end(animate=False)
                     return
             self._add_system_message(
                 f"Session not found: {sid}\nUse /sessions to list available sessions"
