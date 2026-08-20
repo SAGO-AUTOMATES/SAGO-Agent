@@ -90,10 +90,12 @@ class TestCodeHallucinationDetection:
         """Detect references to non-existent files."""
         from sago.engine.simple_executor import _detect_code_hallucinations
 
-        content = 'I read the file `nonexistent_fake_file_xyz.py` and it contains code.'
+        content = "I read the file `nonexistent_fake_file_xyz.py` and it contains code."
         issues = _detect_code_hallucinations(content, [])
         # Should flag the non-existent file
-        assert any("nonexistent" in issue.lower() or "may not exist" in issue.lower() for issue in issues)
+        assert any(
+            "nonexistent" in issue.lower() or "may not exist" in issue.lower() for issue in issues
+        )
 
     def test_empty_content_no_issues(self) -> None:
         """Empty content should produce no issues."""
@@ -114,7 +116,9 @@ class TestCodeHallucinationDetection:
         """Detect common LLM fabrication phrases without tool evidence."""
         from sago.engine.simple_executor import _detect_code_hallucinations
 
-        content = "I've verified the fix works. The tests pass now. Everything is working correctly."
+        content = (
+            "I've verified the fix works. The tests pass now. Everything is working correctly."
+        )
         # No tools called — should flag fabrication
         issues = _detect_code_hallucinations(content, [])
         assert any("fabrication" in issue.lower() for issue in issues)
@@ -129,7 +133,9 @@ class TestCodeHallucinationDetection:
         ]
         issues = _detect_code_hallucinations(content, tool_history)
         # Should not flag test claims since execute_shell was called
-        test_fabrications = [i for i in issues if "tests pass" in i.lower() and "fabrication" in i.lower()]
+        test_fabrications = [
+            i for i in issues if "tests pass" in i.lower() and "fabrication" in i.lower()
+        ]
         assert len(test_fabrications) == 0
 
     def test_detect_js_code_block_syntax(self) -> None:
@@ -146,7 +152,9 @@ class TestCodeHallucinationDetection:
 
         content = "Here's the Go fix:\n```go\nfunc Foo() { return 1 \n```"
         issues = _detect_code_hallucinations(content, [])
-        assert any("unclosed brace" in issue.lower() or "unbalanced" in issue.lower() for issue in issues)
+        assert any(
+            "unclosed brace" in issue.lower() or "unbalanced" in issue.lower() for issue in issues
+        )
 
     def test_detect_overconfidence_without_tools(self) -> None:
         """Detect overconfident claims without any tool usage."""
@@ -191,7 +199,9 @@ class TestClaimVerification:
         from sago.engine.simple_executor import _verify_claims_against_history
 
         content = "I created the file output.py with the fix."
-        tool_history = [{"tool": "read_file", "args": {"file_path": "input.py"}, "result": "content"}]
+        tool_history = [
+            {"tool": "read_file", "args": {"file_path": "input.py"}, "result": "content"}
+        ]
         issues = _verify_claims_against_history(content, tool_history)
         assert any("created" in issue.lower() or "write" in issue.lower() for issue in issues)
 
@@ -209,7 +219,9 @@ class TestClaimVerification:
         from sago.engine.simple_executor import _verify_claims_against_history
 
         content = "I fixed the bug in the function."
-        tool_history = [{"tool": "read_file", "args": {"file_path": "code.py"}, "result": "content"}]
+        tool_history = [
+            {"tool": "read_file", "args": {"file_path": "code.py"}, "result": "content"}
+        ]
         issues = _verify_claims_against_history(content, tool_history)
         assert any("fix" in issue.lower() for issue in issues)
 
@@ -264,9 +276,7 @@ class TestConfidenceScoring:
             {"tool": "edit_file", "args": {}, "result": "edited", "success": True},
         ]
         files_created = ["code.py"]
-        confidence = _compute_confidence_score(
-            content, tool_history, files_created, [], [], []
-        )
+        confidence = _compute_confidence_score(content, tool_history, files_created, [], [], [])
         assert confidence >= 80
 
     def test_fabrication_lowers_confidence(self) -> None:
@@ -276,7 +286,9 @@ class TestConfidenceScoring:
         content = "I've fixed everything."
         tool_history = []
         confidence = _compute_confidence_score(
-            content, tool_history, [],
+            content,
+            tool_history,
+            [],
             fabrication_issues=["fabrication detected"],
             code_issues=[],
             claim_issues=[],
@@ -290,7 +302,9 @@ class TestConfidenceScoring:
         content = "Here's the code:\n```python\ndef foo(\n```"
         tool_history = [{"tool": "write_file", "args": {}, "result": "ok", "success": True}]
         confidence = _compute_confidence_score(
-            content, tool_history, [],
+            content,
+            tool_history,
+            [],
             fabrication_issues=[],
             code_issues=["syntax error in code block"],
             claim_issues=[],
@@ -312,7 +326,8 @@ class TestConfidenceScoring:
 
         # Worst case
         confidence = _compute_confidence_score(
-            "", [],
+            "",
+            [],
             fabrication_issues=["f1", "f2", "f3", "f4", "f5"],
             code_issues=["c1", "c2", "c3", "c4", "c5"],
             claim_issues=["cl1", "cl2", "cl3", "cl4", "cl5"],
@@ -325,7 +340,9 @@ class TestConfidenceScoring:
             "A good response with details.",
             [{"tool": "read_file", "success": True}, {"tool": "edit_file", "success": True}],
             ["file.py"],
-            [], [], [],
+            [],
+            [],
+            [],
         )
         assert 0 <= confidence <= 100
 
@@ -339,18 +356,14 @@ class TestConfidenceScoring:
             {"tool": "grep_content", "args": {}, "result": "found", "success": True},
             {"tool": "edit_file", "args": {}, "result": "edited", "success": True},
         ]
-        confidence_diverse = _compute_confidence_score(
-            content, tool_history, [], [], [], []
-        )
+        confidence_diverse = _compute_confidence_score(content, tool_history, [], [], [], [])
         # Single tool usage
         tool_history_single = [
             {"tool": "read_file", "args": {}, "result": "content", "success": True},
             {"tool": "read_file", "args": {}, "result": "content2", "success": True},
             {"tool": "read_file", "args": {}, "result": "content3", "success": True},
         ]
-        confidence_single = _compute_confidence_score(
-            content, tool_history_single, [], [], [], []
-        )
+        confidence_single = _compute_confidence_score(content, tool_history_single, [], [], [], [])
         assert confidence_diverse >= confidence_single
 
     def test_excessive_fabrication_heavy_penalty(self) -> None:
@@ -363,9 +376,7 @@ class TestConfidenceScoring:
             "Fabrication: 'I verified' — no read tool",
             "Fabrication: 'fixed the issue' — no edit tool",
         ]
-        confidence = _compute_confidence_score(
-            content, [], [], fabrication_issues, [], []
-        )
+        confidence = _compute_confidence_score(content, [], [], fabrication_issues, [], [])
         assert confidence < 50
 
 
@@ -387,7 +398,9 @@ class TestPromptEnhancements:
 
         create_prompt = PROMPTS["create"]
         assert "QUALITY STANDARDS" in create_prompt
-        assert "production-ready" in create_prompt.lower() or "error handling" in create_prompt.lower()
+        assert (
+            "production-ready" in create_prompt.lower() or "error handling" in create_prompt.lower()
+        )
 
     def test_fix_prompt_has_minimal_change(self) -> None:
         """Fix prompt should emphasize minimal changes."""
@@ -410,11 +423,13 @@ class TestFabricationPhrasePatterns:
     def test_fabrication_phrases_defined(self) -> None:
         """Verify fabrication phrases are defined."""
         from sago.engine.simple_executor import _FABRICATION_PHRASES
+
         assert len(_FABRICATION_PHRASES) > 10
 
     def test_detect_i_verified_phrase(self) -> None:
         """Detect 'I've verified' fabrication phrase."""
         import re
+
         from sago.engine.simple_executor import _FABRICATION_PHRASES
 
         text = "I've verified that the code works correctly."
@@ -426,6 +441,7 @@ class TestFabricationPhrasePatterns:
     def test_detect_tests_pass_phrase(self) -> None:
         """Detect 'tests pass' fabrication phrase."""
         import re
+
         from sago.engine.simple_executor import _FABRICATION_PHRASES
 
         text = "All tests pass after the fix."
@@ -452,7 +468,10 @@ class TestUserMentionFabrication:
 
         content = "You said `config.yaml` needs to be updated."
         issues = _verify_claims_against_history(content, [])
-        assert any("claims user mentioned" in issue.lower() or "not found" in issue.lower() for issue in issues)
+        assert any(
+            "claims user mentioned" in issue.lower() or "not found" in issue.lower()
+            for issue in issues
+        )
 
     def test_detect_mentioned_files_pattern(self) -> None:
         """Detect 'files you mentioned' pattern with specific file names."""
@@ -488,7 +507,10 @@ class TestFileListingWithoutTools:
 2. `generate_tool_specs.py`
 3. `wait_tool.py`"""
         issues = _verify_claims_against_history(content, [])
-        assert any("lists specific files" in issue.lower() or "claims user mentioned" in issue.lower() for issue in issues)
+        assert any(
+            "lists specific files" in issue.lower() or "claims user mentioned" in issue.lower()
+            for issue in issues
+        )
 
     def test_no_flag_when_search_used(self) -> None:
         """Listing files after using search tools should not be flagged."""
@@ -498,7 +520,11 @@ class TestFileListingWithoutTools:
 1. `safe_path.py`
 2. `generate_tool_specs.py`"""
         tool_history = [
-            {"tool": "glob_files", "args": {"pattern": "**/*.py"}, "result": "safe_path.py\ngenerate_tool_specs.py"}
+            {
+                "tool": "glob_files",
+                "args": {"pattern": "**/*.py"},
+                "result": "safe_path.py\ngenerate_tool_specs.py",
+            }
         ]
         issues = _verify_claims_against_history(content, tool_history)
         assert not any("lists specific files" in issue.lower() for issue in issues)

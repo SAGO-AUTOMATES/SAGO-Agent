@@ -43,6 +43,13 @@ class Distro(Enum):
     ALPINE = "alpine"
     ARCH = "arch"
     AMAZON = "amazon"
+    OPENSUSE = "opensuse"
+    SLES = "sles"
+    ROCKY = "rocky"
+    ALMA = "alma"
+    GENTOO = "gentoo"
+    NIXOS = "nixos"
+    VOID = "void"
     UNKNOWN = "unknown"
 
 
@@ -50,11 +57,15 @@ class Distro(Enum):
 class PlatformInfo:
     os: OsType
     distro: Distro
+    distro_version: str  # e.g. "22.04", "9.3", ""
     arch: str  # x86_64, aarch64, arm64, etc.
     libc: str  # glibc, musl
-    package_manager: str  # apt, yum, dnf, apk, brew, choco, none
+    package_manager: str  # apt, yum, dnf, apk, brew, choco, nix, zypper, none
     is_wsl: bool
     is_container: bool  # Docker, Podman, etc.
+    python_version: str  # e.g. "3.11.16"
+    cpu_count: int
+    total_memory_mb: int
 
     @property
     def arch_label(self) -> str:
@@ -81,9 +92,7 @@ def detect_platform() -> PlatformInfo:
     }.get(system, OsType.UNKNOWN)
 
     # Distro (Linux only)
-    distro = Distro.UNKNOWN
-    if os_type == OsType.LINUX:
-        distro = _detect_distro()
+    distro, distro_version = _detect_distro()
 
     # libc detection
     libc = "glibc"
@@ -94,7 +103,6 @@ def detect_platform() -> PlatformInfo:
                     libc = "musl"
         except (FileNotFoundError, PermissionError):
             pass
-        # Alpine always uses musl
         if distro == Distro.ALPINE:
             libc = "musl"
 
@@ -121,51 +129,141 @@ def detect_platform() -> PlatformInfo:
         except (FileNotFoundError, PermissionError):
             pass
 
+    # System info
+    python_version = platform.python_version()
+    cpu_count = os.cpu_count() or 1
+    total_memory_mb = _get_total_memory_mb()
+
     return PlatformInfo(
         os=os_type,
         distro=distro,
+        distro_version=distro_version,
         arch=machine,
         libc=libc,
         package_manager=pm,
         is_wsl=is_wsl,
         is_container=is_container,
+        python_version=python_version,
+        cpu_count=cpu_count,
+        total_memory_mb=total_memory_mb,
     )
 
 
-def _detect_distro() -> Distro:
-    """Detect Linux distro from /etc/os-release or other hints."""
+def _get_total_memory_mb() -> int:
+    """Get total system memory in MB."""
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    # Format: "MemTotal:   16384000 kB"
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return int(parts[1]) // 1024
+    except (FileNotFoundError, PermissionError, ValueError):
+        pass
+    # macOS fallback
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            return int(result.stdout.strip()) // (1024 * 1024)
+    except Exception:
+        pass
+    # Windows fallback
+    if platform.system().lower() == "windows":
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            c_ulonglong = ctypes.c_ulonglong
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", c_ulonglong),
+                ]
+
+            mem = MEMORYSTATUSEX()
+            mem.dwLength = ctypes.sizeof(mem)
+            kernel32.GlobalMemoryStatusEx(ctypes.byref(mem))
+            return mem.ullTotalPhys // (1024 * 1024)
+        except Exception:
+            pass
+    return 0
+
+
+def _detect_distro() -> tuple[Distro, str]:
+    """Detect Linux distro from /etc/os-release or other hints. Returns (distro, version)."""
+    distro = Distro.UNKNOWN
+    version = ""
+
     # Try /etc/os-release first
     try:
         with open("/etc/os-release") as f:
             content = f.read(2000).lower()
+            # Extract version_id
+            for line in content.splitlines():
+                if line.startswith("version_id="):
+                    version = line.split("=", 1)[1].strip().strip('"')
+                    break
+
             if "ubuntu" in content:
-                return Distro.UBUNTU
-            if "debian" in content:
-                return Distro.DEBIAN
-            if "centos" in content:
-                return Distro.CENTOS
-            if "rhel" in content or "red hat" in content:
-                return Distro.RHEL
-            if "fedora" in content:
-                return Distro.FEDORA
-            if "alpine" in content:
-                return Distro.ALPINE
-            if "arch" in content:
-                return Distro.ARCH
-            if "amazon" in content:
-                return Distro.AMAZON
+                distro = Distro.UBUNTU
+            elif "debian" in content:
+                distro = Distro.DEBIAN
+            elif "centos" in content:
+                distro = Distro.CENTOS
+            elif "rhel" in content or "red hat" in content:
+                distro = Distro.RHEL
+            elif "fedora" in content:
+                distro = Distro.FEDORA
+            elif "alpine" in content:
+                distro = Distro.ALPINE
+            elif "arch" in content:
+                distro = Distro.ARCH
+            elif "amazon" in content:
+                distro = Distro.AMAZON
+            elif "opensuse" in content or "suse" in content:
+                distro = Distro.OPENSUSE
+            elif "sles" in content:
+                distro = Distro.SLES
+            elif "rocky" in content:
+                distro = Distro.ROCKY
+            elif "almalinux" in content or "alma" in content:
+                distro = Distro.ALMA
+            elif "gentoo" in content:
+                distro = Distro.GENTOO
+            elif "nixos" in content:
+                distro = Distro.NIXOS
+            elif "void" in content:
+                distro = Distro.VOID
     except (FileNotFoundError, PermissionError):
         pass
 
     # Fallback: check specific files
-    if os.path.exists("/etc/alpine-release"):
-        return Distro.ALPINE
-    if os.path.exists("/etc/debian_version"):
-        return Distro.DEBIAN
-    if os.path.exists("/etc/redhat-release"):
-        return Distro.CENTOS
+    if distro == Distro.UNKNOWN:
+        if os.path.exists("/etc/alpine-release"):
+            distro = Distro.ALPINE
+            try:
+                version = open("/etc/alpine-release").read().strip()
+            except Exception:
+                pass
+        elif os.path.exists("/etc/debian_version"):
+            distro = Distro.DEBIAN
+            try:
+                version = open("/etc/debian_version").read().strip()
+            except Exception:
+                pass
+        elif os.path.exists("/etc/redhat-release"):
+            distro = Distro.CENTOS
+        elif os.path.exists("/etc/gentoo-release"):
+            distro = Distro.GENTOO
+        elif os.path.exists("/etc/NIXOS"):
+            distro = Distro.NIXOS
 
-    return Distro.UNKNOWN
+    return distro, version
 
 
 def _detect_package_manager(os_type: OsType, distro: Distro) -> str:
@@ -180,14 +278,21 @@ def _detect_package_manager(os_type: OsType, distro: Distro) -> str:
             return "winget"
         if shutil.which("choco"):
             return "choco"
+        if shutil.which("scoop"):
+            return "scoop"
         return "none"
 
     if os_type == OsType.LINUX:
-        # Order by preference
+        # NixOS
+        if distro == Distro.NIXOS:
+            if shutil.which("nix-env"):
+                return "nix"
+
+        # Distro-specific preference
         if distro in (Distro.UBUNTU, Distro.DEBIAN):
             if shutil.which("apt-get"):
                 return "apt"
-        elif distro in (Distro.CENTOS, Distro.RHEL, Distro.AMAZON):
+        elif distro in (Distro.CENTOS, Distro.RHEL, Distro.AMAZON, Distro.ROCKY, Distro.ALMA):
             if shutil.which("dnf"):
                 return "dnf"
             if shutil.which("yum"):
@@ -201,9 +306,18 @@ def _detect_package_manager(os_type: OsType, distro: Distro) -> str:
         elif distro == Distro.ARCH:
             if shutil.which("pacman"):
                 return "pacman"
+        elif distro in (Distro.OPENSUSE, Distro.SLES):
+            if shutil.which("zypper"):
+                return "zypper"
+        elif distro == Distro.GENTOO:
+            if shutil.which("emerge"):
+                return "portage"
+        elif distro == Distro.VOID:
+            if shutil.which("xbps-install"):
+                return "xbps"
 
         # Generic fallback
-        for pm in ["apt-get", "dnf", "yum", "apk", "pacman", "zypper"]:
+        for pm in ["apt-get", "dnf", "yum", "apk", "pacman", "zypper", "xbps-install"]:
             if shutil.which(pm):
                 return pm.replace("-get", "")
 
@@ -267,7 +381,6 @@ def install_pip_package(
 
 def _install_via_pm(pm: str, pkg_name: str, timeout: int = 120) -> InstallResult:
     """Install a system package via detected package manager."""
-    detect_platform()
     cmds: dict[str, list[str]] = {
         "apt": ["apt-get", "install", "-y", pkg_name],
         "dnf": ["dnf", "install", "-y", pkg_name],
@@ -276,6 +389,12 @@ def _install_via_pm(pm: str, pkg_name: str, timeout: int = 120) -> InstallResult
         "pacman": ["pacman", "-S", "--noconfirm", pkg_name],
         "zypper": ["zypper", "install", "-y", pkg_name],
         "brew": ["brew", "install", pkg_name],
+        "nix": ["nix-env", "-iA", f"nixpkgs.{pkg_name}"],
+        "xbps": ["xbps-install", "-Sy", pkg_name],
+        "portage": ["emerge", pkg_name],
+        "winget": ["winget", "install", "--id", pkg_name, "--accept-package-agreements"],
+        "choco": ["choco", "install", pkg_name, "-y"],
+        "scoop": ["scoop", "install", pkg_name],
     }
 
     cmd = cmds.get(pm)
@@ -283,7 +402,7 @@ def _install_via_pm(pm: str, pkg_name: str, timeout: int = 120) -> InstallResult
         return False, f"No supported package manager found. Detected: {pm}"
 
     logger.info("Installing %s via %s", pkg_name, pm)
-    needs_sudo = pm in ("apt", "dnf", "yum", "zypper") and os.geteuid() != 0
+    needs_sudo = pm in ("apt", "dnf", "yum", "zypper", "xbps", "portage") and os.geteuid() != 0
     result = _run(cmd, timeout=timeout, sudo=needs_sudo)
 
     if result.returncode == 0:
