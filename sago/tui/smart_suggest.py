@@ -462,7 +462,7 @@ def get_subcommand_completions(raw: str) -> tuple[list[str], list[str]] | None:
                 from sago.agents.registry import list_agents
 
                 agents = list_agents()
-                for a in rank_agents_fuzzy(agents, arg if arg != "list" else "")[:12]:
+                for a in rank_agents_fuzzy(agents, arg if arg != "list" else "")[:20]:
                     items.append(
                         f"[bold magenta]@{a['name']:<22}[/bold magenta] [dim]{a.get('description', '')[:38]}[/dim]"
                     )
@@ -622,11 +622,51 @@ def get_subcommand_completions(raw: str) -> tuple[list[str], list[str]] | None:
         except Exception:
             agents = []
         ranked = rank_agents_fuzzy(agents, arg)
-        for a in ranked[:12]:
+        for a in ranked[:20]:
             aname = a["name"]
             desc = a.get("description", "")
             items.append(f"[bold magenta]@{aname:<22}[/bold magenta] [dim]{desc[:40]}[/dim]")
             values.append(f"/delegate {aname} ")
+        return items, values
+
+    # /parallel agent:task completions
+    if cmd == "/parallel":
+        items = []
+        values = []
+        try:
+            from sago.agents.registry import list_agents
+
+            agents = list_agents()
+        except Exception:
+            agents = []
+
+        # Check if user is typing an agent:task pair (has colon)
+        if ":" in arg:
+            # Complete the task part after the agent name
+            agent_part = arg.split(":")[0].strip()
+            ranked = rank_agents_fuzzy(agents, agent_part)
+            for a in ranked[:10]:
+                aname = a["name"]
+                items.append(f"[bold magenta]{aname}:[/bold magenta] [dim]your task here[/dim]")
+                values.append(f"/parallel {aname}: ")
+        elif arg:
+            # User is typing an agent name before colon
+            ranked = rank_agents_fuzzy(agents, arg)
+            for a in ranked[:15]:
+                aname = a["name"]
+                desc = a.get("description", "")
+                items.append(f"[bold magenta]{aname:<22}[/bold magenta] [dim]{desc[:40]}[/dim]")
+                values.append(f"/parallel {aname}: ")
+        else:
+            # No input yet — show common patterns
+            items = [
+                "[bold magenta]Per-agent tasks:[/bold magenta] [dim]agent1: task1, agent2: task2[/dim]",
+                "[bold magenta]Shared task:[/bold magenta] [dim]agent1,agent2 shared task[/dim]",
+            ]
+            values = [
+                "/parallel python-engineer: ",
+                "/parallel python-engineer,reviewer ",
+            ]
         return items, values
 
     # /model completions with descriptions

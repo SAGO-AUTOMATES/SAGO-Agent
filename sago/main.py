@@ -1504,15 +1504,17 @@ def smart(task: str, effort: str, thinking: bool) -> None:
 
     agent_name = None
     try:
-        from openai import OpenAI
+        from sago.llm.tui_providers import get_tui_client, resolve_active_llm_config
 
-        client = OpenAI(
-            api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
-        )
+        active_cfg = resolve_active_llm_config()
+        provider = active_cfg["provider"]
+        model = active_cfg["model"]
+        api_key = active_cfg["api_key"]
+
+        client, api_model = get_tui_client(provider, model)
 
         router_response = client.chat.completions.create(
-            model=_get_configured_model(),
+            model=api_model,
             messages=[
                 {
                     "role": "system",

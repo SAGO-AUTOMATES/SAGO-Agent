@@ -297,8 +297,10 @@ class HandoffFlow(Static):
     HandoffFlow {
         background: #161b22;
         border: solid #30363d;
-        padding: 1;
+        padding: 0 1;
         margin: 0 0 1 0;
+        max-height: 8;
+        overflow-y: auto;
     }
     """
 
@@ -359,13 +361,15 @@ class OrchestrationPlanWidget(Widget):
     OrchestrationPlanWidget {
         background: #161b22;
         border: solid #1f6feb;
-        padding: 1;
+        padding: 0 1;
         margin: 0 0 1 0;
+        max-height: 10;
+        overflow-y: auto;
     }
     OrchestrationPlanWidget .plan-title {
         color: #1f6feb;
         text-style: bold;
-        padding: 0 0 1 0;
+        padding: 0;
     }
     OrchestrationPlanWidget .plan-step {
         padding: 0 0 0 1;

@@ -73,6 +73,31 @@ class MessageProcessorMixin:
 
             def on_thinking(text):
                 self.call_from_thread(self._update_spinner, text)
+                # Mount enhanced prompt info into exchange card if visible
+                if text and "Enhanced Prompt" in text:
+                    target_card = getattr(self, "_active_exchange_card", None)
+                    if target_card is not None:
+                        container = getattr(target_card, "_response_container", None)
+                        if container is not None:
+                            container.display = True
+                            try:
+                                from textual.widgets import Static as TextualStatic
+
+                                self.call_from_thread(
+                                    container.mount,
+                                    TextualStatic(text, classes="msg-assistant", markup=True),
+                                )
+                            except Exception:
+                                pass
+
+            # Propagate callbacks into context so spawned agents inherit them
+            from sago.engine.simple_executor import set_execution_callbacks
+
+            set_execution_callbacks(
+                on_tool_call=on_tool,
+                on_tool_result=on_tool_result,
+                on_thinking=on_thinking,
+            )
 
             # Try streaming first
             try:
@@ -1001,6 +1026,19 @@ class MessageProcessorMixin:
                             msg.append(" Deny or type 'y' / 'n'.", style="bold")
                             return msg
 
+                        def _make_approval_bar_text(
+                            tool_name: str, risk_level: str, args: Any = None
+                        ) -> str:
+                            """Build a concise approval bar message."""
+                            arg_summary = ""
+                            if args and isinstance(args, dict):
+                                # Show first arg value truncated
+                                first_val = next(iter(args.values()), "")
+                                if isinstance(first_val, str) and len(first_val) > 40:
+                                    first_val = first_val[:40] + "..."
+                                arg_summary = f" → {first_val}" if first_val else ""
+                            return f"{tool_name}{arg_summary} ({risk_level} risk) — [Y] Approve / [N] Deny"
+
                         # Check permissions
                         from sago.permissions import RiskLevel, get_permission_manager
 
@@ -1022,9 +1060,10 @@ class MessageProcessorMixin:
                                 RiskLevel.CRITICAL,
                             ):
                                 self._tool_approved = False
+                                approval_msg = _make_approval_bar_text(name, risk.value, args)
                                 self.call_from_thread(
                                     self._show_approval_bar,
-                                    f"Allow {name}? (risk: {risk.value}) -- Press [Y] or [N]",
+                                    approval_msg,
                                 )
                                 self.call_from_thread(
                                     self._add_system_message,

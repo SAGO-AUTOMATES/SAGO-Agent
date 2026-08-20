@@ -133,8 +133,9 @@ class ExchangeTurnCard(Vertical):
             )
             yield Static(RichMarkdown(self.prompt), classes="exchange-user-prompt markdown-body")
             yield Static("─" * 40, classes="exchange-divider", markup=False)
-            # Response container - assistant messages mount here
+            # Response container - hidden until content mounts
             self._response_container = Vertical(classes="exchange-response")
+            self._response_container.display = False
             yield self._response_container
 
     @on(events.Click, ".exchange-prompt-header")
@@ -461,23 +462,46 @@ class UIHelpers:
         title = (
             f"✨ Enhanced Prompt: {intent_summary[:80]}" if intent_summary else "✨ Enhanced Prompt"
         )
+
+        target_card = getattr(self, "_active_exchange_card", None)
+        resp_container = None
+        if target_card is not None:
+            try:
+                resp_container = target_card.query_one(".exchange-response")
+            except Exception:
+                pass
+
+        # Mount a visible one-line summary so user knows enhancement happened
+        from rich.text import Text as RichText
+
+        summary_text = RichText()
+        summary_text.append("\u2728 Prompt enhanced \u2192 ", style="dim")
+        summary_text.append(str(intent_summary)[:100], style="italic")
+        summary_widget = Static(summary_text, classes="prompt-enhancement-inline")
+        if resp_container is not None:
+            try:
+                target_card.query_one(".exchange-body").mount(summary_widget, before=resp_container)
+            except Exception:
+                target_card.mount(summary_widget)
+        elif target_card is not None:
+            target_card.mount(summary_widget)
+        else:
+            self.query_one("#messages").mount(summary_widget)
+
+        # Also mount the collapsible with full details
         card = Collapsible(
             Static("\n".join(card_lines), markup=True),
             title=title,
             collapsed=True,
         )
 
-        target_card = getattr(self, "_active_exchange_card", None)
-        if target_card is not None:
+        if resp_container is not None:
             try:
-                body_widget = target_card.query_one(".exchange-body")
-                try:
-                    resp = target_card.query_one(".exchange-response")
-                    body_widget.mount(card, before=resp)
-                except Exception:
-                    body_widget.mount(card)
+                target_card.query_one(".exchange-body").mount(card, before=resp_container)
             except Exception:
                 target_card.mount(card)
+        elif target_card is not None:
+            target_card.mount(card)
         else:
             self.query_one("#messages").mount(card)
         self.query_one("#messages").scroll_end(animate=False)
@@ -497,6 +521,7 @@ class UIHelpers:
                 if target_card is not None:
                     resp = getattr(target_card, "_response_container", None)
                     if resp is not None:
+                        resp.display = True
                         resp.mount(elem)
                         return
                     target_card.mount(elem)
@@ -589,7 +614,7 @@ class UIHelpers:
                                 Collapsible(
                                     Static(syntax),
                                     title=f"Code snippet ({lang or 'text'})",
-                                    collapsed=False,
+                                    collapsed=True,
                                 )
                             )
                         except Exception as e:
@@ -598,7 +623,7 @@ class UIHelpers:
                                 Collapsible(
                                     Static(code, classes="code-block", markup=False),
                                     title=f"Code snippet ({lang or 'text'})",
-                                    collapsed=False,
+                                    collapsed=True,
                                 )
                             )
         except Exception as e:
@@ -689,7 +714,12 @@ class UIHelpers:
 
                 threading.Thread(
                     target=export_session_dev_artifacts,
-                    args=(self.current_session_id, list(self.messages), Path.cwd()),
+                    args=(
+                        self.current_session_id,
+                        list(self.messages),
+                        Path.cwd(),
+                        getattr(self, "session_tool_calls", None),
+                    ),
                     daemon=True,
                 ).start()
             except Exception as e:
@@ -885,7 +915,15 @@ class UIHelpers:
         status_icon = "✓" if success else "✗"
         header = f"[{color}][bold]{status_icon} [AGENT: {agent_name}][/bold][/{color}] [dim](completed in {elapsed:.1f}s)[/dim]"
 
-        container = self.query_one("#messages")
+        # Mount into exchange card if available, otherwise fall back to #messages
+        target_card = getattr(self, "_active_exchange_card", None)
+        container = None
+        if target_card is not None:
+            container = getattr(target_card, "_response_container", None)
+        if container is None:
+            container = self.query_one("#messages")
+        else:
+            container.display = True
 
         try:
             if "```" in result:
@@ -926,7 +964,7 @@ class UIHelpers:
                                     Collapsible(
                                         Static(syntax),
                                         title=f"{agent_name} - Code ({lang or 'text'})",
-                                        collapsed=False,
+                                        collapsed=True,
                                     )
                                 )
                             except Exception as e:
@@ -935,7 +973,7 @@ class UIHelpers:
                                     Collapsible(
                                         Static(code, classes="code-block", markup=False),
                                         title=f"{agent_name} - Code ({lang or 'text'})",
-                                        collapsed=False,
+                                        collapsed=True,
                                     )
                                 )
             else:
@@ -947,6 +985,110 @@ class UIHelpers:
             container.scroll_end()
         except Exception as e:
             log_exception(e, "mount parallel result")
+
+    def _add_orchestrate_step(
+        self: SagoApp,
+        step_num: int,
+        total_steps: int,
+        agent_name: str,
+        task: str,
+        result: str,
+        tools_used: list[str],
+        success: bool,
+        elapsed: float = 0.0,
+    ) -> None:
+        """Mount a single orchestration step result into the exchange card."""
+        color = get_agent_color(agent_name)
+        status_icon = "✓" if success else "✗"
+
+        # Header with agent name, step number, elapsed
+        header_parts = [
+            f"[{color}][bold]{status_icon} Step {step_num}/{total_steps}: {agent_name}[/bold][/{color}]",
+        ]
+        if elapsed > 0:
+            header_parts.append(f"[dim]({elapsed:.1f}s)[/dim]")
+        header = " ".join(header_parts)
+
+        # Task line
+        task_line = f"[dim]Task:[/] [white]{task[:120]}[/white]"
+
+        # Tools used line
+        tools_line = ""
+        if tools_used:
+            tool_names = ", ".join(tools_used[:5])
+            tools_line = f"[dim]Tools:[/] [cyan]{tool_names}[/cyan]"
+
+        target_card = getattr(self, "_active_exchange_card", None)
+        container = None
+        if target_card is not None:
+            container = getattr(target_card, "_response_container", None)
+        if container is None:
+            container = self.query_one("#messages")
+        else:
+            container.display = True
+
+        try:
+            # Mount header
+            container.mount(Static(header, classes="msg-assistant agent-tag", markup=True))
+            # Mount task
+            container.mount(Static(task_line, classes="msg-assistant", markup=True))
+            # Mount tools if any
+            if tools_line:
+                container.mount(Static(tools_line, classes="msg-assistant", markup=True))
+
+            # Mount result content with code blocks
+            if result and "```" in result:
+                parts = result.split("```")
+                for i, part in enumerate(parts):
+                    if i % 2 == 0:
+                        text_content = part.strip()
+                        if text_content:
+                            from rich.markdown import Markdown as RichMarkdown
+
+                            md = RichMarkdown(text_content)
+                            container.mount(Static(md, classes="msg-assistant markdown-body"))
+                    else:
+                        lines = part.split("\n", 1)
+                        lang = lines[0].strip() if len(lines) > 1 else ""
+                        code = lines[1] if len(lines) > 1 else lines[0]
+                        code = code.rstrip().removesuffix("```").rstrip()
+                        if code.strip():
+                            try:
+                                from rich.syntax import Syntax
+
+                                syntax = Syntax(
+                                    code,
+                                    lang or "text",
+                                    theme="monokai",
+                                    line_numbers=True,
+                                    word_wrap=True,
+                                )
+                                container.mount(
+                                    Collapsible(
+                                        Static(syntax),
+                                        title=f"{agent_name} code ({lang or 'text'})",
+                                        collapsed=True,
+                                    )
+                                )
+                            except Exception:
+                                container.mount(
+                                    Static(
+                                        f"[dim]{code[:500]}[/dim]",
+                                        classes="msg-assistant",
+                                        markup=False,
+                                    )
+                                )
+            elif result:
+                from rich.markdown import Markdown as RichMarkdown
+
+                md = RichMarkdown(result[:3000])
+                container.mount(Static(md, classes="msg-assistant markdown-body"))
+
+            # Divider between steps
+            container.mount(Static("[dim]─[/dim]", classes="msg-assistant", markup=True))
+            container.scroll_end()
+        except Exception as e:
+            log_exception(e, "mount orchestrate step")
 
     def _add_summary(
         self: SagoApp,

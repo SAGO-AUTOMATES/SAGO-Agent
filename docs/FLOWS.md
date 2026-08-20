@@ -160,9 +160,9 @@ flowchart TD
 
     subgraph Mode3["3. Parallel Swarm (/parallel)"]
         User3["User"] --> Disp["Dispatcher"]
-        Disp --> Th1["Security Auditor"]
-        Disp --> Th2["Performance Engineer"]
-        Disp --> Th3["Test Engineer"]
+        Disp --> Th1["Security Auditor<br/>(own task)"]
+        Disp --> Th2["Performance Engineer<br/>(own task)"]
+        Disp --> Th3["Test Engineer<br/>(own task)"]
         Th1 --> Agg["Aggregate Report"]
         Th2 --> Agg
         Th3 --> Agg

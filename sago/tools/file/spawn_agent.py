@@ -291,6 +291,11 @@ class SpawnAgentTool(BaseTool):
         model = llm_cfg["model"]
         base_url = llm_cfg["base_url"]
 
+        # Inherit callbacks from parent context (processor → spawned agent)
+        from sago.engine.simple_executor import get_execution_callbacks
+
+        inherited = get_execution_callbacks()
+
         # Build fallback chain: primary agent + fallbacks
         fallbacks = self._FALLBACK_AGENTS.get(agent_name, ["software-engineer"])
         agents_to_try = [agent_name] + [a for a in fallbacks if a != agent_name]
@@ -307,7 +312,19 @@ class SpawnAgentTool(BaseTool):
 
             for try_model in models_to_try:
                 try:
+                    import uuid
+
                     from sago.engine.simple_executor import execute_agent_task
+
+                    spawn_session_id = f"spawn-{try_agent}-{uuid.uuid4().hex[:8]}"
+
+                    # Enable YOLO mode for spawned agent (auto-approve all tools)
+                    try:
+                        from sago.permissions import get_permission_manager
+
+                        get_permission_manager().set_yolo_mode(spawn_session_id, True)
+                    except Exception:
+                        pass  # Non-critical if permission manager unavailable
 
                     result = execute_agent_task(
                         task=task,
@@ -315,9 +332,14 @@ class SpawnAgentTool(BaseTool):
                         system_prompt=system_prompt,
                         api_key=api_key,
                         model=try_model,
-                        base_url=base_url if try_model == model else "https://openrouter.ai/api/v1",
+                        base_url=base_url,
                         max_tokens=8192,
                         max_iterations=20,
+                        wall_timeout=300.0,
+                        session_id=spawn_session_id,
+                        on_tool_call=inherited["on_tool_call"],
+                        on_tool_result=inherited["on_tool_result"],
+                        on_thinking=inherited["on_thinking"],
                     )
 
                     output = result.get("output", "")

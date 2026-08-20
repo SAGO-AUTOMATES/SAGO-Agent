@@ -24,7 +24,7 @@ COMMANDS = {
     "/delegate": "Delegate task to specialist (/delegate <agent> <task>)",
     "/chain": "Chain agents sequentially (/chain <a1,a2> <task>)",
     "/orchestrate": "Auto-orchestrate task across specialist team",
-    "/parallel": "Execute agents concurrently (/parallel <a1,a2> <task>)",
+    "/parallel": "Execute agents concurrently (/parallel agent1: task1, agent2: task2)",
     "/tasks": "Background task manager (/tasks [list|cancel])",
     "/tools": "List all available dynamic tools (/tools [category|query])",
     "/skills": "List built-in & custom skills (/skills [query])",

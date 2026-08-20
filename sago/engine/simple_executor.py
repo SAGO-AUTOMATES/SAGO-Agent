@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import contextvars
 import json
 import logging
 import os
@@ -17,6 +18,59 @@ from sago.tools.base import BaseTool
 from sago.utils.safe import log_exception
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Unified callback propagation — contextvars so callbacks flow from
+# the outer processor into spawned agents automatically.
+# ---------------------------------------------------------------------------
+_current_tool_call: contextvars.ContextVar[Callable | None] = contextvars.ContextVar(
+    "current_tool_call", default=None
+)
+_current_tool_result: contextvars.ContextVar[Callable | None] = contextvars.ContextVar(
+    "current_tool_result", default=None
+)
+_current_thinking: contextvars.ContextVar[Callable | None] = contextvars.ContextVar(
+    "current_thinking", default=None
+)
+_current_todo_update: contextvars.ContextVar[Callable | None] = contextvars.ContextVar(
+    "current_todo_update", default=None
+)
+_current_todo_created: contextvars.ContextVar[Callable | None] = contextvars.ContextVar(
+    "current_todo_created", default=None
+)
+_current_request_input: contextvars.ContextVar[Callable | None] = contextvars.ContextVar(
+    "current_request_input", default=None
+)
+
+
+def set_execution_callbacks(
+    on_tool_call: Callable | None = None,
+    on_tool_result: Callable | None = None,
+    on_thinking: Callable | None = None,
+    on_todo_update: Callable | None = None,
+    on_todo_created: Callable | None = None,
+    on_request_input: Callable | None = None,
+) -> None:
+    """Set callbacks in the current context. Call this before executing tools or agent tasks."""
+    _current_tool_call.set(on_tool_call)
+    _current_tool_result.set(on_tool_result)
+    _current_thinking.set(on_thinking)
+    _current_todo_update.set(on_todo_update)
+    _current_todo_created.set(on_todo_created)
+    _current_request_input.set(on_request_input)
+
+
+def get_execution_callbacks() -> dict[str, Callable | None]:
+    """Get the current context's callbacks. Used by SpawnAgentTool to inherit parent callbacks."""
+    return {
+        "on_tool_call": _current_tool_call.get(),
+        "on_tool_result": _current_tool_result.get(),
+        "on_thinking": _current_thinking.get(),
+        "on_todo_update": _current_todo_update.get(),
+        "on_todo_created": _current_todo_created.get(),
+        "on_request_input": _current_request_input.get(),
+    }
+
 
 # Auto-discover all tools
 _TOOL_CLASSES: dict[str, type[BaseTool]] = {}
@@ -1592,6 +1646,7 @@ def execute_agent_task(
     on_request_input: Callable | None = None,
     pause_event: Any = None,
     session_id: str = "default",
+    wall_timeout: float = 300.0,
 ) -> dict[str, Any]:
     """Execute a task with LLM, tools, and todo tracking.
 
@@ -1602,6 +1657,16 @@ def execute_agent_task(
     logger.info(
         "execute_agent_task start: agent=%s, model=%s, task=%r", agent_role, model, task[:200]
     )
+
+    # Resolve callbacks: explicit args > contextvars > None
+    ctx = get_execution_callbacks()
+    on_tool_call = on_tool_call or ctx["on_tool_call"]
+    on_tool_result = on_tool_result or ctx["on_tool_result"]
+    on_thinking = on_thinking or ctx["on_thinking"]
+    on_todo_created = on_todo_created or ctx["on_todo_created"]
+    on_todo_update = on_todo_update or ctx["on_todo_update"]
+    on_request_input = on_request_input or ctx["on_request_input"]
+
     tools = _discover_tools()
 
     # --- Plugin: on_init hook (once per execution lifecycle) ---
@@ -1666,37 +1731,32 @@ def execute_agent_task(
     except Exception as e:
         log_exception(e, "Plugin hook_user_message failed")
 
-    # Auto-resolve active model, key, and base_url if defaults or empty
-    if not api_key or model == "openrouter/free":
-        try:
-            from sago.llm.tui_providers import resolve_active_llm_config
+    # Always resolve active model, key, base_url, and provider from config
+    try:
+        from sago.llm.tui_providers import resolve_active_llm_config
 
-            active_cfg = resolve_active_llm_config(
-                model=None if model == "openrouter/free" else model,
-                api_key=api_key or None,
-                base_url=base_url,
-            )
-            if not api_key:
-                api_key = active_cfg["api_key"]
-            if model == "openrouter/free" and active_cfg["model"]:
-                model = active_cfg["model"]
-            if base_url is None:
-                base_url = active_cfg["base_url"]
-        except Exception as e:
-            log_exception(e, "Failed to resolve active LLM configuration")
+        # Pass through caller's values if provided; resolve_active_llm_config
+        # merges them with saved settings/env vars and applies fallback logic.
+        active_cfg = resolve_active_llm_config(
+            model=None if model in ("openrouter/free", "") else model,
+            api_key=api_key or None,
+            base_url=base_url,
+        )
+        if not api_key:
+            api_key = active_cfg["api_key"]
+        if model in ("openrouter/free", "") and active_cfg["model"]:
+            model = active_cfg["model"]
+        if base_url is None:
+            base_url = active_cfg["base_url"]
+        provider = active_cfg["provider"]
+    except Exception as e:
+        log_exception(e, "Failed to resolve active LLM configuration")
+        provider = "openrouter"
 
-    # Auto-detect base_url from model/provider if not provided
-    if base_url is None:
-        if model.startswith("gemini"):
-            base_url = None  # Will be handled by google-genai SDK
-        elif model.startswith("gpt") or model.startswith("o1") or model.startswith("o3"):
-            base_url = "https://api.openai.com/v1"
-        else:
-            base_url = "https://openrouter.ai/api/v1"
+    # Use the correct client for the selected provider
+    from sago.llm.tui_providers import get_tui_client
 
-    from openai import OpenAI
-
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=90.0, max_retries=2)
+    client, api_model = get_tui_client(provider, model)
     start_time = time.time()
 
     # 1. Automatically enhance prompt with intent, clarity, constraints, and criteria
@@ -2051,6 +2111,18 @@ def execute_agent_task(
         return None
 
     for i in range(max_iterations):
+        # --- Wall-clock timeout check ---
+        if wall_timeout > 0 and (time.time() - start_time) > wall_timeout:
+            logger.warning(
+                "Agent '%s' exceeded wall-clock timeout (%.0fs), stopping after %d iterations",
+                agent_role,
+                wall_timeout,
+                i,
+            )
+            if on_thinking:
+                on_thinking(f"Timed out after {wall_timeout:.0f}s ({i} iterations completed)")
+            break
+
         # --- OPT-IN observability (no-op unless a trace was started) ---
         # To capture a full per-step span tree around each LLM+tool iteration,
         # uncomment the following block (control flow is unchanged):
@@ -2118,13 +2190,15 @@ def execute_agent_task(
             # Lower temperature = less hallucination
             temp = min(temp, 0.4) if task_type != "chat" else min(temp, 0.6)
 
-            # Use Google native SDK for gemini models
-            if model.startswith("gemini"):
+            _raw_gemini_parts = []  # Preserve thought_signature across turns
+
+            # Use Google native SDK for google/gemini providers
+            if provider == "google":
                 try:
-                    from google import genai as google_genai
                     from google.genai import types as google_types
 
-                    google_client = google_genai.Client(api_key=api_key)
+                    # client is already a Google GenAI client from get_tui_client
+                    google_client = client
                     sys_msg = ""
                     contents = []
                     for msg in messages:
@@ -2139,26 +2213,37 @@ def execute_agent_task(
                                 )
                             )
                         elif msg["role"] == "assistant":
-                            parts = []
-                            if msg.get("content"):
-                                parts.append(google_types.Part(text=msg["content"]))
-                            for tc in msg.get("tool_calls", []):
-                                fn = tc["function"]
-                                try:
-                                    args = (
-                                        json.loads(fn["arguments"]) if fn.get("arguments") else {}
-                                    )
-                                except json.JSONDecodeError:
-                                    args = {}
-                                parts.append(
-                                    google_types.Part(
-                                        function_call=google_types.FunctionCall(
-                                            name=fn["name"], args=args
-                                        )
+                            # Use raw parts if available (preserves thought_signature)
+                            if msg.get("_google_parts"):
+                                contents.append(
+                                    google_types.Content(
+                                        role="model",
+                                        parts=list(msg["_google_parts"]),
                                     )
                                 )
-                            if parts:
-                                contents.append(google_types.Content(role="model", parts=parts))
+                            else:
+                                parts = []
+                                if msg.get("content"):
+                                    parts.append(google_types.Part(text=msg["content"]))
+                                for tc in msg.get("tool_calls", []):
+                                    fn = tc["function"]
+                                    try:
+                                        args = (
+                                            json.loads(fn["arguments"])
+                                            if fn.get("arguments")
+                                            else {}
+                                        )
+                                    except json.JSONDecodeError:
+                                        args = {}
+                                    parts.append(
+                                        google_types.Part(
+                                            function_call=google_types.FunctionCall(
+                                                name=fn["name"], args=args
+                                            )
+                                        )
+                                    )
+                                if parts:
+                                    contents.append(google_types.Content(role="model", parts=parts))
                         elif msg["role"] == "tool":
                             # Gemini receives tool results as function responses.
                             contents.append(
@@ -2242,14 +2327,41 @@ def execute_agent_task(
                             google_types.Tool(function_declarations=google_tools)
                         ]
 
-                    response = google_client.models.generate_content(
-                        model=model,
-                        contents=contents,
-                        config=google_config,
-                    )
+                    # Retry with exponential backoff for rate limits
+                    max_retries = 3
+                    response = None
+                    for attempt in range(max_retries):
+                        try:
+                            response = google_client.models.generate_content(
+                                model=model,
+                                contents=contents,
+                                config=google_config,
+                            )
+                            break
+                        except Exception as api_err:
+                            err_str = str(api_err).lower()
+                            if (
+                                "rate" in err_str
+                                and "limit" in err_str
+                                and attempt < max_retries - 1
+                            ):
+                                wait_sec = (2**attempt) * 2  # 2s, 4s, 8s
+                                logger.warning(
+                                    "Gemini rate limit, retrying in %ds (attempt %d/%d)",
+                                    wait_sec,
+                                    attempt + 1,
+                                    max_retries,
+                                )
+                                time.sleep(wait_sec)
+                            else:
+                                raise
+
+                    if response is None:
+                        raise RuntimeError("Gemini API call failed after retries")
 
                     # Extract tool calls from Gemini response
                     gemini_tool_calls = []
+                    _raw_gemini_parts = []  # Store raw parts for thought_signature preservation
                     # response.text raises if the response only contains function
                     # calls, so guard against that.
                     try:
@@ -2258,7 +2370,8 @@ def execute_agent_task(
                         log_exception(e, "Failed to extract Gemini response text")
                         content = ""
                     if response.candidates:
-                        for part in response.candidates[0].content.parts:
+                        _raw_gemini_parts = list(response.candidates[0].content.parts or [])
+                        for part in _raw_gemini_parts:
                             if part.function_call:
                                 gemini_tool_calls.append(
                                     {
@@ -2299,7 +2412,29 @@ def execute_agent_task(
                     api_kwargs["tools"] = openai_tools
                     api_kwargs["tool_choice"] = "auto"
 
-                response = client.chat.completions.create(**api_kwargs)
+                # Retry with exponential backoff for rate limits
+                max_retries = 3
+                response = None
+                for attempt in range(max_retries):
+                    try:
+                        response = client.chat.completions.create(**api_kwargs)
+                        break
+                    except Exception as api_err:
+                        err_str = str(api_err).lower()
+                        if ("429" in err_str or "rate" in err_str) and attempt < max_retries - 1:
+                            wait_sec = (2**attempt) * 2  # 2s, 4s, 8s
+                            logger.warning(
+                                "Rate limit, retrying in %ds (attempt %d/%d)",
+                                wait_sec,
+                                attempt + 1,
+                                max_retries,
+                            )
+                            time.sleep(wait_sec)
+                        else:
+                            raise
+
+                if response is None:
+                    raise RuntimeError("API call failed after retries")
 
         except Exception as e:
             error_msg = str(e)
@@ -2429,6 +2564,9 @@ def execute_agent_task(
                 }
                 for tc in native_tool_calls
             ]
+        # Preserve raw Gemini parts for thought_signature across turns
+        if _raw_gemini_parts:
+            assistant_msg["_google_parts"] = _raw_gemini_parts
         messages.append(assistant_msg)
 
         # If no tool calls at all, check for hallucination or completion
@@ -2962,9 +3100,22 @@ def execute_agent_task(
                     "content": validation_error,
                 }
 
-            tool_instance = tools[name]()
-            result = tool_instance.run(**args)
-            result_str = str(result)
+            # --- Execute tool with full error resilience ---
+            tool_start_time = time.time()
+            try:
+                tool_instance = tools[name]()
+                result = tool_instance.run(**args)
+                result_str = str(result)
+            except TypeError as te:
+                if "NoneType" in str(te):
+                    logger.error("Tool '%s' returned None instance: %s", name, te)
+                    result_str = f"Error: Tool '{name}' failed to instantiate."
+                else:
+                    logger.error("Tool '%s' type error: %s", name, te)
+                    result_str = f"Error executing {name}: {te}"
+            except Exception as tool_err:
+                logger.error("Tool '%s' execution failed: %s", name, tool_err)
+                result_str = f"Error executing {name}: {tool_err}"
 
             is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
             if is_error:
@@ -3013,6 +3164,22 @@ def execute_agent_task(
             )
             tools_used_in_iteration.append(name)
 
+            # Record TOOL_DISPATCH event for dev tracer (event graph visibility)
+            try:
+                from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                tool_dur_ms = (time.time() - tool_start_time) * 1000
+                get_dev_tracer().record(
+                    event_type=TraceEventType.TOOL_DISPATCH,
+                    source=f"agent.{agent_role}",
+                    action=f"run({name})",
+                    data={"tool_name": name, "arguments": args, "result_preview": result_str[:300]},
+                    status="FAILED" if is_error else "OK",
+                    duration_ms=tool_dur_ms,
+                )
+            except Exception as e:
+                log_exception(e, "Failed to record TOOL_DISPATCH event")
+
             if tool_usage_store is not None:
                 try:
                     tool_usage_store.log(
@@ -3023,6 +3190,9 @@ def execute_agent_task(
                     )
                 except Exception as e:
                     log_exception(e, "Failed to log tool usage to store")
+
+            # Always fire on_tool_result callback (not gated behind tool_usage_store)
+            if on_tool_result:
                 on_tool_result(name, args, result_str, not is_error)
 
             # --- Plugin: hook_tool_result (transform result after execution) ---

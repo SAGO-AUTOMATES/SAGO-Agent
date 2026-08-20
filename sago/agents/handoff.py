@@ -275,22 +275,38 @@ class RecursionGuard:
             self._parent_chain.clear()
 
 
-# Global recursion guard per thread
+# Global recursion guard per thread (thread-safe)
 _thread_guards: dict[int, RecursionGuard] = {}
+_guards_lock = threading.Lock()
 
 
 def get_recursion_guard() -> RecursionGuard:
     """Get or create a recursion guard for the current thread."""
     tid = threading.get_ident()
-    if tid not in _thread_guards:
-        _thread_guards[tid] = RecursionGuard()
-    return _thread_guards[tid]
+    with _guards_lock:
+        if tid not in _thread_guards:
+            _thread_guards[tid] = RecursionGuard()
+        return _thread_guards[tid]
 
 
 def reset_recursion_guard() -> None:
     """Reset the recursion guard for the current thread."""
     tid = threading.get_ident()
-    if tid in _thread_guards:
-        _thread_guards[tid].reset()
-    else:
-        _thread_guards[tid] = RecursionGuard()
+    with _guards_lock:
+        if tid in _thread_guards:
+            _thread_guards[tid].reset()
+        else:
+            _thread_guards[tid] = RecursionGuard()
+
+
+def create_fresh_guard() -> RecursionGuard:
+    """Create a fresh guard for top-level orchestration (chain/orchestrate/parallel).
+
+    This ensures each top-level command starts with a clean slate,
+    regardless of what previous commands did on the same thread.
+    """
+    guard = RecursionGuard()
+    tid = threading.get_ident()
+    with _guards_lock:
+        _thread_guards[tid] = guard
+    return guard

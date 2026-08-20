@@ -284,7 +284,7 @@ class AgentDelegator:
                         agent_role=agent_name.replace("-", " ").title(),
                         api_key=api_key,
                         model=try_model,
-                        base_url=base_url if try_model == model else "https://openrouter.ai/api/v1",
+                        base_url=base_url,
                         max_tokens=4096,
                         max_iterations=5,
                     )

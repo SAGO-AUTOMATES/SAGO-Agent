@@ -22,6 +22,34 @@ if TYPE_CHECKING:
 _time = time
 
 
+def _is_error_result(result: str) -> bool:
+    """Check if a tool result indicates an error (API failure, rate limit, etc.)."""
+    if not isinstance(result, str):
+        return False
+    result_lower = result.lower()
+    error_patterns = [
+        "error",
+        "failed",
+        "rate limit",
+        "rate_limit",
+        "rejected",
+        "exception",
+        "traceback",
+        "api error",
+        "invalid",
+        "unauthorized",
+        "permission denied",
+        "timeout",
+        "timed out",
+        "no such file",
+        "not found",
+        "status code",
+        "status_code",
+        "last error",
+    ]
+    return any(p in result_lower for p in error_patterns)
+
+
 class AgentOrchestrationMixin:
     """Mixin for multi-agent delegation, chaining, parallel execution, and approval flows."""
 
@@ -35,6 +63,18 @@ class AgentOrchestrationMixin:
 
     def _process_delegation_thread(self: SagoApp, agent_name: str, task: str) -> None:
         logger.debug("delegation thread started: agent=%s", agent_name)
+
+        # Set callbacks in context so spawned agents inherit UI updates
+        from sago.engine.simple_executor import set_execution_callbacks
+
+        set_execution_callbacks(
+            on_tool_call=lambda n, a: self.call_from_thread(self._update_spinner, f"Running: {n}"),
+            on_tool_result=lambda n, a, r, s: self.call_from_thread(
+                self._add_tool_call, n, a, r, s
+            ),
+            on_thinking=lambda t: self.call_from_thread(self._update_spinner, t),
+        )
+
         tm = self._task_manager or get_task_manager()
         info = tm.create_task(agent_name, task)
         info.status = AgentStatus.RUNNING
@@ -76,12 +116,7 @@ class AgentOrchestrationMixin:
 
             dur_ms = (_time.time() - t0) * 1000
             # Detect error embedded in result string (agent returns error as text)
-            result_is_error = (
-                "could not be spawned" in result
-                or result.startswith("Error")
-                or result.startswith("Last error")
-                or "REJECTED" in result
-            )
+            result_is_error = "could not be spawned" in result or _is_error_result(result)
             logger.info(
                 "delegation complete: agent=%s dur_ms=%.1f result_len=%d error=%s",
                 agent_name,
@@ -160,6 +195,18 @@ class AgentOrchestrationMixin:
 
     def _process_chain_thread(self: SagoApp, chain_steps: list[list[str]], task: str) -> None:
         logger.debug("chain thread started: %d steps", len(chain_steps))
+
+        # Set callbacks in context so spawned agents inherit UI updates
+        from sago.engine.simple_executor import set_execution_callbacks
+
+        set_execution_callbacks(
+            on_tool_call=lambda n, a: self.call_from_thread(self._update_spinner, f"Running: {n}"),
+            on_tool_result=lambda n, a, r, s: self.call_from_thread(
+                self._add_tool_call, n, a, r, s
+            ),
+            on_thinking=lambda t: self.call_from_thread(self._update_spinner, t),
+        )
+
         tm = self._task_manager or get_task_manager()
         flat_agents = [a for step in chain_steps for a in step]
         try:
@@ -184,6 +231,7 @@ class AgentOrchestrationMixin:
                 if target is not None:
                     resp = getattr(target, "_response_container", None)
                     if resp is not None:
+                        resp.display = True
                         resp.mount(handoff_widget)
                     else:
                         target.mount(handoff_widget)
@@ -204,12 +252,11 @@ class AgentOrchestrationMixin:
                 )
                 return
 
-            from sago.agents.handoff import HandoffContext, get_recursion_guard
+            from sago.agents.handoff import HandoffContext, create_fresh_guard
             from sago.tools.file.spawn_agent import SpawnAgentTool
 
             handoff_ctx = HandoffContext(original_task=task, task_type="chain")
-            guard = get_recursion_guard()
-            guard.reset()
+            guard = create_fresh_guard()
 
             tool = SpawnAgentTool()
             current_input = task
@@ -227,9 +274,6 @@ class AgentOrchestrationMixin:
 
                 if not allowed_agents:
                     continue
-
-                for agent in allowed_agents:
-                    guard.enter(agent)
 
                 if len(allowed_agents) == 1:
                     # Sequential single agent
@@ -267,7 +311,7 @@ class AgentOrchestrationMixin:
                     result = tool.run(task=current_input, agent_name=agent, context=context_str)
 
                     dur_ms = (_time.time() - t_step) * 1000
-                    is_success = not (result.startswith("Error") or "REJECTED" in result)
+                    is_success = not _is_error_result(result)
                     try:
                         from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
 
@@ -306,7 +350,20 @@ class AgentOrchestrationMixin:
                     _step_status = "completed" if is_success else "failed"
                     self.call_from_thread(handoff_widget.update_step, _hf_idx, _step_status)
                     _hf_idx += 1
+                    # Stop chain on failure — subsequent steps depend on this one
+                    if not is_success:
+                        logger.info(
+                            "chain step %d failed — stopping chain, skipping remaining steps",
+                            step_idx + 1,
+                        )
+                        self.call_from_thread(
+                            self._add_notice_inline,
+                            f"Chain stopped: step {step_idx + 1} failed ({result[:80]}...)",
+                        )
+                        break
                     current_input = result
+                    # Exit agent from guard after step completes so next step can re-enter
+                    guard.exit(agent)
                 else:
                     # Parallel agents
                     logger.info(
@@ -351,10 +408,11 @@ class AgentOrchestrationMixin:
 
                     # Merge parallel results and update handoff flow
                     merged_parts = []
+                    parallel_has_failure = False
                     for agent, hf_idx in zip(allowed_agents, _parallel_indices):
                         if agent in results:
                             r = results[agent]
-                            is_ok = not (r.startswith("Error") or "REJECTED" in r)
+                            is_ok = not _is_error_result(r)
                             handoff_ctx.add_result(agent, r, success=is_ok)
                             if "Files created/modified:" in r:
                                 files_line = r.split("Files created/modified:")[1].split("\n")[0]
@@ -364,10 +422,25 @@ class AgentOrchestrationMixin:
                                         handoff_ctx.files_created.append(f)
                             merged_parts.append(f"[{agent}]: {r}")
                             _p_status = "completed" if is_ok else "failed"
+                            if not is_ok:
+                                parallel_has_failure = True
                             self.call_from_thread(handoff_widget.update_step, hf_idx, _p_status)
                         elif agent in errors:
                             merged_parts.append(f"[{agent}] Error: {errors[agent]}")
+                            parallel_has_failure = True
                             self.call_from_thread(handoff_widget.update_step, hf_idx, "failed")
+
+                    # Stop chain on parallel failure
+                    if parallel_has_failure:
+                        logger.info(
+                            "chain step %d parallel agents failed — stopping chain",
+                            step_idx + 1,
+                        )
+                        self.call_from_thread(
+                            self._add_notice_inline,
+                            f"Chain stopped: parallel step {step_idx + 1} had failures",
+                        )
+                        break
 
                     current_input = "\n\n".join(merged_parts)
                     logger.debug(
@@ -377,8 +450,8 @@ class AgentOrchestrationMixin:
                         len(errors),
                     )
 
-                    for agent in allowed_agents:
-                        guard.exit(agent)
+                    # Guard lifecycle for parallel agents is handled by SpawnAgentTool
+                    # No need to exit here since we removed the pre-enter calls
 
             logger.info("chain completed: %d steps", len(chain_steps))
             self.call_from_thread(self._hide_spinner)
@@ -413,6 +486,17 @@ class AgentOrchestrationMixin:
         t.start()
 
     def _process_orchestration_thread(self: SagoApp, task: str) -> None:
+        # Set callbacks in context so spawned agents inherit UI updates
+        from sago.engine.simple_executor import set_execution_callbacks
+
+        set_execution_callbacks(
+            on_tool_call=lambda n, a: self.call_from_thread(self._update_spinner, f"Running: {n}"),
+            on_tool_result=lambda n, a, r, s: self.call_from_thread(
+                self._add_tool_call, n, a, r, s
+            ),
+            on_thinking=lambda t: self.call_from_thread(self._update_spinner, t),
+        )
+
         self.call_from_thread(self._show_spinner, "Analyzing task for delegation...")
         try:
             api_key = self._get_provider_api_key()
@@ -424,27 +508,27 @@ class AgentOrchestrationMixin:
                 )
                 return
 
-            from openai import OpenAI
-
             from sago.agents.registry import list_agents
+            from sago.llm.tui_providers import get_tui_client
 
-            client = OpenAI(
-                api_key=api_key,
-                base_url="https://openrouter.ai/api/v1",
-                timeout=30.0,
-            )
+            client, api_model = get_tui_client(self.current_provider, self.current_model)
+            use_native_gemini = self.current_provider == "google"
             agents = list_agents()
             agent_list_str = "\n".join(
                 [
                     f"- {a['name']}: {a.get('role', '')} | Skills: {', '.join(a.get('skills', [])[:3])}"
-                    for a in agents[:50]
+                    for a in agents
                 ]
             )
 
             system_prompt = (
                 "You are a task orchestrator. Analyze the task and break it into steps.\n"
-                "For each step, specify which agent should handle it.\n"
-                'Reply with a JSON list of steps: [{"agent": "agent-name", "task": "what to do"}]\n\n'
+                "IMPORTANT: For simple tasks (reading files, answering questions, checking status), "
+                "use a SINGLE step with python-engineer. Do NOT over-decompose simple tasks.\n"
+                "Only break into multiple steps for genuinely complex multi-phase work "
+                "(e.g., create API + write tests + add docs).\n"
+                "Each step should be minimal and focused — one agent doing ONE thing.\n"
+                'Reply with a JSON list: [{"agent": "agent-name", "task": "specific action"}]\n\n'
                 f"Available agents:\n{agent_list_str}"
             )
             prompt_len = len(system_prompt) + len(task)
@@ -456,20 +540,70 @@ class AgentOrchestrationMixin:
             )
 
             try:
-                response = client.chat.completions.create(
-                    model=self.current_model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": task},
-                    ],
-                    max_tokens=1024,
-                )
-                plan_text = response.choices[0].message.content or "[]"
+                if use_native_gemini:
+                    from google.genai import types as google_types
+
+                    contents = [
+                        google_types.Content(
+                            role="user",
+                            parts=[google_types.Part(text=f"{system_prompt}\n\n{task}")],
+                        )
+                    ]
+                    # Retry with backoff for rate limits
+                    max_retries = 3
+                    plan_text = None
+                    for attempt in range(max_retries):
+                        try:
+                            response = client.models.generate_content(
+                                model=api_model,
+                                contents=contents,
+                                config=google_types.GenerateContentConfig(max_output_tokens=1024),
+                            )
+                            plan_text = response.text or "[]"
+                            break
+                        except Exception as api_err:
+                            err_str = str(api_err).lower()
+                            if (
+                                "rate" in err_str or "limit" in err_str
+                            ) and attempt < max_retries - 1:
+                                wait_sec = (2**attempt) * 2
+                                logger.warning("Planning rate limit, retrying in %ds", wait_sec)
+                                time.sleep(wait_sec)
+                            else:
+                                raise
+                    if plan_text is None:
+                        plan_text = "[]"
+                else:
+                    max_retries = 3
+                    plan_text = None
+                    for attempt in range(max_retries):
+                        try:
+                            response = client.chat.completions.create(
+                                model=api_model,
+                                messages=[
+                                    {"role": "system", "content": system_prompt},
+                                    {"role": "user", "content": task},
+                                ],
+                                max_tokens=1024,
+                            )
+                            plan_text = response.choices[0].message.content or "[]"
+                            break
+                        except Exception as api_err:
+                            err_str = str(api_err).lower()
+                            if (
+                                "429" in err_str or "rate" in err_str
+                            ) and attempt < max_retries - 1:
+                                wait_sec = (2**attempt) * 2
+                                logger.warning("Planning rate limit, retrying in %ds", wait_sec)
+                                time.sleep(wait_sec)
+                            else:
+                                raise
+                    if plan_text is None:
+                        plan_text = "[]"
                 logger.info(
-                    "planning LLM response: model=%s response_len=%d finish_reason=%s",
+                    "planning LLM response: model=%s response_len=%d",
                     self.current_model,
                     len(plan_text),
-                    response.choices[0].finish_reason if response.choices else "unknown",
                 )
             except Exception as api_err:
                 logger.error(
@@ -491,6 +625,26 @@ class AgentOrchestrationMixin:
             except json.JSONDecodeError:
                 logger.debug("plan JSON parse failed, falling back to python-engineer")
                 plan = [{"agent": "python-engineer", "task": task}]
+
+            # Validate agent names against registry, fix hallucinated names
+            valid_agents = {a["name"] for a in list_agents()}
+            for step in plan:
+                agent_name = step.get("agent", "")
+                if agent_name not in valid_agents:
+                    # Try fuzzy match: check if any valid agent name is a substring
+                    matched = False
+                    for valid in valid_agents:
+                        if valid in agent_name or agent_name in valid:
+                            step["agent"] = valid
+                            matched = True
+                            break
+                    if not matched:
+                        # Default to python-engineer for unknown agents
+                        logger.warning(
+                            "Hallucinated agent '%s' not in registry, falling back to python-engineer",
+                            agent_name,
+                        )
+                        step["agent"] = "python-engineer"
 
             logger.debug("plan parsed: %d steps", len(plan))
             for i, step in enumerate(plan):
@@ -517,14 +671,39 @@ class AgentOrchestrationMixin:
             def _mount_plan() -> None:
                 try:
                     target = getattr(self, "_active_exchange_card", None)
+                    container = None
                     if target is not None:
-                        resp = getattr(target, "_response_container", None)
-                        if resp is not None:
-                            resp.mount(plan_widget)
-                        else:
-                            target.mount(plan_widget)
+                        container = getattr(target, "_response_container", None)
+                    if container is None:
+                        container = self.query_one("#messages")
                     else:
-                        self.query_one("#messages").mount(plan_widget)
+                        container.display = True
+
+                    # Mount the visual plan widget
+                    container.mount(plan_widget)
+
+                    # Mount editable plan summary with instructions
+                    from textual.widgets import Static as TextualStatic
+
+                    plan_lines = []
+                    for i, step in enumerate(plan):
+                        agent = step.get("agent", "python-engineer")
+                        task = step.get("task", "")
+                        plan_lines.append(f"  {i + 1}. [{agent}] {task[:80]}")
+
+                    plan_text = "\n".join(plan_lines)
+                    instructions = (
+                        f"[dim]{plan_text}[/dim]\n\n"
+                        f"[bold yellow]Commands:[/bold yellow] "
+                        f"[dim]/plan edit <step> <new task>[/dim] — modify a step  •  "
+                        f"[dim]/plan add <agent>: <task>[/dim] — add a step  •  "
+                        f"[dim]/plan remove <step>[/dim] — remove a step  •  "
+                        f"[bold green]Y[/bold green] — approve  •  [bold red]N[/bold red] — deny"
+                    )
+                    container.mount(
+                        TextualStatic(instructions, markup=True, classes="msg-assistant")
+                    )
+                    container.scroll_end()
                 except Exception as e:
                     logger.debug("mount orchestration plan failed: %s", e)
 
@@ -572,19 +751,29 @@ class AgentOrchestrationMixin:
 
     def _execute_orchestration_plan_thread(self: SagoApp, plan: list[dict]) -> None:
         """Runs in a background thread — all call_from_thread calls are safe here."""
+        # Set callbacks in context so spawned agents inherit UI updates
+        from sago.engine.simple_executor import set_execution_callbacks
+
+        set_execution_callbacks(
+            on_tool_call=lambda n, a: self.call_from_thread(self._update_spinner, f"Running: {n}"),
+            on_tool_result=lambda n, a, r, s: self.call_from_thread(
+                self._add_tool_call, n, a, r, s
+            ),
+            on_thinking=lambda t: self.call_from_thread(self._update_spinner, t),
+        )
+
         try:
-            from sago.agents.handoff import HandoffContext, get_recursion_guard
+            from sago.agents.handoff import HandoffContext, create_fresh_guard
             from sago.tools.file.spawn_agent import SpawnAgentTool
 
             handoff_ctx = HandoffContext(
                 original_task=plan[0].get("task", "") if plan else "",
                 task_type="orchestrate",
             )
-            guard = get_recursion_guard()
-            guard.reset()
+            guard = create_fresh_guard()
 
             tool = SpawnAgentTool()
-            results = []
+            step_results = []  # (agent, success) tuples for summary
             for i, step in enumerate(plan):
                 agent = step.get("agent", "python-engineer")
                 step_task = step.get("task", "")
@@ -592,10 +781,20 @@ class AgentOrchestrationMixin:
                 # Check recursion guard
                 allowed, reason = guard.can_spawn(agent)
                 if not allowed:
-                    results.append(f"**{agent}**: SKIPPED — {reason}")
+                    step_results.append((agent, False))
+                    self.call_from_thread(
+                        self._add_orchestrate_step,
+                        i + 1,
+                        len(plan),
+                        agent,
+                        step_task,
+                        f"SKIPPED — {reason}",
+                        [],
+                        False,
+                        0.0,
+                    )
                     continue
 
-                guard.enter(agent)
                 logger.debug(
                     "plan step %d/%d: agent=%s task=%s", i + 1, len(plan), agent, step_task[:80]
                 )
@@ -611,14 +810,12 @@ class AgentOrchestrationMixin:
                 if i > 0:
                     context_str = handoff_ctx.get_compact_handoff_prompt(agent)
 
+                step_start = time.time()
                 result = tool.run(task=step_task, agent_name=agent, context=context_str)
+                step_elapsed = time.time() - step_start
 
                 # Record in handoff context
-                is_success = not (
-                    result.startswith("Error")
-                    or result.startswith("Last error")
-                    or "REJECTED" in result
-                )
+                is_success = not _is_error_result(result)
                 logger.info(
                     "plan step %d/%d result: agent=%s success=%s result_len=%d",
                     i + 1,
@@ -637,7 +834,7 @@ class AgentOrchestrationMixin:
                         event_type=TraceEventType.FUNCTION_RETURN,
                         source=f"agent.{agent}",
                         action=f"orchestrate_step_{i + 1}_complete",
-                        duration_ms=0.0,
+                        duration_ms=step_elapsed * 1000,
                         status="ERROR" if not is_success else "OK",
                         data={
                             "step": i + 1,
@@ -650,26 +847,64 @@ class AgentOrchestrationMixin:
                 except Exception as exc:
                     logger.debug("dev tracer record failed (orchestrate step %d): %s", i + 1, exc)
 
-                # Extract files created
+                # Extract files created and tools used from result
+                files_created = []
+                tools_used = []
                 if "Files created/modified:" in result:
                     files_line = result.split("Files created/modified:")[1].split("\n")[0]
                     for f in files_line.split(","):
                         f = f.strip()
                         if f and f not in handoff_ctx.files_created:
                             handoff_ctx.files_created.append(f)
+                            files_created.append(f)
+                if "Tools used:" in result:
+                    tools_line = result.split("Tools used:")[1].split("\n")[0]
+                    tools_used = [t.strip() for t in tools_line.split(",") if t.strip()]
 
-                results.append(f"**{agent}**: {result[:500]}")
+                step_results.append((agent, is_success))
+
+                # Mount step result into exchange card
+                self.call_from_thread(
+                    self._add_orchestrate_step,
+                    i + 1,
+                    len(plan),
+                    agent,
+                    step_task,
+                    result,
+                    tools_used,
+                    is_success,
+                    step_elapsed,
+                )
+
                 # Update orchestration plan widget: mark step completed/failed
                 plan_widget = getattr(self, "_orchestration_plan_widget", None)
                 if plan_widget is not None:
                     _step_status = "completed" if is_success else "failed"
                     self.call_from_thread(plan_widget.mark_step, i, _step_status)
-                guard.exit(agent)
 
             logger.info("plan execution completed: %d steps", len(plan))
             self.call_from_thread(self._hide_spinner)
-            final = f"Orchestration complete ({len(plan)} steps):\n\n" + "\n\n".join(results)
-            self.call_from_thread(self._add_assistant_message, final)
+
+            # Mount final summary into exchange card
+            ok_count = sum(1 for _, ok in step_results if ok)
+            fail_count = len(step_results) - ok_count
+            summary_parts = [f"[bold]Orchestration complete[/bold] ({len(plan)} steps)"]
+            if ok_count:
+                summary_parts.append(f"[green]{ok_count} succeeded[/green]")
+            if fail_count:
+                summary_parts.append(f"[red]{fail_count} failed[/red]")
+            summary = " — ".join(summary_parts)
+
+            target_card = getattr(self, "_active_exchange_card", None)
+            container = None
+            if target_card is not None:
+                container = getattr(target_card, "_response_container", None)
+            if container is not None:
+                container.display = True
+                from textual.widgets import Static as TextualStatic
+
+                self.call_from_thread(container.mount, TextualStatic(summary, markup=True))
+                self.call_from_thread(container.scroll_end)
         except Exception as e:
             logger.error("plan execution failed: error=%s", e, exc_info=True)
             try:
@@ -689,22 +924,36 @@ class AgentOrchestrationMixin:
         finally:
             self.is_thinking = False
 
-    def _process_parallel(self: SagoApp, agents: list[str], task: str) -> None:
-        """Run multiple agents in parallel on the same task."""
-        logger.info("parallel requested: agents=%s task_len=%d", agents, len(task))
+    def _process_parallel(self: SagoApp, agent_tasks: list[tuple[str, str]]) -> None:
+        """Run multiple agents in parallel, each with its own task."""
+        agents = [a for a, _ in agent_tasks]
+        logger.info("parallel requested: agents=%s", agents)
         self.is_thinking = True
-        t = threading.Thread(target=self._process_parallel_thread, args=(agents, task), daemon=True)
+        t = threading.Thread(target=self._process_parallel_thread, args=(agent_tasks,), daemon=True)
         t.start()
 
-    def _process_parallel_thread(self: SagoApp, agents: list[str], task: str) -> None:
+    def _process_parallel_thread(self: SagoApp, agent_tasks: list[tuple[str, str]]) -> None:
         """Runs in a background thread."""
+        agents = [a for a, _ in agent_tasks]
         logger.info("parallel thread started: agents=%s", agents)
+
+        # Set callbacks in context so spawned agents inherit UI updates
+        from sago.engine.simple_executor import set_execution_callbacks
+
+        set_execution_callbacks(
+            on_tool_call=lambda n, a: self.call_from_thread(self._update_spinner, f"Running: {n}"),
+            on_tool_result=lambda n, a, r, s: self.call_from_thread(
+                self._add_tool_call, n, a, r, s
+            ),
+            on_thinking=lambda t: self.call_from_thread(self._update_spinner, t),
+        )
+
         tm = self._task_manager or get_task_manager()
 
-        # Create task entries for each agent
+        # Create task entries for each agent with their own task
         task_infos = []
-        for agent_name in agents:
-            info = tm.create_task(agent_name, task)
+        for agent_name, agent_task in agent_tasks:
+            info = tm.create_task(agent_name, agent_task)
             info.status = AgentStatus.RUNNING
             task_infos.append(info)
 
@@ -716,7 +965,11 @@ class AgentOrchestrationMixin:
             logger.debug("parallel bar setup failed: %s", e)
 
         try:
+            from sago.agents.handoff import create_fresh_guard
             from sago.tools.file.spawn_agent import SpawnAgentTool
+
+            # Create fresh guard for this parallel execution context
+            _parallel_guard = create_fresh_guard()
 
             tool = SpawnAgentTool()
             results: list[dict[str, Any]] = []
@@ -744,6 +997,40 @@ class AgentOrchestrationMixin:
                     result = tool.run(task=subtask, agent_name=agent_name)
                     elapsed = _time.time() - start
                     info.elapsed = elapsed
+
+                    # Detect errors in result string
+                    result_is_error = (
+                        "could not be spawned" in result
+                        or result.startswith("Error")
+                        or result.startswith("Last error")
+                        or "REJECTED" in result
+                        or "API error" in result
+                        or "Rate limit" in result
+                    )
+
+                    if result_is_error:
+                        info.status = AgentStatus.FAILED
+                        info.error = result
+                        self.call_from_thread(self._update_dashboard)
+                        self.call_from_thread(
+                            self._update_parallel_agent_status,
+                            agent_name,
+                            f"✗ Failed ({elapsed:.1f}s)",
+                        )
+                        self.call_from_thread(
+                            self._add_parallel_result,
+                            agent_name,
+                            result,
+                            elapsed,
+                            False,
+                        )
+                        return {
+                            "agent": agent_name,
+                            "result": result,
+                            "elapsed": elapsed,
+                            "success": False,
+                        }
+
                     info.status = AgentStatus.COMPLETED
                     info.result = result
                     self.call_from_thread(self._update_dashboard)
@@ -789,10 +1076,12 @@ class AgentOrchestrationMixin:
 
             logger.info("parallel execution starting: %d agents", len(agents))
             # Execute all agents in parallel using ThreadPoolExecutor
+            agent_task_map = {a: t for a, t in agent_tasks}
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(agents)) as executor:
                 futures = {}
                 for info in task_infos:
-                    future = executor.submit(execute_agent, info.agent_name, task, info)
+                    agent_task = agent_task_map.get(info.agent_name, "")
+                    future = executor.submit(execute_agent, info.agent_name, agent_task, info)
                     futures[future] = info
                     if self._parallel_lock:
                         with self._parallel_lock:
@@ -863,4 +1152,7 @@ class AgentOrchestrationMixin:
 
     def _hide_parallel_bar(self: SagoApp) -> None:
         """Hide the parallel agent status bar."""
-        self.query_one("#parallel-bar").remove_class("visible")
+        try:
+            self.query_one("#parallel-bar").remove_class("visible")
+        except Exception:
+            pass  # Parallel bar may not exist

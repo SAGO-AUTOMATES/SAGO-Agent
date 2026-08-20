@@ -110,7 +110,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                         "Pending action",
                         id="approval-label",
                         classes="approval-label",
-                        markup=False,
+                        markup=True,
                     )
                     with Horizontal(id="approval-buttons"):
                         yield Button(
@@ -1326,6 +1326,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/delegate": lambda: self._delegate_task(args),
             "/chain": lambda: self._chain_agents(args),
             "/orchestrate": lambda: self._orchestrate_task(args),
+            "/plan": lambda: self._plan_or_show(args),
             "/clear": lambda: self.action_clear_chat(),
             "/status": lambda: self._show_status(),
             "/export": lambda: self._export_session(args),
@@ -1357,7 +1358,6 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/todos": lambda: self._show_all_todos(),
             "/done": lambda: self._mark_todo_done(args),
             "/ask": lambda: self._ask_user(args),
-            "/plan": lambda: self._show_plan(args),
             "/undo": lambda: self._undo_change(),
             "/changes": lambda: self._show_changes(),
             "/exit": lambda: self._exit_session(),

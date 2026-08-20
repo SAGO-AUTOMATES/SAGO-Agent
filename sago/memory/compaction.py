@@ -332,10 +332,21 @@ class SessionCompactor:
         model: str = "openrouter/free",
     ) -> str:
         """Use LLM to summarize messages for better compaction."""
-        if not api_key:
-            import os
+        try:
+            from sago.llm.tui_providers import get_tui_client, resolve_active_llm_config
 
-            api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+            active_cfg = resolve_active_llm_config(
+                model=None if model == "openrouter/free" else model,
+                api_key=api_key or None,
+            )
+            if not api_key:
+                api_key = active_cfg["api_key"]
+            if model == "openrouter/free" and active_cfg["model"]:
+                model = active_cfg["model"]
+            provider = active_cfg["provider"]
+        except Exception:
+            logger.exception("Failed to resolve LLM config for compaction")
+            return self.compact_messages(messages).summary
 
         if not api_key:
             logger.warning("No API key available, falling back to rule-based compaction")
@@ -343,10 +354,15 @@ class SessionCompactor:
             return compacted.summary
 
         try:
-            from openai import OpenAI
+            from sago.llm.tui_providers import get_tui_client
 
-            logger.info("Calling LLM summarization: model=%s, messages=%d", model, len(messages))
-            client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", timeout=30.0)
+            logger.info(
+                "Calling LLM summarization: provider=%s model=%s messages=%d",
+                provider,
+                model,
+                len(messages),
+            )
+            client, api_model = get_tui_client(provider, model)
 
             # Build conversation for summarization
             conversation = ""
@@ -355,23 +371,40 @@ class SessionCompactor:
                 content = msg.get("content", "")[:500]
                 conversation += f"{role}: {content}\n"
 
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Summarize this conversation concisely. "
-                            "Include: key decisions, action items, current state. "
-                            "Keep it under 500 words."
-                        ),
-                    },
-                    {"role": "user", "content": conversation},
-                ],
-                max_tokens=1024,
-                temperature=0.3,
+            summary_prompt = (
+                "Summarize this conversation concisely. "
+                "Include: key decisions, action items, current state. "
+                "Keep it under 500 words."
             )
-            result = response.choices[0].message.content or "Summary unavailable"
+
+            if provider == "google":
+                from google.genai import types as google_types
+
+                contents = [
+                    google_types.Content(
+                        role="user",
+                        parts=[google_types.Part(text=f"{summary_prompt}\n\n{conversation}")],
+                    )
+                ]
+                response = client.models.generate_content(
+                    model=api_model,
+                    contents=contents,
+                    config=google_types.GenerateContentConfig(
+                        max_output_tokens=1024, temperature=0.3
+                    ),
+                )
+                result = response.text or "Summary unavailable"
+            else:
+                response = client.chat.completions.create(
+                    model=api_model,
+                    messages=[
+                        {"role": "system", "content": summary_prompt},
+                        {"role": "user", "content": conversation},
+                    ],
+                    max_tokens=1024,
+                    temperature=0.3,
+                )
+                result = response.choices[0].message.content or "Summary unavailable"
             logger.info("LLM summarization complete: %d chars returned", len(result))
             return result
         except Exception as e:

@@ -179,7 +179,7 @@ Show system and connection status.
 | `/delegate <agent> <task>` | Delegate task to a specialist with dynamic model/provider inheritance |
 | `/chain <a1,a2> <task>` | Chain multiple specialist agents in sequence (e.g. `architect -> coder -> test`) |
 | `/orchestrate <task>` | Automatically orchestrate and dispatch task across specialist team |
-| `/parallel <a1,a2> <task>` | Run multiple agents concurrently on the same task |
+| `/parallel <a1: t1, a2: t2>` | Run multiple agents concurrently, each with its own task (or shared task) |
 | `/tasks [list\|cancel <id>]` | Manage background tasks (`Ctrl+T` or `/tasks cancel <id>`) |
 | `/skills [query\|reload]` | Inspect available built-in and workspace `SKILL.md` workflows |
 | `/mcp [list\|test\|reload]` | Manage external Model Context Protocol servers and bridged tools |
