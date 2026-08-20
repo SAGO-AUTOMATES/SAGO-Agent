@@ -1,132 +1,126 @@
-# Sago Master Configuration
-# ========================
-# This is the primary configuration file for the Sago multi-agent system.
-# Edit this file to customize behavior, enable/disable agents, and set preferences.
+# =============================================================================
+# SAGO MASTER CONFIGURATION
+# =============================================================================
+# This is the complete configuration file for the Sago multi-agent system.
+# All options have sensible defaults. Uncomment and modify as needed.
+#
+# Location: ~/.sago/config/sago.yaml
+# Docs: See docs/CONFIGURATION.md for full guide
+# =============================================================================
 
+# -----------------------------------------------------------------------------
+# PROJECT METADATA
+# -----------------------------------------------------------------------------
 project:
   name: "sago"
-  version: "0.1.7"
+  version: "0.1.12"
+  environment: "development"  # development, staging, production
   description: "Sophisticated Multi-Agent Orchestration System"
 
-# Master Agent Configuration
+# -----------------------------------------------------------------------------
+# ORCHESTRATOR CONFIGURATION
+# The master agent that routes tasks to specialist agents.
+# -----------------------------------------------------------------------------
 orchestrator:
   name: "Sago"
   description: "Master orchestrator that routes tasks to specialist agents"
-  model: "gemini-2.5-flash"  # Default model for orchestrator
-  max_iterations: 25
-  verbose: true
-  memory: true
-  planning: true
+  model: null  # null = use settings.json model, or specific: "gemini-2.5-flash", "gpt-4o"
+  max_iterations: 25       # Max loops before forcing completion
+  verbose: true            # Show detailed execution logs
+  memory: true             # Enable conversation memory
+  planning: true           # Enable task planning before execution
 
-# Global Settings
+# -----------------------------------------------------------------------------
+# GLOBAL SETTINGS
+# Core system behavior settings.
+# -----------------------------------------------------------------------------
 settings:
-  # Operating system compatibility
-  auto_detect_os: true
-  preferred_shell: null  # null = auto-detect, or "bash", "powershell", "zsh"
+  # --- OS & Shell ---
+  auto_detect_os: true           # Auto-detect OS for platform-specific behavior
+  preferred_shell: null          # null = auto-detect, or "bash", "zsh", "powershell", "cmd"
 
-  # Execution settings
-  max_concurrent_tools: 5
-  tool_timeout_seconds: 300
-  retry_on_failure: true
-  max_retries: 3
+  # --- Execution ---
+  max_concurrent_tools: 5        # Max tools running in parallel
+  tool_timeout_seconds: 300      # Timeout per tool execution (5 min)
+  retry_on_failure: true         # Auto-retry failed tool calls
+  max_retries: 3                 # Number of retry attempts
 
-  # Logging
-  log_level: "INFO"
-  log_to_file: true
-  log_directory: "~/.sago/logs"
+  # --- Logging ---
+  log_level: "INFO"              # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_to_file: true              # Write logs to file (not just console)
+  log_directory: "~/.sago/logs"  # Log file location
 
-  # Session management
-  session_persistence: true
-  session_directory: "~/.sago/sessions"
-  max_session_history: 100
+  # --- Sessions ---
+  session_persistence: true      # Save sessions to disk
+  session_directory: "~/.sago/sessions"  # Session storage location
+  max_session_history: 100       # Max messages to keep per session
 
-  # Output settings
-  verbose_output: false
-  color_output: true
-  markdown_output: true
+  # --- Output ---
+  verbose_output: false          # Show verbose output in TUI
+  color_output: true             # Enable colored terminal output
+  markdown_output: true          # Render markdown in responses
 
-# Agent Selection
-# Enable/disable specific agents. Sago will only use enabled agents.
+  # --- Developer ---
+  dev_mode: false                # Enable developer features (extra logging, debug tools)
+
+# -----------------------------------------------------------------------------
+# AGENT CONFIGURATION
+# Enable/disable agents and set per-agent overrides.
+# -----------------------------------------------------------------------------
 agents:
+  # List of enabled agents (only these will be used)
   enabled:
-    - sago          # Master orchestrator (always enabled)
-    - coder         # Code writing and modification
-    - debugger      # Bug identification and fixing
-    - architect     # System design and architecture
-    - devops        # Infrastructure and deployment
-    - reviewer      # Code review and quality
-    - researcher    # Information gathering and analysis
-    - planner       # Task planning and breakdown
+    - sago            # Master orchestrator (always enabled)
+    - coder           # Code writing and modification
+    - debugger        # Bug identification and fixing
+    - architect       # System design and architecture
+    - devops          # Infrastructure and deployment
+    - reviewer        # Code review and quality
+    - researcher      # Information gathering and analysis
+    - planner         # Task planning and breakdown
 
-  # Agent-specific overrides
+  # Per-agent overrides (optional)
   overrides:
     coder:
-      model: "gemini-2.5-flash"
+      model: null              # null = use orchestrator default
       max_iterations: 15
+      verbose: null            # null = use orchestrator default
     debugger:
-      model: "gemini-2.5-flash"
+      model: null
       max_iterations: 20
     architect:
-      model: "gemini-2.5-flash"
+      model: null
       max_iterations: 10
 
-# Tool Configuration
+# -----------------------------------------------------------------------------
+# TOOL CONFIGURATION
+# Enable/disable tool categories.
+# -----------------------------------------------------------------------------
 tools:
-  # Enable/disable tool categories
   categories:
-    file: true
-    shell: true
-    ssh: true
-    session: true
-    coding: true
-    network: true
-    admin: true
-    system: true
+    file: true       # File operations (read, write, edit, search)
+    shell: true      # Shell command execution
+    ssh: true        # SSH remote operations
+    session: true    # Session management
+    coding: true     # Code analysis and formatting
+    network: true    # Network operations (HTTP, DNS, ports)
+    admin: true      # Administrative operations (sudo, packages)
+    system: true     # System operations (Docker, K8s, processes)
 
-  # Tool-specific settings
-  file:
-    max_file_size_mb: 50
-    allowed_extensions: null  # null = all, or list like [".py", ".js", ".yaml"]
-    backup_before_edit: true
-
-  shell:
-    allowed_commands: null  # null = all, or list of allowed command prefixes
-    blocked_commands:
-      - "rm -rf /"
-      - "mkfs"
-      - "dd if="
-    require_confirmation: true
-
-  ssh:
-    known_hosts_file: "~/.ssh/known_hosts"
-    connection_timeout: 30
-    max_retries: 3
-
-  admin:
-    require_sudo_password: true
-    prompt_for_permission: true
-    allowed_install_methods:
-      - "apt"
-      - "yum"
-      - "brew"
-      - "choco"
-      - "pip"
-      - "npm"
-      - "cargo"
-
-# LLM Provider Configuration
+# -----------------------------------------------------------------------------
+# LLM PROVIDER CONFIGURATION
+# Configure which AI models to use.
+# -----------------------------------------------------------------------------
 llm_providers:
-  # Default provider
-  default: "gemini"
+  default: "gemini"  # Default provider: gemini, openai, claude, openrouter, ollama
 
-  # Provider-specific settings
   providers:
     gemini:
       enabled: true
-      api_key_env: "GEMINI_API_KEY"
-      model: "gemini-2.5-flash"
-      max_tokens: 8192
-      temperature: 0.7
+      api_key_env: "GEMINI_API_KEY"    # Environment variable holding API key
+      model: "gemini-2.5-flash"        # Model name
+      max_tokens: 8192                 # Max response tokens
+      temperature: 0.7                 # Randomness (0.0-1.0)
 
     openai:
       enabled: true
@@ -151,14 +145,16 @@ llm_providers:
 
     ollama:
       enabled: false
-      base_url: "http://localhost:11434"
+      base_url: "http://localhost:11434"  # Local Ollama server
       model: "llama3.1"
       max_tokens: 4096
       temperature: 0.7
 
-# Task Routing Rules
+# -----------------------------------------------------------------------------
+# TASK ROUTING
+# Keywords that trigger specific agents.
+# -----------------------------------------------------------------------------
 routing:
-  # Keywords that trigger specific agents
   triggers:
     coder:
       - "write code"
@@ -223,28 +219,40 @@ routing:
       - "milestone"
       - "task"
 
-# Hybrid Code Search Configuration
+# -----------------------------------------------------------------------------
+# HYBRID SEARCH CONFIGURATION
+# For codebase indexing and search.
+# -----------------------------------------------------------------------------
 search:
-  max_files: 50000
-  use_embeddings: false
-  cache_dir: "~/.sago/cache/hybrid_index"
+  max_files: 50000               # Max files to index
+  use_embeddings: false          # Use AI embeddings for search (requires API)
+  cache_dir: "~/.sago/cache/hybrid_index"  # Index cache location
 
-# Daemon Server Configuration
+# -----------------------------------------------------------------------------
+# DAEMON SERVER CONFIGURATION
+# Background server for persistent operations.
+# -----------------------------------------------------------------------------
 daemon:
-  host: "127.0.0.1"
-  port: 7654
-  max_connections: 10
+  host: "127.0.0.1"             # Bind address (localhost only for security)
+  port: 7654                     # Server port
+  max_connections: 10            # Max concurrent connections
 
-# P2P Mesh Network Configuration
+# -----------------------------------------------------------------------------
+# P2P MESH NETWORK CONFIGURATION
+# For multi-agent communication.
+# -----------------------------------------------------------------------------
 mesh:
-  port: 7655
-  task_timeout_seconds: 120
+  port: 7655                     # Mesh network port
+  task_timeout_seconds: 120      # Timeout for delegated tasks
 
-# Execution Engine & Task Management
+# -----------------------------------------------------------------------------
+# EXECUTION ENGINE CONFIGURATION
+# Fine-tune task execution behavior.
+# -----------------------------------------------------------------------------
 executor:
-  project_context_ttl: 300
-  max_tokens: 32000
-  circular_detection_threshold: 3
-  auto_complete_min_tools: 5
-  auto_complete_min_success: 3
-  auto_complete_min_iterations: 4
+  project_context_ttl: 300       # Seconds to cache project context
+  max_tokens: 32000              # Max tokens per execution
+  circular_detection_threshold: 3  # Detect circular agent calls
+  auto_complete_min_tools: 5     # Min tools used for auto-completion
+  auto_complete_min_success: 3   # Min successful tools for auto-completion
+  auto_complete_min_iterations: 4  # Min iterations for auto-completion

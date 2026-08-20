@@ -3233,6 +3233,9 @@ def parse_cmd(file_path: str, output: str | None) -> None:
 
 def main() -> None:
     """Main entry point."""
+    from sago.paths import ensure_sago_dirs
+
+    ensure_sago_dirs()
     logger.info("Sago v%s starting", __version__)
     cli()
     logger.debug("Sago CLI exited")

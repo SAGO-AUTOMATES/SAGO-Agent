@@ -11,9 +11,15 @@ All notable changes to the SAGO project are documented in this file.
   - Package manager detection: apt, dnf, yum, apk, pacman, brew, winget, choco, scoop, nix, xbps, portage, zypper
   - System info: Python version, CPU count, total memory (Linux/macOS/Windows)
   - Per-binary auto-installers with OS-specific logic
+  - Smart binary lookup: checks ~/.local/bin, ~/.cargo/bin, ~/.nvm/*/bin, ~/go/bin, etc. before installing
 - **Kubernetes tool** (`k8s_ops`): kubectl wrapper with k3s auto-install (lightweight, ~50MB)
 - **Browser automation tool** (`browser`): Headless browser via Playwright with auto-install
 - **Code sandbox tool** (`code_sandbox`): Isolated Python/JS/Bash execution with auto-install
+- **Configuration system improvements**:
+  - Auto-creates `~/.sago/config/` with default YAML files on first run
+  - Auto-creates `~/.sago/settings.json` with sensible defaults
+  - Supports `~/.sago/config/` directory with individual YAML files
+  - Complete config documentation in `docs/CONFIGURATION.md`
 - **Docker tool improvements**: Fixed shell injection, explicit `list[str]` args, auto-install Docker Engine
 - **Git tool improvements**: Merged system/vcs into unified tool with 22 operations, always `shell=False`
 - **Web fetch improvements**: HTML-to-text conversion, content-type filtering, 10MB max size
@@ -24,6 +30,7 @@ All notable changes to the SAGO project are documented in this file.
 - `docker_ops` now uses explicit argument lists instead of string interpolation
 - `git_operations` expanded from 6 to 22 operations with same safety guarantees
 - `k8s_ops` prefers k3s over standalone kubectl on Linux
+- `ensure_sago_dirs()` now creates all directories including backups/, cache/, prompts/
 - Tool count: 70 → 72
 
 ### Fixed
@@ -31,6 +38,8 @@ All notable changes to the SAGO project are documented in this file.
 - Git operations tool overlap (merged system/vcs into single tool)
 - Web search missing Serper API support
 - Web fetch returning raw HTML instead of clean text
+- Config loading now checks `~/.sago/config/` directory for user overrides
+- Removed junk file `settings.jsonu` from default directory structure
 
 ## [0.1.11] - 2026-08-19
 

@@ -1,6 +1,6 @@
 # Sago - Project Architecture
 
-> Production-grade multi-agent orchestration system with 339 agents, 70 production tools, parallel execution, feedback loops, and multi-LLM support.
+> Production-grade multi-agent orchestration system with 339 agents, 72 production tools, parallel execution, feedback loops, and multi-LLM support.
 
 ## Overview
 
@@ -17,7 +17,15 @@ sago/
 │   ├── main.py                   # CLI entry point (click)
 │   ├── database.py               # SQLite persistence
 │   ├── paths.py                  # Cross-platform paths
+│   ├── settings.py               # User settings (settings.json)
 │   ├── learning.py               # Cross-session learning store
+│   │
+│   ├── config/                   # Configuration system
+│   │   ├── loader.py             # Config loading & validation
+│   │   ├── sago.yaml             # Main system config
+│   │   ├── agents.yaml           # Agent definitions
+│   │   ├── tools.yaml            # Tool registry
+│   │   └── llm_providers.yaml    # LLM provider settings
 │   │
 │   ├── agents/                   # Agent system
 │   │   ├── __init__.py
@@ -31,9 +39,11 @@ sago/
 │   │       ├── fullstack_engineer.py
 │   │       └── ... (339 total)
 │   │
-│   ├── tools/                    # Tool system (70 production tools)
+│   ├── tools/                    # Tool system (72 production tools)
 │   │   ├── __init__.py
 │   │   ├── base.py               # BaseTool with helpers
+│   │   ├── ensure_dep.py         # Dependency auto-installation
+│   │   ├── registry.py           # Dynamic tool discovery
 │   │   ├── file/                 # File operations
 │   │   │   ├── read_file.py
 │   │   │   ├── write_file.py
