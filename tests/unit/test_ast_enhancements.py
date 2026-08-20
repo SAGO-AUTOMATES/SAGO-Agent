@@ -590,5 +590,7 @@ class TestQueryIntentRouting:
         from sago.engine.intent_classifier import IntentClassifier
 
         classifier = IntentClassifier()
-        result = classifier.classify("review the entire architecture and suggest improvements", use_llm=False)
+        result = classifier.classify(
+            "review the entire architecture and suggest improvements", use_llm=False
+        )
         assert result.task_type == "analyze"
