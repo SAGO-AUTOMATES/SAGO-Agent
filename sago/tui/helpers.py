@@ -278,6 +278,80 @@ class ShellEscapeCard(Vertical):
             log_exception(e, "update shell escape card result")
 
 
+def _summarize_tool_result(result: str) -> str:
+    """Create a smart summary of tool result output instead of naive truncation."""
+    from rich.markup import escape as _escape
+
+    if not result or not result.strip():
+        return "[dim](empty)[/dim]"
+
+    lines = result.strip().split("\n")
+    total_chars = len(result)
+    total_lines = len(lines)
+
+    # Short results: show as-is
+    if total_chars <= 1500:
+        return _escape(result)
+
+    # Smart summary based on content detection
+    summary_parts: list[str] = []
+
+    # Detect content type
+    is_file_listing = any(
+        line.strip().startswith(("sago/", "src/", "lib/", "tests/", "./"))
+        or line.strip().startswith("- ")
+        for line in lines[:20]
+    )
+    is_json = result.strip().startswith(("{", "["))
+    is_code = any(
+        kw in result[:500]
+        for kw in ("def ", "class ", "function ", "import ", "from ", "const ", "let ", "var ")
+    )
+    is_error = any(
+        kw in result[:500].lower()
+        for kw in ("error", "traceback", "exception", "failed", "warning")
+    )
+    is_search_result = any(
+        kw in result[:500].lower() for kw in ("match", "found", "results", "grep", "search")
+    )
+
+    # Header with metadata
+    if is_file_listing:
+        file_count = sum(1 for line in lines if "." in line and "/" not in line.lstrip()[:1])
+        summary_parts.append(f"[dim]File listing: {total_lines} lines, ~{file_count} files[/dim]")
+    elif is_json:
+        summary_parts.append(f"[dim]JSON response: {total_chars} chars, {total_lines} lines[/dim]")
+    elif is_code:
+        summary_parts.append(f"[dim]Code output: {total_lines} lines[/dim]")
+    elif is_error:
+        summary_parts.append(f"[dim]Error output: {total_lines} lines[/dim]")
+    elif is_search_result:
+        match_count = sum(
+            1 for line in lines if line.strip().startswith(("sago/", "src/", "tests/"))
+        )
+        summary_parts.append(
+            f"[dim]Search results: {match_count} matches in {total_lines} lines[/dim]"
+        )
+    else:
+        summary_parts.append(f"[dim]Output: {total_lines} lines, {total_chars} chars[/dim]")
+
+    # Show first ~30 lines (most tools put important output first)
+    head_lines = lines[:30]
+    summary_parts.append(_escape("\n".join(head_lines)))
+
+    if total_lines > 30:
+        # Show last ~10 lines (often contains summary/summary info)
+        tail_start = max(0, total_lines - 10)
+        tail_lines = lines[tail_start:]
+        summary_parts.append(f"\n[dim]... ({total_lines - 30} lines omitted) ...[/dim]")
+        summary_parts.append(_escape("\n".join(tail_lines)))
+
+    # Footer with stats
+    summary_parts.append(f"\n[dim]── Total: {total_lines} lines, {total_chars:,} chars ──[/dim]")
+
+    return "\n".join(summary_parts)
+
+
 class UIHelpers:
     """Mixin class providing UI helper methods for SagoApp."""
 
@@ -307,6 +381,24 @@ class UIHelpers:
         msg_container = self.query_one("#messages")
         msg_container.mount(turn_card)
         msg_container.scroll_end(animate=False)
+
+    def _update_last_user_message_metadata(self: SagoApp, metadata: dict) -> None:
+        """Update the last user message's metadata in the database."""
+        if getattr(self, "_loading_session", False):
+            return
+        if self.current_session_id and self.current_session_id != "local":
+            try:
+                from sago.database import MessageStore
+
+                if not hasattr(self, "_message_store") or self._message_store is None:
+                    self._message_store = MessageStore(self.current_session_id)
+                # Update the last user message with enhancement metadata
+                self._message_store.update_last_user_metadata(
+                    agent_name=self.current_agent,
+                    metadata=metadata,
+                )
+            except Exception as e:
+                log_exception(e, "update user message metadata")
 
     def _add_command_turn(
         self: SagoApp,
@@ -345,14 +437,16 @@ class UIHelpers:
         tags = " • ".join(escape(str(t)) for t in raw_tags)
         intent_summary = escape(str(getattr(enhancement, "intent_summary", "")))
         enhanced_prompt = escape(str(getattr(enhancement, "enhanced_prompt", "")))
+        original_prompt = escape(str(getattr(enhancement, "original_prompt", "")))
         raw_crit = getattr(enhancement, "acceptance_criteria", [])
         crit_lines = "\n".join(f"  {i + 1}. {escape(str(c))}" for i, c in enumerate(raw_crit))
         raw_targets = getattr(enhancement, "target_scope", [])
         targets = ", ".join(escape(str(t)) for t in raw_targets)
 
-        card_lines = [
-            f"[bold #58a6ff]Goal:[/] [white]{intent_summary}[/white]",
-        ]
+        card_lines = []
+        if original_prompt:
+            card_lines.append(f"[dim]Original:[/] [white]{original_prompt}[/white]")
+        card_lines.append(f"[bold #58a6ff]Goal:[/] [white]{intent_summary}[/white]")
         if targets:
             card_lines.append(f"[dim]Targets:[/] [cyan]{targets}[/cyan]")
         if tags:
@@ -361,22 +455,29 @@ class UIHelpers:
             card_lines.append(f"\n[bold]Acceptance Criteria:[/]\n{crit_lines}")
 
         card_lines.append(
-            f"\n[dim]── Injected Structured Prompt ──[/dim]\n[white]{enhanced_prompt}[/white]"
+            f"\n[dim]── Enhanced Prompt Sent to Agent ──[/dim]\n[white]{enhanced_prompt}[/white]"
         )
 
-        title_preview = intent_summary[:55] if intent_summary else "Goal Synthesized"
-        title = f"✨ Enhanced Prompt: {title_preview}"
+        title = (
+            f"✨ Enhanced Prompt: {intent_summary[:80]}" if intent_summary else "✨ Enhanced Prompt"
+        )
         card = Collapsible(
             Static("\n".join(card_lines), markup=True),
             title=title,
-            collapsed=False,
+            collapsed=True,
         )
 
         target_card = getattr(self, "_active_exchange_card", None)
-        if target_card is not None and hasattr(target_card, "mount_child"):
-            target_card.mount_child(card)
-        elif target_card is not None:
-            target_card.mount(card)
+        if target_card is not None:
+            try:
+                body_widget = target_card.query_one(".exchange-body")
+                try:
+                    resp = target_card.query_one(".exchange-response")
+                    body_widget.mount(card, before=resp)
+                except Exception:
+                    body_widget.mount(card)
+            except Exception:
+                target_card.mount(card)
         else:
             self.query_one("#messages").mount(card)
         self.query_one("#messages").scroll_end(animate=False)
@@ -391,15 +492,22 @@ class UIHelpers:
         target_card = getattr(self, "_active_exchange_card", None)
 
         def _mount_element(elem: Any) -> None:
-            if target_card is not None:
-                # Use stored reference to response container
-                resp = getattr(target_card, "_response_container", None)
-                if resp is not None:
-                    resp.mount(elem)
-                else:
+            """Mount into response container with fallback to #messages."""
+            try:
+                if target_card is not None:
+                    resp = getattr(target_card, "_response_container", None)
+                    if resp is not None:
+                        resp.mount(elem)
+                        return
                     target_card.mount(elem)
-            else:
+                    return
+            except Exception as mount_err:
+                log_exception(mount_err, "mount into response container")
+            # Ultimate fallback: mount directly on #messages
+            try:
                 self.query_one("#messages").mount(elem)
+            except Exception as fallback_err:
+                log_exception(fallback_err, "fallback mount on #messages")
 
         display = content
 
@@ -431,65 +539,75 @@ class UIHelpers:
         else:
             agent_prefix = "[bold green][SAGO][/bold green]\n"
 
-        if "```" not in display:
-            # Use Rich Markdown renderer for proper formatting
-            from rich.markdown import Markdown as RichMarkdown
+        try:
+            if "```" not in display:
+                # Use Rich Markdown renderer for proper formatting
+                from rich.markdown import Markdown as RichMarkdown
 
-            md = RichMarkdown(display)
-            _mount_element(
-                Static(agent_prefix, classes="exchange-assistant agent-tag", markup=True)
-            )
-            _mount_element(Static(md, classes="exchange-assistant markdown-body"))
-        else:
-            parts = display.split("```")
-            first_text = True
-            for i, part in enumerate(parts):
-                if i % 2 == 0:
-                    text_content = part.strip()
-                    if text_content:
-                        prefix = agent_prefix if first_text else ""
-                        first_text = False
-                        if prefix:
+                md = RichMarkdown(display)
+                _mount_element(
+                    Static(agent_prefix, classes="exchange-assistant agent-tag", markup=True)
+                )
+                _mount_element(Static(md, classes="exchange-assistant markdown-body"))
+            else:
+                parts = display.split("```")
+                first_text = True
+                for i, part in enumerate(parts):
+                    if i % 2 == 0:
+                        text_content = part.strip()
+                        if text_content:
+                            prefix = agent_prefix if first_text else ""
+                            first_text = False
+                            if prefix:
+                                _mount_element(
+                                    Static(
+                                        prefix, classes="exchange-assistant agent-tag", markup=True
+                                    )
+                                )
+                            from rich.markdown import Markdown as RichMarkdown
+
+                            md = RichMarkdown(text_content)
+                            _mount_element(Static(md, classes="exchange-assistant markdown-body"))
+                    else:
+                        lines = part.split("\n", 1)
+                        lang = lines[0].strip() if len(lines) > 1 else "text"
+                        code = lines[1] if len(lines) > 1 else lines[0]
+                        code = code.rstrip().removesuffix("```").rstrip()
+
+                        if not code.strip():
+                            continue
+
+                        try:
+                            syntax = Syntax(
+                                code,
+                                lang or "text",
+                                theme="monokai",
+                                line_numbers=True,
+                                word_wrap=True,
+                            )
                             _mount_element(
-                                Static(prefix, classes="exchange-assistant agent-tag", markup=True)
+                                Collapsible(
+                                    Static(syntax),
+                                    title=f"Code snippet ({lang or 'text'})",
+                                    collapsed=False,
+                                )
                             )
-                        from rich.markdown import Markdown as RichMarkdown
-
-                        md = RichMarkdown(text_content)
-                        _mount_element(Static(md, classes="exchange-assistant markdown-body"))
-                else:
-                    lines = part.split("\n", 1)
-                    lang = lines[0].strip() if len(lines) > 1 else "text"
-                    code = lines[1] if len(lines) > 1 else lines[0]
-                    code = code.rstrip().removesuffix("```").rstrip()
-
-                    if not code.strip():
-                        continue
-
-                    try:
-                        syntax = Syntax(
-                            code,
-                            lang or "text",
-                            theme="monokai",
-                            line_numbers=True,
-                            word_wrap=True,
-                        )
-                        _mount_element(
-                            Collapsible(
-                                Static(syntax),
-                                title=f"Code snippet ({lang or 'text'})",
-                                collapsed=False,
+                        except Exception as e:
+                            log_exception(e, "render code syntax highlighting")
+                            _mount_element(
+                                Collapsible(
+                                    Static(code, classes="code-block", markup=False),
+                                    title=f"Code snippet ({lang or 'text'})",
+                                    collapsed=False,
+                                )
                             )
-                        )
-                    except Exception as e:
-                        log_exception(e, "render code syntax highlighting")
-                        _mount_element(
-                            Collapsible(
-                                Static(code, classes="code-block", markup=False),
-                                title=f"Code snippet ({lang or 'text'})",
-                                collapsed=False,
-                            )
-                        )
+        except Exception as e:
+            # Last resort: mount raw content as plain text
+            log_exception(e, "mount assistant message content")
+            try:
+                _mount_element(Static(f"{agent_prefix}{display}", markup=False))
+            except Exception as final_err:
+                log_exception(final_err, "final fallback mount assistant message")
 
         if target_card is not None and hasattr(target_card, "response_text"):
             if target_card.response_text:
@@ -642,13 +760,16 @@ class UIHelpers:
                 renderable.append("● ", style="dim yellow")
                 renderable.append_text(Text.from_markup(clean_text, style="dim"))
 
-        self.query_one("#messages").mount(
-            Static(
-                renderable,
-                classes="msg-system",
+        try:
+            self.query_one("#messages").mount(
+                Static(
+                    renderable,
+                    classes="msg-system",
+                )
             )
-        )
-        self.query_one("#messages").scroll_end(animate=False)
+            self.query_one("#messages").scroll_end(animate=False)
+        except Exception as e:
+            log_exception(e, "mount system message")
 
     def _add_error_inline(self: SagoApp, content: str, hint: str = "") -> None:
         """Mount an error inline inside the active exchange card, or fall back to msg-system."""
@@ -690,47 +811,69 @@ class UIHelpers:
     def _add_tool_call(
         self: SagoApp, tool_name: str, args: dict, result: str, success: bool = True
     ) -> None:
-        from rich.markup import escape as _escape
-
         if not hasattr(self, "session_tool_calls"):
             self.session_tool_calls = []
         self.session_tool_calls.append({"tool": tool_name, "success": success})
 
-        status_tag = "[bold green]● OK[/bold green]" if success else "[bold red]✗ FAILED[/bold red]"
-        title = f"{status_tag} Tool: [bold cyan]{_escape(tool_name)}[/bold cyan]"
-
-        param_lines = []
-        for k, v in args.items():
-            val_str = str(v)
-            if len(val_str) > 300:
-                val_str = val_str[:300] + "..."
-            param_lines.append(
-                f"  [bold cyan]{_escape(k)}[/bold cyan]: [white]{_escape(val_str)}[/white]"
-            )
-        args_str = "\n".join(param_lines) if param_lines else "  [dim](no parameters)[/dim]"
-
-        preview_res = result[:2000] if result else "(empty)"
-        if len(result) > 2000:
-            preview_res += f"\n... [dim]({len(result)} characters total)[/dim]"
-
-        body = (
-            f"[bold yellow]Parameters:[/bold yellow]\n{args_str}\n\n"
-            f"[bold green]Result Output:[/bold green]\n{preview_res}"
-        )
-
-        card = Collapsible(
-            Static(body, classes="msg-system", markup=True),
-            title=title,
-            collapsed=True,
-        )
-
         target_card = getattr(self, "_active_exchange_card", None)
-        if target_card is not None and hasattr(target_card, "mount_child"):
-            target_card.mount_child(card)
-        elif target_card is not None:
-            target_card.mount(card)
-        else:
-            self.query_one("#messages").mount(card)
+        if target_card is None:
+            return
+
+        try:
+            from rich.markup import escape as _escape
+
+            status_tag = (
+                "[bold green]● OK[/bold green]" if success else "[bold red]✗ FAILED[/bold red]"
+            )
+            title = f"{status_tag} Tool: [bold cyan]{_escape(tool_name)}[/bold cyan]"
+
+            param_lines = []
+            for k, v in args.items():
+                val_str = str(v)
+                if len(val_str) > 300:
+                    val_str = val_str[:300] + "..."
+                param_lines.append(
+                    f"  [bold cyan]{_escape(k)}[/bold cyan]: [white]{_escape(val_str)}[/white]"
+                )
+            args_str = "\n".join(param_lines) if param_lines else "  [dim](no parameters)[/dim]"
+
+            preview_res = _summarize_tool_result(result)
+
+            body = (
+                f"[bold yellow]Parameters:[/bold yellow]\n{args_str}\n\n"
+                f"[bold green]Result Output:[/bold green]\n{preview_res}"
+            )
+
+            card = Collapsible(
+                Static(body, classes="msg-system", markup=True),
+                title=title,
+                collapsed=True,
+            )
+
+            # Insert into exchange body BEFORE response container so it appears
+            # between the user prompt divider and the assistant text
+            try:
+                body_widget = target_card.query_one(".exchange-body")
+                try:
+                    resp = target_card.query_one(".exchange-response")
+                    body_widget.mount(card, before=resp)
+                except Exception:
+                    body_widget.mount(card)
+            except Exception:
+                resp = getattr(target_card, "_response_container", None)
+                if resp is not None:
+                    try:
+                        first_child = resp.children[0] if resp.children else None
+                        if first_child is not None:
+                            resp.mount(card, before=first_child)
+                        else:
+                            resp.mount(card)
+                    except Exception:
+                        resp.mount(card)
+                else:
+                    target_card.mount(card)
+        except Exception as e:
+            log_exception(e, "mount tool call")
 
         self.query_one("#messages").scroll_end(animate=False)
 
@@ -744,63 +887,66 @@ class UIHelpers:
 
         container = self.query_one("#messages")
 
-        if "```" in result:
-            parts = result.split("```")
-            for i, part in enumerate(parts):
-                if i % 2 == 0:
-                    text_content = part.strip()
-                    if text_content:
-                        from rich.markdown import Markdown as RichMarkdown
+        try:
+            if "```" in result:
+                parts = result.split("```")
+                for i, part in enumerate(parts):
+                    if i % 2 == 0:
+                        text_content = part.strip()
+                        if text_content:
+                            from rich.markdown import Markdown as RichMarkdown
 
-                        md = RichMarkdown(text_content)
-                        if i == 0:
-                            container.mount(
-                                Static(
-                                    header,
-                                    classes="msg-assistant agent-tag",
-                                    markup=True,
+                            md = RichMarkdown(text_content)
+                            if i == 0:
+                                container.mount(
+                                    Static(
+                                        header,
+                                        classes="msg-assistant agent-tag",
+                                        markup=True,
+                                    )
                                 )
-                            )
-                            container.mount(Static(md, classes="msg-assistant markdown-body"))
-                        else:
-                            container.mount(Static(md, classes="msg-assistant markdown-body"))
-                else:
-                    lines = part.split("\n", 1)
-                    lang = lines[0].strip() if len(lines) > 1 else ""
-                    code = lines[1] if len(lines) > 1 else lines[0]
-                    code = code.rstrip().removesuffix("```").rstrip()
-                    if code.strip():
-                        try:
-                            syntax = Syntax(
-                                code,
-                                lang or "text",
-                                theme="monokai",
-                                line_numbers=True,
-                                word_wrap=True,
-                            )
-                            container.mount(
-                                Collapsible(
-                                    Static(syntax),
-                                    title=f"{agent_name} - Code ({lang or 'text'})",
-                                    collapsed=False,
+                                container.mount(Static(md, classes="msg-assistant markdown-body"))
+                            else:
+                                container.mount(Static(md, classes="msg-assistant markdown-body"))
+                    else:
+                        lines = part.split("\n", 1)
+                        lang = lines[0].strip() if len(lines) > 1 else ""
+                        code = lines[1] if len(lines) > 1 else lines[0]
+                        code = code.rstrip().removesuffix("```").rstrip()
+                        if code.strip():
+                            try:
+                                syntax = Syntax(
+                                    code,
+                                    lang or "text",
+                                    theme="monokai",
+                                    line_numbers=True,
+                                    word_wrap=True,
                                 )
-                            )
-                        except Exception as e:
-                            log_exception(e, "render code syntax in parallel result")
-                            container.mount(
-                                Collapsible(
-                                    Static(code, classes="code-block", markup=False),
-                                    title=f"{agent_name} - Code ({lang or 'text'})",
-                                    collapsed=False,
+                                container.mount(
+                                    Collapsible(
+                                        Static(syntax),
+                                        title=f"{agent_name} - Code ({lang or 'text'})",
+                                        collapsed=False,
+                                    )
                                 )
-                            )
-        else:
-            from rich.markdown import Markdown as RichMarkdown
+                            except Exception as e:
+                                log_exception(e, "render code syntax in parallel result")
+                                container.mount(
+                                    Collapsible(
+                                        Static(code, classes="code-block", markup=False),
+                                        title=f"{agent_name} - Code ({lang or 'text'})",
+                                        collapsed=False,
+                                    )
+                                )
+            else:
+                from rich.markdown import Markdown as RichMarkdown
 
-            md = RichMarkdown(result)
-            container.mount(Static(header, classes="msg-assistant agent-tag", markup=True))
-            container.mount(Static(md, classes="msg-assistant markdown-body"))
-        container.scroll_end()
+                md = RichMarkdown(result)
+                container.mount(Static(header, classes="msg-assistant agent-tag", markup=True))
+                container.mount(Static(md, classes="msg-assistant markdown-body"))
+            container.scroll_end()
+        except Exception as e:
+            log_exception(e, "mount parallel result")
 
     def _add_summary(
         self: SagoApp,

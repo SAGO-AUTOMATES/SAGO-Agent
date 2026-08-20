@@ -76,15 +76,18 @@ class ProjectInstructions:
                 seen.add(str(path))
 
         # 2. Scan for any other .md files in project root (not recursive)
-        for path in sorted(work_dir.iterdir()):
-            if (
-                path.suffix.lower() == ".md"
-                and path.is_file()
-                and str(path) not in seen
-                and not path.name.startswith(".")
-            ):
-                results.append((path.name, path))
-                seen.add(str(path))
+        try:
+            for path in sorted(work_dir.iterdir()):
+                if (
+                    path.suffix.lower() == ".md"
+                    and path.is_file()
+                    and str(path) not in seen
+                    and not path.name.startswith(".")
+                ):
+                    results.append((path.name, path))
+                    seen.add(str(path))
+        except FileNotFoundError:
+            pass
 
         # 3. Scan .sago/ directory for additional instructions
         sago_dir = work_dir / ".sago"

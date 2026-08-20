@@ -1,6 +1,6 @@
 # Sago - Project Architecture
 
-> Production-grade multi-agent orchestration system with 339 agents, 70 production tools, parallel execution, feedback loops, and multi-LLM support.
+> Production-grade multi-agent orchestration system with 339 agents, 72 production tools, parallel execution, feedback loops, and multi-LLM support.
 
 ## Overview
 
@@ -17,7 +17,15 @@ sago/
 │   ├── main.py                   # CLI entry point (click)
 │   ├── database.py               # SQLite persistence
 │   ├── paths.py                  # Cross-platform paths
+│   ├── settings.py               # User settings (settings.json)
 │   ├── learning.py               # Cross-session learning store
+│   │
+│   ├── config/                   # Configuration system
+│   │   ├── loader.py             # Config loading & validation
+│   │   ├── sago.yaml             # Main system config
+│   │   ├── agents.yaml           # Agent definitions
+│   │   ├── tools.yaml            # Tool registry
+│   │   └── llm_providers.yaml    # LLM provider settings
 │   │
 │   ├── agents/                   # Agent system
 │   │   ├── __init__.py
@@ -31,9 +39,11 @@ sago/
 │   │       ├── fullstack_engineer.py
 │   │       └── ... (339 total)
 │   │
-│   ├── tools/                    # Tool system (70 production tools)
+│   ├── tools/                    # Tool system (72 production tools)
 │   │   ├── __init__.py
 │   │   ├── base.py               # BaseTool with helpers
+│   │   ├── ensure_dep.py         # Dependency auto-installation
+│   │   ├── registry.py           # Dynamic tool discovery
 │   │   ├── file/                 # File operations
 │   │   │   ├── read_file.py
 │   │   │   ├── write_file.py
@@ -165,7 +175,7 @@ sago/
 │   │   ├── trace_viewer.py       # Modal trace & payload viewer
 │   │   └── widgets/              # Textual dashboard, spinners & cards
 │   │
-│   ├── tools/                    # Tool system (70 tools)
+│   ├── tools/                    # Tool system (72 tools)
 │   │   ├── file/
 │   │   │   ├── resilient_editor.py # 3-tier fuzzy & normalized matching
 │   │   │   ├── multi_replace_file.py # Atomic multi-chunk replace
@@ -221,20 +231,19 @@ sago/
 
 ### 2. Tool System (`sago/tools/`)
 
-70 tools across 13 categories:
-- **File** (15): read, write, edit, glob, grep, scan, analyze
+72 tools across 13 categories:
+- **File** (19): read, write, edit, glob, grep, scan, analyze, archive, diff, checksum, database, markdown, PDF, regex, data, multi-replace, agent delegation, file ops, file search
 - **Shell** (2): execute, background
 - **SSH** (3): connect, command, transfer
 - **Session** (2): manager, clipboard
-- **Coding** (7): analyzer, linter, formatter, test, debug, logs, summarize
+- **Coding** (18): analyzer, linter, formatter, test, debug, logs, summarize, AST edit/grep/search, code search, debugger, git blame, hybrid search, project graph, repo map, scaffold, symbols, type check, **code sandbox**
 - **Network** (5): http, crawl, dns, port, config
-- **Database** (3): query, schema, migration
-- **Security** (2): secret_scanner, permission_manager
-- **Web** (3): search, crawler, screenshot
-- **Interactive** (2): ask_question, confirm
-- **VCS** (2): git_ops, git_operations
+- **Database** (2): schema, migration
+- **Security** (1): secret_scanner
+- **Web** (3): search (Tavily/Serper/DuckDuckGo), fetch (HTML-to-text), **browser automation**
+- **Interactive** (1): ask_question
 - **Admin** (4): install, permissions, sudo, prompts
-- **System** (8): os, process, env, git, docker, cron, screenshot, info
+- **System** (12): os, process, env, **git operations** (22 ops), **docker**, **kubernetes**, cron, screenshot, info, checkpoint, sandbox, diagnostics
 
 ### 3. LLM Providers (`sago/llm/`)
 
@@ -291,7 +300,7 @@ TUI / CLI
 Production Engine
     ├── Task Delegator (classify, route)
     ├── Agent Spawner (CrewAI execution)
-    ├── Tool Execution (70 tools)
+    ├── Tool Execution (72 tools)
     ├── LLM Provider (streaming)
     └── Cache (hit/miss)
     ↓

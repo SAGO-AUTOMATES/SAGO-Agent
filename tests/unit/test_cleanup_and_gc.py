@@ -39,7 +39,6 @@ def temp_sago_env(tmp_path, monkeypatch):
     monkeypatch.setattr("sago.cleanup.get_sago_home", lambda: sago_home)
     monkeypatch.setattr("sago.paths.get_data_dir", lambda: sago_home / "data")
     monkeypatch.setattr("sago.paths.get_logs_dir", lambda: sago_home / "logs")
-    monkeypatch.setattr("sago.cleanup.get_logs_dir", lambda: sago_home / "logs")
     monkeypatch.setattr("sago.paths.get_db_path", lambda: sago_home / "data" / "sago.db")
     monkeypatch.setattr("sago.cleanup.get_db_path", lambda: sago_home / "data" / "sago.db")
 

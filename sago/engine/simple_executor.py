@@ -570,7 +570,7 @@ def _get_context(cwd: str | None = None) -> str:
                 dirs.append(f"{item.name}/")
             else:
                 files.append(item.name)
-    except PermissionError:
+    except (PermissionError, FileNotFoundError):
         pass
 
     if dirs:

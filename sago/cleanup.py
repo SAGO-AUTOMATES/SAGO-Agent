@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sago.paths import get_db_path, get_logs_dir, get_sago_home
+from sago.paths import get_db_path, get_sago_home
 
 logger = logging.getLogger(__name__)
 
@@ -574,64 +574,91 @@ def clean_logs(
     dry_run: bool = False,
     max_age_days: float | None = None,
     max_size_mb: float = 5.0,
+    max_total_mb: float = 100.0,
 ) -> CleanResult:
-    """Clean / rotate oversized and old logs in ~/.sago/logs and project logs."""
+    """Clean / rotate oversized and old logs using LogManager for smart pruning.
+
+    Uses LogManager for intelligent size-based pruning (deletes oldest files first)
+    and age-based cleanup, while preserving the most recent log data.
+    Also handles the legacy daemon.log at the sago home root.
+    """
+    from sago.log_manager import LogManager
+
     res = CleanResult(category="Logs & Daemon Traces")
-    log_files: list[Path] = []
 
-    # Home daemon log
-    daemon_log = get_sago_home() / "daemon.log"
-    if daemon_log.exists():
-        log_files.append(daemon_log)
+    try:
+        manager = LogManager()
+        stats = manager.get_stats(quick=True)
 
-    # Home logs dir
-    logs_dir = get_logs_dir()
-    if logs_dir.exists():
-        log_files.extend([f for f in logs_dir.glob("*.log") if f.is_file()])
+        res.items_scanned = stats.total_files
+        res.bytes_reclaimed = 0
 
-    # Project logs dir
-    if workspace_root:
-        proj_logs = Path(workspace_root) / ".sago" / "logs"
-        if proj_logs.exists():
-            log_files.extend([f for f in proj_logs.glob("*.log") if f.is_file()])
+        # Smart prune: delete rotated, truncate large, enforce budget
+        deleted, reclaimed = manager.prune(
+            max_total_mb=max_total_mb,
+            max_age_days=max_age_days,
+            keep_rotated=0,
+            max_file_mb=max_size_mb,
+            dry_run=dry_run,
+        )
 
-    now = time.time()
-    cutoff_ts = (now - max_age_days * 86400) if max_age_days is not None else None
-    max_bytes = int(max_size_mb * 1024 * 1024)
+        res.items_deleted = deleted
+        res.bytes_reclaimed = reclaimed
 
-    for lf in log_files:
-        res.items_scanned += 1
-        try:
-            stat = lf.stat()
-            sz = stat.st_size
-            mtime = stat.st_mtime
+        # Also handle legacy daemon.log at sago home root
+        daemon_log = get_sago_home() / "daemon.log"
+        if daemon_log.exists():
+            try:
+                stat = daemon_log.stat()
+                sz = stat.st_size
+                now = time.time()
+                cutoff_ts = (now - max_age_days * 86400) if max_age_days is not None else None
+                max_bytes = int(max_size_mb * 1024 * 1024)
 
-            # Delete if older than cutoff
-            if cutoff_ts is not None and mtime <= cutoff_ts:
-                if not dry_run:
-                    lf.unlink(missing_ok=True)
-                res.items_deleted += 1
-                res.bytes_reclaimed += sz
-                continue
+                # Delete if older than cutoff
+                if cutoff_ts is not None and stat.st_mtime <= cutoff_ts:
+                    if not dry_run:
+                        daemon_log.unlink(missing_ok=True)
+                    res.items_deleted += 1
+                    res.bytes_reclaimed += sz
+                # Truncate if larger than max_size_mb
+                elif sz > max_bytes:
+                    reclaimed_d = sz - (max_bytes // 2)
+                    if not dry_run:
+                        try:
+                            with open(daemon_log, "rb") as fp:
+                                fp.seek(reclaimed_d)
+                                tail = fp.read()
+                            with open(daemon_log, "wb") as fp:
+                                fp.write(tail)
+                        except OSError:
+                            pass
+                    res.items_deleted += 1
+                    res.bytes_reclaimed += reclaimed_d
+            except OSError:
+                pass
 
-            # Truncate if larger than max_size_mb
-            if sz > max_bytes:
-                reclaimed = sz - (max_bytes // 2)
-                if not dry_run:
-                    try:
-                        with open(lf, "rb") as fp:
-                            fp.seek(reclaimed)
-                            tail = fp.read()
-                        with open(lf, "wb") as fp:
-                            fp.write(tail)
-                    except OSError as e:
-                        logger.debug("Failed to truncate log file %s: %s", lf, e)
-                res.items_deleted += 1
-                res.bytes_reclaimed += reclaimed
-        except OSError:
-            continue
+        # Also handle project-level logs
+        if workspace_root:
+            proj_logs = Path(workspace_root) / ".sago" / "logs"
+            if proj_logs.exists():
+                proj_manager = LogManager(log_dir=proj_logs)
+                proj_deleted, proj_reclaimed = proj_manager.prune(
+                    max_total_mb=max_total_mb / 2,  # Project logs get half the budget
+                    max_age_days=max_age_days,
+                    dry_run=dry_run,
+                )
+                res.items_deleted += proj_deleted
+                res.bytes_reclaimed += proj_reclaimed
 
-    res.details.append(f"Cleaned {res.items_deleted} log files ({res.human_bytes} reclaimed)")
+        res.details.append(
+            f"Smart cleanup: {res.items_deleted} files removed, {res.human_bytes} reclaimed "
+            f"({stats.total_files - res.items_deleted} files remain)"
+        )
+    except Exception as e:
+        res.error = str(e)
+        logger.error("Error during log cleanup: %s", e)
+
     return res
 
 
@@ -647,6 +674,7 @@ def run_cleanup(
     keep_recent_backups: int = 1,
     keep_recent_sessions: int = 10,
     max_age_days: float | None = None,
+    max_total_log_mb: float = 100.0,
     dry_run: bool = False,
 ) -> list[CleanResult]:
     """Run selected cleanup routines and return the summary results."""
@@ -699,6 +727,7 @@ def run_cleanup(
                 workspace_root=workspace_root,
                 dry_run=dry_run,
                 max_age_days=max_age_days,
+                max_total_mb=max_total_log_mb,
             )
         )
 

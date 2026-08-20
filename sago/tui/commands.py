@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 from pathlib import Path
@@ -450,6 +451,18 @@ class CommandHandlers:
                     # Restore session title from database
                     if ses.get("title"):
                         self.current_session_title = ses["title"]
+
+                    # Load tool usage data for this session
+                    tool_logs = []
+                    try:
+                        from sago.database import ToolUsageStore
+
+                        tus = ToolUsageStore(ses["id"])
+                        tool_logs = tus.get_all()
+                        tus.close()
+                    except Exception as e:
+                        log_exception(e, "load tool usage data for session switch")
+
                     # Refresh the UI using ExchangeTurnCard for consistent rendering
                     self._loading_session = True
                     try:
@@ -467,16 +480,65 @@ class CommandHandlers:
                         # Phase 1: Mount all user cards, collect assistant responses
                         current_card = None
                         deferred_responses: list[tuple] = []
+                        message_cards: list[tuple[str, object]] = []
 
                         for m in self.messages:
                             role = m["role"]
                             content = m["content"]
                             agent_name = m.get("agent_name") or "sago"
+                            created_at = m.get("created_at", "")
 
                             if role == "user":
                                 turn_card = ExchangeTurnCard(prompt=content, card_type="user")
                                 container.mount(turn_card)
                                 current_card = turn_card
+                                self._active_exchange_card = turn_card
+                                if created_at:
+                                    message_cards.append((created_at, turn_card))
+
+                                # Restore enhancement data if present
+                                msg_metadata = {}
+                                raw_meta = m.get("metadata")
+                                if raw_meta:
+                                    try:
+                                        msg_metadata = (
+                                            json.loads(raw_meta)
+                                            if isinstance(raw_meta, str)
+                                            else raw_meta
+                                        )
+                                    except (json.JSONDecodeError, TypeError):
+                                        pass
+                                enhancement_data = msg_metadata.get("enhancement")
+                                if enhancement_data:
+                                    try:
+                                        from sago.engine.prompt_enhancer import (
+                                            PromptEnhancementResult,
+                                        )
+
+                                        enhancement = PromptEnhancementResult(
+                                            original_prompt=enhancement_data.get(
+                                                "original_prompt", ""
+                                            ),
+                                            enhanced_prompt=enhancement_data.get(
+                                                "enhanced_prompt", ""
+                                            ),
+                                            intent_summary=enhancement_data.get(
+                                                "intent_summary", ""
+                                            ),
+                                            target_scope=enhancement_data.get("target_scope", []),
+                                            acceptance_criteria=enhancement_data.get(
+                                                "acceptance_criteria", []
+                                            ),
+                                            improvements=enhancement_data.get("improvements", []),
+                                            was_modified=enhancement_data.get("was_modified", True),
+                                        )
+                                        from sago.tui.helpers import UIHelpers
+
+                                        UIHelpers._add_prompt_enhancement_card(self, enhancement)
+                                    except Exception as e:
+                                        log_exception(
+                                            e, "restore enhancement card on session switch"
+                                        )
                             elif role == "assistant":
                                 # Extract thinking blocks
                                 thinking_match = re.search(
@@ -507,10 +569,117 @@ class CommandHandlers:
                                     )
                                 )
 
+                                if created_at:
+                                    message_cards.append((created_at, current_card))
+
                         # Phase 2: Mount all deferred responses after compose() has run
                         last_card_switch = current_card  # capture for closure
 
                         def _mount_deferred_switch() -> None:
+                            def _build_tool_widget(tl: dict) -> Collapsible:
+                                from rich.markup import escape as _esc
+
+                                tool_name = tl.get("tool_name", "unknown")
+                                success = bool(tl.get("success", True))
+                                result_str = tl.get("result") or ""
+
+                                raw_args = tl.get("arguments") or ""
+                                if isinstance(raw_args, str):
+                                    try:
+                                        parsed_args = json.loads(raw_args) if raw_args else {}
+                                    except (json.JSONDecodeError, TypeError):
+                                        parsed_args = {}
+                                elif isinstance(raw_args, dict):
+                                    parsed_args = raw_args
+                                else:
+                                    parsed_args = {}
+
+                                status_tag = (
+                                    "[bold green]● OK[/bold green]"
+                                    if success
+                                    else "[bold red]✗ FAILED[/bold red]"
+                                )
+                                title = (
+                                    f"{status_tag} Tool: [bold cyan]{_esc(tool_name)}[/bold cyan]"
+                                )
+
+                                param_lines = []
+                                for k, v in parsed_args.items():
+                                    val_str = str(v)
+                                    if len(val_str) > 300:
+                                        val_str = val_str[:300] + "..."
+                                    param_lines.append(
+                                        f"  [bold cyan]{_esc(k)}[/bold cyan]: [white]{_esc(val_str)}[/white]"
+                                    )
+                                args_str = (
+                                    "\n".join(param_lines)
+                                    if param_lines
+                                    else "  [dim](no parameters)[/dim]"
+                                )
+
+                                from sago.tui.helpers import _summarize_tool_result
+
+                                preview_res = _summarize_tool_result(result_str)
+
+                                body = (
+                                    f"[bold yellow]Parameters:[/bold yellow]\n{args_str}\n\n"
+                                    f"[bold green]Result Output:[/bold green]\n{preview_res}"
+                                )
+
+                                return Collapsible(
+                                    Static(body, classes="msg-system", markup=True),
+                                    title=title,
+                                    collapsed=True,
+                                )
+
+                            # PHASE A: Mount tool usage cards FIRST (above response text)
+                            if tool_logs and message_cards:
+                                sorted_cards = sorted(message_cards, key=lambda x: x[0])
+
+                                for tl in tool_logs:
+                                    tool_time = tl.get("created_at", "")
+                                    if not tool_time:
+                                        continue
+
+                                    target_card = None
+                                    for msg_time, card in reversed(sorted_cards):
+                                        if msg_time <= tool_time:
+                                            target_card = card
+                                            break
+
+                                    if target_card is None:
+                                        target_card = last_card_switch
+
+                                    if target_card is None:
+                                        continue
+
+                                    tool_widget = _build_tool_widget(tl)
+                                    try:
+                                        body_widget = target_card.query_one(".exchange-body")
+                                        try:
+                                            resp = target_card.query_one(".exchange-response")
+                                            body_widget.mount(tool_widget, before=resp)
+                                        except Exception:
+                                            body_widget.mount(tool_widget)
+                                    except Exception:
+                                        try:
+                                            resp = target_card.query_one(".exchange-response")
+                                            try:
+                                                first_child = (
+                                                    resp.children[0] if resp.children else None
+                                                )
+                                                if first_child is not None:
+                                                    resp.mount(tool_widget, before=first_child)
+                                                else:
+                                                    resp.mount(tool_widget)
+                                            except Exception:
+                                                resp.mount(tool_widget)
+                                        except Exception as e:
+                                            log_exception(
+                                                e, "mount tool call during session switch"
+                                            )
+
+                            # PHASE B: Mount text content AFTER tool calls
                             for (
                                 card,
                                 thinking_html,
@@ -918,7 +1087,6 @@ class CommandHandlers:
                         import re
 
                         from rich.markdown import Markdown as RichMarkdown
-                        from rich.markup import escape as _escape
                         from textual.widgets import Collapsible, Static
 
                         from sago.tui.helpers import ExchangeTurnCard
@@ -939,19 +1107,67 @@ class CommandHandlers:
                             agent_name = msg.get("agent_name") or "sago"
                             created_at = msg.get("created_at", "")
 
+                            # Parse metadata for enhancement data
+                            msg_metadata = {}
+                            raw_meta = msg.get("metadata")
+                            if raw_meta:
+                                try:
+                                    msg_metadata = (
+                                        json.loads(raw_meta)
+                                        if isinstance(raw_meta, str)
+                                        else raw_meta
+                                    )
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+
                             if role == "user":
                                 turn_card = ExchangeTurnCard(prompt=content, card_type="user")
                                 container.mount(turn_card)
                                 current_card = turn_card
+                                self._active_exchange_card = turn_card
                                 if created_at:
                                     message_cards.append((created_at, turn_card))
-                                self.messages.append(
-                                    {
-                                        "role": "user",
-                                        "content": content,
-                                        "agent_name": agent_name,
-                                    }
-                                )
+
+                                user_msg_dict = {
+                                    "role": "user",
+                                    "content": content,
+                                    "agent_name": agent_name,
+                                }
+                                # Restore enhancement data if present
+                                enhancement_data = msg_metadata.get("enhancement")
+                                if enhancement_data:
+                                    user_msg_dict["enhancement"] = enhancement_data
+                                    # Show the enhancement card on the turn
+                                    try:
+                                        from sago.engine.prompt_enhancer import (
+                                            PromptEnhancementResult,
+                                        )
+
+                                        enhancement = PromptEnhancementResult(
+                                            original_prompt=enhancement_data.get(
+                                                "original_prompt", ""
+                                            ),
+                                            enhanced_prompt=enhancement_data.get(
+                                                "enhanced_prompt", ""
+                                            ),
+                                            intent_summary=enhancement_data.get(
+                                                "intent_summary", ""
+                                            ),
+                                            target_scope=enhancement_data.get("target_scope", []),
+                                            acceptance_criteria=enhancement_data.get(
+                                                "acceptance_criteria", []
+                                            ),
+                                            improvements=enhancement_data.get("improvements", []),
+                                            was_modified=enhancement_data.get("was_modified", True),
+                                        )
+                                        # Mount enhancement card into the turn
+                                        from sago.tui.helpers import UIHelpers
+
+                                        UIHelpers._add_prompt_enhancement_card(self, enhancement)
+                                    except Exception as e:
+                                        log_exception(e, "restore enhancement card on session load")
+
+                                self.messages.append(user_msg_dict)
 
                             elif role == "assistant":
                                 # Extract thinking blocks
@@ -999,6 +1215,123 @@ class CommandHandlers:
                         last_card = current_card  # capture for closure
 
                         def _mount_deferred() -> None:
+                            def _build_tool_widget(tl: dict) -> Collapsible:
+                                from rich.markup import escape as _esc
+
+                                tool_name = tl.get("tool_name", "unknown")
+                                success = bool(tl.get("success", True))
+                                result_str = tl.get("result") or ""
+
+                                raw_args = tl.get("arguments") or ""
+                                if isinstance(raw_args, str):
+                                    try:
+                                        parsed_args = json.loads(raw_args) if raw_args else {}
+                                    except (json.JSONDecodeError, TypeError):
+                                        parsed_args = {}
+                                elif isinstance(raw_args, dict):
+                                    parsed_args = raw_args
+                                else:
+                                    parsed_args = {}
+
+                                status_tag = (
+                                    "[bold green]● OK[/bold green]"
+                                    if success
+                                    else "[bold red]✗ FAILED[/bold red]"
+                                )
+                                title = (
+                                    f"{status_tag} Tool: [bold cyan]{_esc(tool_name)}[/bold cyan]"
+                                )
+
+                                param_lines = []
+                                for k, v in parsed_args.items():
+                                    val_str = str(v)
+                                    if len(val_str) > 300:
+                                        val_str = val_str[:300] + "..."
+                                    param_lines.append(
+                                        f"  [bold cyan]{_esc(k)}[/bold cyan]: [white]{_esc(val_str)}[/white]"
+                                    )
+                                args_str = (
+                                    "\n".join(param_lines)
+                                    if param_lines
+                                    else "  [dim](no parameters)[/dim]"
+                                )
+
+                                from sago.tui.helpers import _summarize_tool_result
+
+                                preview_res = _summarize_tool_result(result_str)
+
+                                body = (
+                                    f"[bold yellow]Parameters:[/bold yellow]\n{args_str}\n\n"
+                                    f"[bold green]Result Output:[/bold green]\n{preview_res}"
+                                )
+
+                                return Collapsible(
+                                    Static(body, classes="msg-system", markup=True),
+                                    title=title,
+                                    collapsed=True,
+                                )
+
+                            # PHASE A: Mount tool usage cards FIRST (above response text)
+                            if tool_logs and message_cards:
+                                sorted_cards = sorted(message_cards, key=lambda x: x[0])
+
+                                for tl in tool_logs:
+                                    tool_time = tl.get("created_at", "")
+                                    if not tool_time:
+                                        continue
+
+                                    target_card = None
+                                    for msg_time, card in reversed(sorted_cards):
+                                        if msg_time <= tool_time:
+                                            target_card = card
+                                            break
+
+                                    if target_card is None:
+                                        target_card = last_card
+
+                                    if target_card is None:
+                                        continue
+
+                                    tool_widget = _build_tool_widget(tl)
+                                    try:
+                                        body_widget = target_card.query_one(".exchange-body")
+                                        try:
+                                            resp = target_card.query_one(".exchange-response")
+                                            body_widget.mount(tool_widget, before=resp)
+                                        except Exception:
+                                            body_widget.mount(tool_widget)
+                                    except Exception:
+                                        try:
+                                            resp = target_card.query_one(".exchange-response")
+                                            try:
+                                                first_child = (
+                                                    resp.children[0] if resp.children else None
+                                                )
+                                                if first_child is not None:
+                                                    resp.mount(tool_widget, before=first_child)
+                                                else:
+                                                    resp.mount(tool_widget)
+                                            except Exception:
+                                                resp.mount(tool_widget)
+                                        except Exception as e:
+                                            log_exception(e, "mount tool call during session load")
+                            elif tool_logs:
+                                if last_card is not None:
+                                    for tl in tool_logs[-20:]:
+                                        tool_widget = _build_tool_widget(tl)
+                                        try:
+                                            body_widget = last_card.query_one(".exchange-body")
+                                            try:
+                                                resp = last_card.query_one(".exchange-response")
+                                                body_widget.mount(tool_widget, before=resp)
+                                            except Exception:
+                                                body_widget.mount(tool_widget)
+                                        except Exception as e:
+                                            log_exception(
+                                                e, "mount tool call during session load fallback"
+                                            )
+
+                            # PHASE B: Mount text content AFTER tool calls
                             for (
                                 card,
                                 thinking_html,
@@ -1038,84 +1371,6 @@ class CommandHandlers:
                                         classes="exchange-assistant markdown-body",
                                     )
                                 )
-
-                            # Mount tool usage cards into the correct exchange cards
-                            # by matching tool timestamps to message timestamps
-                            if tool_logs and message_cards:
-                                # Sort message_cards by timestamp for binary search
-                                sorted_cards = sorted(message_cards, key=lambda x: x[0])
-
-                                for tl in tool_logs:
-                                    tool_time = tl.get("created_at", "")
-                                    if not tool_time:
-                                        continue
-
-                                    # Find the card whose timestamp is closest and <= tool_time
-                                    # (i.e., the card that was active when this tool was called)
-                                    target_card = None
-                                    for msg_time, card in reversed(sorted_cards):
-                                        if msg_time <= tool_time:
-                                            target_card = card
-                                            break
-
-                                    if target_card is None:
-                                        target_card = last_card
-
-                                    if target_card is None:
-                                        continue
-
-                                    # Build tool call widget matching _add_tool_call format
-                                    tool_name = tl.get("tool_name", "unknown")
-                                    success = bool(tl.get("success", True))
-                                    duration_ms = tl.get("duration_ms", 0)
-                                    result_str = (tl.get("result") or "")[:2000]
-
-                                    status_tag = (
-                                        "[bold green]● OK[/bold green]"
-                                        if success
-                                        else "[bold red]✗ FAILED[/bold red]"
-                                    )
-                                    title = f"{status_tag} Tool: [bold cyan]{_escape(tool_name)}[/bold cyan] [dim]({duration_ms}ms)[/dim]"
-
-                                    body = (
-                                        f"[bold green]Result:[/bold green]\n{_escape(result_str)}"
-                                    )
-                                    if len(tl.get("result") or "") > 2000:
-                                        body += f"\n... [dim]({len(tl.get('result', ''))} chars total)[/dim]"
-
-                                    tool_widget = Collapsible(
-                                        Static(body, classes="msg-system", markup=True),
-                                        title=title,
-                                        collapsed=True,
-                                    )
-
-                                    try:
-                                        resp = target_card.query_one(".exchange-response")
-                                    except Exception:
-                                        resp = None
-                                    mount_target = resp if resp is not None else target_card
-                                    mount_target.mount(tool_widget)
-                            elif tool_logs:
-                                # Fallback: no message cards, mount all in last card
-                                if last_card is not None:
-                                    tool_lines = []
-                                    for tl in tool_logs[-20:]:
-                                        status = "✓" if tl.get("success") else "✗"
-                                        tool_lines.append(
-                                            f"{status} {tl['tool_name']} ({tl.get('duration_ms', 0)}ms)"
-                                        )
-                                    try:
-                                        resp = last_card.query_one(".exchange-response")
-                                    except Exception:
-                                        resp = None
-                                    mount_target = resp if resp is not None else last_card
-                                    mount_target.mount(
-                                        Collapsible(
-                                            Static("\n".join(tool_lines), markup=False),
-                                            title=f"Tool Usage ({len(tool_logs)} calls)",
-                                            collapsed=True,
-                                        )
-                                    )
 
                             # Set active exchange card so new messages attach here
                             if last_card is not None:

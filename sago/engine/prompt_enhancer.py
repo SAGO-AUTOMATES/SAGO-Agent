@@ -328,6 +328,177 @@ class PromptEnhancer:
 
         return result
 
+    def enhance_with_llm(
+        self,
+        task: str,
+        agent_role: str = "Specialist Agent",
+        cwd: str | Path | None = None,
+        extra_context: str = "",
+        client: Any = None,
+        model: str = "",
+    ) -> PromptEnhancementResult:
+        """Dynamic LLM-enhanced prompt improvement.
+
+        Uses a small LLM call to classify intent, extract context, and generate
+        a structured enhanced prompt. Anti-hallucination constraints are always
+        injected as hard rules (never LLM-generated).
+        """
+        raw_prompt = (task or "").strip()
+        if not raw_prompt:
+            return PromptEnhancementResult(
+                original_prompt="",
+                enhanced_prompt="",
+                intent_summary="Empty prompt",
+                was_modified=False,
+                agent_role=agent_role,
+            )
+
+        # Simple queries: skip LLM call
+        if len(raw_prompt.split()) <= 5 and not any(
+            kw in raw_prompt.lower()
+            for kw in (
+                "fix",
+                "bug",
+                "error",
+                "create",
+                "add",
+                "implement",
+                "refactor",
+                "docker",
+                "k8s",
+            )
+        ):
+            return self.enhance(
+                task=task, agent_role=agent_role, cwd=cwd, extra_context=extra_context
+            )
+
+        root = Path(cwd or self.root_dir).resolve()
+        improvements: list[str] = []
+
+        # 1. Detect primary intent via regex (fast, no LLM needed)
+        intent_category, intent_description = self._classify_intent(raw_prompt)
+        if intent_category == "casual_chat":
+            return PromptEnhancementResult(
+                original_prompt=raw_prompt,
+                enhanced_prompt=raw_prompt,
+                intent_summary=f"Conversational inquiry: {raw_prompt}",
+                target_scope=[],
+                acceptance_criteria=[],
+                operational_constraints=[],
+                improvements=[],
+                was_modified=False,
+                agent_role=agent_role,
+            )
+
+        # 2. Extract workspace targets (no LLM needed)
+        targets = (
+            self._extract_targets(raw_prompt, root) if intent_category != "explore_arch" else []
+        )
+
+        # 3. Use LLM for dynamic intent clarification and structured prompt generation
+        llm_prompt = f"""You are a prompt enhancement assistant. Analyze the user's task and output a JSON object with these exact keys:
+- "intent_summary": A clear 1-sentence summary of what the user wants (max 100 chars)
+- "acceptance_criteria": A list of 2-4 specific, measurable criteria for success
+- "enhanced_prompt": A structured, clear version of the user's prompt that preserves their EXACT intent without adding assumptions
+
+RULES:
+- NEVER fabricate files, functions, or code that the user didn't mention
+- NEVER assume the user wants specific implementations unless they asked for them
+- Keep the enhanced prompt faithful to the original intent
+- If the user asked something vague, ask for clarification in the enhanced_prompt field
+- Output ONLY valid JSON, no markdown or explanation
+
+Agent role: {agent_role}
+Workspace targets found: {", ".join(targets[:3]) if targets else "none detected"}
+
+User task:
+{raw_prompt[:2000]}"""
+
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": llm_prompt}],
+                max_tokens=500,
+                temperature=0.1,
+                stream=False,
+            )
+            llm_text = response.choices[0].message.content or ""
+
+            # Extract JSON from response (handle markdown code blocks)
+            json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", llm_text, re.DOTALL)
+            if json_match:
+                llm_text = json_match.group(1).strip()
+            else:
+                # Try to find raw JSON
+                json_match = re.search(r"\{.*\}", llm_text, re.DOTALL)
+                if json_match:
+                    llm_text = json_match.group(0)
+
+            import json as _json
+
+            llm_data = _json.loads(llm_text)
+
+            llm_intent = llm_data.get("intent_summary", "")
+            llm_criteria = llm_data.get("acceptance_criteria", [])
+            llm_enhanced = llm_data.get("enhanced_prompt", "")
+
+            if llm_enhanced and len(llm_enhanced) > 20:
+                improvements.append("LLM-enhanced prompt structure")
+                improvements.append(f"Dynamic intent: {intent_category.replace('_', ' ')}")
+
+                # Domain guidelines (static, always injected)
+                domain_key = self._infer_domain_key(agent_role, raw_prompt)
+                guidelines = list(
+                    self._DOMAIN_GUIDELINES.get(domain_key, self._DOMAIN_GUIDELINES["python"])
+                )
+                guidelines.extend(self._ANTI_HALLUCINATION_CONSTRAINTS)
+
+                # Build final enhanced prompt with LLM output + hard constraints
+                enhanced_parts = [
+                    f"### Primary Objective\n{llm_intent or intent_description}\n",
+                    f"### User Intent & Core Request\n{raw_prompt}\n",
+                ]
+                if targets:
+                    target_list = "\n".join(f"- `{t}`" for t in targets)
+                    enhanced_parts.append(f"### Target Scope & Relevant Paths\n{target_list}\n")
+                if llm_criteria:
+                    criteria_list = "\n".join(f"{i + 1}. {c}" for i, c in enumerate(llm_criteria))
+                    enhanced_parts.append(
+                        f"### Acceptance Criteria & Verification\n{criteria_list}\n"
+                    )
+                if guidelines:
+                    guideline_list = "\n".join(f"- {g}" for g in guidelines)
+                    enhanced_parts.append(
+                        f"### Operational Constraints & Standards\n{guideline_list}\n"
+                    )
+                if extra_context:
+                    enhanced_parts.append(f"### Additional Task Context\n{extra_context}\n")
+
+                enhanced_text = "\n".join(enhanced_parts).strip()
+
+                result = PromptEnhancementResult(
+                    original_prompt=raw_prompt,
+                    enhanced_prompt=enhanced_text,
+                    intent_summary=llm_intent
+                    or self._formulate_intent_summary(raw_prompt, intent_category, targets),
+                    target_scope=targets,
+                    acceptance_criteria=llm_criteria
+                    or self._build_acceptance_criteria(raw_prompt, intent_category, targets),
+                    operational_constraints=guidelines,
+                    improvements=improvements,
+                    was_modified=True,
+                    agent_role=agent_role,
+                )
+                self._record_telemetry(result)
+                return result
+
+        except Exception as e:
+            logger.debug("LLM enhancement failed: %s", e)
+            # Fall through to regex-based enhancement
+
+        # Fallback: regex-based enhancement (same as non-LLM path)
+        return self.enhance(task=task, agent_role=agent_role, cwd=cwd, extra_context=extra_context)
+
     def _classify_intent(self, text: str) -> tuple[str, str]:
         """Classify task into operational intent categories."""
         text_lower = text.lower()
@@ -682,9 +853,30 @@ def enhance_prompt(
     agent_role: str = "Specialist Agent",
     cwd: str | Path | None = None,
     extra_context: str = "",
+    llm_client: Any = None,
+    llm_model: str = "",
 ) -> PromptEnhancementResult:
-    """Convenience function to enhance a user prompt."""
+    """Convenience function to enhance a user prompt.
+
+    When llm_client is provided, uses LLM for dynamic, context-aware enhancement.
+    Falls back to regex-based enhancement when LLM is unavailable.
+    """
     enhancer = get_prompt_enhancer(root_dir=cwd)
+
+    # Try LLM-enhanced path first
+    if llm_client and llm_model:
+        try:
+            return enhancer.enhance_with_llm(
+                task=task,
+                agent_role=agent_role,
+                cwd=cwd,
+                extra_context=extra_context,
+                client=llm_client,
+                model=llm_model,
+            )
+        except Exception as e:
+            logger.debug("LLM enhancement failed, falling back to regex: %s", e)
+
     return enhancer.enhance(
         task=task,
         agent_role=agent_role,

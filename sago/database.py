@@ -524,6 +524,22 @@ class MessageStore:
         ).fetchall()
         return [dict(r) for r in reversed(rows)]
 
+    def update_last_user_metadata(
+        self, agent_name: str | None = None, metadata: dict[str, Any] | None = None
+    ) -> None:
+        """Update metadata on the most recent user message in this session."""
+        self.flush()
+        row = self.conn.execute(
+            "SELECT id FROM messages WHERE session_id = ? AND role = 'user' ORDER BY created_at DESC LIMIT 1",
+            (self.session_id,),
+        ).fetchone()
+        if row:
+            self.conn.execute(
+                "UPDATE messages SET metadata = ? WHERE id = ?",
+                (json.dumps(metadata or {}), row["id"]),
+            )
+            self.conn.commit()
+
     def get_for_task(self, task_id: str) -> list[dict[str, Any]]:
         """Get messages for a specific task."""
         logger.debug("SELECT messages for task_id=%s", task_id)

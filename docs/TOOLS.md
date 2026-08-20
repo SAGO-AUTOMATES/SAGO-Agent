@@ -1,6 +1,6 @@
 # Sago - Tools Reference
 
-> Complete documentation for all 70 tools with usage examples and error handling.
+> Complete documentation for all 72 tools with usage examples and error handling.
 
 ## Permission System
 
@@ -8,9 +8,9 @@ All tools are protected by a risk-based permission system. Tools are categorized
 
 | Risk Level | Tools | Default Behavior |
 |------------|-------|------------------|
-| **Safe** | read_file, glob_files, grep_content, env_info, os_detector | Auto-approved |
-| **Low** | write_file, edit_file, file_operations, archive | Auto-approved |
-| **Medium** | execute_shell, background_process, docker_ops | Requires approval |
+| **Safe** | read_file, glob_files, grep_content, env_info, os_detector, web_search, web_fetch | Auto-approved |
+| **Low** | write_file, edit_file, file_operations, archive, code_sandbox | Auto-approved |
+| **Medium** | execute_shell, background_process, docker_ops, k8s_ops, browser | Requires approval |
 | **High** | ssh_connect, ssh_command, sudo_executor | Requires approval |
 | **Critical** | spawn_agent | Requires approval |
 

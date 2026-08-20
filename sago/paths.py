@@ -94,3 +94,9 @@ def ensure_sago_dirs() -> None:
     get_sessions_dir()
     get_logs_dir()
     get_config_dir()
+
+    # Additional directories used by various features
+    sago_home = get_sago_home()
+    (sago_home / "backups").mkdir(parents=True, exist_ok=True)
+    (sago_home / "cache").mkdir(parents=True, exist_ok=True)
+    (sago_home / "prompts").mkdir(parents=True, exist_ok=True)

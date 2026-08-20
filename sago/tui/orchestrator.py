@@ -38,8 +38,11 @@ class AgentOrchestrationMixin:
         tm = self._task_manager or get_task_manager()
         info = tm.create_task(agent_name, task)
         info.status = AgentStatus.RUNNING
-        self.call_from_thread(self._update_dashboard)
-        self.call_from_thread(self._show_spinner, f"Delegating to {agent_name}...")
+        try:
+            self.call_from_thread(self._update_dashboard)
+            self.call_from_thread(self._show_spinner, f"Delegating to {agent_name}...")
+        except Exception as e:
+            logger.debug("delegation UI setup failed: %s", e)
 
         # Record dev trace for delegation start
         t0 = _time.time()
@@ -159,9 +162,38 @@ class AgentOrchestrationMixin:
         logger.debug("chain thread started: %d steps", len(chain_steps))
         tm = self._task_manager or get_task_manager()
         flat_agents = [a for step in chain_steps for a in step]
-        self.call_from_thread(
-            self._show_spinner, f"Chain: {' → '.join(['+'.join(s) for s in chain_steps])}"
-        )
+        try:
+            self.call_from_thread(
+                self._show_spinner,
+                f"Chain: {' → '.join(['+'.join(s) for s in chain_steps])}",
+            )
+        except Exception as e:
+            logger.debug("chain spinner setup failed: %s", e)
+
+        # Build and mount HandoffFlow widget for visual chain progress
+        from sago.tui.widgets import HandoffFlow
+
+        chain_flow_data = [
+            {"agent": agent, "status": "pending"} for step in chain_steps for agent in step
+        ]
+        handoff_widget = HandoffFlow(chain_flow_data)
+
+        def _mount_handoff() -> None:
+            try:
+                target = getattr(self, "_active_exchange_card", None)
+                if target is not None:
+                    resp = getattr(target, "_response_container", None)
+                    if resp is not None:
+                        resp.mount(handoff_widget)
+                    else:
+                        target.mount(handoff_widget)
+                else:
+                    self.query_one("#messages").mount(handoff_widget)
+            except Exception as e:
+                logger.debug("mount handoff flow failed: %s", e)
+
+        self.call_from_thread(_mount_handoff)
+
         try:
             api_key = self._get_provider_api_key()
             if not api_key:
@@ -181,6 +213,8 @@ class AgentOrchestrationMixin:
 
             tool = SpawnAgentTool()
             current_input = task
+            # Track flat index into handoff_widget.chain for status updates
+            _hf_idx = 0
 
             for step_idx, step_agents in enumerate(chain_steps):
                 allowed_agents = []
@@ -205,6 +239,8 @@ class AgentOrchestrationMixin:
                     info.status = AgentStatus.RUNNING
                     self.call_from_thread(self._update_dashboard)
                     self.call_from_thread(self._update_spinner, f"Step {step_idx + 1}: {agent}")
+                    # Update handoff flow: mark running
+                    self.call_from_thread(handoff_widget.update_step, _hf_idx, "running")
 
                     t_step = _time.time()
                     try:
@@ -266,6 +302,10 @@ class AgentOrchestrationMixin:
                     info.result = result
                     info.elapsed = _time.time() - info.start_time
                     self.call_from_thread(self._update_dashboard)
+                    # Update handoff flow: mark completed/failed
+                    _step_status = "completed" if is_success else "failed"
+                    self.call_from_thread(handoff_widget.update_step, _hf_idx, _step_status)
+                    _hf_idx += 1
                     current_input = result
                 else:
                     # Parallel agents
@@ -294,7 +334,12 @@ class AgentOrchestrationMixin:
                             errors[agent_name] = str(e)
 
                     threads = []
+                    # Mark parallel agents as running in handoff flow
+                    _parallel_indices = []
                     for agent in allowed_agents:
+                        self.call_from_thread(handoff_widget.update_step, _hf_idx, "running")
+                        _parallel_indices.append(_hf_idx)
+                        _hf_idx += 1
                         t = threading.Thread(target=_run_parallel, args=(agent,), daemon=True)
                         threads.append((agent, t))
                         t.start()
@@ -304,14 +349,13 @@ class AgentOrchestrationMixin:
                         if t.is_alive():
                             errors[agent] = "Timeout (300s)"
 
-                    # Merge parallel results
+                    # Merge parallel results and update handoff flow
                     merged_parts = []
-                    for agent in allowed_agents:
+                    for agent, hf_idx in zip(allowed_agents, _parallel_indices):
                         if agent in results:
                             r = results[agent]
-                            handoff_ctx.add_result(
-                                agent, r, success=not (r.startswith("Error") or "REJECTED" in r)
-                            )
+                            is_ok = not (r.startswith("Error") or "REJECTED" in r)
+                            handoff_ctx.add_result(agent, r, success=is_ok)
                             if "Files created/modified:" in r:
                                 files_line = r.split("Files created/modified:")[1].split("\n")[0]
                                 for f in files_line.split(","):
@@ -319,8 +363,11 @@ class AgentOrchestrationMixin:
                                     if f and f not in handoff_ctx.files_created:
                                         handoff_ctx.files_created.append(f)
                             merged_parts.append(f"[{agent}]: {r}")
+                            _p_status = "completed" if is_ok else "failed"
+                            self.call_from_thread(handoff_widget.update_step, hf_idx, _p_status)
                         elif agent in errors:
                             merged_parts.append(f"[{agent}] Error: {errors[agent]}")
+                            self.call_from_thread(handoff_widget.update_step, hf_idx, "failed")
 
                     current_input = "\n\n".join(merged_parts)
                     logger.debug(
@@ -454,15 +501,38 @@ class AgentOrchestrationMixin:
                     step.get("task", "")[:80],
                 )
 
-            # Show plan and ask for confirmation
-            plan_lines = []
-            for i, step in enumerate(plan):
-                agent = step.get("agent", "python-engineer")
-                step_task = step.get("task", "")[:80]
-                plan_lines.append(f"  {i + 1}. {agent}: {step_task}")
-            plan_summary = f"Orchestration plan ({len(plan)} steps):\n" + "\n".join(plan_lines)
+            # Show plan with OrchestrationPlanWidget
+            from sago.tui.widgets import OrchestrationPlanWidget
+
+            plan_data = [
+                {
+                    "agent": step.get("agent", "python-engineer"),
+                    "task": step.get("task", ""),
+                    "status": "pending",
+                }
+                for step in plan
+            ]
+            plan_widget = OrchestrationPlanWidget(plan_data)
+
+            def _mount_plan() -> None:
+                try:
+                    target = getattr(self, "_active_exchange_card", None)
+                    if target is not None:
+                        resp = getattr(target, "_response_container", None)
+                        if resp is not None:
+                            resp.mount(plan_widget)
+                        else:
+                            target.mount(plan_widget)
+                    else:
+                        self.query_one("#messages").mount(plan_widget)
+                except Exception as e:
+                    logger.debug("mount orchestration plan failed: %s", e)
+
             self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_system_message, plan_summary)
+            self.call_from_thread(_mount_plan)
+
+            # Store plan widget reference for step updates during execution
+            self._orchestration_plan_widget = plan_widget
 
             # Show approval bar with buttons
             approval_msg = f"Execute {len(plan)} steps?  Press [Y] Approve or [N] Deny"
@@ -531,6 +601,11 @@ class AgentOrchestrationMixin:
                 )
                 self.call_from_thread(self._update_spinner, f"Step {i + 1}/{len(plan)}: {agent}")
 
+                # Update orchestration plan widget: mark step as active
+                plan_widget = getattr(self, "_orchestration_plan_widget", None)
+                if plan_widget is not None:
+                    self.call_from_thread(plan_widget.set_current_step, i)
+
                 # Build structured context from previous steps
                 context_str = ""
                 if i > 0:
@@ -584,6 +659,11 @@ class AgentOrchestrationMixin:
                             handoff_ctx.files_created.append(f)
 
                 results.append(f"**{agent}**: {result[:500]}")
+                # Update orchestration plan widget: mark step completed/failed
+                plan_widget = getattr(self, "_orchestration_plan_widget", None)
+                if plan_widget is not None:
+                    _step_status = "completed" if is_success else "failed"
+                    self.call_from_thread(plan_widget.mark_step, i, _step_status)
                 guard.exit(agent)
 
             logger.info("plan execution completed: %d steps", len(plan))
@@ -629,10 +709,11 @@ class AgentOrchestrationMixin:
             task_infos.append(info)
 
         # Show parallel bar
-        self.call_from_thread(self._show_parallel_bar, agents)
-
-        # Update dashboard
-        self.call_from_thread(self._update_dashboard)
+        try:
+            self.call_from_thread(self._show_parallel_bar, agents)
+            self.call_from_thread(self._update_dashboard)
+        except Exception as e:
+            logger.debug("parallel bar setup failed: %s", e)
 
         try:
             from sago.tools.file.spawn_agent import SpawnAgentTool

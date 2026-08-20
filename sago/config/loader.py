@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import threading
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,64 @@ from sago.utils.safe import log_exception
 from sago.version import __version__
 
 logger = logging.getLogger("sago.config")
+
+
+def init_user_config(force: bool = False) -> None:
+    """Initialize user config directory with default files if not present.
+
+    Creates:
+    - ~/.sago/config/ directory with default YAML configs
+    - ~/.sago/settings.json with default preferences (if missing)
+
+    Args:
+        force: If True, overwrite existing user config files with defaults.
+    """
+    import json
+
+    from sago.paths import get_config_dir, get_sago_home
+
+    user_config_dir = get_config_dir()
+    default_config_dir = Path(__file__).parent
+
+    # Default config files to copy
+    default_files = ["sago.yaml", "agents.yaml", "tools.yaml", "llm_providers.yaml"]
+
+    for filename in default_files:
+        user_file = user_config_dir / filename
+        default_file = default_config_dir / filename
+
+        if not default_file.exists():
+            continue
+
+        if user_file.exists() and not force:
+            logger.debug("User config already exists: %s", user_file)
+            continue
+
+        try:
+            shutil.copy2(default_file, user_file)
+            logger.info("Copied default config to: %s", user_file)
+        except Exception as e:
+            logger.warning("Failed to copy default config %s: %s", filename, e)
+
+    # Create default settings.json if missing
+    settings_file = get_sago_home() / "settings.json"
+    if not settings_file.exists() or force:
+        default_settings = {
+            "model": "gemini-2.5-flash",
+            "provider": "google",
+            "effort": "medium",
+            "agent": "sago-orchestrator",
+            "yolo": False,
+            "show_summary": True,
+            "show_action_bar": True,
+            "dev_mode": False,
+            "log_level": "info",
+        }
+        try:
+            settings_file.write_text(json.dumps(default_settings, indent=2))
+            logger.info("Created default settings: %s", settings_file)
+        except Exception as e:
+            logger.warning("Failed to create default settings: %s", e)
 
 
 class ProjectConfig(BaseModel):
@@ -285,16 +344,30 @@ def load_config(
 
     # Merge user config if provided
     if user_config_path and user_config_path.exists():
-        size = user_config_path.stat().st_size
-        logger.info("Merging user config: %s (%d bytes)", user_config_path, size)
-        try:
-            with open(user_config_path) as f:
-                user_data = yaml.safe_load(f) or {}
-            raw_config = _deep_merge(raw_config, user_data)
-            logger.info("Successfully merged user config")
-        except Exception as e:
-            logger.error("Failed to load user config %s: %s", user_config_path, e)
-            raise
+        if user_config_path.is_dir():
+            # User config is a directory - load individual YAML files
+            logger.info("Loading user config from directory: %s", user_config_path)
+            for yaml_file in sorted(user_config_path.glob("*.yaml")):
+                try:
+                    logger.info("Loading user config file: %s", yaml_file.name)
+                    with open(yaml_file) as f:
+                        user_data = yaml.safe_load(f) or {}
+                    raw_config = _deep_merge(raw_config, user_data)
+                except Exception as e:
+                    logger.error("Failed to load user config %s: %s", yaml_file, e)
+                    raise
+        else:
+            # User config is a single file
+            size = user_config_path.stat().st_size
+            logger.info("Merging user config: %s (%d bytes)", user_config_path, size)
+            try:
+                with open(user_config_path) as f:
+                    user_data = yaml.safe_load(f) or {}
+                raw_config = _deep_merge(raw_config, user_data)
+                logger.info("Successfully merged user config")
+            except Exception as e:
+                logger.error("Failed to load user config %s: %s", user_config_path, e)
+                raise
     elif user_config_path:
         logger.debug("User config path provided but does not exist: %s", user_config_path)
 
@@ -324,8 +397,9 @@ def get_config() -> SagoConfig:
 
     Loads from default locations:
     1. sago/config/ (bundled defaults)
-    2. ~/.sago/config.yaml (user overrides)
-    3. .sago.yaml in current directory (project overrides)
+    2. ~/.sago/config/ directory (user overrides - individual YAML files)
+    3. ~/.sago/config.yaml (single file user overrides)
+    4. .sago.yaml in current directory (project overrides)
 
     Results are cached. Call ``invalidate_config_cache()`` to force a reload.
 
@@ -334,10 +408,30 @@ def get_config() -> SagoConfig:
     """
     global _config_cache, _config_cache_key
 
+    # Default configs from package directory
     config_dir = Path(__file__).parent
-    user_config = Path.home() / ".sago" / "config.yaml"
+
+    # User configs: check ~/.sago/config/ directory first, then single file
+    user_config_dir = Path.home() / ".sago" / "config"
+    user_config_file = Path.home() / ".sago" / "config.yaml"
     project_config = Path.cwd() / ".sago.yaml"
-    user_path = project_config if project_config.exists() else user_config
+
+    # Initialize user config if it doesn't exist
+    if not user_config_dir.is_dir() and not user_config_file.exists():
+        try:
+            init_user_config()
+        except Exception as e:
+            logger.debug("Failed to initialize user config: %s", e)
+
+    # Determine which user config to use
+    if project_config.exists():
+        user_path = project_config
+    elif user_config_dir.is_dir():
+        user_path = user_config_dir
+    elif user_config_file.exists():
+        user_path = user_config_file
+    else:
+        user_path = None
 
     cache_key = f"{config_dir}:{user_path}"
     with _config_lock:

@@ -62,12 +62,27 @@ Raw User Input (e.g. "fix auth bug in login")
                      │ (medium/complex only)
                      ▼
         ┌─────────────────────────┐
-        │  SAGO Prompt Enhancer   │
-        │  - Intent Extraction    │
-        │  - AST Target Scope     │
-        │  - Acceptance Criteria  │
-        │  - Domain Constraints   │
-        │  - Anti-Hallucination   │
+        │  LLM-Aware Enhancement  │
+        │  If LLM client available│
+        │  - Dynamic intent from  │
+        │    LLM classification   │
+        │  - Smart criteria from  │
+        │    LLM generation       │
+        │  - Context-aware prompt │
+        │    structuring          │
+        │  Fallback: regex-based  │
+        │  - Pattern matching     │
+        │  - Template injection   │
+        │  - Static criteria      │
+        └─────────────────────────┘
+                     │
+                     ▼
+        ┌─────────────────────────┐
+        │  Hard Constraints       │
+        │  (always injected)      │
+        │  - Anti-hallucination   │
+        │  - Domain guidelines    │
+        │  - Verification rules   │
         └─────────────────────────┘
                      │
                      ▼
@@ -146,10 +161,12 @@ SAGO's prompt enhancement and intent classifier are not confined to rigid keywor
 
 ## Zero-Token Local Overhead & Isolation
 
-1. **Pure Local Semantic Synthesis**: Intent classification and prompt structuring occur locally in `<1ms` without burning remote LLM tokens or introducing API latency.
-2. **Clean Main LLM Payload**: Internal prompt generator/enhancer logs, intermediate decision trees, and metadata are **never injected into the main LLM payload**. Only the clean, distilled task prompt is passed.
-3. **Selective Context Assembly**: Casual chat, lightweight queries, and general Q&A bypass repository file scanning, AST symbol indexing, and README instruction dumps, keeping token usage minimal.
-4. **Complexity-Calibrated Enhancement**: Simple queries ("hi", "what is 2+2") skip prompt enhancement entirely. Medium queries get standard enhancement. Complex queries get structured multi-step workflows with anti-hallucination constraints.
+1. **Dynamic LLM Enhancement**: When an LLM client is available (during message processing), the enhancer uses a small LLM call (500 tokens max, temperature=0.1) for dynamic intent classification and structured prompt generation. This produces context-aware, intelligent enhancements that understand the user's actual intent.
+2. **Regex Fallback**: When LLM is unavailable (commands like `/delegate`, session loads), the enhancer falls back to regex-based pattern matching with template injection — still effective but static.
+3. **Clean Main LLM Payload**: Internal prompt generator/enhancer logs, intermediate decision trees, and metadata are **never injected into the main LLM payload**. Only the clean, distilled task prompt is passed.
+4. **Selective Context Assembly**: Casual chat, lightweight queries, and general Q&A bypass repository file scanning, AST symbol indexing, and README instruction dumps, keeping token usage minimal.
+5. **Complexity-Calibrated Enhancement**: Simple queries ("hi", "what is 2+2") skip prompt enhancement entirely. Medium queries get standard enhancement. Complex queries get structured multi-step workflows with anti-hallucination constraints.
+6. **Anti-Hallucination by Design**: Even with LLM enhancement, anti-hallucination constraints and domain guidelines are always injected as hard rules (never LLM-generated). This ensures the enhancement never hallucinates constraints or acceptance criteria.
 
 ---
 
