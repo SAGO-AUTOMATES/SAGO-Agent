@@ -632,12 +632,6 @@ def _install_kubectl(p: PlatformInfo) -> InstallResult:
             _run(["apk", "add", "k3s"], timeout=60, sudo=True)
         else:
             _run(
-                ["curl", "-sfL", "https://get.k3s.io", "|", "sh", "-"],
-                timeout=120,
-                sudo=True,
-            )
-            # The above doesn't work with pipe in list form, use bash
-            _run(
                 ["bash", "-c", "curl -sfL https://get.k3s.io | sh -"],
                 timeout=120,
                 sudo=True,
@@ -655,8 +649,18 @@ def _install_kubectl(p: PlatformInfo) -> InstallResult:
     if p.os == OsType.LINUX:
         url = f"https://dl.k8s.io/release/stable/bin/{p.os.value}/{arch}/kubectl"
         _run(
-            ["bash", "-c", f"curl -LO '{url}' && chmod +x kubectl && mv kubectl /usr/local/bin/"],
+            ["curl", "-LO", url],
             timeout=60,
+            sudo=True,
+        )
+        _run(
+            ["chmod", "+x", "kubectl"],
+            timeout=10,
+            sudo=True,
+        )
+        _run(
+            ["mv", "kubectl", "/usr/local/bin/"],
+            timeout=10,
             sudo=True,
         )
         if is_available("kubectl"):
