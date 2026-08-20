@@ -345,7 +345,61 @@ def _run(
 
 
 def which(name: str) -> str | None:
-    return shutil.which(name)
+    """Find a binary by checking PATH and common installation directories.
+
+    Checks standard PATH first, then expands search to common user-local
+    installation directories that may not be in PATH (e.g. ~/.local/bin,
+    ~/.cargo/bin, NVM, pyenv, Go, etc.).
+    """
+    # Standard PATH check first
+    path = shutil.which(name)
+    if path:
+        return path
+
+    # Common installation directories to search
+    home = os.path.expanduser("~")
+    search_dirs = [
+        os.path.join(home, ".local", "bin"),
+        os.path.join(home, ".cargo", "bin"),
+        os.path.join(home, "go", "bin"),
+        os.path.join(home, ".pyenv", "shims"),
+        os.path.join(home, ".npm-global", "bin"),
+        os.path.join(home, ".yarn", "bin"),
+        os.path.join(home, ".local", "share", "nvim", "mason", "bin"),
+        os.path.join(home, ".kube", "bin"),
+    ]
+
+    # NVM: check all installed node versions
+    nvm_dir = os.path.join(home, ".nvm", "versions", "node")
+    if os.path.isdir(nvm_dir):
+        try:
+            for node_dir in sorted(os.listdir(nvm_dir), reverse=True):
+                search_dirs.append(os.path.join(nvm_dir, node_dir, "bin"))
+        except OSError:
+            pass
+
+    # System-local dirs
+    search_dirs.extend(
+        [
+            "/usr/local/bin",
+            "/usr/local/sbin",
+            "/opt/homebrew/bin",
+            "/snap/bin",
+        ]
+    )
+
+    for d in search_dirs:
+        candidate = os.path.join(d, name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+        # Windows: check for .exe/.cmd/.bat
+        if platform.system().lower() == "windows":
+            for ext in (".exe", ".cmd", ".bat"):
+                candidate_ext = candidate + ext
+                if os.path.isfile(candidate_ext) and os.access(candidate_ext, os.X_OK):
+                    return candidate_ext
+
+    return None
 
 
 def is_available(name: str) -> bool:
@@ -462,14 +516,24 @@ def ensure_pip_package(
 def ensure_binary(
     name: str,
     auto_install: bool = True,
+    force_reinstall: bool = False,
 ) -> InstallResult:
     """Ensure a binary is available. Auto-installs where possible with correct OS packages.
 
+    Before installing, checks:
+    1. Standard PATH
+    2. Common user-local directories (~/.local/bin, ~/.cargo/bin, NVM, etc.)
+
     Returns (found, message). found=True if binary is on PATH after install attempt.
     """
-    path = which(name)
-    if path:
-        return True, f"{name} found at {path}"
+    if not force_reinstall:
+        path = which(name)
+        if path:
+            # Check if it's in a non-standard location
+            standard_paths = os.environ.get("PATH", "").split(os.pathsep)
+            if not any(os.path.normpath(p) in os.path.normpath(path) for p in standard_paths):
+                return True, f"{name} found at {path} (non-standard location)"
+            return True, f"{name} found at {path}"
 
     if not auto_install:
         return False, f"{name} not found. Please install manually."
