@@ -1,4 +1,7 @@
-"""Kubernetes Operations Tool - Safe kubectl wrapper for cluster management."""
+"""Kubernetes Operations Tool - Safe kubectl wrapper with k3s auto-install.
+
+Prefers k3s (lightweight, ~50MB) over full k8s. Auto-installs k3s/kubectl if missing.
+"""
 
 from __future__ import annotations
 
@@ -9,10 +12,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool, ToolCategory, ToolResult
+from sago.tools.ensure_dep import ensure_binary, is_available
 
 _K8S_TIMEOUT = 60
-
-# Dangerous operations that require confirmation via dry_run first
 DESTRUCTIVE_OPS = {"delete", "drain", "taint", "uncordon", "rollout undo"}
 
 
@@ -29,40 +31,27 @@ class K8sOpsArgs(BaseModel):
         ),
     )
     resource: str = Field(
-        default="",
-        description="Resource type and name (e.g. 'pods', 'deployments/myapp', 'services -n kube-system')",
+        default="", description="Resource type and name (e.g. 'pods', 'deployments/myapp')"
     )
-    args: list[str] = Field(
-        default_factory=list,
-        description="Extra kubectl arguments (e.g. ['-o', 'yaml', '-n', 'default'])",
-    )
-    namespace: str = Field(
-        default="",
-        description="Kubernetes namespace (overrides -n in args)",
-    )
-    output_format: str = Field(
-        default="",
-        description="Output format: yaml, json, wide, name (appended to command)",
-    )
+    args: list[str] = Field(default_factory=list, description="Extra kubectl arguments")
+    namespace: str = Field(default="", description="Kubernetes namespace")
+    output_format: str = Field(default="", description="Output format: yaml, json, wide, name")
     dry_run: bool = Field(
-        default=False,
-        description="If true, add --dry-run=client for destructive operations",
+        default=False, description="Add --dry-run=client for destructive operations"
     )
-    timeout: int = Field(
-        default=_K8S_TIMEOUT,
-        description="Command timeout in seconds",
-    )
+    timeout: int = Field(default=_K8S_TIMEOUT, description="Command timeout in seconds")
+    auto_install: bool = Field(default=True, description="Auto-install k3s/kubectl if missing")
 
 
 class K8sOpsTool(BaseTool):
-    """Execute Kubernetes/kubectl operations safely with structured output."""
+    """Execute Kubernetes/kubectl operations safely. Prefers k3s (lightweight)."""
 
     name: str = "k8s_ops"
     description: str = (
         "Execute Kubernetes kubectl operations: get, describe, create, apply, delete, "
         "logs, exec, rollout, scale, top, explain, config, cluster-info, run, expose, "
-        "patch, label, annotate. Supports namespace targeting, output formatting, "
-        "and dry-run mode for destructive operations."
+        "patch, label, annotate. Prefers k3s (lightweight, ~50MB) over full k8s. "
+        "Auto-installs k3s on Linux if missing. Supports dry-run for destructive ops."
     )
     category: ToolCategory = ToolCategory.SYSTEM
     args_model: type[BaseModel] | None = K8sOpsArgs
@@ -80,44 +69,50 @@ class K8sOpsTool(BaseTool):
         output_format: str = "",
         dry_run: bool = False,
         timeout: int = _K8S_TIMEOUT,
+        auto_install: bool = True,
         **extra: Any,
     ) -> ToolResult:
         op = (operation or "").strip().lower()
+
+        # Ensure kubectl/k3s is available - prefer k3s on Linux
+        kubectl_cmd = self._resolve_kubectl(auto_install)
+        if not kubectl_cmd:
+            return ToolResult(
+                output=(
+                    "kubectl/k3s not found.\n"
+                    "Auto-install k3s (lightweight, recommended):\n"
+                    "  curl -sfL https://get.k3s.io | sh -\n\n"
+                    "Or install kubectl manually:\n"
+                    "  https://kubernetes.io/docs/tasks/tools/"
+                ),
+                success=False,
+                error="kubectl_not_found",
+            )
+
         extra_args = list(args or [])
+        cmd = [kubectl_cmd, op]
 
-        # Build the command safely with explicit args
-        cmd = ["kubectl", op]
-
-        # Add namespace if specified and not already in args
         if namespace and "-n" not in extra_args and "--namespace" not in extra_args:
             cmd.extend(["-n", namespace])
 
-        # Add resource
         if resource:
             cmd.extend(resource.split())
 
-        # Add extra arguments
         cmd.extend(extra_args)
 
-        # Add output format if specified
         if output_format and "-o" not in extra_args and "--output" not in extra_args:
             cmd.extend(["-o", output_format])
 
-        # Add dry-run for destructive operations
         is_destructive = any(op.startswith(d) for d in DESTRUCTIVE_OPS)
         if dry_run and is_destructive:
             cmd.append("--dry-run=client")
 
-        # Validate: block truly dangerous ops without dry-run
         if is_destructive and not dry_run:
             return ToolResult(
-                output=(
-                    f"BLOCKED: '{op}' is a destructive operation. "
-                    f"Set dry_run=true to preview the effect, then re-run without dry_run to execute."
-                ),
+                output=f"BLOCKED: '{op}' is destructive. Set dry_run=true to preview first.",
                 success=False,
                 error="destructive_operation_blocked",
-                metadata={"operation": op, "suggestion": "Use --dry-run=client first"},
+                metadata={"operation": op},
             )
 
         try:
@@ -131,23 +126,13 @@ class K8sOpsTool(BaseTool):
             )
         except subprocess.TimeoutExpired:
             return ToolResult(
-                output=f"kubectl {op} timed out after {timeout}s.",
-                success=False,
-                error="timeout",
-                metadata={"command": cmd, "timeout": timeout},
+                output=f"kubectl {op} timed out after {timeout}s.", success=False, error="timeout"
             )
         except FileNotFoundError:
-            return ToolResult(
-                output="kubectl not found. Install kubectl or ensure it's in PATH.",
-                success=False,
-                error="kubectl_not_found",
-            )
+            return ToolResult(output="kubectl not found.", success=False, error="kubectl_not_found")
         except Exception as e:
             return ToolResult(
-                output=f"Failed to run kubectl {op}: {e}",
-                success=False,
-                error=str(e),
-                metadata={"command": cmd},
+                output=f"Failed to run kubectl {op}: {e}", success=False, error=str(e)
             )
 
         stdout = proc.stdout.strip()
@@ -158,28 +143,52 @@ class K8sOpsTool(BaseTool):
                 output=stderr or f"kubectl {op} failed (code {proc.returncode}).",
                 success=False,
                 error=f"exit_{proc.returncode}",
-                metadata={"returncode": proc.returncode, "command": cmd, "stdout": stdout},
+                metadata={"returncode": proc.returncode, "command": cmd},
             )
 
-        # Try to parse JSON output for structured metadata
-        metadata: dict[str, Any] = {"returncode": proc.returncode, "command": cmd}
+        metadata: dict[str, Any] = {
+            "returncode": proc.returncode,
+            "command": cmd,
+            "kubectl": kubectl_cmd,
+        }
         if output_format == "json" and stdout:
             try:
                 parsed = json.loads(stdout)
                 metadata["parsed"] = True
                 if isinstance(parsed, dict):
                     metadata["kind"] = parsed.get("kind", "")
-                    metadata["name"] = parsed.get("metadata", {}).get("name", "")
                     if "items" in parsed:
                         metadata["item_count"] = len(parsed["items"])
             except (json.JSONDecodeError, ValueError):
                 metadata["parsed"] = False
 
         return ToolResult(
-            output=stdout or f"kubectl {op} completed with no output.",
-            success=True,
-            metadata=metadata,
+            output=stdout or f"kubectl {op} completed.", success=True, metadata=metadata
         )
+
+    def _resolve_kubectl(self, auto_install: bool) -> str | None:
+        """Find kubectl or k3s, auto-installing if needed."""
+        # Check for existing kubectl
+        path = is_available("kubectl")
+        if path:
+            return "kubectl"
+
+        # Check for k3s (lightweight, includes kubectl)
+        if is_available("k3s"):
+            return "k3s"
+
+        # Auto-install: prefer k3s on Linux
+        if auto_install:
+            ok, msg = ensure_binary("k3s", auto_install=True)
+            if ok and is_available("k3s"):
+                return "k3s"
+
+            # Fallback to standalone kubectl
+            ok, msg = ensure_binary("kubectl", auto_install=True)
+            if ok and is_available("kubectl"):
+                return "kubectl"
+
+        return None
 
 
 def get_tool() -> type[K8sOpsTool]:

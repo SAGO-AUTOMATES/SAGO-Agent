@@ -1,4 +1,7 @@
-"""Browser Automation Tool - Headless browser for web interaction, screenshots, and scraping."""
+"""Browser Automation Tool - Headless browser for web interaction, screenshots, and scraping.
+
+Auto-installs Playwright + Chromium if not available.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +14,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool, ToolCategory, ToolResult
+from sago.tools.ensure_dep import ensure_binary, ensure_pip_package, is_available
 
 _BROWSER_TIMEOUT = 30
 
@@ -37,6 +41,7 @@ class BrowserArgs(BaseModel):
         default="networkidle",
         description="Wait condition: load, domcontentloaded, networkidle",
     )
+    auto_install: bool = Field(default=True, description="Auto-install Playwright if missing")
 
 
 class BrowserTool(BaseTool):
@@ -46,7 +51,7 @@ class BrowserTool(BaseTool):
     description: str = (
         "Headless browser automation: take screenshots, navigate pages, extract text/links, "
         "click elements, fill forms, execute JavaScript, generate PDFs. "
-        "Uses Playwright if installed, otherwise falls back to Chromium CLI."
+        "Auto-installs Playwright + Chromium if not available."
     )
     category: ToolCategory = ToolCategory.WEB
     args_model: type[BaseModel] | None = BrowserArgs
@@ -66,30 +71,61 @@ class BrowserTool(BaseTool):
         timeout: int = _BROWSER_TIMEOUT,
         output_path: str = "",
         wait_until: str = "networkidle",
+        auto_install: bool = True,
         **extra: Any,
     ) -> ToolResult:
         act = (action or "").strip().lower()
 
-        # Try Playwright first (Python API)
+        # Ensure Playwright is available
+        pw_available = False
         try:
-            return self._playwright_action(
-                act,
-                url,
-                selector,
-                value,
-                viewport_width,
-                viewport_height,
-                timeout,
-                output_path,
-                wait_until,
-            )
-        except ImportError:
-            pass
-        except Exception:
-            # Playwright failed, fall back to CLI
-            pass
+            from playwright.sync_api import sync_playwright  # noqa: F401
 
-        # Fallback: Chromium CLI for screenshots/PDFs
+            pw_available = True
+        except ImportError:
+            if auto_install:
+                ok, msg = ensure_pip_package("playwright")
+                if ok:
+                    # Also install chromium browser
+                    ok2, msg2 = ensure_binary("chromium", auto_install=False)
+                    try:
+                        subprocess.run(
+                            [
+                                __import__("sys").executable,
+                                "-m",
+                                "playwright",
+                                "install",
+                                "chromium",
+                            ],
+                            capture_output=True,
+                            timeout=180,
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        from playwright.sync_api import sync_playwright  # noqa: F401
+
+                        pw_available = True
+                    except ImportError:
+                        pass
+
+        if pw_available:
+            try:
+                return self._playwright_action(
+                    act,
+                    url,
+                    selector,
+                    value,
+                    viewport_width,
+                    viewport_height,
+                    timeout,
+                    output_path,
+                    wait_until,
+                )
+            except Exception:
+                pass
+
+        # Fallback: Chromium CLI
         return self._chromium_fallback(act, url, output_path, timeout)
 
     def _playwright_action(
@@ -166,20 +202,12 @@ class BrowserTool(BaseTool):
                 elif action == "title":
                     if url:
                         page.goto(url, wait_until=wait_until, timeout=timeout * 1000)
-                    return ToolResult(
-                        output=page.title(),
-                        success=True,
-                        metadata={"url": page.url},
-                    )
+                    return ToolResult(output=page.title(), success=True, metadata={"url": page.url})
 
                 elif action == "url":
                     if url:
                         page.goto(url, wait_until=wait_until, timeout=timeout * 1000)
-                    return ToolResult(
-                        output=page.url,
-                        success=True,
-                        metadata={"url": page.url},
-                    )
+                    return ToolResult(output=page.url, success=True, metadata={"url": page.url})
 
                 elif action == "evaluate":
                     if url:
@@ -209,7 +237,7 @@ class BrowserTool(BaseTool):
                         page.goto(url, wait_until=wait_until, timeout=timeout * 1000)
                     page.fill(selector, value, timeout=timeout * 1000)
                     return ToolResult(
-                        output=f"Filled '{selector}' with '{value[:50]}...'".strip(),
+                        output=f"Filled '{selector}'",
                         success=True,
                         metadata={"url": page.url, "selector": selector},
                     )
@@ -219,9 +247,9 @@ class BrowserTool(BaseTool):
                         page.goto(url, wait_until=wait_until, timeout=timeout * 1000)
                     page.wait_for_selector(selector, timeout=timeout * 1000)
                     return ToolResult(
-                        output=f"Selector '{selector}' found on {page.url}",
+                        output=f"Selector '{selector}' found",
                         success=True,
-                        metadata={"url": page.url, "selector": selector},
+                        metadata={"url": page.url},
                     )
 
                 elif action == "pdf":
@@ -251,54 +279,56 @@ class BrowserTool(BaseTool):
         """Fallback using chromium CLI for basic screenshot/PDF."""
         if action not in ("screenshot", "pdf"):
             return ToolResult(
-                output="Playwright not installed and only screenshot/pdf supported via CLI fallback. Install playwright: pip install playwright && playwright install chromium",
+                output=(
+                    "Playwright not available and only screenshot/pdf supported via CLI fallback.\n"
+                    "Auto-installing Playwright...\n"
+                    "Run: pip install playwright && playwright install chromium"
+                ),
                 success=False,
                 error="playwright_not_installed",
             )
 
-        # Try finding chromium/chrome binary
         for binary in ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"]:
-            try:
-                if action == "screenshot":
-                    path = output_path or tempfile.mktemp(suffix=".png", prefix="sago_browser_")
-                    cmd = [
-                        binary,
-                        "--headless",
-                        "--disable-gpu",
-                        f"--screenshot={path}",
-                        f"--window-size={1280},{720}",
-                        "--no-sandbox",
-                        url,
-                    ]
-                    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-                    if proc.returncode == 0 and Path(path).exists():
-                        return ToolResult(
-                            output=f"Screenshot saved to {path}",
-                            success=True,
-                            metadata={"path": path, "method": "chromium_cli"},
-                        )
-                elif action == "pdf":
-                    path = output_path or tempfile.mktemp(suffix=".pdf", prefix="sago_browser_")
-                    cmd = [
-                        binary,
-                        "--headless",
-                        "--disable-gpu",
-                        f"--print-to-pdf={path}",
-                        "--no-sandbox",
-                        url,
-                    ]
-                    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-                    if proc.returncode == 0 and Path(path).exists():
-                        return ToolResult(
-                            output=f"PDF saved to {path}",
-                            success=True,
-                            metadata={"path": path, "method": "chromium_cli"},
-                        )
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                continue
+            if is_available(binary):
+                try:
+                    if action == "screenshot":
+                        path = output_path or tempfile.mktemp(suffix=".png", prefix="sago_browser_")
+                        cmd = [
+                            binary,
+                            "--headless",
+                            "--disable-gpu",
+                            f"--screenshot={path}",
+                            f"--window-size={1280},{720}",
+                            "--no-sandbox",
+                            url,
+                        ]
+                        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+                        if proc.returncode == 0 and Path(path).exists():
+                            return ToolResult(
+                                output=f"Screenshot saved to {path}",
+                                success=True,
+                                metadata={"path": path},
+                            )
+                    elif action == "pdf":
+                        path = output_path or tempfile.mktemp(suffix=".pdf", prefix="sago_browser_")
+                        cmd = [
+                            binary,
+                            "--headless",
+                            "--disable-gpu",
+                            f"--print-to-pdf={path}",
+                            "--no-sandbox",
+                            url,
+                        ]
+                        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+                        if proc.returncode == 0 and Path(path).exists():
+                            return ToolResult(
+                                output=f"PDF saved to {path}", success=True, metadata={"path": path}
+                            )
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    continue
 
         return ToolResult(
-            output="Neither Playwright nor Chromium found. Install: pip install playwright && playwright install chromium",
+            output="No browser found. Install: pip install playwright && playwright install chromium",
             success=False,
             error="no_browser_available",
         )

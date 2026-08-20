@@ -1,4 +1,7 @@
-"""Docker Operations Tool - Safe Docker CLI wrapper with structured output."""
+"""Docker Operations Tool - Safe Docker CLI wrapper with auto-install.
+
+Uses explicit argument lists (no shell injection). Auto-installs Docker if missing.
+"""
 
 from __future__ import annotations
 
@@ -9,11 +12,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool, ToolCategory, ToolResult
+from sago.tools.ensure_dep import ensure_binary, is_available
 
 _DOCKER_TIMEOUT = 120
-
-# Operations that require explicit args (no implicit defaults)
-NEEDS_ARGS = {"run", "exec", "build", "pull", "push", "stop", "rm"}
 
 
 class DockerOpsArgs(BaseModel):
@@ -26,20 +27,18 @@ class DockerOpsArgs(BaseModel):
             "pull, push, inspect, stats, compose-up, compose-down, compose-logs, compose-ps"
         ),
     )
-    args: list[str] = Field(
-        default_factory=list,
-        description="Arguments as a list (e.g. ['nginx:latest', '-p', '8080:80'])",
-    )
+    args: list[str] = Field(default_factory=list, description="Arguments as a list")
     container: str = Field(default="", description="Container name/ID (for exec, logs, stop, rm)")
     image: str = Field(default="", description="Image name (for build, pull, push, run)")
-    command: str = Field(default="", description="Command to run inside container (for exec, run)")
-    compose_file: str = Field(default="", description="Docker Compose file path (for compose ops)")
+    command: str = Field(default="", description="Command to run inside container")
+    compose_file: str = Field(default="", description="Docker Compose file path")
     compose_project: str = Field(default="", description="Docker Compose project name")
     timeout: int = Field(default=_DOCKER_TIMEOUT, description="Command timeout in seconds")
     format_output: str = Field(
         default="", description="Output format (e.g. '{{json .}}' for inspect)"
     )
     dry_run: bool = Field(default=False, description="Add --dry-run where supported")
+    auto_install: bool = Field(default=True, description="Auto-install Docker if missing")
 
 
 class DockerOps(BaseTool):
@@ -49,7 +48,7 @@ class DockerOps(BaseTool):
     description: str = (
         "Execute Docker operations: ps, images, build, run, stop, rm, exec, logs, "
         "pull, push, inspect, stats, compose-up, compose-down, compose-logs, compose-ps. "
-        "Uses explicit argument lists (no shell injection). Returns structured results."
+        "Uses explicit argument lists (no shell injection). Auto-installs Docker if missing."
     )
     category: ToolCategory = ToolCategory.SYSTEM
     args_model: type[BaseModel] | None = DockerOpsArgs
@@ -70,11 +69,31 @@ class DockerOps(BaseTool):
         timeout: int = _DOCKER_TIMEOUT,
         format_output: str = "",
         dry_run: bool = False,
+        auto_install: bool = True,
         **extra: Any,
     ) -> ToolResult:
         op = (operation or "").strip().lower()
 
-        # Build command safely with explicit args
+        # Ensure Docker is available
+        if auto_install and not is_available("docker"):
+            ok, msg = ensure_binary("docker", auto_install=True)
+            if not ok:
+                return ToolResult(output=msg, success=False, error="docker_not_found")
+        elif not is_available("docker"):
+            return ToolResult(
+                output=(
+                    "Docker not found.\n"
+                    "Install Docker:\n"
+                    "  Linux (Ubuntu/Debian): curl -fsSL https://get.docker.com | sh\n"
+                    "  Linux (CentOS/RHEL): yum install -y docker-ce docker-ce-cli containerd.io\n"
+                    "  macOS: brew install --cask docker\n"
+                    "  Windows: winget install Docker.DockerDesktop\n\n"
+                    "After install, start the Docker daemon."
+                ),
+                success=False,
+                error="docker_not_found",
+            )
+
         cmd = self._build_cmd(
             op,
             args or [],
@@ -100,24 +119,12 @@ class DockerOps(BaseTool):
             )
         except subprocess.TimeoutExpired:
             return ToolResult(
-                output=f"Docker {op} timed out after {timeout}s.",
-                success=False,
-                error="timeout",
-                metadata={"command": cmd, "timeout": timeout},
+                output=f"Docker {op} timed out after {timeout}s.", success=False, error="timeout"
             )
         except FileNotFoundError:
-            return ToolResult(
-                output="Docker not found. Install Docker or ensure it's in PATH.",
-                success=False,
-                error="docker_not_found",
-            )
+            return ToolResult(output="Docker not found.", success=False, error="docker_not_found")
         except Exception as e:
-            return ToolResult(
-                output=f"Failed to run docker {op}: {e}",
-                success=False,
-                error=str(e),
-                metadata={"command": cmd},
-            )
+            return ToolResult(output=f"Failed to run docker {op}: {e}", success=False, error=str(e))
 
         stdout = proc.stdout.strip()
         stderr = proc.stderr.strip()
@@ -130,7 +137,6 @@ class DockerOps(BaseTool):
                 metadata={"returncode": proc.returncode, "command": cmd},
             )
 
-        # Try to parse JSON output for structured metadata
         metadata: dict[str, Any] = {"returncode": proc.returncode, "command": cmd}
         if stdout:
             try:
@@ -141,25 +147,20 @@ class DockerOps(BaseTool):
             except (json.JSONDecodeError, ValueError):
                 metadata["parsed"] = False
 
-        return ToolResult(
-            output=stdout or f"docker {op}: success",
-            success=True,
-            metadata=metadata,
-        )
+        return ToolResult(output=stdout or f"docker {op}: success", success=True, metadata=metadata)
 
     def _build_cmd(
         self,
-        op: str,
-        args: list[str],
-        container: str,
-        image: str,
-        command: str,
-        compose_file: str,
-        compose_project: str,
-        format_output: str,
-        dry_run: bool,
-    ) -> list[str] | ToolResult:
-        """Build Docker command safely with explicit argument list."""
+        op,
+        args,
+        container,
+        image,
+        command,
+        compose_file,
+        compose_project,
+        format_output,
+        dry_run,
+    ):
         cmd = ["docker"]
 
         if op == "ps":
@@ -176,8 +177,7 @@ class DockerOps(BaseTool):
                 cmd.extend(["-t", image])
             cmd.extend(args)
         elif op == "run":
-            cmd.append("run")
-            cmd.extend(["-d", "--rm"])
+            cmd.extend(["run", "-d", "--rm"])
             if image:
                 cmd.append(image)
             if command:
@@ -228,15 +228,11 @@ class DockerOps(BaseTool):
                 cmd.append(container)
             cmd.extend(args)
         elif op in ("compose-up", "compose-down", "compose-logs", "compose-ps"):
-            cmd.extend(["compose"])
-            compose_op = op.replace("compose-", "")
-            cmd.append(compose_op)
+            cmd.extend(["compose", op.replace("compose-", "")])
             if compose_file:
                 cmd.extend(["-f", compose_file])
             if compose_project:
                 cmd.extend(["-p", compose_project])
-            if compose_op == "up" and dry_run:
-                cmd.append("--dry-run")
             cmd.extend(args)
         else:
             return ToolResult(
