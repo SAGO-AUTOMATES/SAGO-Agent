@@ -445,6 +445,7 @@ SAGO coordinates **339 specialist agents** across 22 domains with dynamic runtim
 ```
 
 - **Model & Key Inheritance**: When delegating to subagents or running swarms, child agents dynamically inherit the user's active LLM provider (e.g. Gemini, OpenAI, Claude, OpenRouter), active model, and API keys via `resolve_active_llm_config()`.
+- **Adding a new AI provider is one step**: register a declarative `ProviderSpec` in `sago/llm/registry.py` (name/aliases, env key, default model, base URL) — key resolution, `/model` + `/provider` handling, autocomplete, fallback chains and error hints all pick it up automatically.
 
 ---
 
@@ -651,13 +652,14 @@ sago/
 ├── server/              # TCP daemon server
 │   └── daemon.py        # Background daemon with client
 ├── mcp/                 # Model Context Protocol
-│   └── server.py        # MCP server with 70 tools
+│   └── server.py        # MCP server with 70+ tools
 ├── tui/                 # Terminal UI
 │   ├── app.py           # Textual TUI with dashboard
 │   ├── widgets/         # AgentDashboard, AgentSpinner, HandoffFlow
 │   ├── helpers.py       # Agent-tagged message rendering
 │   └── smart_input.py   # Input processor
 ├── llm/                 # LLM providers
+│   ├── registry.py      # Provider registry — add a provider with ONE ProviderSpec
 │   ├── openai_provider.py
 │   ├── openrouter.py
 │   ├── gemini.py
@@ -863,7 +865,7 @@ pip install -e ".[dev]"
 |----------|-------------|
 | [docs/BUILD.md](docs/BUILD.md) | Build and installation instructions |
 | [docs/COMMANDS.md](docs/COMMANDS.md) | CLI and TUI command reference |
-| [docs/TOOLS.md](docs/TOOLS.md) | All 70 tools with examples |
+| [docs/TOOLS.md](docs/TOOLS.md) | All 73 tools with examples |
 | [docs/ERRORS.md](docs/ERRORS.md) | Error handling and recovery |
 | [docs/MCP.md](docs/MCP.md) | MCP server integration |
 | [docs/PROJECT.md](docs/PROJECT.md) | Project structure and architecture |

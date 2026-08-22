@@ -1,6 +1,6 @@
 # Sago - Tools Reference
 
-> Complete documentation for all 72 tools with usage examples and error handling.
+> Complete documentation for all 73 tools with usage examples and error handling.
 
 ## Permission System
 

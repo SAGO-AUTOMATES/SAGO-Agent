@@ -54,12 +54,13 @@ def _sanitize_error_message(msg: str) -> str:
     """Remove potential API keys/secrets from error messages."""
     import os as _os
 
-    secret_keys = [
-        "OPENROUTER_API_KEY",
-        "OPENAI_API_KEY",
-        "GEMINI_API_KEY",
-        "ANTHROPIC_API_KEY",
-    ]
+    from sago.llm.registry import get_provider_spec, known_providers
+
+    secret_keys = []
+    for name in known_providers():
+        spec = get_provider_spec(name)
+        if spec and spec.api_key_env:
+            secret_keys.append(spec.api_key_env)
     sanitized = msg
     for key in secret_keys:
         val = _os.environ.get(key, "")
@@ -72,31 +73,31 @@ def _get_configured_model() -> str:
     """Get the configured model from config, fallback to gemini-2.0-flash / openrouter."""
     import os
 
-    # Auto-detect model based on available API keys
-    _key_model_map = [
-        ("OPENROUTER_API_KEY", "openrouter/free"),
-        ("OPENAI_API_KEY", "gpt-4o"),
-        ("GEMINI_API_KEY", "gemini-2.0-flash"),
-        ("ANTHROPIC_API_KEY", "claude-sonnet-4-20250514"),
-    ]
-    for env_key, default_model in _key_model_map:
-        if os.environ.get(env_key):
-            # Try config first, fall back to key-matched default
-            try:
-                from sago.config.loader import get_config
+    from sago.llm.registry import fallback_order, get_provider_spec
 
-                config = get_config()
-                default_prov = getattr(config.llm_providers, "default", "gemini")
-                providers = getattr(config.llm_providers, "providers", {})
-                if default_prov in providers and getattr(providers[default_prov], "model", None):
-                    configured_model = providers[default_prov].model
-                    # Only use configured model if its provider matches an available key
-                    configured_key_env = getattr(providers[default_prov], "api_key_env", "")
-                    if configured_key_env and os.environ.get(configured_key_env):
-                        return configured_model
-            except Exception as e:
-                log_exception(e, "Loading config for model selection")
-            return default_model
+    # Auto-detect model based on available API keys (registry-driven order)
+    for provider_name in fallback_order():
+        spec = get_provider_spec(provider_name)
+        if not spec or not spec.api_key_env or not os.environ.get(spec.api_key_env):
+            continue
+        if not spec.default_model:
+            continue
+        # Try config first, fall back to key-matched default
+        try:
+            from sago.config.loader import get_config
+
+            config = get_config()
+            default_prov = getattr(config.llm_providers, "default", "gemini")
+            providers = getattr(config.llm_providers, "providers", {})
+            if default_prov in providers and getattr(providers[default_prov], "model", None):
+                configured_model = providers[default_prov].model
+                # Only use configured model if its provider matches an available key
+                configured_key_env = getattr(providers[default_prov], "api_key_env", "")
+                if configured_key_env and os.environ.get(configured_key_env):
+                    return configured_model
+        except Exception as e:
+            log_exception(e, "Loading config for model selection")
+        return spec.default_model
     return "openrouter/free"
 
 

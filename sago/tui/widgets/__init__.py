@@ -27,8 +27,12 @@ class Spinner(Static):
         self.frame = 0
 
     def render(self) -> str:
+        from rich.markup import escape as _escape
+
         f = self.FRAMES[self.frame]
-        return f"[bold cyan]{f}[/bold cyan] [italic #8b949e]{self.text}[/italic #8b949e]"
+        # Tool names/args are arbitrary model/tool output; never let them hit
+        # the markup parser (a stray '[' crashed layout resolution).
+        return f"[bold cyan]{f}[/bold cyan] [italic #8b949e]{_escape(self.text)}[/italic #8b949e]"
 
     def advance(self) -> None:
         self.frame = (self.frame + 1) % len(self.FRAMES)
@@ -363,8 +367,13 @@ class OrchestrationPlanWidget(Widget):
         border: solid #1f6feb;
         padding: 0 1;
         margin: 0 0 1 0;
-        max-height: 10;
+        max-height: 16;
         overflow-y: auto;
+    }
+    OrchestrationPlanWidget #plan-steps {
+        /* Textual's Vertical default is 1fr; inside an auto-height parent it
+           collapses to ~0 and steps become invisible. Size by content. */
+        height: auto;
     }
     OrchestrationPlanWidget .plan-title {
         color: #1f6feb;
@@ -420,7 +429,9 @@ class OrchestrationPlanWidget(Widget):
         container.remove_children()
         for i, step in enumerate(self.plan):
             agent = step.get("agent", "?")
-            task = step.get("task", "")[:60]
+            # Full task text — Static soft-wraps, so no information is lost
+            # (the old [:60] slice was cutting instructions mid-word).
+            task = step.get("task", "")
             status = step.get("status", "pending")
 
             if i == self.current_step:

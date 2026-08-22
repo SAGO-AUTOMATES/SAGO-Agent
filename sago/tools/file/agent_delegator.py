@@ -263,12 +263,19 @@ class AgentDelegator:
             base_url = llm_cfg["base_url"]
 
             if not api_key:
+                from sago.llm.registry import ProviderSpec, fallback_order, get_provider_spec
+
+                key_names: list[str] = []
+                for name in fallback_order():
+                    spec: ProviderSpec | None = get_provider_spec(name)
+                    if spec and spec.api_key_env:
+                        key_names.append(spec.api_key_env)
                 return {
                     "delegated_to": agent_name,
                     "confidence": result.confidence,
                     "reason": result.reason,
                     "success": False,
-                    "error": "No API key configured. Set GEMINI_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY.",
+                    "error": f"No API key configured. Set one of: {', '.join(key_names)}.",
                 }
 
             # Try user-selected model first, fallback to free model only if distinct

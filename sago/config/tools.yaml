@@ -274,9 +274,17 @@ tools:
     name: "Git Operations"
     category: "system"
     description: "Execute git commands: status, log, diff, add, commit, push, pull"
-    module: "sago.tools.system.git_ops"
-    class_name: "GitOps"
+    module: "sago.tools.vcs.git_ops"
+    class_name: "GitOperationsTool"
     permissions: ["bash"]
+
+  review_changes:
+    name: "Review Changes"
+    category: "system"
+    description: "Review-ready context for working tree, staged, commit, branch or PR changes"
+    module: "sago.tools.vcs.review"
+    class_name: "ReviewChangesTool"
+    permissions: ["read"]
 
   docker_ops:
     name: "Docker Operations"

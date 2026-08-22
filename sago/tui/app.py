@@ -467,33 +467,24 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
     def _resolve_api_model(self) -> str:
         """Strip provider prefix for API calls. google/gemini-2.0-flash -> gemini-2.0-flash."""
-        m = self.current_model
-        p = self.current_provider
-        if p == "google" and m.startswith("google/"):
-            return m[len("google/") :]
-        if p == "openai" and m.startswith("openai/"):
-            return m[len("openai/") :]
-        return m
+        from sago.llm.registry import strip_model_prefix
+
+        return strip_model_prefix(self.current_provider, self.current_model)
 
     def _get_provider_api_key(self) -> str:
         """Get the API key for the current provider."""
+        from sago.llm.registry import get_provider_spec, normalize_provider
 
-        provider_key_map = {
-            "google": "GEMINI_API_KEY",
-            "openai": "OPENAI_API_KEY",
-            "openrouter": "OPENROUTER_API_KEY",
-        }
-        env_var = provider_key_map.get(self.current_provider, "OPENROUTER_API_KEY")
+        spec = get_provider_spec(normalize_provider(self.current_provider))
+        env_var = spec.api_key_env if spec and spec.api_key_env else "OPENROUTER_API_KEY"
         return os.environ.get(env_var, "")
 
     def _get_provider_key_name(self) -> str:
         """Get the environment variable name for the current provider's API key."""
-        provider_key_map = {
-            "google": "GEMINI_API_KEY",
-            "openai": "OPENAI_API_KEY",
-            "openrouter": "OPENROUTER_API_KEY",
-        }
-        return provider_key_map.get(self.current_provider, "OPENROUTER_API_KEY")
+        from sago.llm.registry import get_provider_spec, normalize_provider
+
+        spec = get_provider_spec(normalize_provider(self.current_provider))
+        return spec.api_key_env if spec and spec.api_key_env else "OPENROUTER_API_KEY"
 
     def watch_current_model(self, value: str) -> None:
         """Auto-save model when changed."""
@@ -804,9 +795,12 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                     and not val.startswith("/model remove")
                     and not val.startswith("/model refresh")
                 ):
+                    from sago.llm.registry import infer_provider_for_model
+
                     model_id = val[7:].strip()
-                    provider = model_id.split("/")[0]
-                    self.current_provider = provider
+                    inferred = infer_provider_for_model(model_id)
+                    if inferred:
+                        self.current_provider = inferred
                     self.current_model = model_id
             else:
                 v = inp.value

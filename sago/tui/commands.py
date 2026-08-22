@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -261,6 +262,68 @@ class CommandHandlers:
 
         self._process_delegation(agent_name, task)
 
+    def _valid_agent_names(self: SagoApp) -> set[str]:
+        """All valid agent names including aliases, from the registry."""
+        try:
+            from sago.agents.registry import AGENT_ALIASES, AGENTS
+
+            return set(AGENTS) | set(AGENT_ALIASES)
+        except Exception as e:
+            logger.debug("Agent registry unavailable for chain parsing: %s", e)
+            return set()
+
+    def _looks_like_agent(self: SagoApp, word: str) -> bool:
+        """Check if a word is a known agent name or alias (registry-validated)."""
+        w = word.lower().strip()
+        if not w:
+            return False
+        valid = self._valid_agent_names()
+        if w in valid:
+            return True
+        # Short forms like "python" count only when "<word>-engineer" exists
+        return f"{w}-engineer" in valid
+
+    def _parse_chain_spec(self: SagoApp, raw: str) -> tuple[list[str], str]:
+        """Parse /chain input into (ordered agent names, task).
+
+        Supported forms:
+          /chain architect -> reviewer <task>
+          /chain frontend-engineer,backend-engineer <task>
+          /chain <task>                        → ([], task), caller auto-routes
+          /chain a1,a2                         → pure agent list, synthetic task
+
+        Only '->' is an arrow separator; bare '>' stays part of the task text
+        (e.g. "/chain write code that prints > 5 items"). Agent words are
+        validated against the registry instead of the old '-' heuristic.
+        """
+        normalized = re.sub(r"\s*->\s*", " → ", raw).strip()
+        agents: list[str] = []
+        task_parts: list[str] = []
+
+        if "→" not in normalized and "," not in normalized:
+            words = normalized.split()
+            idx = 0
+            while idx < len(words) and self._looks_like_agent(words[idx]):
+                agents.append(words[idx].lower())
+                idx += 1
+            task = " ".join(words[idx:])
+            return agents, task
+
+        for chunk in re.split(r"→|,", normalized):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            words = chunk.split()
+            idx = 0
+            while idx < len(words) and self._looks_like_agent(words[idx]):
+                agents.append(words[idx].lower())
+                idx += 1
+            remainder = " ".join(words[idx:])
+            if remainder:
+                task_parts.append(remainder)
+
+        return agents, " ".join(task_parts)
+
     def _chain_agents(self: SagoApp, args: str) -> None:
         raw_args = args.strip()
         if not raw_args:
@@ -272,106 +335,33 @@ class CommandHandlers:
             )
             return
 
-        # Normalize ASCII arrows to standard chain separator
-        args = raw_args.replace("->", "→").replace(">", "→")
+        try:
+            agent_names, task = self._parse_chain_spec(raw_args)
+        except Exception as e:
+            log_exception(e, "parse delegate chain args")
+            agent_names, task = [], raw_args
 
-        # Detect if args are just agent names (no real task text)
-        has_separator = "," in args or "→" in args
-        words = args.split()
-
-        if not has_separator and len(words) >= 2:
-            all_look_like_agents = all("-" in w and len(w) < 40 for w in words)
-            if all_look_like_agents:
-                try:
-                    agent_list = words
-                    self._add_system_message(f"Agents: {', '.join(agent_list)} — auto-routing task")
-                    chain_steps = [[a] for a in agent_list]
-                    task_str = f"Execute: {', '.join(agent_list)}"
-                    self._add_command_turn(
-                        "chain",
-                        task_str,
-                        meta=f"[{' → '.join(agent_list)}]",
-                        tag_label="CHAIN",
-                        tag_color="#79c0ff",
-                    )
-                    self._process_chain(chain_steps, task_str)
-                    return
-                except Exception as e:
-                    log_exception(e, "parse delegate chain args")
-
-        # Parse with separator: "a,b → c,d" or "a,b task"
-        if has_separator:
-            parts = args.split(None, 1)
-            if len(parts) >= 2 and "→" not in args and "," not in parts[0]:
-                agent_chain_str = parts[0]
-                task = parts[1]
-            else:
-                agent_chain_str = args
-                task = ""
-                for sep in ["→", ","]:
-                    if sep in args:
-                        last_sep_idx = args.rfind(sep)
-                        after = args[last_sep_idx + 1 :].strip()
-                        after_words = after.split()
-                        if after_words and not all("-" in w for w in after_words):
-                            task = after
-                            agent_chain_str = args[:last_sep_idx]
-                            break
-
-            chain_steps = []
-            for step_str in agent_chain_str.split("→"):
-                step_agents = [a.strip() for a in step_str.split(",") if a.strip()]
-                if step_agents:
-                    chain_steps.append(step_agents)
-
-            if not chain_steps:
-                chain_steps = [["python-engineer"]]
-
-            if not task:
-                task = f"Execute chain: {' → '.join(a for step in chain_steps for a in step)}"
-
-            self._add_command_turn(
-                "chain",
-                task,
-                meta=f"[{agent_chain_str}]",
-                tag_label="CHAIN",
-                tag_color="#79c0ff",
-            )
-            self._process_chain(chain_steps, task)
-            return
-
-        # Single word or phrase — treat as task, auto-route
-        # But first check if first word is an agent name (e.g. "/chain architect review this code")
-        first_word = words[0] if words else ""
-        looks_like_agent = (
-            "-" in first_word and len(first_word) < 40 and first_word.replace("-", "").isalpha()
-        )
-        if looks_like_agent and len(words) >= 2:
-            # First word is agent, rest is task
-            agents = [first_word]
-            task = " ".join(words[1:])
-            self._add_system_message(f"Agent: {first_word}")
-        else:
-            task = args
+        if not agent_names:
+            # Pure task — auto-route a chain
             try:
                 from sago.agents.router import route_for_chain
 
-                agents = route_for_chain(task, max_agents=4)
-                if not agents:
-                    agents = ["python-engineer"]
-                self._add_system_message(f"Auto-routed: {' → '.join(agents)}")
+                agent_names = route_for_chain(task, max_agents=4) or ["python-engineer"]
+                self._add_system_message(f"Auto-routed: {' → '.join(agent_names)}")
             except Exception:
-                agents = ["python-engineer"]
+                agent_names = ["python-engineer"]
                 self._add_system_message("Using default: python-engineer")
+        elif not task:
+            task = f"Execute chain: {' → '.join(agent_names)}"
 
         self._add_command_turn(
             "chain",
             task,
-            meta=f"[{' → '.join(agents)}]",
+            meta=f"[{' → '.join(agent_names)}]",
             tag_label="CHAIN",
             tag_color="#79c0ff",
         )
-        self._process_chain([[a] for a in agents], task)
+        self._process_chain([[a] for a in agent_names], task)
 
     def _orchestrate_task(self: SagoApp, task: str) -> None:
         if not task:
@@ -905,27 +895,20 @@ class CommandHandlers:
             self._add_system_message(msg)
             return
 
-        # Known providers for smart parsing
-        known_providers = {
-            "google",
-            "gemini",
-            "openai",
-            "openrouter",
-            "anthropic",
-            "claude",
-            "ollama",
-            "deepseek",
-        }
+        # Known providers for smart parsing (registry-driven, aliases included)
+        from sago.llm.registry import (
+            get_provider_spec,
+            guess_provider_from_model,
+            infer_provider_for_model,
+            known_provider_keys,
+            normalize_provider,
+        )
+
+        valid_names = set(known_provider_keys())
 
         # /model <provider> <model> — explicit syntax (e.g. /model google gemini-2.0-pro or /model openrouter deepseek/deepseek-r1)
-        if len(parts) >= 2 and parts[0].lower() in known_providers:
-            provider = (
-                "google"
-                if parts[0].lower() in ("google", "gemini")
-                else (
-                    "anthropic" if parts[0].lower() in ("claude", "anthropic") else parts[0].lower()
-                )
-            )
+        if len(parts) >= 2 and parts[0].lower() in valid_names:
+            provider = normalize_provider(parts[0])
             model_name = " ".join(parts[1:])
             self.current_provider = provider
             self.current_model = model_name
@@ -938,14 +921,8 @@ class CommandHandlers:
         search = parts[0]
         if "/" in search:
             prefix, rest = search.split("/", 1)
-            if prefix.lower() in known_providers:
-                provider = (
-                    "google"
-                    if prefix.lower() in ("google", "gemini")
-                    else (
-                        "anthropic" if prefix.lower() in ("claude", "anthropic") else prefix.lower()
-                    )
-                )
+            if prefix.lower() in valid_names:
+                provider = normalize_provider(prefix)
                 self.current_provider = provider
                 self.current_model = rest if provider == "google" else search
                 self._add_system_message(
@@ -957,10 +934,13 @@ class CommandHandlers:
         for model in models:
             if search.lower() in model.lower():
                 self.current_model = model
-                if "google" in model.lower() or "gemini" in model.lower():
-                    self.current_provider = "google"
-                elif "openai" in model.lower() or "gpt" in model.lower():
-                    self.current_provider = "openai"
+                guessed = guess_provider_from_model(model)
+                if guessed and get_provider_spec(guessed):
+                    self.current_provider = guessed
+                else:
+                    inferred = infer_provider_for_model(model)
+                    if inferred:
+                        self.current_provider = inferred
                 self._add_system_message(
                     f"Model: [bold green]{model}[/] (Provider: [bold cyan]{self.current_provider}[/])"
                 )
@@ -968,17 +948,61 @@ class CommandHandlers:
 
         # Not in list — allow custom model
         self.current_model = search
-        if "gemini" in search.lower():
-            self.current_provider = "google"
-        elif "gpt" in search.lower() or "o1" in search.lower() or "o3" in search.lower():
-            self.current_provider = "openai"
-        self._add_system_message(
-            f"Model: [bold green]{search}[/] (custom, Provider: [bold cyan]{self.current_provider}[/])"
+        guessed = guess_provider_from_model(search)
+        if guessed and get_provider_spec(guessed):
+            self.current_provider = guessed
+        else:
+            # Unknown 'vendor/model' ids (e.g. stealth/ox-alpha) route via OpenRouter
+            inferred = infer_provider_for_model(search)
+            if inferred:
+                self.current_provider = inferred
+        provider_label = (
+            f"(Provider: [bold cyan]{self.current_provider}[/])" if "/" in search else "(custom)"
         )
+        self._add_system_message(f"Model: [bold green]{search}[/] {provider_label}")
 
     def _change_provider(self: SagoApp, p: str) -> None:
-        self.current_model = f"{p}/free" if "/" not in p else p
-        self._add_system_message(f"Provider: {self.current_model}")
+        from sago.llm.registry import get_provider_spec, known_providers, normalize_provider
+
+        if not p:
+            from sago.llm.registry import fallback_order
+
+            current = normalize_provider(self.current_provider)
+            lines = ["[bold]Providers[/bold]", f"  Current: {current}", ""]
+            for name in fallback_order():
+                spec = get_provider_spec(name)
+                if not spec:
+                    continue
+                marker = " ←" if name == current else ""
+                key_hint = "no key needed" if spec.local else spec.api_key_env
+                lines.append(
+                    f"  • [cyan]{name:<12}[/cyan] [{key_hint}] default={spec.default_model}{marker}"
+                )
+            lines.append("")
+            lines.append("[dim]Switch with: /provider <name>[/dim]")
+            self._add_system_message("\n".join(lines))
+            return
+
+        canonical = normalize_provider(p)
+        spec = get_provider_spec(canonical)
+        if spec is None:
+            self._add_system_message(
+                f"[red]Unknown provider:[/] {p}\nKnown: {', '.join(known_providers())}"
+            )
+            return
+        self.current_provider = canonical
+        # Keep the user's explicit model if it already belongs to this provider;
+        # otherwise seed the provider default.
+        if "/" not in self.current_model or self.current_model.split("/", 1)[0] != canonical:
+            self.current_model = spec.default_model
+        key_status = (
+            "local"
+            if spec.local or not spec.api_key_env
+            else ("key ✓" if os.environ.get(spec.api_key_env) else f"{spec.api_key_env} NOT set")
+        )
+        self._add_system_message(
+            f"Provider: [bold cyan]{canonical}[/] | Model: [bold green]{self.current_model}[/] | {key_status}"
+        )
 
     def _set_effort(self: SagoApp, level: str) -> None:
         from sago.tui.models import EFFORT_LEVELS

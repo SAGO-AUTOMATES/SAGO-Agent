@@ -689,18 +689,24 @@ def get_subcommand_completions(raw: str) -> tuple[list[str], list[str]] | None:
                 values.append(f"/model {m}")
         return items, values
 
-    # /provider completions
+    # /provider completions (registry-driven)
     if cmd == "/provider":
+        from sago.llm.registry import get_provider_spec, known_providers
+
         providers_catalog = {
             "openrouter": "OpenRouter multi-model gateway (Default)",
             "openai": "Direct OpenAI API (GPT-4o, o3-mini)",
-            "gemini": "Google Gemini API (Gemini 2.5 Pro / Flash)",
+            "google": "Google Gemini API (Gemini 2.5 Pro / Flash)",
             "anthropic": "Anthropic Claude API (Claude 3.7 Sonnet)",
             "ollama": "Local Ollama instance (localhost:11434)",
         }
         items = []
         values = []
-        for p, desc in providers_catalog.items():
+        for p in known_providers():
+            spec = get_provider_spec(p)
+            desc = providers_catalog.get(
+                p, f"{p} provider (default={spec.default_model})" if spec else p
+            )
             if not arg or fuzzy_score(arg, p) > 0 or fuzzy_score(arg, desc) > 0:
                 items.append(f"[bold blue]{p:<14}[/bold blue] [dim]{desc}[/dim]")
                 values.append(f"/provider {p}")

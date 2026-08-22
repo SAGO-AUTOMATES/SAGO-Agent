@@ -22,32 +22,50 @@ if TYPE_CHECKING:
 _time = time
 
 
+_STRONG_ERROR_START = re.compile(
+    r"""^\s*(?:
+        error \b |
+        exception \b |
+        traceback \b |
+        fatal \b |
+        rejected \s* : |
+        cannot \s+ spawn |
+        delegation \s+ error |
+        chain \s+ error |
+        parallel \s+ error |
+        execution \s+ error |
+        orchestration \s+ error |
+        api \s+ error |
+        unauthorized |
+        permission \s+ denied
+    )""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+# Structured failure markers emitted by spawn_agent/executor on real failures.
+_EMBEDDED_ERROR_MARKERS = (
+    "could not be spawned",
+    "last error:",
+    "traceback (most recent call last)",
+)
+
+
 def _is_error_result(result: str) -> bool:
-    """Check if a tool result indicates an error (API failure, rate limit, etc.)."""
-    if not isinstance(result, str):
+    """Check if a tool result indicates a hard failure.
+
+    Only strong signals count (result *starting* with an error marker, or an
+    explicit embedded failure marker). Generic words like "error" or "failed"
+    appearing anywhere in prose must NOT abort chains — e.g. an agent saying
+    "no errors found" or "0 failed tests" previously killed the chain.
+    """
+    if not isinstance(result, str) or not result.strip():
         return False
-    result_lower = result.lower()
-    error_patterns = [
-        "error",
-        "failed",
-        "rate limit",
-        "rate_limit",
-        "rejected",
-        "exception",
-        "traceback",
-        "api error",
-        "invalid",
-        "unauthorized",
-        "permission denied",
-        "timeout",
-        "timed out",
-        "no such file",
-        "not found",
-        "status code",
-        "status_code",
-        "last error",
-    ]
-    return any(p in result_lower for p in error_patterns)
+    if _STRONG_ERROR_START.match(result):
+        return True
+    lowered = result.lower()
+    if any(marker in lowered for marker in _EMBEDDED_ERROR_MARKERS):
+        return True
+    return "rate limit" in lowered[:300]
 
 
 class AgentOrchestrationMixin:
@@ -308,7 +326,9 @@ class AgentOrchestrationMixin:
                         if step_idx > 0 or handoff_ctx.agent_results
                         else ""
                     )
-                    result = tool.run(task=current_input, agent_name=agent, context=context_str)
+                    result = tool.run(
+                        task=current_input, agent_name=agent, context=context_str, guard=guard
+                    )
 
                     dur_ms = (_time.time() - t_step) * 1000
                     is_success = not _is_error_result(result)
@@ -362,8 +382,11 @@ class AgentOrchestrationMixin:
                         )
                         break
                     current_input = result
-                    # Exit agent from guard after step completes so next step can re-enter
-                    guard.exit(agent)
+                    # NOTE: SpawnAgentTool.enter/exit uses the RESOLVED agent name
+                    # (aliases like code-reviewer -> reviewer) inside its own
+                    # finally-block. Exiting here with the raw plan name used to
+                    # mismatch on aliased agents and leave permanent residue in
+                    # the guard, poisoning later steps with false cycle errors.
                 else:
                     # Parallel agents
                     logger.info(
@@ -385,7 +408,15 @@ class AgentOrchestrationMixin:
                                 if step_idx > 0 or handoff_ctx.agent_results
                                 else ""
                             )
-                            r = tool.run(task=current_input, agent_name=agent_name, context=ctx)
+                            # Pass the shared chain guard explicitly: worker threads
+                            # would otherwise get a fresh thread-local guard, silently
+                            # disabling cycle/depth protection.
+                            r = tool.run(
+                                task=current_input,
+                                agent_name=agent_name,
+                                context=ctx,
+                                guard=guard,
+                            )
                             results[agent_name] = r
                         except Exception as e:
                             errors[agent_name] = str(e)
@@ -631,14 +662,21 @@ class AgentOrchestrationMixin:
             for step in plan:
                 agent_name = step.get("agent", "")
                 if agent_name not in valid_agents:
-                    # Try fuzzy match: check if any valid agent name is a substring
-                    matched = False
-                    for valid in valid_agents:
-                        if valid in agent_name or agent_name in valid:
-                            step["agent"] = valid
-                            matched = True
+                    # Fuzzy match against the registry. Iterating a SET made the
+                    # pick nondeterministic — the same hallucinated name could
+                    # map to a different engineer on every run.
+                    best_name = None
+                    best_score = 0
+                    for valid in sorted(valid_agents):
+                        if valid == agent_name:
+                            best_name, best_score = valid, 10**6
                             break
-                    if not matched:
+                        overlap = min(len(valid), len(agent_name))
+                        if (valid in agent_name or agent_name in valid) and overlap > best_score:
+                            best_name, best_score = valid, overlap
+                    if best_name:
+                        step["agent"] = best_name
+                    else:
                         # Default to python-engineer for unknown agents
                         logger.warning(
                             "Hallucinated agent '%s' not in registry, falling back to python-engineer",
@@ -683,13 +721,14 @@ class AgentOrchestrationMixin:
                     container.mount(plan_widget)
 
                     # Mount editable plan summary with instructions
+                    from rich.markup import escape as _escape
                     from textual.widgets import Static as TextualStatic
 
                     plan_lines = []
                     for i, step in enumerate(plan):
                         agent = step.get("agent", "python-engineer")
                         task = step.get("task", "")
-                        plan_lines.append(f"  {i + 1}. [{agent}] {task[:80]}")
+                        plan_lines.append(f"  {i + 1}. [{_escape(agent)}] {_escape(task)}")
 
                     plan_text = "\n".join(plan_lines)
                     instructions = (
@@ -713,8 +752,19 @@ class AgentOrchestrationMixin:
             # Store plan widget reference for step updates during execution
             self._orchestration_plan_widget = plan_widget
 
-            # Show approval bar with buttons
-            approval_msg = f"Execute {len(plan)} steps?  Press [Y] Approve or [N] Deny"
+            # Show approval bar with a compact summary of WHAT will run
+            from rich.markup import escape as _escape
+
+            step_lines = [
+                f"{i + 1}. [{_escape(s.get('agent', '?'))}] {_escape((s.get('task', '') or '')[:70])}"
+                for i, s in enumerate(plan[:5])
+            ]
+            more = f"\n… +{len(plan) - 5} more" if len(plan) > 5 else ""
+            steps_text = "\n".join(step_lines) + more
+            approval_msg = (
+                f"Execute {len(plan)} step(s)?\n{steps_text}\n"
+                f"\\[Y] Approve · \\[N] Deny · edit with /plan"
+            )
             self.call_from_thread(self._show_approval_bar, approval_msg)
 
             # Store plan for /approve command
@@ -811,7 +861,13 @@ class AgentOrchestrationMixin:
                     context_str = handoff_ctx.get_compact_handoff_prompt(agent)
 
                 step_start = time.time()
-                result = tool.run(task=step_task, agent_name=agent, context=context_str)
+                # Explicitly share the plan's guard: SpawnAgentTool would otherwise
+                # fall back to thread-local lookup, which can return a stale guard
+                # left behind by an earlier command (thread idents get recycled),
+                # producing false 'Cycle detected' rejections for every step.
+                result = tool.run(
+                    task=step_task, agent_name=agent, context=context_str, guard=guard
+                )
                 step_elapsed = time.time() - step_start
 
                 # Record in handoff context
@@ -899,12 +955,22 @@ class AgentOrchestrationMixin:
             container = None
             if target_card is not None:
                 container = getattr(target_card, "_response_container", None)
+            from textual.widgets import Static as TextualStatic
+
             if container is not None:
                 container.display = True
-                from textual.widgets import Static as TextualStatic
-
                 self.call_from_thread(container.mount, TextualStatic(summary, markup=True))
                 self.call_from_thread(container.scroll_end)
+            else:
+                # No active turn card (cleared mid-run / card creation failed):
+                # the summary must NEVER vanish silently — fall back to #messages.
+                logger.warning(
+                    "No active exchange card for orchestration summary; falling back to #messages"
+                )
+                self.call_from_thread(
+                    self.query_one("#messages").mount,
+                    TextualStatic(summary, markup=True, classes="msg-assistant"),
+                )
         except Exception as e:
             logger.error("plan execution failed: error=%s", e, exc_info=True)
             try:

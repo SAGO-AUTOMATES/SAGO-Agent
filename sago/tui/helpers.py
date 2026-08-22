@@ -1010,13 +1010,15 @@ class UIHelpers:
         header = " ".join(header_parts)
 
         # Task line
-        task_line = f"[dim]Task:[/] [white]{task[:120]}[/white]"
+        from rich.markup import escape as _escape
+
+        task_line = f"[dim]Task:[/] [white]{_escape(task[:120])}[/white]"
 
         # Tools used line
         tools_line = ""
         if tools_used:
             tool_names = ", ".join(tools_used[:5])
-            tools_line = f"[dim]Tools:[/] [cyan]{tool_names}[/cyan]"
+            tools_line = f"[dim]Tools:[/] [cyan]{_escape(tool_names)}[/cyan]"
 
         target_card = getattr(self, "_active_exchange_card", None)
         container = None

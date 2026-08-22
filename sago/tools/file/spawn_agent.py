@@ -119,9 +119,17 @@ class SpawnAgentTool(BaseTool):
         agent_name: str = "",
         context: str = "",
         feedback: str = "",
+        guard: Any = None,
         **kwargs: Any,
     ) -> str:
-        """Spawn an agent to handle a task with recursion protection."""
+        """Spawn an agent to handle a task with recursion protection.
+
+        Args:
+            guard: Optional shared RecursionGuard. Callers orchestrating across
+                multiple worker threads (e.g. parallel chain steps) must pass
+                their guard explicitly — thread-local lookup would otherwise
+                give each worker a fresh guard and disable cycle/depth checks.
+        """
         actual_task = (
             task
             or kwargs.get("prompt")
@@ -199,10 +207,12 @@ class SpawnAgentTool(BaseTool):
                     "Examples: python-engineer, java-engineer, go-engineer, devops-engineer"
                 )
 
-        from sago.agents.handoff import get_recursion_guard
+        # Use the explicitly shared guard when provided (multi-threaded chains),
+        # otherwise fall back to the thread-local guard.
+        if guard is None:
+            from sago.agents.handoff import get_recursion_guard
 
-        # Check recursion guard before spawning
-        guard = get_recursion_guard()
+            guard = get_recursion_guard()
         allowed, reason = guard.can_spawn(resolved_agent)
         if not allowed:
             logger.warning("Recursion guard blocked agent '%s': %s", resolved_agent, reason)
@@ -216,9 +226,14 @@ class SpawnAgentTool(BaseTool):
         llm_cfg = resolve_active_llm_config()
         api_key = llm_cfg["api_key"]
         if not api_key:
-            return (
-                "Error: No API key set. Set GEMINI_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
-            )
+            from sago.llm.registry import ProviderSpec, fallback_order, get_provider_spec
+
+            key_names: list[str] = []
+            for name in fallback_order():
+                spec: ProviderSpec | None = get_provider_spec(name)
+                if spec and spec.api_key_env:
+                    key_names.append(spec.api_key_env)
+            return f"Error: No API key set. Set one of: {', '.join(key_names)}."
 
         # Record dev trace event for agent delegation
         try:

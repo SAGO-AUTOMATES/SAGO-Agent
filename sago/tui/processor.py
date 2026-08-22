@@ -83,9 +83,11 @@ class MessageProcessorMixin:
                             try:
                                 from textual.widgets import Static as TextualStatic
 
+                                # markup=False: text is arbitrary LLM/tool output and
+                                # may contain '[' sequences that break console markup.
                                 self.call_from_thread(
                                     container.mount,
-                                    TextualStatic(text, classes="msg-assistant", markup=True),
+                                    TextualStatic(text, classes="msg-assistant", markup=False),
                                 )
                             except Exception:
                                 pass
@@ -1720,18 +1722,20 @@ class MessageProcessorMixin:
                                 f"✅ Step {todo_index + 1} completed: {todo.description[:60]}",
                             )
 
-                # Get API key for the current provider
-                provider_key = os.environ.get(
-                    {"google": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY"}.get(
-                        self.current_provider, "OPENROUTER_API_KEY"
-                    ),
-                    "",
+                # Get API key for the current provider (registry-driven)
+                from sago.llm.registry import (
+                    get_provider_spec,
+                    normalize_provider,
+                    resolve_base_url,
                 )
-                provider_base_url = {
-                    "google": None,
-                    "openai": "https://api.openai.com/v1",
-                    "openrouter": "https://openrouter.ai/api/v1",
-                }.get(self.current_provider, "https://openrouter.ai/api/v1")
+
+                _spec = get_provider_spec(normalize_provider(self.current_provider))
+                provider_key = (
+                    os.environ.get(_spec.api_key_env, "")
+                    if _spec and _spec.api_key_env
+                    else os.environ.get("OPENROUTER_API_KEY", "")
+                )
+                provider_base_url = resolve_base_url(normalize_provider(self.current_provider))
 
                 exec_result: dict[str, Any] = execute_agent_task(
                     task=message,
@@ -1808,12 +1812,14 @@ class MessageProcessorMixin:
                 logger.debug("Dev tracer record failed in error handler: %s", tracer_err)
 
             if "429" in error_msg or "rate" in error_msg.lower():
-                provider_urls = {
-                    "google": "https://console.cloud.google.com/billing",
-                    "openai": "https://platform.openai.com/settings/organization/billing",
-                    "openrouter": "https://openrouter.ai/settings/credits",
-                }
-                url = provider_urls.get(self.current_provider, "your provider's dashboard")
+                from sago.llm.registry import get_provider_spec, normalize_provider
+
+                _spec = get_provider_spec(normalize_provider(self.current_provider))
+                url = (
+                    _spec.billing_url
+                    if _spec and _spec.billing_url
+                    else "your provider's dashboard"
+                )
                 error_msg = (
                     f"Rate limited. Wait a few seconds or check credits at {url}.\n"
                     f"💡 *Tip:* Type `/continue` to resume this task without losing previous tool results, or switch model with `/model`."

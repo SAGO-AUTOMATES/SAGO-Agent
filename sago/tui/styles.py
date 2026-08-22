@@ -113,6 +113,10 @@ Screen { background: #0a0d12; }
     border: solid #30363d;
     padding: 0;
     margin: 0;
+    /* Override Textual's Vertical default (height: 1fr) which made every turn
+       card stretch to fill the viewport and clip content when multiple cards
+       shared the screen. Size strictly by content instead. */
+    height: auto;
 }
 .exchange-box--user {
     border-left: solid #388bfd;
@@ -308,6 +312,17 @@ Collapsible > Contents {
 Collapsible > Contents Static {
     color: #e6edf3;
     background: transparent;
+}
+
+/* Tool-call / reasoning / plan collapsibles inside a turn card: collapse the
+   vertical chrome so long agent runs stay scannable instead of turning into
+   blank-line marathons. */
+.exchange-body Collapsible {
+    margin: 1 0 0 0;
+    padding: 0;
+}
+.exchange-body Collapsible > Contents {
+    padding: 0 1;
 }
 
 .code-action-bar {
