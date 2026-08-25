@@ -1,6 +1,6 @@
 # Sago - Project Architecture
 
-> Production-grade multi-agent orchestration system with 339 agents, 72 production tools, parallel execution, feedback loops, and multi-LLM support.
+> Production-grade multi-agent orchestration system with 339 agents, 73 production tools, parallel execution, feedback loops, and multi-LLM support.
 
 ## Overview
 
@@ -39,7 +39,7 @@ sago/
 │   │       ├── fullstack_engineer.py
 │   │       └── ... (339 total)
 │   │
-│   ├── tools/                    # Tool system (72 production tools)
+│   ├── tools/                    # Tool system (73 production tools)
 │   │   ├── __init__.py
 │   │   ├── base.py               # BaseTool with helpers
 │   │   ├── ensure_dep.py         # Dependency auto-installation
@@ -104,6 +104,7 @@ sago/
 │   │
 │   ├── llm/                      # LLM providers
 │   │   ├── __init__.py
+│   │   ├── registry.py           # Provider registry — single source of truth (aliases, keys, models)
 │   │   ├── base.py               # BaseLLMProvider
 │   │   ├── factory.py            # LLMFactory
 │   │   ├── mock.py               # MockLLMProvider for offline CI testing
@@ -175,7 +176,7 @@ sago/
 │   │   ├── trace_viewer.py       # Modal trace & payload viewer
 │   │   └── widgets/              # Textual dashboard, spinners & cards
 │   │
-│   ├── tools/                    # Tool system (72 tools)
+│   ├── tools/                    # Tool system (73 tools)
 │   │   ├── file/
 │   │   │   ├── resilient_editor.py # 3-tier fuzzy & normalized matching
 │   │   │   ├── multi_replace_file.py # Atomic multi-chunk replace
@@ -231,7 +232,7 @@ sago/
 
 ### 2. Tool System (`sago/tools/`)
 
-72 tools across 13 categories:
+73 tools across 13 categories:
 - **File** (19): read, write, edit, glob, grep, scan, analyze, archive, diff, checksum, database, markdown, PDF, regex, data, multi-replace, agent delegation, file ops, file search
 - **Shell** (2): execute, background
 - **SSH** (3): connect, command, transfer
@@ -300,7 +301,7 @@ TUI / CLI
 Production Engine
     ├── Task Delegator (classify, route)
     ├── Agent Spawner (CrewAI execution)
-    ├── Tool Execution (72 tools)
+    ├── Tool Execution (73 tools)
     ├── LLM Provider (streaming)
     └── Cache (hit/miss)
     ↓

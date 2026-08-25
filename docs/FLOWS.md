@@ -38,7 +38,7 @@ flowchart TD
         AgentB -->|Feedback / Review| AgentC["Specialist Agent C (e.g. Code Reviewer)"]
     end
     
-    Swarm --> Tools["🛠️ Tool Matrix (70 Safe / Risk-Gated Tools)"]
+    Swarm --> Tools["🛠️ Tool Matrix (73 Safe / Risk-Gated Tools)"]
     Tools --> Codebase[("💻 Local Codebase & Workspace")]
     Codebase --> Verifier["🔍 Self-Healing Verifier (Linter, Typecheck, Tests)"]
     
@@ -187,7 +187,7 @@ To allow seamless collaboration between agents without data loss or infinite loo
 
 ## 8. Tool Matrix & Risk-Gated Permission Model
 
-Agents interact with the environment via **70 production tools** registered under `sago/tools/`. Every tool execution is evaluated by the **Permission Manager** ([`sago/permissions.py`](file:///mnt/ramdisk/sago/sago/permissions.py)):
+Agents interact with the environment via **73 production tools** registered under `sago/tools/`. Every tool execution is evaluated by the **Permission Manager** ([`sago/permissions.py`](file:///mnt/ramdisk/sago/sago/permissions.py)):
 
 | Risk Level | Operations Included | Security Policy |
 | :--- | :--- | :--- |
