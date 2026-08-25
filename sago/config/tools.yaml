@@ -16,7 +16,7 @@ tools:
   write_file:
     name: "Write File"
     category: "file"
-    description: "Write content to a file (creates or overwrites)"
+    description: "Write full content to a file (creates or overwrites) — ONLY for new files; for existing files prefer edit_file / multi_replace_file / ast_edit for surgical changes"
     module: "sago.tools.file.write_file"
     class_name: "WriteFileTool"
     permissions: ["read", "write"]
@@ -24,9 +24,25 @@ tools:
   edit_file:
     name: "Edit File"
     category: "file"
-    description: "Edit a file using exact string replacement"
+    description: "Surgically edit a file by replacing an exact string/block (1 chunk) — resilient matching (exact → normalized → fuzzy) — PREFER for existing files, single hunk"
     module: "sago.tools.file.edit_file"
     class_name: "EditFileTool"
+    permissions: ["read", "edit"]
+
+  multi_replace_file:
+    name: "Multi Replace File"
+    category: "file"
+    description: "Atomically apply multiple non-contiguous surgical replacements in one file — PREFER for ≥2 hunks in same file"
+    module: "sago.tools.file.multi_replace_file"
+    class_name: "MultiReplaceFileTool"
+    permissions: ["read", "edit"]
+
+  ast_edit:
+    name: "AST Edit"
+    category: "coding"
+    description: "Structural edit by function/class name (replace_function, insert_function, rename, add_import) — PREFER for single function/class body changes without text matching"
+    module: "sago.tools.coding.ast_edit_tool"
+    class_name: "AstEditTool"
     permissions: ["read", "edit"]
 
   glob_files:

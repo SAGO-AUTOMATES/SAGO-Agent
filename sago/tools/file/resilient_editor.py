@@ -87,8 +87,8 @@ class ResilientEditor:
                         match_tier="normalized_lines",
                     )
 
-        # Tier 3: Fuzzy sequence matching
-        if len(norm_target) > 20:
+        # Tier 3: Fuzzy sequence matching — was >20, now >5 to allow small 1-line fixes
+        if len(norm_target) > 5:
             best_ratio = 0.0
             best_start = -1
             best_end = -1
@@ -195,8 +195,10 @@ class ResilientEditor:
                 return False, (
                     "Edit REJECTED and rolled back: it would introduce a Python syntax error "
                     f"({e.msg} at line {e.lineno}). The file was left unchanged. "
-                    "Retry using the exact current file content for old_string "
-                    "(read the file again), or rewrite the whole file with write_file."
+                    "Retry with a larger, more specific old_string that includes 3-5 lines of "
+                    "surrounding context (read the file again), or for a single function use "
+                    "ast_edit with action=replace_function. Do NOT rewrite the whole file "
+                    "unless creating a new file."
                 )
             return True, ""
 
@@ -234,8 +236,10 @@ class ResilientEditor:
             return True, ""
         return False, (
             f"Edit REJECTED and rolled back: it would introduce a {checker[1]}. "
-            "The file was left unchanged. Retry using the exact current file content for "
-            "old_string (read the file again), or rewrite the whole file with write_file."
+            "The file was left unchanged. Retry with a larger old_string that includes "
+            "3-5 lines of surrounding context (read again), or for a single function use "
+            "ast_edit with action=replace_function. Do NOT rewrite the whole file unless "
+            "creating a new file."
         )
 
     @staticmethod

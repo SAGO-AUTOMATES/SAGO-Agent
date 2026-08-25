@@ -1053,14 +1053,17 @@ class ASTEditor:
         indent = len(def_line) - len(def_line.lstrip())
         indent_str = " " * indent
 
+        # Find decorator start (if any) to avoid duplication
+        decorator_start = def_line_idx
+        for i in range(max(0, def_line_idx - 5), def_line_idx):
+            if lines[i].strip().startswith("@"):
+                decorator_start = min(decorator_start, i)
+
         new_lines = []
-        # Include decorators
-        for node in nodes:
-            if node.name == target.name and node.node_type in ("function", "method"):
-                for i in range(max(0, def_line_idx - 5), def_line_idx):
-                    if lines[i].strip().startswith("@"):
-                        new_lines.append(lines[i])
-                break
+        # Include decorators (once)
+        for i in range(decorator_start, def_line_idx):
+            if lines[i].strip().startswith("@"):
+                new_lines.append(lines[i])
 
         # Add def line
         new_lines.append(lines[def_line_idx])
@@ -1072,9 +1075,9 @@ class ASTEditor:
             else:
                 new_lines.append("")
 
-        # Skip old body
+        # Skip old body — slice from decorator_start, not def_line_idx, to avoid duplicate decorators
         old_end = target.end_line
-        result_lines = lines[:def_line_idx] + new_lines + lines[old_end:]
+        result_lines = lines[:decorator_start] + new_lines + lines[old_end:]
         return "\n".join(result_lines)
 
     def _replace_function_regex(

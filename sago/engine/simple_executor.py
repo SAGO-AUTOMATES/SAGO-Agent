@@ -163,10 +163,12 @@ def _build_openai_tools(tool_classes: dict[str, type[BaseTool]]) -> list[dict[st
 
     for name, cls in sorted(tool_classes.items()):
         raw_desc = (cls.description or name).strip()
-        # Compact single-line description to save tokens
+        # Keep full first-line description for surgical tools so the LLM sees
+        # the "PREFER for existing files" guidance (was truncated to 160).
         first_line = raw_desc.split("\n", 1)[0].strip()
-        if len(first_line) > 160:
-            first_line = first_line[:157] + "..."
+        # Only truncate extremely long descriptions (>280) to save tokens
+        if len(first_line) > 280:
+            first_line = first_line[:277] + "..."
         description = first_line or name
 
         parameters: dict[str, Any] = {
@@ -179,11 +181,11 @@ def _build_openai_tools(tool_classes: dict[str, type[BaseTool]]) -> list[dict[st
             fields = cls.args_model.model_fields
             for field_name, field_info in fields.items():
                 prop = _pydantic_field_to_schema(field_info)
-                # Trim overly verbose parameter descriptions
+                # Keep fuller param descriptions so old_string/new_string guidance survives
                 if "description" in prop and isinstance(prop["description"], str):
                     pdesc = prop["description"].split("\n", 1)[0].strip()
-                    if len(pdesc) > 100:
-                        pdesc = pdesc[:97] + "..."
+                    if len(pdesc) > 200:
+                        pdesc = pdesc[:197] + "..."
                     prop["description"] = pdesc
                 parameters["properties"][field_name] = prop
                 if field_info.is_required():
@@ -2104,6 +2106,12 @@ def execute_agent_task(
             "write_file",
             "execute_shell",
             "edit_file",
+            "multi_replace_file",
+            "ast_edit",
+            "ast_grep",
+            "search_symbols",
+            "hybrid_code_search",
+            "code_analyzer",
             "list_directory",
             "glob_files",
             "grep_content",
