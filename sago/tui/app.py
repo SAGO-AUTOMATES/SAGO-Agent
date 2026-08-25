@@ -167,11 +167,13 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 yield Static("", id="agent-dashboard-content", markup=True)
 
     MAX_COMMAND_HISTORY = 200
+    TUI_MAX_RENDERED_CARDS = 60  # beyond this, collapse oldest to avoid lag
 
     def on_mount(self) -> None:
         setup_logging()
         self._spinner = None
         self._spinner_timer = None
+        self._suggestion_debounce_timer: Any | None = None
         self._pending_resume = getattr(self, "_pending_resume", None)
         self.command_history: list[str] = []
         self.history_index: int = -1
@@ -561,37 +563,83 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
     @on(Input.Changed, "#msg-input")
     def on_input_changed(self, event: Input.Changed) -> None:
+        # Debounce: typing lag when chat is large is due to ranking 300+ agents
+        # + workspace file scan on every keystroke. Delay 120ms and cancel prior.
         v = event.value
+        try:
+            if self._suggestion_debounce_timer:
+                self._suggestion_debounce_timer.stop()
+        except Exception:
+            pass
 
-        # If the input starts with ?, show shortcuts quick suggestions
-        if v.startswith("?"):
-            self._show_shortcuts_suggestions(v)
-            return
+        def _do_suggestions() -> None:
+            vv = v  # capture
+            if vv.startswith("?"):
+                self._show_shortcuts_suggestions(vv)
+                return
+            if vv.startswith("/"):
+                self._show_cmd_suggestions(vv)
+                return
+            if vv.startswith("@delegate") or vv.startswith("@chain") or vv.startswith("@agent"):
+                self._show_cmd_suggestions(vv)
+                return
+            last_space = vv.rfind(" ")
+            current_word = vv[last_space + 1 :] if last_space >= 0 else vv
+            if current_word.startswith("#"):
+                prefix = current_word[1:]
+                self._show_file_suggestions(prefix)
+            elif current_word.startswith("@"):
+                prefix = current_word[1:]
+                self._show_agent_suggestions(prefix)
+            elif current_word.startswith("~"):
+                prefix = current_word[1:]
+                self._show_file_suggestions(prefix, home=True)
+            else:
+                self._hide_suggestions()
 
-        # If the input starts with a slash command or @delegate/@chain/@agent command
-        if v.startswith("/"):
-            self._show_cmd_suggestions(v)
-            return
+        # 120ms debounce keeps typing responsive even with 80+ cards rendered
+        try:
+            self._suggestion_debounce_timer = self.set_timer(0.12, _do_suggestions)
+        except Exception:
+            _do_suggestions()
 
-        if v.startswith("@delegate") or v.startswith("@chain") or v.startswith("@agent"):
-            self._show_cmd_suggestions(v)
-            return
+    def _maybe_compact_tui_messages(self) -> None:
+        """Collapse oldest cards when chat grows large to keep UI responsive."""
+        try:
+            container = self.query_one("#messages")
+            children = list(container.children)
+            if len(children) <= self.TUI_MAX_RENDERED_CARDS:
+                return
+            # Keep last N, remove oldest, replace with placeholder
+            to_remove = len(children) - self.TUI_MAX_RENDERED_CARDS
+            # Remove oldest ExchangeTurnCards first, keep system notices
+            removed = 0
+            for child in children:
+                if removed >= to_remove:
+                    break
+                # Never remove the last few or welcome screen
+                if child.has_class("exchange-box"):
+                    child.remove()
+                    removed += 1
+            if removed:
+                # Insert placeholder at top if not already present
+                has_placeholder = any(
+                    c.has_class("tui-compact-placeholder") for c in container.children
+                )
+                if not has_placeholder:
+                    from textual.widgets import Static
 
-        # Find the last space to determine current "word" for @ and # triggers
-        last_space = v.rfind(" ")
-        current_word = v[last_space + 1 :] if last_space >= 0 else v
-
-        if current_word.startswith("#"):
-            prefix = current_word[1:]  # remove #
-            self._show_file_suggestions(prefix)
-        elif current_word.startswith("@"):
-            prefix = current_word[1:]  # remove @
-            self._show_agent_suggestions(prefix)
-        elif current_word.startswith("~"):
-            prefix = current_word[1:]  # remove ~
-            self._show_file_suggestions(prefix, home=True)
-        else:
-            self._hide_suggestions()
+                    container.mount(
+                        Static(
+                            f"[dim]… {removed} older messages collapsed for performance — /clear to reset or scroll up to keep more[/dim]",
+                            classes="tui-compact-placeholder msg-system",
+                            markup=True,
+                        ),
+                        before=container.children[0] if container.children else None,
+                    )
+                container.scroll_end(animate=False)
+        except Exception as e:
+            logger.debug("TUI compaction failed: %s", e)
 
     @on(Button.Pressed, ".btn-copy-code")
     def on_copy_code_button(self, event: Button.Pressed) -> None:

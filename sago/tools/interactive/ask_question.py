@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from sago.tools.base import BaseTool
 
@@ -30,6 +30,27 @@ class QuestionItem(BaseModel):
         default=None,
         description="Default option to select if non-interactive or timed out.",
     )
+
+    @field_validator("options", mode="before")
+    @classmethod
+    def _normalize_options(cls, v: Any) -> Any:
+        """Coerce dict-style options {label, description} to strings."""
+        if not isinstance(v, list):
+            return v
+        out: list[str] = []
+        for opt in v:
+            if isinstance(opt, str):
+                out.append(opt)
+            elif isinstance(opt, dict):
+                label = opt.get("label") or opt.get("title") or opt.get("name") or ""
+                desc = opt.get("description") or opt.get("desc") or opt.get("detail") or ""
+                if label and desc and label != desc:
+                    out.append(f"{label}: {desc[:120]}")
+                else:
+                    out.append(str(label or desc or opt))
+            else:
+                out.append(str(opt))
+        return out
 
 
 class AskQuestionArgs(BaseModel):

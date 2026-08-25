@@ -54,10 +54,13 @@ Screen { background: #0a0d12; }
 #messages {
     height: 1fr;
     padding: 1 1;
-    overflow-y: auto;
+    overflow-y: scroll;
+    overflow-x: hidden;
     scrollbar-size: 1 1;
-    scrollbar-color: #30363d #0a0d12;
-    scrollbar-color-hover: #484f58 #0a0d12;
+    scrollbar-color: #58a6ff #21262d;
+    scrollbar-color-hover: #388bfd #0a0d12;
+    scrollbar-gutter: stable;
+    /* Ensure scrollbar is always visible when content overflows */
 }
 
 .msg-user {
