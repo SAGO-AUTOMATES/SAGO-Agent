@@ -2,12 +2,6 @@
 
 All notable changes to the SAGO project are documented in this file.
 
-## [0.1.14] - 2026-08-24
-
-### Fixed
-- **Complex-task tool payload for reasoning models**: `stealth/ox-alpha` (Opus-level, infinite limits) choked on 73-tool schemas → empty `tool_calls` responses. Executor now auto-filters to 10 essential tools for this model (`sago/engine/simple_executor.py:1998`); verified live: single-agent bug-fix, token-bucket kata (7/7 tests), and full-stack FastAPI+Next.js demo (312s, 19 tool calls) all succeed via `stealth/ox-alpha`
-- **Multi-language syntax guard**: `sago/tools/file/resilient_editor.py:168` now guards `.py/.js/.ts/.go/.rs/.java/.rb/.php/.sh/.c/.cpp` via native checkers (ast/node/tsc/gofmt/rustfmt/javac/ruby/php/bash/gcc) with auto-rollback — prevents the live-seen duplicated-function corruption across any stack
-
 ## [0.1.13] - 2026-08-23
 
 ### Fixed
@@ -36,6 +30,8 @@ All notable changes to the SAGO project are documented in this file.
   `#messages` with a warning log
 - **Nondeterministic hallucinated-agent mapping** in orchestration plans: fuzzy match is
   now sorted + longest-overlap scoring
+- **Reasoning-model tool payload (test-only `stealth/ox-alpha`)**: auto-filters 73→10 essential tools to avoid empty `tool_calls` (`sago/engine/simple_executor.py:1998`) — verified with live complex tasks (not default model)
+- **Multi-language syntax guard**: `sago/tools/file/resilient_editor.py:168` now guards `.py/.js/.ts/.go/.rs/.java/.rb/.php/.sh/.c/.cpp` via native checkers with auto-rollback
 
 ### Added
 - **Provider registry** (`sago/llm/registry.py`) — single source of truth for provider
