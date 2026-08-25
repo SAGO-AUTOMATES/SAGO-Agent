@@ -1155,11 +1155,13 @@ class ASTEditor:
         """Insert a new function into the code."""
         lines = code.split("\n")
 
-        insert_idx = len(lines) - 1
+        # Default append at end (not len-1, which would overwrite last line)
+        insert_idx = len(lines)
         if after:
             nodes = self.analyze(code, language)
             for node in nodes:
                 if node.name == after:
+                    # node.end_line is 1-indexed, lines is 0-indexed — insert *after* the node
                     insert_idx = node.end_line
                     break
 
@@ -1167,11 +1169,15 @@ class ASTEditor:
 
         if language == "python":
             func_lines = [f"def {function_name}({args_str}):"]
-            for line in body.split("\n"):
-                if line.strip():
-                    func_lines.append(f"    {line}")
-                else:
-                    func_lines.append("")
+            # Handle empty body — must have at least `pass` to avoid IndentationError
+            if not body or not body.strip():
+                func_lines.append("    pass")
+            else:
+                for line in body.split("\n"):
+                    if line.strip():
+                        func_lines.append(f"    {line}")
+                    else:
+                        func_lines.append("")
         elif language in ("javascript", "typescript", "js", "ts"):
             func_lines = [f"function {function_name}({args_str}) {{"]
             for line in body.split("\n"):
@@ -1217,6 +1223,17 @@ class ASTEditor:
             for line in body.split("\n"):
                 func_lines.append(f"    {line}")
             func_lines.append("}")
+
+        # Ensure single blank line separation for readability without truncating
+        if insert_idx > 0 and lines[insert_idx - 1].strip() != "" and func_lines[0].strip() != "":
+            # Need blank line before new function
+            func_lines.insert(0, "")
+        if (
+            insert_idx < len(lines)
+            and lines[insert_idx].strip() != ""
+            and func_lines[-1].strip() != ""
+        ):
+            func_lines.append("")
 
         result_lines = lines[:insert_idx] + func_lines + lines[insert_idx:]
         return "\n".join(result_lines)
