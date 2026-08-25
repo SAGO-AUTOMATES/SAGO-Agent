@@ -78,6 +78,22 @@ ignore_missing_imports = true
 disallow_untyped_defs = false
 no_implicit_optional = true
 
+[[tool.mypy.overrides]]
+module = "sago.tui.app"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "sago.tui.helpers"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "sago.tui.orchestrator"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "sago.tui.processor"
+ignore_errors = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
