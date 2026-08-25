@@ -321,9 +321,17 @@ class TaskManager:
         return False
 
     def format_plan(self, plan: TaskPlan) -> str:
-        """Format a plan for display."""
-        lines = [f"📋 Plan: {plan.goal} ({plan.id})"]
-        lines.append(f"   Progress: {plan.progress:.0%} | Status: {plan.status}")
+        """Format a plan for display — concise, no raw prompt dump."""
+        # Clean goal: first line, max 80 chars, no ID noise
+        clean_goal = plan.goal.split("\n")[0].strip()
+        if len(clean_goal) > 80:
+            clean_goal = clean_goal[:77] + "..."
+        # Remove extra whitespace/typos artifacts for display
+        clean_goal = " ".join(clean_goal.split())
+        lines = [f"📋 Plan: {clean_goal}"]
+        lines.append(
+            f"   Progress: {plan.progress:.0%} | Status: {plan.status} | {len(plan.todos)} steps"
+        )
         lines.append("")
 
         status_icons = {
@@ -335,15 +343,17 @@ class TaskManager:
             TaskStatus.SKIPPED: "⏭️",
         }
 
-        for todo in plan.todos:
+        for idx, todo in enumerate(plan.todos, 1):
             icon = status_icons.get(todo.status, "❓")
-            line = f"   {icon} [{todo.id}] {todo.description}"
-            if todo.result:
-                line += f" → {todo.result[:50]}"
+            # Show step number + description, truncate long desc
+            desc = todo.description[:90] + ("..." if len(todo.description) > 90 else "")
+            line = f"   {icon} {idx}. {desc}"
             if todo.error:
-                line += f" ⚠️ {todo.error[:50]}"
+                line += f" ⚠️ {todo.error[:40]}"
             lines.append(line)
-
+        # Footer hint
+        lines.append("")
+        lines.append("   Tip: /plan to edit, Y to approve, N to deny, or let it auto-run")
         return "\n".join(lines)
 
 

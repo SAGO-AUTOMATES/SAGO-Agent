@@ -140,7 +140,19 @@ class MessageProcessorMixin:
                     gemini_client = client if use_native_gemini else None
                 except ValueError as e:
                     self.call_from_thread(self._hide_spinner)
-                    self.call_from_thread(self._add_system_message, str(e))
+                    # Detailed provider error with actionable next steps
+                    err_detail = str(e)
+                    provider_hint = (
+                        f"Provider `{self.current_provider}` / Model `{self.current_model}`"
+                    )
+                    hint = (
+                        f"❌ Provider error ({provider_hint}): {err_detail}\n"
+                        f"→ Check API key: `echo ${self._get_provider_key_name()}`\n"
+                        f"→ Switch model: `/model openrouter/free` or `/provider openrouter`\n"
+                        f"→ Retry: `/retry` or `/continue` after fixing key\n"
+                        f"→ Status: `/status` to see current provider/model"
+                    )
+                    self.call_from_thread(self._add_error_inline, hint, "Provider setup failed")
                     return
 
                 start_time = _time.time()
