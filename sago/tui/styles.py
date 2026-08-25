@@ -113,6 +113,9 @@ Screen { background: #0a0d12; }
     border: solid #30363d;
     padding: 0;
     margin: 1 0;
+    /* Override Textual's Vertical default (height: 1fr) which made every turn
+       card stretch to fill the viewport and clip content when multiple cards
+       shared the screen. Size strictly by content instead. */
     height: auto;
 }
 .exchange-box--user {
@@ -140,21 +143,37 @@ Screen { background: #0a0d12; }
     padding: 0 1;
     border-bottom: solid #30363d;
 }
+.exchange-user-prompt-header {
+    background: transparent;
+    padding: 0;
+    height: auto;
+    min-height: 0;
+}
+.exchange-user-prompt {
+    background: transparent;
+    padding: 0;
+    height: auto;
+    min-height: 0;
+}
 .exchange-body {
     background: transparent;
-    padding: 1 1;
+    padding: 0 1;
     height: auto;
+    min-height: 0;
     color: #e6edf3;
 }
 .exchange-divider {
     color: #30363d;
     padding: 0;
     margin: 0;
+    height: auto;
+    min-height: 0;
 }
 .exchange-response {
     background: transparent;
     padding: 0;
     height: auto;
+    min-height: 0;
 }
 .exchange-prompt {
     color: #58a6ff;
@@ -230,6 +249,8 @@ Screen { background: #0a0d12; }
     padding: 0;
     margin: 1 0;
     height: auto;
+    max-height: 30;
+    overflow-y: auto;
     color: #e6edf3;
 }
 .card-header {
@@ -241,6 +262,8 @@ Screen { background: #0a0d12; }
 .card-body {
     padding: 1 1;
     height: auto;
+    max-height: 28;
+    overflow-y: auto;
     color: #e6edf3;
 }
 
@@ -289,6 +312,17 @@ Collapsible > Contents {
 Collapsible > Contents Static {
     color: #e6edf3;
     background: transparent;
+}
+
+/* Tool-call / reasoning / plan collapsibles inside a turn card: collapse the
+   vertical chrome so long agent runs stay scannable instead of turning into
+   blank-line marathons. */
+.exchange-body Collapsible {
+    margin: 1 0 0 0;
+    padding: 0;
+}
+.exchange-body Collapsible > Contents {
+    padding: 0 1;
 }
 
 .code-action-bar {
@@ -443,6 +477,28 @@ Collapsible > Contents Static {
 .theme-light #msg-input { background: #ffffff; border: solid #d0d7de; color: #24292f; }
 .theme-light #msg-input:focus { border: solid #0969da; }
 
+/* Theme overrides for approval and parallel bars */
+.theme-nord #approval-bar { background: #2e3440; border: solid #ebcb8b; }
+.theme-nord #parallel-bar { background: #2e3440; border: solid #88c0d0; }
+.theme-dracula #approval-bar { background: #282a36; border: solid #ffb86c; }
+.theme-dracula #parallel-bar { background: #282a36; border: solid #bd93f9; }
+.theme-monokai #approval-bar { background: #272822; border: solid #e6db74; }
+.theme-monokai #parallel-bar { background: #272822; border: solid #a6e22e; }
+.theme-tokyo-night #approval-bar { background: #1a1b26; border: solid #e0af68; }
+.theme-tokyo-night #parallel-bar { background: #1a1b26; border: solid #7aa2f7; }
+.theme-solarized-dark #approval-bar { background: #002b36; border: solid #b58900; }
+.theme-solarized-dark #parallel-bar { background: #002b36; border: solid #268bd2; }
+.theme-cyberpunk #approval-bar { background: #10121d; border: solid #ffee00; }
+.theme-cyberpunk #parallel-bar { background: #10121d; border: solid #00f0ff; }
+.theme-catppuccin-mocha #approval-bar { background: #181825; border: solid #f9e2af; }
+.theme-catppuccin-mocha #parallel-bar { background: #181825; border: solid #cba6f7; }
+.theme-gruvbox-dark #approval-bar { background: #282828; border: solid #fabd2f; }
+.theme-gruvbox-dark #parallel-bar { background: #282828; border: solid #b8bb26; }
+.theme-rose-pine #approval-bar { background: #1f1d2e; border: solid #f6c177; }
+.theme-rose-pine #parallel-bar { background: #1f1d2e; border: solid #eb6f92; }
+.theme-light #approval-bar { background: #ffffff; border: solid #9a6700; }
+.theme-light #parallel-bar { background: #ffffff; border: solid #8250df; }
+
 .dev-trace-text {
     color: #79c0ff;
     padding: 1 1;
@@ -590,6 +646,8 @@ Collapsible .collapsible-body {
     padding: 0;
     margin: 0 0 1 0;
     height: auto;
+    max-height: 20;
+    overflow-y: auto;
 }
 
 .shell-card-header {
@@ -603,6 +661,8 @@ Collapsible .collapsible-body {
 .shell-card-body {
     padding: 1 1;
     height: auto;
+    max-height: 18;
+    overflow-y: auto;
 }
 
 .shell-output-text {
@@ -684,8 +744,9 @@ Collapsible .collapsible-body {
     display: none;
     height: auto;
     max-height: 4;
-    background: #161b22;
-    border: solid #f0883e;
+    overflow-y: auto;
+    background: transparent;
+    border: none;
     border-left: solid #f0883e;
     margin: 0 1 0 1;
     padding: 0 1;
@@ -695,7 +756,9 @@ Collapsible .collapsible-body {
 #approval-bar .approval-label {
     color: #f0883e;
     text-style: bold;
-    padding: 0 0 0 0;
+    padding: 0;
+    max-height: 2;
+    overflow-y: auto;
 }
 
 #approval-bar .approval-buttons {
@@ -705,21 +768,23 @@ Collapsible .collapsible-body {
 
 #approval-bar Button {
     margin: 0 1 0 0;
-    min-width: 10;
+    min-width: 8;
     max-height: 1;
 }
 
-.approve-btn { background: #238636; color: #ffffff; border: solid #2ea043; }
-.approve-btn:hover { background: #2ea043; }
-.approve-btn:focus { border: solid #ffffff; }
+.approve-btn { background: transparent; color: #3fb950; border: none; text-style: bold; }
+.approve-btn:hover { background: #1a3a2a; }
+.approve-btn:focus { border: none; }
 
-.deny-btn { background: #da3633; color: #ffffff; border: solid #f85149; }
-.deny-btn:hover { background: #f85149; }
-.deny-btn:focus { border: solid #ffffff; }
+.deny-btn { background: transparent; color: #f85149; border: none; text-style: bold; }
+.deny-btn:hover { background: #3a1a1a; }
+.deny-btn:focus { border: none; }
 
 #parallel-bar {
     display: none;
     height: auto;
+    max-height: 10;
+    overflow-y: auto;
     background: #161b22;
     border: solid #d2a8ff;
     margin: 0 1 0 1;

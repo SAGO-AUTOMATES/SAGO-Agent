@@ -12,9 +12,14 @@ Features:
 
 from __future__ import annotations
 
+import ast
 import difflib
+import os
 import re
+import subprocess
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -125,6 +130,7 @@ class ResilientEditor:
         new_string: str,
         replace_all: bool = False,
         fuzzy_threshold: float = 0.82,
+        path: str | None = None,
     ) -> tuple[bool, str, str]:
         """Apply replacement using resilient matching.
 
@@ -139,6 +145,9 @@ class ResilientEditor:
             if norm_old in norm_content:
                 count = norm_content.count(norm_old)
                 new_c = norm_content.replace(norm_old, norm_new)
+                ok, guard_msg = cls.syntax_guard(content, new_c, path)
+                if not ok:
+                    return False, content, guard_msg
                 return True, new_c, f"Replaced {count} exact occurrence(s)"
 
         match = cls.find_best_match(norm_content, norm_old, fuzzy_threshold=fuzzy_threshold)
@@ -146,17 +155,136 @@ class ResilientEditor:
             return False, content, "Target string not found (even with fuzzy tolerance)."
 
         new_content = norm_content[: match.start_idx] + norm_new + norm_content[match.end_idx :]
+
+        # Safety net: fuzzy matching can mis-anchor when the model's old_string
+        # is slightly off, silently corrupting previously-valid files (seen live:
+        # duplicated function bodies / stray docstrings -> IndentationError).
+        # If the original parsed and the edit no longer does, reject + rollback.
+        ok, guard_msg = cls.syntax_guard(content, new_content, path)
+        if not ok:
+            return False, content, guard_msg
+
         return (
             True,
             new_content,
             f"Applied edit via {match.match_tier} match (confidence: {match.confidence:.2f})",
         )
 
+    @staticmethod
+    def syntax_guard(original: str, modified: str, path: str | None = None) -> tuple[bool, str]:
+        """Reject edits that break syntax in a file that previously parsed.
+
+        Multi-language: Python (ast), JS/TS (node/tsc), Go (gofmt), Rust
+        (rustfmt), Java (javac), Ruby (ruby -c), PHP (php -l), Shell (bash -n),
+        C/C++ (gcc/g++). If the checker is missing, the guard is skipped.
+        Returns (ok, message); message is user-facing guidance when rejected.
+        """
+        if not path or original == modified:
+            return True, ""
+        ext = Path(path).suffix.lower()
+
+        # --- Python (zero-dependency) ---
+        if ext == ".py":
+            try:
+                ast.parse(original)
+            except SyntaxError:
+                return True, ""
+            try:
+                ast.parse(modified)
+            except SyntaxError as e:
+                return False, (
+                    "Edit REJECTED and rolled back: it would introduce a Python syntax error "
+                    f"({e.msg} at line {e.lineno}). The file was left unchanged. "
+                    "Retry using the exact current file content for old_string "
+                    "(read the file again), or rewrite the whole file with write_file."
+                )
+            return True, ""
+
+        # --- Generic external checker dispatch ---
+        checker: tuple[list[str], str] | None = None
+        tmp_suffix = ext
+        if ext in (".js", ".jsx", ".mjs", ".cjs"):
+            checker = (["node", "--check"], "JavaScript syntax error")
+        elif ext in (".ts", ".tsx"):
+            checker = (["npx", "tsc", "--noEmit", "--allowJs"], "TypeScript error")
+        elif ext == ".go":
+            # gofmt -e reads from stdin, reports errors to stderr
+            checker = (["gofmt", "-e"], "Go format error")
+        elif ext == ".rs":
+            checker = (["rustfmt", "--check"], "Rust format error")
+        elif ext == ".java":
+            checker = (["javac", "-proc:none"], "Java compilation error")
+        elif ext == ".rb":
+            checker = (["ruby", "-c"], "Ruby syntax error")
+        elif ext == ".php":
+            checker = (["php", "-l"], "PHP syntax error")
+        elif ext in (".sh", ".bash", ".zsh"):
+            checker = (["bash", "-n"], "Shell syntax error")
+        elif ext == ".c":
+            checker = (["gcc", "-fsyntax-only", "-std=c11"], "C syntax error")
+        elif ext in (".cpp", ".cc", ".cxx", ".hpp", ".hh"):
+            checker = (["g++", "-fsyntax-only", "-std=c++17"], "C++ syntax error")
+        else:
+            return True, ""  # unknown extension: no guard
+
+        # Only guard if original was valid (don't block recovery of broken files)
+        if not ResilientEditor._external_syntax_ok(original, checker[0], tmp_suffix):
+            return True, ""
+        if ResilientEditor._external_syntax_ok(modified, checker[0], tmp_suffix):
+            return True, ""
+        return False, (
+            f"Edit REJECTED and rolled back: it would introduce a {checker[1]}. "
+            "The file was left unchanged. Retry using the exact current file content for "
+            "old_string (read the file again), or rewrite the whole file with write_file."
+        )
+
+    @staticmethod
+    def _external_syntax_ok(content: str, cmd_base: list[str], suffix: str) -> bool:
+        """Run external syntax checker on content; missing tool => treat as OK."""
+        tmp_path = None
+        try:
+            # gofmt/rustfmt read from stdin; others use temp file
+            stdin_cmds = {"gofmt", "rustfmt"}
+            tool = cmd_base[0]
+            if tool in stdin_cmds:
+                result = subprocess.run(
+                    cmd_base,
+                    input=content,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                return result.returncode == 0
+            with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False) as f:
+                f.write(content)
+                f.flush()
+                tmp_path = f.name
+            # npx tsc needs file arg appended
+            cmd = (
+                [*cmd_base, tmp_path]
+                if cmd_base[0] in ("npx", "javac", "gcc", "g++", "node", "ruby", "php", "bash")
+                else cmd_base
+            )
+            # node --check, ruby -c, php -l, bash -n, javac, gcc all take file path
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            return result.returncode == 0
+        except FileNotFoundError:
+            return True  # checker not installed => skip guard
+        except (subprocess.TimeoutExpired, OSError):
+            return True
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
     @classmethod
     def apply_multi_replace(
         cls,
         content: str,
         chunks: list[dict[str, str]],
+        path: str | None = None,
     ) -> tuple[bool, str, list[str], int]:
         """Apply multiple replacement chunks atomically.
 
@@ -179,7 +307,7 @@ class ResilientEditor:
                 continue
 
             success, updated, msg = cls.apply_replacement(
-                current_content, old_str, new_str, replace_all=True
+                current_content, old_str, new_str, replace_all=True, path=path
             )
             if not success:
                 return False, content, logs + [f"Chunk #{idx} failed: {msg}"], total_replacements

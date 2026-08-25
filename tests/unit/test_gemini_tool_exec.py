@@ -122,6 +122,8 @@ def _install_fakes(monkeypatch):
     monkeypatch.setitem(sys.modules, "google", google_pkg)
     monkeypatch.setitem(sys.modules, "google.genai", genai_mod)
     monkeypatch.setitem(sys.modules, "google.genai.types", types_mod)
+    # CI has no real API keys — fake one satisfies get_tui_client's key check
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-for-ci")
 
     # Single shared "models" mock so the side_effect spans both turns.
     models = MagicMock()
@@ -136,7 +138,13 @@ def _install_fakes(monkeypatch):
 
     # The OpenAI client is built unconditionally but unused on the gemini path.
     # Stub it so no real credentials / network are needed.
-    monkeypatch.setattr("openai.OpenAI", MagicMock())
+    # CI has openai installed; local env may not — create stub if missing.
+    if "openai" not in sys.modules:
+        openai_fake = ModuleType("openai")
+        openai_fake.OpenAI = MagicMock()
+        monkeypatch.setitem(sys.modules, "openai", openai_fake)
+    else:
+        monkeypatch.setattr("openai.OpenAI", MagicMock())
 
     # Allow every tool call without prompting (mirrors YOLO mode for the test).
     class _FakePM:

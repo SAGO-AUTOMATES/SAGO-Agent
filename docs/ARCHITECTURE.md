@@ -123,8 +123,8 @@ All references below point to real modules in the `sago/` package and the
 
 Tools are **auto-discovered** at runtime by walking the `sago/tools` package.
 
-- The discovery function `_discover_tools()` lives in
-  `sago/engine/simple_executor.py:484`. It does `tools_dir.rglob("*.py")`,
+- The canonical discovery lives in `sago/tools/registry.py:147` (`discover_tools()`),
+  mirrored in `sago/engine/simple_executor.py:484` (`_discover_tools()`). It does `tools_dir.rglob("*.py")`,
   skips files starting with `_` and `base.py`, imports each module as
   `sago.tools.<dotted.path>`, and collects every class that is a `BaseTool`
   subclass with a non-empty `name`.

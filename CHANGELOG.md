@@ -2,6 +2,58 @@
 
 All notable changes to the SAGO project are documented in this file.
 
+## [0.1.13] - 2026-08-23
+
+### Fixed
+- **TUI crash on tool output containing `[`/markup-like text** (`MarkupError` killed layout
+  mid-task): all dynamic content mounted into `markup=True` widgets (spinner text, enhanced
+  prompt cards, orchestrate plan/step lines, approval bar) is now escaped or rendered with
+  markup disabled.
+- **Orchestration died instantly with false `Cycle detected: X -> X`** for every step:
+  - recursion guard is now passed explicitly through chain (sequential + parallel) and
+    orchestration flows instead of thread-local lookup (thread idents get recycled across
+    commands, inheriting stale guard state)
+  - removed the orchestrator's redundant raw-name `guard.exit()` that mismatched aliased
+    agent names (`code-reviewer` -> `reviewer`) and left permanent residue
+  - `RecursionGuard.exit()` removes by value; genuine A->A self-recursion is still blocked
+- **Turn cards stretched to fill the viewport / clipped assistant answers**: Textual's
+  `Vertical` default `height: 1fr` overridden with `height: auto` for exchange cards;
+  plan-widget step list (`#plan-steps`) sized by content so steps actually render
+- **`/chain` mangled tasks**: only `->` is an arrow separator now (bare `>` survives);
+  agent words validated against the registry instead of a `-in-word` heuristic
+- **Chains aborted on prose false-positives**: `_is_error_result` now reacts only to hard
+  failure markers ("no errors found" no longer kills a chain)
+- **`/provider gemini` set model to garbage `gemini/free`**: `/provider` now validates names,
+  lists providers with API-key status, seeds the provider default model
+- **Plan steps trimmed mid-word** (`task[:60]`): full task text renders with wrapping
+- **Silent loss of orchestration summary** when the turn card was missing: falls back to
+  `#messages` with a warning log
+- **Nondeterministic hallucinated-agent mapping** in orchestration plans: fuzzy match is
+  now sorted + longest-overlap scoring
+- **Reasoning-model tool payload (test-only `stealth/ox-alpha`)**: auto-filters 73→10 essential tools to avoid empty `tool_calls` (`sago/engine/simple_executor.py:1998`) — verified with live complex tasks (not default model)
+- **Multi-language syntax guard**: `sago/tools/file/resilient_editor.py:168` now guards `.py/.js/.ts/.go/.rs/.java/.rb/.php/.sh/.c/.cpp` via native checkers with auto-rollback
+
+### Added
+- **Provider registry** (`sago/llm/registry.py`) — single source of truth for provider
+  metadata (aliases like gemini/google & claude/anthropic, env keys, default models, base
+  URLs, billing links, fallback order). Adding a new AI provider is ONE declarative
+  `register_provider(ProviderSpec(...))` call; unknown providers now fail loudly instead of
+  silently routing to OpenRouter. TUI key resolution, `/model`, `/provider`, autocomplete,
+  secret masking and error hints all read from it.
+- **`review_changes` tool** (`sago/tools/vcs/review.py`): review-ready context for
+  `working_tree`, `staged`, `commit <ref>`, `branch vs base`, and GitHub PR diffs via
+  `gh pr diff`. Auto-discovered by the tool registry.
+- **Approval transparency**: the orchestration approval bar lists exactly which agents will
+  run which tasks before you press Y/N.
+- ~30 previously hidden-but-working commands (`/plan`, `/retry`, `/continue`, `/pr`,
+  `/commit`, `/sessions`, `/handoff`, `/dashboard`, `/cancel`, `/copy`, ...) added to
+  `/help` and autocomplete.
+
+### Changed
+- Tool-call collapsibles inside turn cards use compact spacing (no more blank-line
+  marathons during long agent runs)
+- `tools.yaml`: corrected stale `git_ops` module path/class; registered `review_changes`
+
 ## [0.1.12] - 2026-08-20
 
 ### Added

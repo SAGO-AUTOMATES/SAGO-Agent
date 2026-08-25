@@ -528,10 +528,74 @@ def get_tracer() -> DevTracer:
     return get_dev_tracer()
 
 
+def _merge_tool_calls_into_messages(
+    messages: list[dict[str, Any]],
+    tool_calls: list[dict[str, Any]],
+) -> None:
+    """Merge session-level tool calls into messages by timestamp correlation.
+
+    Tool calls are matched to the nearest assistant message that preceded them.
+    Also extracts sub-agent delegations from spawn_agent tool calls.
+    """
+    if not tool_calls:
+        return
+
+    # Build a list of assistant message indices and their timestamps
+    assistant_indices = []
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "assistant":
+            ts = msg.get("timestamp", 0)
+            assistant_indices.append((i, ts))
+
+    if not assistant_indices:
+        return
+
+    # Sort tool calls by timestamp
+    sorted_calls = sorted(tool_calls, key=lambda tc: tc.get("timestamp", 0))
+
+    # Match each tool call to the nearest preceding assistant message
+    for tc in sorted_calls:
+        tc_ts = tc.get("timestamp", 0)
+        tc_name = tc.get("tool", tc.get("tool_name", "unknown"))
+
+        # Find the last assistant message before this tool call
+        target_idx = None
+        for idx, ts in reversed(assistant_indices):
+            if ts <= tc_ts:
+                target_idx = idx
+                break
+
+        if target_idx is None:
+            # Fall back to last assistant message
+            target_idx = assistant_indices[-1][0] if assistant_indices else len(messages) - 1
+
+        msg = messages[target_idx]
+        if "tool_calls" not in msg:
+            msg["tool_calls"] = []
+
+        # Convert tool call format to export format
+        tc_entry = {
+            "name": tc_name,
+            "tool_name": tc_name,
+            "arguments": tc.get("args", tc.get("arguments", {})),
+            "result": tc.get("result", ""),
+            "success": tc.get("success", True),
+        }
+
+        # Check for sub-agent delegation (spawn_agent tool)
+        if tc_name == "spawn_agent":
+            tc_entry["is_delegation"] = True
+            agent_name = tc.get("args", {}).get("agent_name", "unknown")
+            tc_entry["delegation_target"] = agent_name
+
+        msg["tool_calls"].append(tc_entry)
+
+
 def export_session_dev_artifacts(
     session_id: str,
     messages: list[dict[str, Any]],
     cwd: str | Path | None = None,
+    tool_calls: list[dict[str, Any]] | None = None,
 ) -> dict[str, str]:
     """Export chat_export.md, trace.md, and trace.json to project-specific .sago/data/<session_id>/."""
     import re
@@ -541,6 +605,10 @@ def export_session_dev_artifacts(
     data_dir.mkdir(parents=True, exist_ok=True)
 
     created_files: dict[str, str] = {}
+
+    # Merge session tool calls into messages by timestamp correlation
+    if tool_calls:
+        _merge_tool_calls_into_messages(messages, tool_calls)
 
     # Extract distinct agents involved in session
     agents_involved = sorted({msg.get("agent_name") for msg in messages if msg.get("agent_name")})

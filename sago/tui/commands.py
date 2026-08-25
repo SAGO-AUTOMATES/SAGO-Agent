@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -42,6 +44,7 @@ class CommandHandlers:
                 "/delegate",
                 "/chain",
                 "/orchestrate",
+                "/plan",
                 "/parallel",
                 "/tasks",
                 "/tools",
@@ -259,6 +262,68 @@ class CommandHandlers:
 
         self._process_delegation(agent_name, task)
 
+    def _valid_agent_names(self: SagoApp) -> set[str]:
+        """All valid agent names including aliases, from the registry."""
+        try:
+            from sago.agents.registry import AGENT_ALIASES, AGENTS
+
+            return set(AGENTS) | set(AGENT_ALIASES)
+        except Exception as e:
+            logger.debug("Agent registry unavailable for chain parsing: %s", e)
+            return set()
+
+    def _looks_like_agent(self: SagoApp, word: str) -> bool:
+        """Check if a word is a known agent name or alias (registry-validated)."""
+        w = word.lower().strip()
+        if not w:
+            return False
+        valid = self._valid_agent_names()
+        if w in valid:
+            return True
+        # Short forms like "python" count only when "<word>-engineer" exists
+        return f"{w}-engineer" in valid
+
+    def _parse_chain_spec(self: SagoApp, raw: str) -> tuple[list[str], str]:
+        """Parse /chain input into (ordered agent names, task).
+
+        Supported forms:
+          /chain architect -> reviewer <task>
+          /chain frontend-engineer,backend-engineer <task>
+          /chain <task>                        → ([], task), caller auto-routes
+          /chain a1,a2                         → pure agent list, synthetic task
+
+        Only '->' is an arrow separator; bare '>' stays part of the task text
+        (e.g. "/chain write code that prints > 5 items"). Agent words are
+        validated against the registry instead of the old '-' heuristic.
+        """
+        normalized = re.sub(r"\s*->\s*", " → ", raw).strip()
+        agents: list[str] = []
+        task_parts: list[str] = []
+
+        if "→" not in normalized and "," not in normalized:
+            words = normalized.split()
+            idx = 0
+            while idx < len(words) and self._looks_like_agent(words[idx]):
+                agents.append(words[idx].lower())
+                idx += 1
+            task = " ".join(words[idx:])
+            return agents, task
+
+        for chunk in re.split(r"→|,", normalized):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            words = chunk.split()
+            idx = 0
+            while idx < len(words) and self._looks_like_agent(words[idx]):
+                agents.append(words[idx].lower())
+                idx += 1
+            remainder = " ".join(words[idx:])
+            if remainder:
+                task_parts.append(remainder)
+
+        return agents, " ".join(task_parts)
+
     def _chain_agents(self: SagoApp, args: str) -> None:
         raw_args = args.strip()
         if not raw_args:
@@ -270,95 +335,33 @@ class CommandHandlers:
             )
             return
 
-        # Normalize ASCII arrows to standard chain separator
-        args = raw_args.replace("->", "→").replace(">", "→")
-
-        # Detect if args are just agent names (no real task text)
-        has_separator = "," in args or "→" in args
-        words = args.split()
-
-        if not has_separator and len(words) >= 2:
-            all_look_like_agents = all("-" in w and len(w) < 40 for w in words)
-            if all_look_like_agents:
-                try:
-                    agent_list = words
-                    self._add_system_message(f"Agents: {', '.join(agent_list)} — auto-routing task")
-                    chain_steps = [[a] for a in agent_list]
-                    task_str = f"Execute: {', '.join(agent_list)}"
-                    self._add_command_turn(
-                        "chain",
-                        task_str,
-                        meta=f"[{' → '.join(agent_list)}]",
-                        tag_label="CHAIN",
-                        tag_color="#79c0ff",
-                    )
-                    self._process_chain(chain_steps, task_str)
-                    return
-                except Exception as e:
-                    log_exception(e, "parse delegate chain args")
-
-        # Parse with separator: "a,b → c,d" or "a,b task"
-        if has_separator:
-            parts = args.split(None, 1)
-            if len(parts) >= 2 and "→" not in args and "," not in parts[0]:
-                agent_chain_str = parts[0]
-                task = parts[1]
-            else:
-                agent_chain_str = args
-                task = ""
-                for sep in ["→", ","]:
-                    if sep in args:
-                        last_sep_idx = args.rfind(sep)
-                        after = args[last_sep_idx + 1 :].strip()
-                        after_words = after.split()
-                        if after_words and not all("-" in w for w in after_words):
-                            task = after
-                            agent_chain_str = args[:last_sep_idx]
-                            break
-
-            chain_steps = []
-            for step_str in agent_chain_str.split("→"):
-                step_agents = [a.strip() for a in step_str.split(",") if a.strip()]
-                if step_agents:
-                    chain_steps.append(step_agents)
-
-            if not chain_steps:
-                chain_steps = [["python-engineer"]]
-
-            if not task:
-                task = f"Execute chain: {' → '.join(a for step in chain_steps for a in step)}"
-
-            self._add_command_turn(
-                "chain",
-                task,
-                meta=f"[{agent_chain_str}]",
-                tag_label="CHAIN",
-                tag_color="#79c0ff",
-            )
-            self._process_chain(chain_steps, task)
-            return
-
-        # Single word or phrase — treat as task, auto-route
-        task = args
         try:
-            from sago.agents.router import route_for_chain
+            agent_names, task = self._parse_chain_spec(raw_args)
+        except Exception as e:
+            log_exception(e, "parse delegate chain args")
+            agent_names, task = [], raw_args
 
-            agents = route_for_chain(task, max_agents=4)
-            if not agents:
-                agents = ["python-engineer"]
-            self._add_system_message(f"Auto-routed: {' → '.join(agents)}")
-        except Exception:
-            agents = ["python-engineer"]
-            self._add_system_message("Using default: python-engineer")
+        if not agent_names:
+            # Pure task — auto-route a chain
+            try:
+                from sago.agents.router import route_for_chain
+
+                agent_names = route_for_chain(task, max_agents=4) or ["python-engineer"]
+                self._add_system_message(f"Auto-routed: {' → '.join(agent_names)}")
+            except Exception:
+                agent_names = ["python-engineer"]
+                self._add_system_message("Using default: python-engineer")
+        elif not task:
+            task = f"Execute chain: {' → '.join(agent_names)}"
 
         self._add_command_turn(
             "chain",
             task,
-            meta=f"[{' → '.join(agents)}]",
+            meta=f"[{' → '.join(agent_names)}]",
             tag_label="CHAIN",
             tag_color="#79c0ff",
         )
-        self._process_chain([[a] for a in agents], task)
+        self._process_chain([[a] for a in agent_names], task)
 
     def _orchestrate_task(self: SagoApp, task: str) -> None:
         if not task:
@@ -371,6 +374,77 @@ class CommandHandlers:
             tag_color="#3fb950",
         )
         self._process_orchestration(task)
+
+    def _plan_or_show(self: SagoApp, args: str) -> None:
+        """Unified /plan handler: orchestration plan edit/add/remove OR task plan show."""
+        raw = args.strip()
+        # Check if this is an orchestration plan edit command
+        if raw and raw.split()[0].lower() in ("edit", "add", "remove"):
+            self._plan_command(args)
+        else:
+            self._show_plan(args)
+
+    def _plan_command(self: SagoApp, args: str) -> None:
+        """Handle /plan edit/add/remove commands for orchestration plan modification."""
+        pending = getattr(self, "pending_orchestration", None)
+        if not pending or not pending.get("plan"):
+            self._add_system_message("No pending orchestration plan. Run /orchestrate first.")
+            return
+
+        plan = pending["plan"]
+        parts = args.strip().split(None, 2)
+        if not parts:
+            # Show current plan
+            lines = []
+            for i, step in enumerate(plan):
+                lines.append(f"  {i + 1}. [{step.get('agent', '?')}] {step.get('task', '')[:80]}")
+            self._add_system_message("Current plan:\n" + "\n".join(lines))
+            return
+
+        action = parts[0].lower()
+        if action == "edit" and len(parts) >= 3:
+            try:
+                step_num = int(parts[1]) - 1
+                new_task = parts[2]
+                if 0 <= step_num < len(plan):
+                    old_agent = plan[step_num].get("agent", "?")
+                    plan[step_num]["task"] = new_task
+                    self._add_system_message(
+                        f"Step {step_num + 1} updated: [{old_agent}] {new_task[:60]}"
+                    )
+                else:
+                    self._add_system_message(f"Invalid step number. Plan has {len(plan)} steps.")
+            except ValueError:
+                self._add_system_message("Usage: /plan edit <step_number> <new task>")
+
+        elif action == "add" and len(parts) >= 2:
+            agent_task = " ".join(parts[1:])
+            if ":" in agent_task:
+                agent, task_text = agent_task.split(":", 1)
+                agent = agent.strip()
+                task_text = task_text.strip()
+            else:
+                agent = "python-engineer"
+                task_text = agent_task
+            plan.append({"agent": agent, "task": task_text})
+            self._add_system_message(f"Added step {len(plan)}: [{agent}] {task_text[:60]}")
+
+        elif action == "remove" and len(parts) >= 2:
+            try:
+                step_num = int(parts[1]) - 1
+                if 0 <= step_num < len(plan):
+                    removed = plan.pop(step_num)
+                    self._add_system_message(
+                        f"Removed step {step_num + 1}: [{removed.get('agent', '?')}] {removed.get('task', '')[:60]}"
+                    )
+                else:
+                    self._add_system_message(f"Invalid step number. Plan has {len(plan)} steps.")
+            except ValueError:
+                self._add_system_message("Usage: /plan remove <step_number>")
+        else:
+            self._add_system_message(
+                "Usage: /plan [edit <step> <task> | add <agent>: <task> | remove <step>]"
+            )
 
     def _show_status(self: SagoApp) -> None:
         try:
@@ -821,27 +895,20 @@ class CommandHandlers:
             self._add_system_message(msg)
             return
 
-        # Known providers for smart parsing
-        known_providers = {
-            "google",
-            "gemini",
-            "openai",
-            "openrouter",
-            "anthropic",
-            "claude",
-            "ollama",
-            "deepseek",
-        }
+        # Known providers for smart parsing (registry-driven, aliases included)
+        from sago.llm.registry import (
+            get_provider_spec,
+            guess_provider_from_model,
+            infer_provider_for_model,
+            known_provider_keys,
+            normalize_provider,
+        )
+
+        valid_names = set(known_provider_keys())
 
         # /model <provider> <model> — explicit syntax (e.g. /model google gemini-2.0-pro or /model openrouter deepseek/deepseek-r1)
-        if len(parts) >= 2 and parts[0].lower() in known_providers:
-            provider = (
-                "google"
-                if parts[0].lower() in ("google", "gemini")
-                else (
-                    "anthropic" if parts[0].lower() in ("claude", "anthropic") else parts[0].lower()
-                )
-            )
+        if len(parts) >= 2 and parts[0].lower() in valid_names:
+            provider = normalize_provider(parts[0])
             model_name = " ".join(parts[1:])
             self.current_provider = provider
             self.current_model = model_name
@@ -854,14 +921,8 @@ class CommandHandlers:
         search = parts[0]
         if "/" in search:
             prefix, rest = search.split("/", 1)
-            if prefix.lower() in known_providers:
-                provider = (
-                    "google"
-                    if prefix.lower() in ("google", "gemini")
-                    else (
-                        "anthropic" if prefix.lower() in ("claude", "anthropic") else prefix.lower()
-                    )
-                )
+            if prefix.lower() in valid_names:
+                provider = normalize_provider(prefix)
                 self.current_provider = provider
                 self.current_model = rest if provider == "google" else search
                 self._add_system_message(
@@ -873,10 +934,13 @@ class CommandHandlers:
         for model in models:
             if search.lower() in model.lower():
                 self.current_model = model
-                if "google" in model.lower() or "gemini" in model.lower():
-                    self.current_provider = "google"
-                elif "openai" in model.lower() or "gpt" in model.lower():
-                    self.current_provider = "openai"
+                guessed = guess_provider_from_model(model)
+                if guessed and get_provider_spec(guessed):
+                    self.current_provider = guessed
+                else:
+                    inferred = infer_provider_for_model(model)
+                    if inferred:
+                        self.current_provider = inferred
                 self._add_system_message(
                     f"Model: [bold green]{model}[/] (Provider: [bold cyan]{self.current_provider}[/])"
                 )
@@ -884,17 +948,61 @@ class CommandHandlers:
 
         # Not in list — allow custom model
         self.current_model = search
-        if "gemini" in search.lower():
-            self.current_provider = "google"
-        elif "gpt" in search.lower() or "o1" in search.lower() or "o3" in search.lower():
-            self.current_provider = "openai"
-        self._add_system_message(
-            f"Model: [bold green]{search}[/] (custom, Provider: [bold cyan]{self.current_provider}[/])"
+        guessed = guess_provider_from_model(search)
+        if guessed and get_provider_spec(guessed):
+            self.current_provider = guessed
+        else:
+            # Unknown 'vendor/model' ids (e.g. stealth/ox-alpha) route via OpenRouter
+            inferred = infer_provider_for_model(search)
+            if inferred:
+                self.current_provider = inferred
+        provider_label = (
+            f"(Provider: [bold cyan]{self.current_provider}[/])" if "/" in search else "(custom)"
         )
+        self._add_system_message(f"Model: [bold green]{search}[/] {provider_label}")
 
     def _change_provider(self: SagoApp, p: str) -> None:
-        self.current_model = f"{p}/free" if "/" not in p else p
-        self._add_system_message(f"Provider: {self.current_model}")
+        from sago.llm.registry import get_provider_spec, known_providers, normalize_provider
+
+        if not p:
+            from sago.llm.registry import fallback_order
+
+            current = normalize_provider(self.current_provider)
+            lines = ["[bold]Providers[/bold]", f"  Current: {current}", ""]
+            for name in fallback_order():
+                spec = get_provider_spec(name)
+                if not spec:
+                    continue
+                marker = " ←" if name == current else ""
+                key_hint = "no key needed" if spec.local else spec.api_key_env
+                lines.append(
+                    f"  • [cyan]{name:<12}[/cyan] [{key_hint}] default={spec.default_model}{marker}"
+                )
+            lines.append("")
+            lines.append("[dim]Switch with: /provider <name>[/dim]")
+            self._add_system_message("\n".join(lines))
+            return
+
+        canonical = normalize_provider(p)
+        spec = get_provider_spec(canonical)
+        if spec is None:
+            self._add_system_message(
+                f"[red]Unknown provider:[/] {p}\nKnown: {', '.join(known_providers())}"
+            )
+            return
+        self.current_provider = canonical
+        # Keep the user's explicit model if it already belongs to this provider;
+        # otherwise seed the provider default.
+        if "/" not in self.current_model or self.current_model.split("/", 1)[0] != canonical:
+            self.current_model = spec.default_model
+        key_status = (
+            "local"
+            if spec.local or not spec.api_key_env
+            else ("key ✓" if os.environ.get(spec.api_key_env) else f"{spec.api_key_env} NOT set")
+        )
+        self._add_system_message(
+            f"Provider: [bold cyan]{canonical}[/] | Model: [bold green]{self.current_model}[/] | {key_status}"
+        )
 
     def _set_effort(self: SagoApp, level: str) -> None:
         from sago.tui.models import EFFORT_LEVELS
@@ -1438,6 +1546,7 @@ class CommandHandlers:
                     session_id=self.current_session_id,
                     messages=self.messages,
                     cwd=Path.cwd(),
+                    tool_calls=getattr(self, "session_tool_calls", None),
                 )
                 if artifacts:
                     dev_artifacts_info.append("📁 [Dev Mode] Session artifacts generated:")
@@ -1556,6 +1665,7 @@ class CommandHandlers:
                     session_id=self.current_session_id,
                     messages=self.messages,
                     cwd=Path.cwd(),
+                    tool_calls=getattr(self, "session_tool_calls", None),
                 )
                 if artifacts:
                     dev_artifacts_info.append("📁 [Dev Mode] Session artifacts generated:")
@@ -2169,6 +2279,15 @@ class CommandHandlers:
             self._add_system_message(f"Already blocked: {tool_name}")
 
     def _show_plan(self: SagoApp, args: str) -> None:
+        try:
+            self._show_plan_inner(args)
+        except Exception as e:
+            import logging
+
+            logging.getLogger("sago.tui.commands").exception("_show_plan crashed")
+            self._add_system_message(f"Plan display error: {e}")
+
+    def _show_plan_inner(self: SagoApp, args: str) -> None:
         raw = args.strip()
         if raw and raw.lower() not in ("status", "list", "show"):
             # Interactive planning mode for user task!
@@ -2213,7 +2332,8 @@ class CommandHandlers:
         in_progress = sum(1 for t in plan.todos if t.status == TaskStatus.IN_PROGRESS)
         pending = sum(1 for t in plan.todos if t.status == TaskStatus.PENDING)
 
-        header = f"Plan: {plan.description[:60]}\nProgress: {done}/{total} done"
+        plan_title = getattr(plan, "description", None) or getattr(plan, "goal", "Untitled")
+        header = f"Plan: {plan_title[:60]}\nProgress: {done}/{total} done"
         if in_progress:
             header += f" | {in_progress} in progress"
         if pending:
@@ -2247,96 +2367,180 @@ class CommandHandlers:
         container.scroll_end()
 
     def _show_todo(self: SagoApp, args: str) -> None:
-        from sago.tasks import get_task_manager
+        try:
+            from sago.tasks import get_task_manager
 
-        tm = get_task_manager()
-        plan = tm.get_active_plan()
-        if plan:
-            for todo in plan.todos:
-                if todo.id == args or args in todo.description:
-                    self._add_system_message(
-                        f"[{todo.id}] {todo.description}\nStatus: {todo.status.value}"
-                    )
-                    return
-            self._add_system_message(f"Todo not found: {args}")
-        else:
-            self._add_system_message("No active plan")
+            tm = get_task_manager()
+            plan = tm.get_active_plan()
+            if plan:
+                for todo in plan.todos:
+                    if todo.id == args or args in todo.description:
+                        self._add_system_message(
+                            f"[{todo.id}] {todo.description}\nStatus: {todo.status.value}"
+                        )
+                        return
+                self._add_system_message(f"Todo not found: {args}")
+            else:
+                self._add_system_message("No active plan")
+        except Exception as e:
+            import logging
+
+            logging.getLogger("sago.tui.commands").exception("_show_todo crashed")
+            self._add_system_message(f"Todo display error: {e}")
 
     def _show_all_todos(self: SagoApp) -> None:
         self._show_plan("")
 
     def _mark_todo_done(self: SagoApp, todo_id: str) -> None:
-        from sago.tasks import get_task_manager
+        try:
+            from sago.tasks import get_task_manager
 
-        tm = get_task_manager()
-        plan = tm.get_active_plan()
-        if plan:
-            tm.complete_todo(plan.id, todo_id, result="Marked done by user")
-            next_todo = plan.current_todo
-            if next_todo:
-                self._add_system_message(f"Next: [{next_todo.id}] {next_todo.description}")
+            tm = get_task_manager()
+            plan = tm.get_active_plan()
+            if plan:
+                tm.complete_todo(plan.id, todo_id, result="Marked done by user")
+                next_todo = plan.current_todo
+                if next_todo:
+                    self._add_system_message(f"Next: [{next_todo.id}] {next_todo.description}")
+                else:
+                    self._add_system_message("All todos completed! 🎉")
             else:
-                self._add_system_message("All todos completed! 🎉")
-        else:
-            self._add_system_message(f"Todo {todo_id} not found")
+                self._add_system_message(f"Todo {todo_id} not found")
+        except Exception as e:
+            import logging
+
+            logging.getLogger("sago.tui.commands").exception("_mark_todo_done crashed")
+            self._add_system_message(f"Todo update error: {e}")
 
     def _ask_user(self: SagoApp, message: str) -> None:
-        if not message:
-            self._add_system_message("Usage: /ask <question for user>")
-            return
-        from sago.tasks import get_task_manager
+        try:
+            if not message:
+                self._add_system_message("Usage: /ask <question for user>")
+                return
+            from sago.tasks import get_task_manager
 
-        tm = get_task_manager()
-        plan = tm.get_active_plan()
-        if plan:
-            current = plan.current_todo
-            if current:
-                tm.wait_for_input(plan.id, current.id, message)
-                self.pending_action = {
-                    "type": "user_input",
-                    "plan_id": plan.id,
-                    "todo_id": current.id,
-                }
-                self._show_approval_bar(f"Input needed: {message}")
-        else:
-            self._add_system_message(f"❓ {message}")
+            tm = get_task_manager()
+            plan = tm.get_active_plan()
+            if plan:
+                current = plan.current_todo
+                if current:
+                    tm.wait_for_input(plan.id, current.id, message)
+                    self.pending_action = {
+                        "type": "user_input",
+                        "plan_id": plan.id,
+                        "todo_id": current.id,
+                    }
+                    self._show_approval_bar(f"Input needed: {message}")
+            else:
+                self._add_system_message(f"❓ {message}")
+        except Exception as e:
+            import logging
+
+            logging.getLogger("sago.tui.commands").exception("_ask_user crashed")
+            self._add_system_message(f"Ask error: {e}")
 
     def _undo_change(self: SagoApp) -> None:
         """Undo the last file change."""
-        from sago.memory.change_tracker import get_change_tracker
+        try:
+            from sago.memory.change_tracker import get_change_tracker
 
-        tracker = get_change_tracker()
-        undone_path = tracker.undo_last()
-        if undone_path:
-            self._add_system_message(f"Undid change to: {undone_path}")
-        else:
-            self._add_system_message("No changes to undo")
+            tracker = get_change_tracker()
+            undone_path = tracker.undo_last()
+            if undone_path:
+                self._add_system_message(f"Undid change to: {undone_path}")
+            else:
+                self._add_system_message("No changes to undo")
+        except Exception as e:
+            import logging
+
+            logging.getLogger("sago.tui.commands").exception("_undo_change crashed")
+            self._add_system_message(f"Undo error: {e}")
 
     def _show_changes(self: SagoApp) -> None:
         """Show all file changes this session."""
-        from sago.memory.change_tracker import get_change_tracker
+        try:
+            from sago.memory.change_tracker import get_change_tracker
 
-        tracker = get_change_tracker()
-        summary = tracker.get_diff_summary()
-        self._add_system_message(summary)
+            tracker = get_change_tracker()
+            summary = tracker.get_diff_summary()
+            self._add_system_message(summary)
+        except Exception as e:
+            import logging
+
+            logging.getLogger("sago.tui.commands").exception("_show_changes crashed")
+            self._add_system_message(f"Changes display error: {e}")
 
     # ========================================================================
     # PARALLEL EXECUTION COMMANDS
     # ========================================================================
 
     def _run_parallel(self: SagoApp, args: str) -> None:
-        """Run multiple agents in parallel on the same task."""
-        parts = args.split(None, 1)
-        if len(parts) < 2:
-            self._add_system_message("Usage: /parallel <agent1,agent2,...> <task>")
+        """Run multiple agents in parallel, each with its own task or a shared task.
+
+        Formats:
+          /parallel agent1: task1, agent2: task2    — per-agent tasks
+          /parallel agent1,agent2 shared task        — same task for all
+        """
+        agent_tasks: list[tuple[str, str]] = []
+        shared_task = ""
+
+        # Try per-agent format first: "agent1: task1, agent2: task2"
+        # Split on comma followed by optional space and a word-: pattern
+        segments = re.split(r",\s*(?=\w[\w-]*\s*:)", args)
+        for seg in segments:
+            seg = seg.strip()
+            if ":" in seg:
+                colon_idx = seg.index(":")
+                agent_part = seg[:colon_idx].strip()
+                task_part = seg[colon_idx + 1 :].strip()
+                if (
+                    agent_part
+                    and task_part
+                    and re.match(r"^[\w-]+$", agent_part)
+                    and len(agent_part) < 40
+                ):
+                    agent_name = agent_part.lower().replace("_", "-")
+                    agent_tasks.append((agent_name, task_part))
+
+        if not agent_tasks:
+            # Fall back to shared-task format: "agent1,agent2,... shared task"
+            parts = args.split(None, 1)
+            if len(parts) < 2:
+                self._add_system_message(
+                    "Usage:\n"
+                    "  /parallel agent1: task1, agent2: task2\n"
+                    "  /parallel agent1,agent2 shared task"
+                )
+                return
+            agent_list_str, shared_task = parts
+            agents = [a.strip() for a in agent_list_str.split(",") if a.strip()]
+            if len(agents) < 2:
+                self._add_system_message(
+                    f"Need at least 2 agents. Got: {agents[0] if agents else 'none'}\n"
+                    "Example: /parallel python-engineer,go-engineer build a web page"
+                )
+                return
+            agent_tasks = [(a, shared_task) for a in agents]
+
+        if len(agent_tasks) < 2:
+            self._add_system_message(
+                "Need at least 2 agents.\n"
+                "Example: /parallel python-engineer: build api, reviewer: review code"
+            )
             return
-        agent_list, task = parts
-        agents = [a.strip() for a in agent_list.split(",")]
-        if len(agents) < 2:
-            self._add_system_message("Need at least 2 agents for /parallel")
-            return
-        self._add_user_message(f"/parallel {args}")
-        self._process_parallel(agents, task)
+
+        agents = [a for a, _ in agent_tasks]
+        task_display = " | ".join(f"@{a}: {t[:40]}" for a, t in agent_tasks)
+
+        self._add_command_turn(
+            "parallel",
+            task_display,
+            meta=",".join(agents),
+            tag_label="PARALLEL",
+            tag_color="#f09483",
+        )
+
+        self._process_parallel(agent_tasks)
 
     def _toggle_dashboard(self: SagoApp) -> None:
         """Toggle the agent dashboard sidebar safely."""

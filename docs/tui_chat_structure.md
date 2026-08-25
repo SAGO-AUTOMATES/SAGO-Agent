@@ -348,9 +348,19 @@ Every possible message flow in the Sago TUI, with exact component order and nest
 
 ## 7. Parallel Execution
 
-**Trigger:** `/parallel python-engineer,go-engineer,tailwind-engineer build a web page`
+**Trigger:** `/parallel python-engineer: analyze code, reviewer: review api, frontend-engineer: fix dashboard`
 
-**Card:** Standard `card_type="user"` (created by `_add_user_message`)
+**Card:** `card_type="parallel"` (created by `_add_command_turn`)
+
+**Per-agent task format:**
+```
+/parallel python-engineer: analyze my python code, reviewer: review the api, frontend-engineer: fix dashboard
+```
+
+**Shared task format (backward compatible):**
+```
+/parallel python-engineer,go-engineer build a web page
+```
 
 ```
 ┌─ ExchangeTurnCard ──────────────────────────────────────┐

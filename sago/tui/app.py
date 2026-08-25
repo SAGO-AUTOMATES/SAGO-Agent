@@ -98,6 +98,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     _task_manager: BackgroundTaskManager | None = None
     _active_parallel_futures: dict[str, concurrent.futures.Future] = {}
     _parallel_lock: threading.Lock | None = None
+    _spinner: Spinner | None = None
+    _spinner_timer: Any | None = None  # textual Timer
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="main-layout"):
@@ -110,7 +112,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                         "Pending action",
                         id="approval-label",
                         classes="approval-label",
-                        markup=False,
+                        markup=True,
                     )
                     with Horizontal(id="approval-buttons"):
                         yield Button(
@@ -467,33 +469,24 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
     def _resolve_api_model(self) -> str:
         """Strip provider prefix for API calls. google/gemini-2.0-flash -> gemini-2.0-flash."""
-        m = self.current_model
-        p = self.current_provider
-        if p == "google" and m.startswith("google/"):
-            return m[len("google/") :]
-        if p == "openai" and m.startswith("openai/"):
-            return m[len("openai/") :]
-        return m
+        from sago.llm.registry import strip_model_prefix
+
+        return strip_model_prefix(self.current_provider, self.current_model)
 
     def _get_provider_api_key(self) -> str:
         """Get the API key for the current provider."""
+        from sago.llm.registry import get_provider_spec, normalize_provider
 
-        provider_key_map = {
-            "google": "GEMINI_API_KEY",
-            "openai": "OPENAI_API_KEY",
-            "openrouter": "OPENROUTER_API_KEY",
-        }
-        env_var = provider_key_map.get(self.current_provider, "OPENROUTER_API_KEY")
+        spec = get_provider_spec(normalize_provider(self.current_provider))
+        env_var = spec.api_key_env if spec and spec.api_key_env else "OPENROUTER_API_KEY"
         return os.environ.get(env_var, "")
 
     def _get_provider_key_name(self) -> str:
         """Get the environment variable name for the current provider's API key."""
-        provider_key_map = {
-            "google": "GEMINI_API_KEY",
-            "openai": "OPENAI_API_KEY",
-            "openrouter": "OPENROUTER_API_KEY",
-        }
-        return provider_key_map.get(self.current_provider, "OPENROUTER_API_KEY")
+        from sago.llm.registry import get_provider_spec, normalize_provider
+
+        spec = get_provider_spec(normalize_provider(self.current_provider))
+        return spec.api_key_env if spec and spec.api_key_env else "OPENROUTER_API_KEY"
 
     def watch_current_model(self, value: str) -> None:
         """Auto-save model when changed."""
@@ -777,8 +770,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 return
 
             # Command history navigation when no suggestions visible
-            inp = self.query_one("#msg-input")
-            if inp.cursor_position == 0 and not inp.value:
+            inp = self.query_one("#msg-input", Input)  # type: ignore[attr-defined]
+            if inp.cursor_position == 0 and not inp.value:  # type: ignore[attr-defined]
                 if event.key == "up":
                     self._navigate_history("up")
                 elif event.key == "down":
@@ -794,27 +787,30 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     def _select_current(self) -> None:
         if self.suggestion_values:
             val = self.suggestion_values[self.suggestion_index]
-            inp = self.query_one("#msg-input")
+            inp = self.query_one("#msg-input", Input)  # type: ignore[attr-defined]
             if val.startswith("/"):
-                inp.value = val + " "
-                inp.cursor_position = len(inp.value)
+                inp.value = val + " "  # type: ignore[attr-defined]
+                inp.cursor_position = len(inp.value)  # type: ignore[attr-defined]
                 if (
                     val.startswith("/model ")
                     and not val.startswith("/model add")
                     and not val.startswith("/model remove")
                     and not val.startswith("/model refresh")
                 ):
+                    from sago.llm.registry import infer_provider_for_model
+
                     model_id = val[7:].strip()
-                    provider = model_id.split("/")[0]
-                    self.current_provider = provider
+                    inferred = infer_provider_for_model(model_id)
+                    if inferred:
+                        self.current_provider = inferred
                     self.current_model = model_id
             else:
-                v = inp.value
+                v = inp.value  # type: ignore[attr-defined]
                 last_space = v.rfind(" ")
                 current_word_start = last_space + 1 if last_space >= 0 else 0
                 new_val = val + " "
-                inp.value = v[:current_word_start] + new_val
-                inp.cursor_position = len(inp.value)
+                inp.value = v[:current_word_start] + new_val  # type: ignore[attr-defined]
+                inp.cursor_position = len(inp.value)  # type: ignore[attr-defined]
             self._hide_suggestions()
 
     def _update_highlight(self) -> None:
@@ -844,7 +840,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         else:
             self.history_index = min(len(self.command_history) - 1, self.history_index + 1)
         if 0 <= self.history_index < len(self.command_history):
-            self.query_one("#msg-input").value = self.command_history[self.history_index]
+            self.query_one("#msg-input", Input).value = self.command_history[self.history_index]  # type: ignore[attr-defined]
 
     def on_mouse_scroll_down(self, event) -> None:
         self.query_one("#messages").scroll_down()
@@ -1061,11 +1057,11 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
                 agents = list_agents()
                 matches = self._rank_agent_matches(agents, query)
-                items = [
-                    f"[bold magenta]⚡ @{a['name']}[/bold magenta] [dim]{a.get('description', '')[:45]}[/dim]"
+                items = [  # type: ignore[index]
+                    f"[bold magenta]⚡ @{a['name']}[/bold magenta] [dim]{a.get('description', '')[:45]}[/dim]"  # type: ignore[attr-defined]
                     for a in matches[:35]
                 ]
-                values = [f"{prefix_cmd} {a['name']}" for a in matches[:35]]
+                values = [f"{prefix_cmd} {a['name']}" for a in matches[:35]]  # type: ignore[index]
                 self._show_suggestions(items, values)
                 return
             except Exception as e:
@@ -1084,20 +1080,21 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                     current_typing = parts[-1].lower()
                     prefix_before = ",".join(parts[:-1]) + ","
                     matches = self._rank_agent_matches(
-                        [a for a in agents if a["name"] not in parts], current_typing
+                        [a for a in agents if a["name"] not in parts],
+                        current_typing,  # type: ignore[index]
                     )
-                    items = [
-                        f"[bold magenta]🔗 {prefix_before}{a['name']}[/bold magenta] [dim]{a.get('description', '')[:40]}[/dim]"
+                    items = [  # type: ignore[index]
+                        f"[bold magenta]🔗 {prefix_before}{a['name']}[/bold magenta] [dim]{a.get('description', '')[:40]}[/dim]"  # type: ignore[attr-defined]
                         for a in matches[:30]
                     ]
-                    values = [f"{prefix_cmd} {prefix_before}{a['name']}" for a in matches[:30]]
+                    values = [f"{prefix_cmd} {prefix_before}{a['name']}" for a in matches[:30]]  # type: ignore[index]
                 else:
                     matches = self._rank_agent_matches(agents, query)
-                    items = [
-                        f"[bold magenta]🔗 @{a['name']}[/bold magenta] [dim]{a.get('description', '')[:45]}[/dim]"
+                    items = [  # type: ignore[index]
+                        f"[bold magenta]🔗 @{a['name']}[/bold magenta] [dim]{a.get('description', '')[:45]}[/dim]"  # type: ignore[attr-defined]
                         for a in matches[:35]
                     ]
-                    values = [f"{prefix_cmd} {a['name']}" for a in matches[:35]]
+                    values = [f"{prefix_cmd} {a['name']}" for a in matches[:35]]  # type: ignore[index]
                 self._show_suggestions(items, values)
                 return
             except Exception as e:
@@ -1112,11 +1109,11 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
                 agents = list_agents()
                 matches = self._rank_agent_matches(agents, query)
-                items = [
-                    f"[bold magenta]@{a['name']}[/bold magenta] [dim]{a.get('description', '')[:45]}[/dim]"
+                items = [  # type: ignore[index]
+                    f"[bold magenta]@{a['name']}[/bold magenta] [dim]{a.get('description', '')[:45]}[/dim]"  # type: ignore[attr-defined]
                     for a in matches[:35]
                 ]
-                values = [f"{prefix_cmd} {a['name']}" for a in matches[:35]]
+                values = [f"{prefix_cmd} {a['name']}" for a in matches[:35]]  # type: ignore[index]
                 self._show_suggestions(items, values)
                 return
             except Exception as e:
@@ -1170,11 +1167,11 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         values = [f"/model {m}" for m in models[:30]]
         self._show_suggestions(items, values)
 
-    def _rank_agent_matches(self, agents: list[dict], query: str) -> list[dict]:
+    def _rank_agent_matches(self, agents: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
         """Rank agent matches so exact/fuzzy/prefix matches and core specialists appear first."""
         from sago.tui.smart_suggest import rank_agents_fuzzy
 
-        return rank_agents_fuzzy(agents, query)
+        return rank_agents_fuzzy(agents, query)  # type: ignore[return-value]
 
     def _show_agent_suggestions(self, prefix: str) -> None:
         try:
@@ -1326,6 +1323,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/delegate": lambda: self._delegate_task(args),
             "/chain": lambda: self._chain_agents(args),
             "/orchestrate": lambda: self._orchestrate_task(args),
+            "/plan": lambda: self._plan_or_show(args),
             "/clear": lambda: self.action_clear_chat(),
             "/status": lambda: self._show_status(),
             "/export": lambda: self._export_session(args),
@@ -1357,7 +1355,6 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/todos": lambda: self._show_all_todos(),
             "/done": lambda: self._mark_todo_done(args),
             "/ask": lambda: self._ask_user(args),
-            "/plan": lambda: self._show_plan(args),
             "/undo": lambda: self._undo_change(),
             "/changes": lambda: self._show_changes(),
             "/exit": lambda: self._exit_session(),
@@ -1405,7 +1402,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         else:
             self._add_system_message(f"Unknown: {cmd}\nType /help for commands")
 
-    def action_quit(self) -> None:
+    def action_quit(self) -> None:  # type: ignore[override]
         """Save session and exit."""
         self._exit_session()
 

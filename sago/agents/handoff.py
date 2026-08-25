@@ -245,10 +245,19 @@ class RecursionGuard:
             )
 
     def exit(self, agent_name: str) -> None:
-        """Record exiting an agent."""
+        """Record exiting an agent.
+
+        Removes the most recent occurrence of agent_name from the parent chain.
+        Matching by value (not strictly the top of stack) keeps the chain clean
+        even if a caller exits with a raw/alias name that differs from what
+        enter() recorded — such mismatches previously left permanent residue
+        that poisoned later spawns with false 'Cycle detected' errors.
+        """
         with self._lock:
-            if self._parent_chain and self._parent_chain[-1] == agent_name:
-                self._parent_chain.pop()
+            if agent_name in self._parent_chain:
+                reversed_chain = self._parent_chain[::-1]
+                idx = len(self._parent_chain) - 1 - reversed_chain.index(agent_name)
+                self._parent_chain.pop(idx)
             logger.debug(f"Guard exit: {agent_name} (depth={self.depth})")
 
     def get_handoff_prompt_addendum(self) -> str:
@@ -275,22 +284,38 @@ class RecursionGuard:
             self._parent_chain.clear()
 
 
-# Global recursion guard per thread
+# Global recursion guard per thread (thread-safe)
 _thread_guards: dict[int, RecursionGuard] = {}
+_guards_lock = threading.Lock()
 
 
 def get_recursion_guard() -> RecursionGuard:
     """Get or create a recursion guard for the current thread."""
     tid = threading.get_ident()
-    if tid not in _thread_guards:
-        _thread_guards[tid] = RecursionGuard()
-    return _thread_guards[tid]
+    with _guards_lock:
+        if tid not in _thread_guards:
+            _thread_guards[tid] = RecursionGuard()
+        return _thread_guards[tid]
 
 
 def reset_recursion_guard() -> None:
     """Reset the recursion guard for the current thread."""
     tid = threading.get_ident()
-    if tid in _thread_guards:
-        _thread_guards[tid].reset()
-    else:
-        _thread_guards[tid] = RecursionGuard()
+    with _guards_lock:
+        if tid in _thread_guards:
+            _thread_guards[tid].reset()
+        else:
+            _thread_guards[tid] = RecursionGuard()
+
+
+def create_fresh_guard() -> RecursionGuard:
+    """Create a fresh guard for top-level orchestration (chain/orchestrate/parallel).
+
+    This ensures each top-level command starts with a clean slate,
+    regardless of what previous commands did on the same thread.
+    """
+    guard = RecursionGuard()
+    tid = threading.get_ident()
+    with _guards_lock:
+        _thread_guards[tid] = guard
+    return guard

@@ -1,9 +1,7 @@
 """TUI Provider Registry — auto-discovers providers, returns correct client.
 
-To add a new provider, just create a file in sago/llm/ like:
-    sago/llm/my_provider.py
-
-with a class inheriting BaseLLMProvider and register it in factory.py.
+To add a new provider, register a ProviderSpec in sago/llm/registry.py
+(one declarative entry) and optionally add a client builder below.
 """
 
 from __future__ import annotations
@@ -11,6 +9,15 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any
+
+from sago.llm.registry import (
+    fallback_order,
+    get_provider_spec,
+    known_providers,
+    normalize_provider,
+    resolve_api_key,
+    resolve_base_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,37 +36,38 @@ def resolve_active_llm_config(
     from sago.settings import load_setting
 
     # 1. Resolve Provider
-    resolved_provider = provider
+    resolved_provider = normalize_provider(provider)
     if not resolved_provider:
-        resolved_provider = os.environ.get("SAGO_PROVIDER") or load_setting("provider")
+        resolved_provider = normalize_provider(
+            os.environ.get("SAGO_PROVIDER") or load_setting("provider")
+        )
     if not resolved_provider:
         try:
             from sago.config.loader import get_config
 
             cfg = get_config()
-            resolved_provider = getattr(cfg.llm_providers, "default", None) or "openrouter"
+            raw = getattr(cfg.llm_providers, "default", None) or "openrouter"
+            resolved_provider = normalize_provider(raw)
         except Exception:
             resolved_provider = "openrouter"
 
     # Auto-fallback: if configured provider has no API key, pick one that does
-    _key_check_map = {
-        "gemini": "GEMINI_API_KEY",
-        "google": "GEMINI_API_KEY",
-        "openai": "OPENAI_API_KEY",
-        "claude": "ANTHROPIC_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
-    }
-    _fallback_order = ["openrouter", "openai", "gemini", "claude", "ollama"]
-    _check_key = _key_check_map.get(resolved_provider, "")
     _original_provider = resolved_provider
-    if _check_key and not os.environ.get(_check_key):
-        for fallback in _fallback_order:
-            fb_key = _key_check_map.get(fallback, "")
-            if fb_key and os.environ.get(fb_key):
-                logger.info("No API key for %r, falling back to %r", resolved_provider, fallback)
-                resolved_provider = fallback
-                break
+    spec = get_provider_spec(resolved_provider)
+    needs_key = bool(spec and spec.api_key_env) if spec else True
+    if needs_key:
+        has_key = resolve_api_key(resolved_provider) != ""
+        if not has_key:
+            for fallback in fallback_order():
+                fspec = get_provider_spec(fallback)
+                if fspec is None or fspec.local or not fspec.api_key_env:
+                    continue
+                if resolve_api_key(fallback):
+                    logger.info(
+                        "No API key for %r, falling back to %r", resolved_provider, fallback
+                    )
+                    resolved_provider = fallback
+                    break
 
     # 2. Resolve Model
     resolved_model = model
@@ -77,60 +85,35 @@ def resolve_active_llm_config(
         except Exception:
             logger.debug("Could not load config for model resolution")
 
-    # If provider was fallback-changed, use the new provider's default model
-    if resolved_provider != _original_provider and not model:
-        provider_defaults = {
-            "google": "gemini-2.5-pro",
-            "openai": "gpt-4o",
-            "openrouter": "openrouter/free",
-            "claude": "claude-3-5-sonnet-20241022",
-            "anthropic": "claude-3-5-sonnet-20241022",
-        }
-        resolved_model = provider_defaults.get(resolved_provider, "openrouter/free")
-    elif not resolved_model:
-        provider_defaults = {
-            "google": "gemini-2.5-pro",
-            "openai": "gpt-4o",
-            "openrouter": "openrouter/free",
-            "claude": "claude-3-5-sonnet-20241022",
-            "anthropic": "claude-3-5-sonnet-20241022",
-        }
-        resolved_model = provider_defaults.get(resolved_provider, "openrouter/free")
+    # If provider was fallback-changed (or none configured), use its default model
+    provider_changed = resolved_provider != _original_provider
+    if (provider_changed or not resolved_model) and not model:
+        fspec = get_provider_spec(resolved_provider)
+        resolved_model = fspec.default_model if fspec else "openrouter/free"
 
     # 3. Resolve API Key
-    resolved_key = api_key
-    if not resolved_key:
-        if resolved_provider == "google" or "gemini" in resolved_model:
-            resolved_key = os.environ.get("GEMINI_API_KEY", "")
-        elif resolved_provider == "openai" or any(
-            resolved_model.startswith(p) for p in ("gpt", "o1", "o3")
-        ):
-            resolved_key = os.environ.get("OPENAI_API_KEY", "")
-        elif resolved_provider in ("claude", "anthropic") or "claude" in resolved_model:
-            resolved_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        elif resolved_provider == "openrouter":
-            resolved_key = os.environ.get("OPENROUTER_API_KEY", "")
-
+    if api_key:
+        resolved_key = api_key
+    else:
+        resolved_key = resolve_api_key(resolved_provider, resolved_model)
         if not resolved_key:
-            resolved_key = (
-                os.environ.get("OPENROUTER_API_KEY")
-                or os.environ.get("OPENAI_API_KEY")
-                or os.environ.get("GEMINI_API_KEY")
-                or os.environ.get("ANTHROPIC_API_KEY")
-                or ""
-            )
+            # Last resort: any configured cloud key
+            for fallback in fallback_order():
+                fspec = get_provider_spec(fallback)
+                if fspec and fspec.api_key_env:
+                    resolved_key = os.environ.get(fspec.api_key_env, "")
+                    if resolved_key:
+                        break
 
     # 4. Resolve Base URL
-    resolved_base_url = base_url
-    if resolved_base_url is None:
-        if resolved_provider == "google":
-            resolved_base_url = None
-        elif resolved_provider == "openai":
-            resolved_base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    if base_url is not None:
+        resolved_base_url = base_url
+    else:
+        resolved_base_url = resolve_base_url(resolved_provider)
+        if resolved_provider == "openai":
+            resolved_base_url = resolved_base_url or "https://api.openai.com/v1"
         elif resolved_provider == "openrouter":
-            resolved_base_url = os.environ.get(
-                "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
-            )
+            resolved_base_url = resolved_base_url or "https://openrouter.ai/api/v1"
 
     return {
         "provider": resolved_provider,
@@ -144,18 +127,43 @@ def get_tui_client(provider: str, model: str) -> tuple[Any, str]:
     """Get (client, api_model) for the TUI.
 
     Returns:
-        (client, model_name_for_api) — client is OpenAI or native SDK
+        (client, model_name_for_api) — client is OpenAI-compatible or native SDK
     """
-    api_key = os.environ.get("OPENROUTER_API_KEY", "")
-
-    if provider == "google":
+    canonical = normalize_provider(provider)
+    spec = get_provider_spec(canonical)
+    if canonical == "google":
         return _get_google_client(model)
-    elif provider == "openai":
+    elif canonical == "openai":
         return _get_openai_client(model)
-    elif provider == "ollama" or model.startswith("ollama/"):
+    elif canonical == "ollama" or (model or "").startswith("ollama/"):
         return _get_ollama_client(model)
-    else:
+    elif canonical == "anthropic":
+        raise ValueError(
+            "Direct Anthropic chat is handled via OpenRouter routing; "
+            "use /provider openrouter with a claude-* model."
+        )
+    elif spec and spec.base_url and spec.local:
+        # Registry-driven local/OpenAI-compatible providers
+        return _get_openai_compatible_client(model, spec.base_url, key="ollama")
+    elif canonical in ("openrouter", ""):
+        api_key = os.environ.get("OPENROUTER_API_KEY", "")
         return _get_openrouter_client(model, api_key), model
+
+    raise ValueError(
+        f"Unknown provider {provider!r}. Known providers: {', '.join(known_providers())}"
+    )
+
+
+def _get_openai_compatible_client(model: str, base_url: str, key: str = "") -> tuple[Any, str]:
+    """Generic OpenAI-compatible client builder."""
+    try:
+        from openai import OpenAI
+    except ImportError as err:
+        raise ImportError(
+            "The 'openai' package is required for this provider. Install it via: pip install openai"
+        ) from err
+    api_model = model.split("/", 1)[1] if "/" in model else model
+    return OpenAI(api_key=key or "local", base_url=base_url, timeout=180.0), api_model
 
 
 def _get_ollama_client(model: str) -> tuple[Any, str]:

@@ -223,13 +223,26 @@ class SagoWorkflowEngine:
 
     def _make_llm_call(self, messages: list[dict], max_tokens: int = 4096) -> tuple[str, int, int]:
         """Make an LLM call and return content + token counts."""
-        from openai import OpenAI
+        from sago.llm.tui_providers import get_tui_client, resolve_active_llm_config
 
-        logger.debug("Making LLM call (model=%s, max_tokens=%d)", self.model, max_tokens)
-        client = OpenAI(api_key=self.api_key, base_url="https://openrouter.ai/api/v1", timeout=90.0)
+        try:
+            active_cfg = resolve_active_llm_config(
+                model=None if self.model == "openrouter/free" else self.model,
+                api_key=self.api_key or None,
+            )
+            model = active_cfg["model"] if self.model == "openrouter/free" else self.model
+            provider = active_cfg["provider"]
+        except Exception:
+            model = self.model
+            provider = "openrouter"
+
+        logger.debug(
+            "Making LLM call (provider=%s model=%s max_tokens=%d)", provider, model, max_tokens
+        )
+        client, api_model = get_tui_client(provider, model)
 
         response = client.chat.completions.create(
-            model=self.model,
+            model=api_model,
             messages=messages,
             max_tokens=max_tokens,
             temperature=0.3,

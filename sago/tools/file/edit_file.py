@@ -60,10 +60,13 @@ class EditFileTool(BaseTool):
             old_string=old_string,
             new_string=new_string,
             replace_all=replace_all,
+            path=str(path),
         )
 
         if not success:
             preview = old_string[:120] + ("..." if len(old_string) > 120 else "")
+            if "REJECTED" in log_msg:
+                return f"Error: {log_msg}"
             return f"Error: String not found in {path}:\n'{preview}'\nDetail: {log_msg}"
 
         try:

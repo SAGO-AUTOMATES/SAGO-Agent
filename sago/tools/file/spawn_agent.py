@@ -119,9 +119,17 @@ class SpawnAgentTool(BaseTool):
         agent_name: str = "",
         context: str = "",
         feedback: str = "",
+        guard: Any = None,
         **kwargs: Any,
     ) -> str:
-        """Spawn an agent to handle a task with recursion protection."""
+        """Spawn an agent to handle a task with recursion protection.
+
+        Args:
+            guard: Optional shared RecursionGuard. Callers orchestrating across
+                multiple worker threads (e.g. parallel chain steps) must pass
+                their guard explicitly — thread-local lookup would otherwise
+                give each worker a fresh guard and disable cycle/depth checks.
+        """
         actual_task = (
             task
             or kwargs.get("prompt")
@@ -199,10 +207,12 @@ class SpawnAgentTool(BaseTool):
                     "Examples: python-engineer, java-engineer, go-engineer, devops-engineer"
                 )
 
-        from sago.agents.handoff import get_recursion_guard
+        # Use the explicitly shared guard when provided (multi-threaded chains),
+        # otherwise fall back to the thread-local guard.
+        if guard is None:
+            from sago.agents.handoff import get_recursion_guard
 
-        # Check recursion guard before spawning
-        guard = get_recursion_guard()
+            guard = get_recursion_guard()
         allowed, reason = guard.can_spawn(resolved_agent)
         if not allowed:
             logger.warning("Recursion guard blocked agent '%s': %s", resolved_agent, reason)
@@ -216,9 +226,14 @@ class SpawnAgentTool(BaseTool):
         llm_cfg = resolve_active_llm_config()
         api_key = llm_cfg["api_key"]
         if not api_key:
-            return (
-                "Error: No API key set. Set GEMINI_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY."
-            )
+            from sago.llm.registry import ProviderSpec, fallback_order, get_provider_spec
+
+            key_names: list[str] = []
+            for name in fallback_order():
+                spec: ProviderSpec | None = get_provider_spec(name)
+                if spec and spec.api_key_env:
+                    key_names.append(spec.api_key_env)
+            return f"Error: No API key set. Set one of: {', '.join(key_names)}."
 
         # Record dev trace event for agent delegation
         try:
@@ -291,6 +306,11 @@ class SpawnAgentTool(BaseTool):
         model = llm_cfg["model"]
         base_url = llm_cfg["base_url"]
 
+        # Inherit callbacks from parent context (processor → spawned agent)
+        from sago.engine.simple_executor import get_execution_callbacks
+
+        inherited = get_execution_callbacks()
+
         # Build fallback chain: primary agent + fallbacks
         fallbacks = self._FALLBACK_AGENTS.get(agent_name, ["software-engineer"])
         agents_to_try = [agent_name] + [a for a in fallbacks if a != agent_name]
@@ -307,7 +327,19 @@ class SpawnAgentTool(BaseTool):
 
             for try_model in models_to_try:
                 try:
+                    import uuid
+
                     from sago.engine.simple_executor import execute_agent_task
+
+                    spawn_session_id = f"spawn-{try_agent}-{uuid.uuid4().hex[:8]}"
+
+                    # Enable YOLO mode for spawned agent (auto-approve all tools)
+                    try:
+                        from sago.permissions import get_permission_manager
+
+                        get_permission_manager().set_yolo_mode(spawn_session_id, True)
+                    except Exception:
+                        pass  # Non-critical if permission manager unavailable
 
                     result = execute_agent_task(
                         task=task,
@@ -315,9 +347,14 @@ class SpawnAgentTool(BaseTool):
                         system_prompt=system_prompt,
                         api_key=api_key,
                         model=try_model,
-                        base_url=base_url if try_model == model else "https://openrouter.ai/api/v1",
+                        base_url=base_url,
                         max_tokens=8192,
                         max_iterations=20,
+                        wall_timeout=300.0,
+                        session_id=spawn_session_id,
+                        on_tool_call=inherited["on_tool_call"],
+                        on_tool_result=inherited["on_tool_result"],
+                        on_thinking=inherited["on_thinking"],
                     )
 
                     output = result.get("output", "")

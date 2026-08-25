@@ -11,4 +11,4 @@ import importlib.metadata
 try:
     __version__ = importlib.metadata.version("sago-agent")
 except Exception:
-    __version__ = "0.1.12"
+    __version__ = "0.1.13"
