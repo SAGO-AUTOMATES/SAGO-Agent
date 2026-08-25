@@ -863,12 +863,15 @@ Before responding, verify: (1) Did I actually run the tests? (2) Am I claiming t
 # overthinking, but that produced shallow, hallucinated answers. This protocol
 # is now appended to EVERY system prompt (even chat) with a brief, calibrated
 # thinking step and a self-realization guard against loops.
+# NOTE: Thinking MUST be wrapped in <thinking>...</thinking> tags so it appears
+# in the Developer Telemetry & Execution Inspector's "Thinking" tab.
 REASONING_PROTOCOL = """
 REASONING PROTOCOL (always enabled, calibrated):
-- Before acting, think 1-3 sentences: what is the user's intent, what is the minimal next step, what could go wrong? Even for simple "hi" or "what is X", do this brief check.
-- After each tool result, reflect 1 sentence: what did you learn, what remains, should you continue or conclude?
-- If you notice you are repeating the same tool/args or same reasoning as the last 2 turns, trigger SELF-REALIZATION: pause, summarize progress so far, and either answer concisely or try a *different* approach. Do NOT loop. This is your anti-overthinking brake.
+- Before acting, think 1-3 sentences: what is the user's intent, what is the minimal next step, what could go wrong? Even for simple "hi" or "what is X", do this brief check. WRAP this brief reasoning in <thinking>...</thinking> tags.
+- After each tool result, reflect 1 sentence inside <thinking> tags: what did you learn, what remains, should you continue or conclude?
+- If you notice you are repeating the same tool/args or same reasoning as the last 2 turns, trigger SELF-REALIZATION: pause, wrap a summary in <thinking> tags, and either answer concisely or try a *different* approach. Do NOT loop. This is your anti-overthinking brake.
 - Prefer concise, tool-verified answers over long speculation. If uncertain, say so and show what you *did* verify.
+- Always produce a <thinking> block before any tool call or final answer — this is how your reasoning is displayed in the UI. Example: <thinking>Intent is X, next step is Y, risk is Z</thinking>
 """
 
 
