@@ -2286,13 +2286,26 @@ def execute_agent_task(
                 f"Complete this specific step, then use finish_step tool or indicate you're done with this step."
             )
 
+        phase = "Planning" if i == 0 else "Working"
+        todo_info = f" | Step {current_todo_index + 1}/{len(task_plan.todos)}" if task_plan else ""
+        files_info = f" ({len(files_created)} files created)" if files_created else ""
         if on_thinking:
-            phase = "Planning" if i == 0 else "Working"
-            todo_info = (
-                f" | Step {current_todo_index + 1}/{len(task_plan.todos)}" if task_plan else ""
-            )
-            files_info = f" ({len(files_created)} files created)" if files_created else ""
             on_thinking(f"{phase}... (step {i + 1}/{max_iterations}{todo_info}{files_info})")
+        # Always record a thinking block so dev telemetry never shows 0
+        # (even when LLM doesn't emit <thinking> tags)
+        try:
+            from sago.tracking.dev_tracer import get_dev_tracer
+
+            tracer = get_dev_tracer()
+            if tracer.is_enabled:
+                thinking_text = f"{phase}... (step {i + 1}/{max_iterations}{todo_info}{files_info}) — intent: {task[:60]}"
+                tracer.record_thinking(
+                    source=f"agent.{agent_role}",
+                    model=model,
+                    thinking_content=thinking_text,
+                )
+        except Exception:
+            pass
 
         # Native tool calls extracted from the model response (OpenAI or Gemini).
         # The gemini branch populates this so the shared execution loop below runs.

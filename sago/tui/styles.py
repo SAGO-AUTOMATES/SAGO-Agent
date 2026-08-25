@@ -57,10 +57,10 @@ Screen { background: #0a0d12; }
     overflow-y: scroll;
     overflow-x: hidden;
     scrollbar-size: 1 1;
-    scrollbar-color: #58a6ff #21262d;
-    scrollbar-color-hover: #388bfd #0a0d12;
+    scrollbar-color: #388bfd #161b22;
+    scrollbar-color-hover: #388bfd #161b22;
     scrollbar-gutter: stable;
-    /* Ensure scrollbar is always visible when content overflows */
+    /* Always visible like dev page's VerticalScroll — not hover-only */
 }
 
 .msg-user {

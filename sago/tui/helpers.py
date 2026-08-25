@@ -471,24 +471,8 @@ class UIHelpers:
             except Exception:
                 pass
 
-        # Mount a visible one-line summary so user knows enhancement happened
-        from rich.text import Text as RichText
-
-        summary_text = RichText()
-        summary_text.append("\u2728 Prompt enhanced \u2192 ", style="dim")
-        summary_text.append(str(intent_summary)[:100], style="italic")
-        summary_widget = Static(summary_text, classes="prompt-enhancement-inline")
-        if resp_container is not None:
-            try:
-                target_card.query_one(".exchange-body").mount(summary_widget, before=resp_container)
-            except Exception:
-                target_card.mount(summary_widget)
-        elif target_card is not None:
-            target_card.mount(summary_widget)
-        else:
-            self.query_one("#messages").mount(summary_widget)
-
-        # Also mount the collapsible with full details
+        # Single collapsed card only — the previous inline one-liner + card was duplicate
+        # Keep just the collapsible (contains the one-liner as its title summary)
         card = Collapsible(
             Static("\n".join(card_lines), markup=True),
             title=title,

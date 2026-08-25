@@ -78,8 +78,34 @@ class MessageProcessorMixin:
 
             def on_thinking(text):
                 self.call_from_thread(self._update_spinner, text)
-                # Mount enhanced prompt info into exchange card if visible
-                if text and "Enhanced Prompt" in text:
+                # Always record thinking to dev tracer so the Thinking tab shows 1:1 with LLM
+                if text and text.strip():
+                    try:
+                        from sago.tracking.dev_tracer import get_dev_tracer
+
+                        # Strip markup for clean thinking record
+                        clean_thinking = re.sub(r"\[/?[^\]]*\]", "", text).strip()
+                        if clean_thinking:
+                            get_dev_tracer().record_thinking(
+                                source=f"tui.llm.{self.current_provider}",
+                                model=self.current_model,
+                                thinking_content=clean_thinking,
+                            )
+                    except Exception:
+                        pass
+                # Also mount any thinking/reasoning visibly in the TUI card so user
+                # actually sees "what it thought" without opening dev mode.
+                if text and any(
+                    k in text.lower()
+                    for k in (
+                        "thinking",
+                        "reasoning",
+                        "reflect",
+                        "self-check",
+                        "plan",
+                        "enhanced prompt",
+                    )
+                ):
                     target_card = getattr(self, "_active_exchange_card", None)
                     if target_card is not None:
                         container = getattr(target_card, "_response_container", None)
@@ -88,8 +114,6 @@ class MessageProcessorMixin:
                             try:
                                 from textual.widgets import Static as TextualStatic
 
-                                # markup=False: text is arbitrary LLM/tool output and
-                                # may contain '[' sequences that break console markup.
                                 self.call_from_thread(
                                     container.mount,
                                     TextualStatic(text, classes="msg-assistant", markup=False),
@@ -739,6 +763,12 @@ class MessageProcessorMixin:
                             model=api_model,
                             thinking_content=_thinking_content,
                         )
+                        # Also show thinking visibly in the TUI exchange card
+                        # so user sees reasoning without opening dev mode
+                        try:
+                            self.call_from_thread(self._add_thinking_card, _thinking_content)
+                        except Exception:
+                            pass
 
                     # Raw response trace (deep debug)
                     get_dev_tracer().record_llm_response(
