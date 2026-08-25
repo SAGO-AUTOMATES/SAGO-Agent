@@ -150,10 +150,12 @@ class PromptEnhancer:
         ),
     ]
 
-    # Key anti-hallucination rules (just 3, not 16)
+    # Core anti-hallucination rules — compact but covering fabrication, verification, uncertainty
     _CORE_RULES = [
         "Verify claims with tools — don't say 'the code does X' without reading it.",
         "If unsure, say so. Don't fabricate file names, function names, or APIs.",
+        "Never claim tests pass or a file was created without actually running tests / calling write_file/edit_file.",
+        "Report only what tools returned; state uncertainty rather than guessing structure or quality.",
     ]
 
     # Domain-specific constraints (only injected when relevant)

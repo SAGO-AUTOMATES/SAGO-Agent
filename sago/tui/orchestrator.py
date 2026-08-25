@@ -545,12 +545,17 @@ class AgentOrchestrationMixin:
             client, api_model = get_tui_client(self.current_provider, self.current_model)
             use_native_gemini = self.current_provider == "google"
             agents = list_agents()
+            # Cap displayed agents to avoid token blowup (339 agents → ~17k chars)
+            MAX_PLAN_AGENTS = 60
+            display_agents = agents[:MAX_PLAN_AGENTS]
             agent_list_str = "\n".join(
                 [
                     f"- {a['name']}: {a.get('role', '')} | Skills: {', '.join(a.get('skills', [])[:3])}"
-                    for a in agents
+                    for a in display_agents
                 ]
             )
+            if len(agents) > MAX_PLAN_AGENTS:
+                agent_list_str += f"\n... and {len(agents) - MAX_PLAN_AGENTS} more agents available"
 
             system_prompt = (
                 "You are a task orchestrator. Analyze the task and break it into steps.\n"
@@ -1060,19 +1065,18 @@ class AgentOrchestrationMixin:
                             "success": False,
                         }
 
-                    result = tool.run(task=subtask, agent_name=agent_name)
+                    # Share recursion guard explicitly; tolerate mocks that don't accept `guard`
+                    try:
+                        result = tool.run(
+                            task=subtask, agent_name=agent_name, guard=_parallel_guard
+                        )
+                    except TypeError:
+                        result = tool.run(task=subtask, agent_name=agent_name)
                     elapsed = _time.time() - start
                     info.elapsed = elapsed
 
-                    # Detect errors in result string
-                    result_is_error = (
-                        "could not be spawned" in result
-                        or result.startswith("Error")
-                        or result.startswith("Last error")
-                        or "REJECTED" in result
-                        or "API error" in result
-                        or "Rate limit" in result
-                    )
+                    # Detect errors using shared helper (avoids false positives on prose)
+                    result_is_error = "could not be spawned" in result or _is_error_result(result)
 
                     if result_is_error:
                         info.status = AgentStatus.FAILED

@@ -1001,17 +1001,17 @@ class UIHelpers:
         color = get_agent_color(agent_name)
         status_icon = "✓" if success else "✗"
 
-        # Header with agent name, step number, elapsed
+        # Header with agent name, step number, elapsed — escape agent_name to avoid markup injection
+        from rich.markup import escape as _escape
+
         header_parts = [
-            f"[{color}][bold]{status_icon} Step {step_num}/{total_steps}: {agent_name}[/bold][/{color}]",
+            f"[{color}][bold]{status_icon} Step {step_num}/{total_steps}: {_escape(agent_name)}[/bold][/{color}]",
         ]
         if elapsed > 0:
             header_parts.append(f"[dim]({elapsed:.1f}s)[/dim]")
         header = " ".join(header_parts)
 
         # Task line
-        from rich.markup import escape as _escape
-
         task_line = f"[dim]Task:[/] [white]{_escape(task[:120])}[/white]"
 
         # Tools used line

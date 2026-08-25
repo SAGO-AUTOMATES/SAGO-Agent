@@ -175,6 +175,13 @@ def infer_provider_for_model(model: str) -> str | None:
     canonical = normalize_provider(prefix)
     if get_provider_spec(canonical):
         return canonical
+    # Unknown vendor — likely OpenRouter convention but warn on probable typos
+    if prefix.lower() in ("opneai", "goggle", "googl", "anthorpic", "openrouter", "ollamma"):
+        logger.warning("Unknown provider prefix %r — possible typo, routing via openrouter", prefix)
+    else:
+        logger.debug(
+            "Unknown vendor prefix %r — routing via openrouter (e.g. stealth/ox-alpha)", prefix
+        )
     return "openrouter"
 
 

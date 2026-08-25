@@ -112,7 +112,7 @@ Screen { background: #0a0d12; }
     background: transparent;
     border: solid #30363d;
     padding: 0;
-    margin: 0;
+    margin: 1 0;
     /* Override Textual's Vertical default (height: 1fr) which made every turn
        card stretch to fill the viewport and clip content when multiple cards
        shared the screen. Size strictly by content instead. */

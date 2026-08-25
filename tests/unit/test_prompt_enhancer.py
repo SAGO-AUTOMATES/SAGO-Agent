@@ -18,6 +18,9 @@ def test_prompt_enhancer_basic_enhancement(tmp_path):
     assert len(res.operational_constraints) > 0
     assert "fix memory leak" in res.enhanced_prompt
     assert len(res.enhanced_prompt) > len("fix memory leak in cache")
+    # Hallucination guards must be injected verbatim
+    assert "Verify claims with tools" in res.enhanced_prompt
+    assert "Don't fabricate" in res.enhanced_prompt
 
 
 def test_prompt_enhancer_target_detection(tmp_path):
@@ -31,6 +34,11 @@ def test_prompt_enhancer_target_detection(tmp_path):
 
     assert "auth_service.py" in res.target_scope
     assert len(res.operational_constraints) > 0
+    # Security / python domain constraints should be present
+    assert any("Validate" in c or "credentials" in c.lower() for c in res.operational_constraints)
+    # Prompt must preserve file ref and intent
+    assert "auth_service.py" in res.enhanced_prompt
+    assert "JWT" in res.enhanced_prompt or "jwt" in res.enhanced_prompt.lower()
 
 
 def test_prompt_enhancer_telemetry_event(tmp_path):
@@ -159,25 +167,33 @@ def test_zero_token_local_execution(tmp_path):
     assert res.was_modified is True
     assert duration < 0.05  # Sub-50ms local execution
     assert "refactor" in res.intent_summary.lower()
+    assert "Verify claims" in res.enhanced_prompt
+    # Must not claim wild file listings without tool verification
+    assert res.target_scope == [] or all(not p.startswith("http") for p in res.target_scope)
 
 
 def test_generate_session_title():
     from sago.engine.prompt_enhancer import generate_session_title
 
-    # Coding task
+    # Coding task — title should be meaningful and not empty
     t1 = generate_session_title(
         [{"role": "user", "content": "Fix the authentication token refresh bug in auth.py"}]
     )
     assert len(t1) > 0
+    assert len(t1) <= 63
+    # For fix tasks, intent is bug-related
+    assert "fix" in t1.lower() or "auth" in t1.lower() or "diagnose" in t1.lower()
 
     # Architecture query
     t2 = generate_session_title("explain the multi-agent orchestration architecture")
     assert len(t2) > 0
+    assert len(t2) <= 63
 
-    # Greeting & capability query
+    # Greeting & capability query — should not be empty or crash
     t3 = generate_session_title("hellos wehta can yiu do ?>")
     assert len(t3) > 0
     assert not t3.startswith("Empty")
+    assert len(t3) <= 63
 
 
 def test_typo_greeting_and_capabilities_queries():

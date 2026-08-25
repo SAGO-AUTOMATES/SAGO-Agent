@@ -59,8 +59,23 @@ def test_gemini_provider_is_available_and_genai() -> None:
 
     with patch.dict("os.environ", {"GEMINI_API_KEY": "fake_test_key"}):
         prov_with_key = GeminiProvider({"model": "gemini-2.5-flash"})
-        # Should detect availability of google.genai or google.generativeai
-        assert prov_with_key.is_available() is True
+        # Should detect availability if google libs installed, otherwise gracefully False
+        try:
+            import google.genai  # noqa: F401
+
+            has_lib = True
+        except ImportError:
+            try:
+                import google.generativeai  # noqa: F401
+
+                has_lib = True
+            except ImportError:
+                has_lib = False
+        if has_lib:
+            assert prov_with_key.is_available() is True
+        else:
+            # Lib not installed in this env — availability correctly reports False
+            assert prov_with_key.is_available() is False
 
 
 def test_mcp_permission_gating() -> None:
@@ -224,7 +239,9 @@ def test_parallel_agent_progressive_streaming() -> None:
         mock_tool = mock_tool_cls.return_value
         mock_tool.run.side_effect = lambda task, agent_name: f"Result for {agent_name}"
 
-        app._process_parallel_thread([("python-engineer", "Run parallel task"), ("tester", "Run parallel task")])
+        app._process_parallel_thread(
+            [("python-engineer", "Run parallel task"), ("tester", "Run parallel task")]
+        )
 
         # Verify all agents streamed their results immediately
         assert len(streamed_results) == 2
