@@ -1120,7 +1120,15 @@ class CommandHandlers:
             "Do not repeat already executed steps or duplicate tool calls. Proceed with the next steps."
             + recent_tools_summary
         )
-        self._add_user_message("/continue")
+        # Use a dedicated command turn container like /chain (not a plain user card)
+        # so it doesn't show duplicate "USER /continue" + "User Prompt: continue"
+        self._add_command_turn(
+            "continue",
+            interrupted_prompt[:120] + ("..." if len(interrupted_prompt) > 120 else ""),
+            meta=f"resuming {len(recent_tools_summary.splitlines()) if recent_tools_summary else 0} prior tool calls",
+            tag_label="CONTINUE",
+            tag_color="#3fb950",
+        )
         self._process_message(interrupted_prompt)
 
     def _reset(self: SagoApp) -> None:

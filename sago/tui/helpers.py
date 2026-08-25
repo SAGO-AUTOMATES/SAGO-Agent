@@ -735,11 +735,15 @@ class UIHelpers:
 
         target_card = getattr(self, "_active_exchange_card", None)
         title = f"● Execution Plan ({step_count} steps)" if step_count else "● Execution Plan"
+        # Store the plan card reference for in-place updates
         card = Collapsible(
             Static(_escape(plan_text), classes="plan-text", markup=True),
             title=title,
-            collapsed=True,
+            collapsed=False,
         )
+        # Keep reference for progress updates
+        self._current_plan_card = card  # type: ignore[attr-defined]
+        self._current_plan_steps = step_count  # type: ignore[attr-defined]
         if target_card is not None and hasattr(target_card, "mount_child"):
             target_card.mount_child(card)
         elif target_card is not None:
@@ -747,6 +751,43 @@ class UIHelpers:
         else:
             self.query_one("#messages").mount(card)
         self.query_one("#messages").scroll_end(animate=False)
+
+    def _update_plan_progress(
+        self: SagoApp, plan: Any, completed_idx: int, status: str = "completed"
+    ) -> None:
+        """Update the Execution Plan card in place (progress %, checkmarks)."""
+        try:
+            card = getattr(self, "_current_plan_card", None)
+            if card is None:
+                return
+            # Find the plan-text Static inside the Collapsible
+            try:
+                static = card.query_one(".plan-text", Static)
+            except Exception:
+                return
+            # Re-render with updated progress
+            from sago.tasks import get_task_manager
+
+            tm = get_task_manager()
+            # Use the plan object to format, but update the static directly
+            new_text = tm.format_plan(plan)
+            # Update title to show progress
+            try:
+                card.title = (
+                    f"● Execution Plan ({len(plan.todos)} steps) — {plan.progress:.0%} {status}"
+                )
+            except Exception:
+                pass
+            static.update(new_text)
+            # Also update the collapsible title if needed
+            try:
+                card.query_one(Collapsible).title = f"Execution Plan — {plan.progress:.0%}"
+            except Exception:
+                pass
+        except Exception as e:
+            from sago.utils.safe import log_exception
+
+            log_exception(e, "update plan progress in place")
 
     def _add_agent_message(self: SagoApp, agent_name: str, content: str) -> None:
         """Add a message with explicit agent tagging."""

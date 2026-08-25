@@ -975,7 +975,7 @@ class MessageProcessorMixin:
                             )
                             continue
 
-                        # Handle todo completion
+                        # Handle todo completion — update Execution Plan widget in place
                         if task_plan and current_todo_index < len(task_plan.todos):
                             from sago.tasks import TaskStatus, get_task_manager
 
@@ -985,14 +985,33 @@ class MessageProcessorMixin:
                                 tm.complete_todo(
                                     task_plan.id, todo.id, result=content[:200] if content else ""
                                 )
-                                self.call_from_thread(
-                                    self._add_system_message,
-                                    f"Step {current_todo_index + 1} completed: {todo.description[:60]}",
-                                )
+                                # Update the plan card in place instead of dumping a new message below
+                                try:
+                                    self.call_from_thread(
+                                        self._update_plan_progress,
+                                        task_plan,
+                                        current_todo_index,
+                                        "completed",
+                                    )
+                                except Exception:
+                                    # Fallback to old system message if update fails
+                                    self.call_from_thread(
+                                        self._add_system_message,
+                                        f"Step {current_todo_index + 1} completed: {todo.description[:60]}",
+                                    )
                                 current_todo_index += 1
                                 if current_todo_index < len(task_plan.todos):
                                     next_todo = task_plan.todos[current_todo_index]
                                     tm.start_todo(task_plan.id, next_todo.id)
+                                    try:
+                                        self.call_from_thread(
+                                            self._update_plan_progress,
+                                            task_plan,
+                                            current_todo_index,
+                                            "in_progress",
+                                        )
+                                    except Exception:
+                                        pass
                                     messages.append(
                                         {
                                             "role": "user",
