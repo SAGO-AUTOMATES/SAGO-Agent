@@ -752,9 +752,16 @@ class AgentOrchestrationMixin:
                         f"[dim]/plan remove <step>[/dim] — remove a step  •  "
                         f"[bold green]Y[/bold green] — approve  •  [bold red]N[/bold red] — deny"
                     )
-                    container.mount(
-                        TextualStatic(instructions, markup=True, classes="msg-assistant")
-                    )
+                    # Use markup=False for user-controlled task text to avoid MarkupError
+                    # from stray brackets like "|agents=339', 'path': '/mnt/ramdisk/sago]"
+                    try:
+                        container.mount(
+                            TextualStatic(instructions, markup=True, classes="msg-assistant")
+                        )
+                    except Exception:
+                        container.mount(
+                            TextualStatic(instructions, markup=False, classes="msg-assistant")
+                        )
                     container.scroll_end()
                 except Exception as e:
                     logger.debug("mount orchestration plan failed: %s", e)

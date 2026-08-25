@@ -858,11 +858,21 @@ class UIHelpers:
                 f"[bold green]Result Output:[/bold green]\n{preview_res}"
             )
 
-            card = Collapsible(
-                Static(body, classes="msg-system", markup=True),
-                title=title,
-                collapsed=True,
-            )
+            # Use markup=False for body which contains dynamic tool output
+            # that may contain brackets like "|agents=339', 'path': '/mnt/ramdisk/sago]"
+            # to avoid MarkupError. The title already has markup for the status.
+            try:
+                card = Collapsible(
+                    Static(body, classes="msg-system", markup=True),
+                    title=title,
+                    collapsed=True,
+                )
+            except Exception:
+                card = Collapsible(
+                    Static(body, classes="msg-system", markup=False),
+                    title=title,
+                    collapsed=True,
+                )
 
             # Insert into exchange body BEFORE response container so it appears
             # between the user prompt divider and the assistant text

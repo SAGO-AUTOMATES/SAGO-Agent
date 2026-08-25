@@ -1636,6 +1636,39 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         except Exception as e:
             log_exception(e, "Failed to scroll to end")
 
+    def on_exception(self, error: Exception) -> None:  # type: ignore[override]
+        """Global TUI exception handler — never crash or hang on MarkupError etc."""
+        try:
+            from rich.errors import MarkupError
+
+            is_markup = isinstance(error, MarkupError)
+        except Exception:
+            is_markup = "MarkupError" in type(error).__name__
+        logger.error("TUI unhandled exception (%s): %s", type(error).__name__, error, exc_info=True)
+        try:
+            from rich.markup import escape
+
+            msg = escape(str(error)[:500])
+            if is_markup:
+                msg = f"Handled MarkupError (no crash): {msg} — content was auto-escaped"
+            # Avoid recursion if _add_system_message itself fails
+            try:
+                self._add_system_message(f"⚠️ Handled error: {msg}")
+            except Exception:
+                self.query_one("#messages").mount(
+                    __import__("textual.widgets").widgets.Static(
+                        f"Handled error: {msg}", markup=False
+                    )
+                )
+        except Exception as e2:
+            logger.debug("Failed to show handled error: %s", e2)
+        # Do not re-raise — keep TUI alive
+
+    def handle_exception(self, error: Exception) -> bool:
+        """Textual 8+ hook — return True to suppress crash."""
+        self.on_exception(error)
+        return True
+
 
 def main():
     SagoApp().run()
