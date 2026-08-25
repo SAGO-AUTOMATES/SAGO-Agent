@@ -252,7 +252,7 @@ mesh:
 executor:
   project_context_ttl: 300       # Seconds to cache project context
   max_tokens: 32000              # Max tokens per execution
-  circular_detection_threshold: 3  # Detect circular agent calls
+  circular_detection_threshold: 5  # Detect circular agent calls — was 3 (too strict, killed legit multi-file reads)
   auto_complete_min_tools: 5     # Min tools used for auto-completion
   auto_complete_min_success: 3   # Min successful tools for auto-completion
   auto_complete_min_iterations: 4  # Min iterations for auto-completion

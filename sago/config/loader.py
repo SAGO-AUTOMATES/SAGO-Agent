@@ -219,7 +219,7 @@ class ExecutorConfig(BaseModel):
 
     project_context_ttl: int = 300
     max_tokens: int = 32000
-    circular_detection_threshold: int = 3
+    circular_detection_threshold: int = 5
     auto_complete_min_tools: int = 5
     auto_complete_min_success: int = 3
     auto_complete_min_iterations: int = 4

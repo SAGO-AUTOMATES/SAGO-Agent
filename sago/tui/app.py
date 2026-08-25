@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import collections
 import concurrent.futures
 import logging
 import os
@@ -68,7 +69,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     current_agent: reactive[str] = reactive("sago-orchestrator")
     current_model: reactive[str] = reactive("openrouter/free")
     current_provider: reactive[str] = reactive("openrouter")
-    current_effort: reactive[str] = reactive("medium")
+    current_effort: reactive[str] = reactive("high")  # default high — always some thinking
     current_session_id: reactive[str] = reactive("")
     messages: reactive[list[dict]] = reactive(list)
     show_suggestions: reactive[bool] = reactive(False)
@@ -100,6 +101,13 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     _parallel_lock: threading.Lock | None = None
     _spinner: Spinner | None = None
     _spinner_timer: Any | None = None  # textual Timer
+    # Message queue for concurrent input while thinking — reasoning:
+    # TUI previously spawned a new thread per Enter with no guard, so two
+    # messages interleaved tool calls and raced _active_exchange_card /
+    # _active_cancel_event. Serializing via a FIFO queue keeps one active
+    # ExchangeTurnCard at a time and preserves UX (user can keep typing).
+    _pending_message_queue: collections.deque[str] | None = None
+    _queue_lock: threading.Lock | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="main-layout"):
@@ -170,6 +178,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         self.session_tool_calls: list[dict[str, Any]] = []
         self._orchestration_lock = threading.Lock()
         self._parallel_lock = threading.Lock()
+        self._queue_lock = threading.Lock()
+        self._pending_message_queue = collections.deque()
         self._loading_session = False
         self._active_exchange_card = None
         self._message_store = None
@@ -647,6 +657,32 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         self._hide_suggestions()
         self.history_index = -1
 
+        # ── Queue reasoning: if a long task is running, don't interleave —
+        # serialize via FIFO so tool calls / cards don't race. User can keep
+        # typing; queued items run in order after current finishes.
+        # Control messages (y/n/cancel/help) bypass the queue so user can
+        # still approve/deny/cancel the active task.
+        if self.is_thinking and not self._is_control_message(msg):
+            try:
+                q = getattr(self, "_pending_message_queue", None)
+                lock = getattr(self, "_queue_lock", None)
+                if q is not None and lock is not None:
+                    with lock:
+                        q.append(msg)  # type: ignore[union-attr]
+                        q_len = len(q)
+                    self._add_system_message(
+                        f"⏳ Queued ({q_len}): {msg[:60]} — will run after current task. Press Ctrl+C to cancel current task."
+                    )
+                    # Update input placeholder to show queue depth
+                    try:
+                        inp = self.query_one("#msg-input", Input)  # type: ignore[attr-defined]
+                        inp.placeholder = f"Queued {q_len} — type to add more (Enter to queue)"
+                    except Exception:
+                        pass
+                    return
+            except Exception as e:
+                log_exception(e, "Failed to queue message")
+
         if msg in ("?", "/?", "/shortcuts", "/shortcut", "/keys"):
             self._handle_shortcuts_command()
         elif (
@@ -842,6 +878,98 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         if 0 <= self.history_index < len(self.command_history):
             self.query_one("#msg-input", Input).value = self.command_history[self.history_index]  # type: ignore[attr-defined]
 
+    # ── Message queue: serialize concurrent input while thinking ──
+    def _is_control_message(self, msg: str) -> bool:
+        """Control messages (y/n, cancel, help) must bypass the queue and run immediately."""
+        m = msg.strip().lower()
+        if m in (
+            "y",
+            "yes",
+            "n",
+            "no",
+            "approve",
+            "deny",
+            "cancel",
+            "help",
+            "clear",
+            "status",
+            "exit",
+            "quit",
+        ):
+            return True
+        if m.startswith(
+            (
+                "/cancel",
+                "/help",
+                "/clear",
+                "/status",
+                "/exit",
+                "/quit",
+                "/tasks",
+                "/y",
+                "/n",
+                "/approve",
+                "/deny",
+            )
+        ):
+            return True
+        if m in ("/help", "/?", "/shortcuts"):
+            return True
+        return False
+
+    def _try_process_queue(self) -> None:
+        """If not thinking and queue has items, dispatch next. Called via watch_is_thinking and explicit call."""
+        try:
+            q = getattr(self, "_pending_message_queue", None)
+            lock = getattr(self, "_queue_lock", None)
+            if q is None or lock is None:
+                return
+            with lock:
+                if not q or self.is_thinking:
+                    # Reset placeholder when queue empty and idle
+                    if not q and not self.is_thinking:
+                        try:
+                            inp = self.query_one("#msg-input", Input)  # type: ignore[attr-defined]
+                            inp.placeholder = "/, @, # for autocomplete (or type a message)"
+                        except Exception:
+                            pass
+                    return
+                next_msg = q.popleft()
+                remaining = len(q)
+            # Update placeholder to reflect queue depth
+            try:
+                inp = self.query_one("#msg-input", Input)  # type: ignore[attr-defined]
+                if remaining:
+                    inp.placeholder = f"Queued {remaining} — will run after current task"
+                else:
+                    inp.placeholder = "/, @, # for autocomplete (or type a message)"
+            except Exception:
+                pass
+            # Dispatch outside lock
+            self._add_system_message(
+                f"▶️ Processing queued ({remaining} remaining): {next_msg[:70]}"
+            )
+            if next_msg.startswith("/") or next_msg.startswith("!"):
+                self._handle_command(next_msg)
+            elif next_msg.startswith("@") or next_msg.startswith("#"):
+                # Treat mentions as normal messages but preserve raw
+                self._add_user_message(next_msg)
+                self._process_message(next_msg)
+            else:
+                self._add_user_message(next_msg)
+                self._process_message(next_msg)
+        except Exception as e:
+            log_exception(e, "Failed to process queued message")
+
+    def watch_is_thinking(self, value: bool) -> None:
+        """Reactive watcher — when thinking finishes, drain the queue."""
+        if not value:
+            # Defer to next tick so UI updates settle
+            try:
+                self.call_after_refresh(self._try_process_queue)  # type: ignore[attr-defined]
+            except Exception:
+                self._try_process_queue()
+
     def on_mouse_scroll_down(self, event) -> None:
         self.query_one("#messages").scroll_down()
 
@@ -898,6 +1026,13 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
         if not cancelled_anything:
             self._add_system_message("No active tasks or generation to cancel")
+        else:
+            # If we cancelled the active task, proactively drain queue so next
+            # queued message doesn't wait for the watch_is_thinking debounce.
+            try:
+                self.call_after_refresh(self._try_process_queue)  # type: ignore[attr-defined]
+            except Exception:
+                self._try_process_queue()
 
     def action_show_shortcuts(self) -> None:
         """Show shortcuts reference modal."""

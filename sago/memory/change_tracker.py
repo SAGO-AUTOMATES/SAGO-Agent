@@ -227,18 +227,54 @@ class ChangeTracker:
             "can_undo": len(self.changes) > 0,
         }
 
-    def get_diff_summary(self) -> str:
-        """Get a human-readable diff summary."""
+    def get_diff_summary(self, limit: int = 50) -> str:
+        """Get a human-readable diff summary — truncated and filtered."""
         if not self.changes:
             return "No changes tracked."
 
+        # Filter to project-relevant files only (hide any stray /tmp that slipped through)
+        # and deduplicate to avoid loop spam.
+        cwd = str(Path.cwd().resolve())
+        filtered: list[FileChange] = []
+        seen: set[str] = set()
+        for c in reversed(self.changes):  # most recent first
+            p = c.path
+            # Skip if still looks like temp/ephemeral
+            if any(
+                seg in p
+                for seg in ("/tmp/", "/pytest-of-", "/sago_demo", "/sago_complex", "/sago_sample")
+            ):
+                continue
+            # Prefer project files; still show absolute paths outside cwd but de-dupe
+            if p not in seen:
+                seen.add(p)
+                filtered.append(c)
+            if len(filtered) >= limit:
+                break
+        filtered.reverse()  # back to chronological for display
+        if not filtered:
+            # Fallback to raw but truncated if filter hid everything
+            filtered = self.changes[-limit:]
+
         lines = []
-        for change in self.changes:
+        for change in filtered:
             action = {"create": "+", "modify": "~", "delete": "-"}[change.action]
-            lines.append(f"  [{action}] {change.path}")
+            # Make project-relative for readability
+            try:
+                rel = str(Path(change.path).relative_to(cwd))
+                display = rel
+            except Exception:
+                display = change.path
+            lines.append(f"  [{action}] {display}")
 
         summary = self.get_summary()
         header = f"Changes: {summary['created']} created, {summary['modified']} modified, {summary['deleted']} deleted"
+        if len(self.changes) > limit:
+            header += f" (showing last {limit} of {len(self.changes)})"
+        # Also hint if many were filtered as temp
+        filtered_out = len(self.changes) - len(filtered)
+        if filtered_out > 0 and filtered_out > len(self.changes) // 2:
+            header += f" — {filtered_out} temp/ephemeral files hidden"
         return header + "\n" + "\n".join(lines)
 
     def _save_index(self) -> None:

@@ -58,6 +58,11 @@ class MessageProcessorMixin:
             finally:
                 self.call_from_thread(self._hide_spinner)
                 self.is_thinking = False
+                # Drain queued messages if any — serialized execution
+                try:
+                    self.call_from_thread(self._try_process_queue)
+                except Exception:
+                    pass
             return
 
         try:
@@ -1854,3 +1859,8 @@ class MessageProcessorMixin:
         finally:
             self.is_thinking = False
             logger.info("Message processing ended (elapsed=%.1fs)", _time.time() - thread_start)
+            # Serialized queue: if user typed while we were thinking, run next
+            try:
+                self.call_from_thread(self._try_process_queue)
+            except Exception:
+                pass

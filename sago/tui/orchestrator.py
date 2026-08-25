@@ -201,6 +201,10 @@ class AgentOrchestrationMixin:
             self.call_from_thread(self._add_error_inline, f"Delegation error: {e}")
         finally:
             self.is_thinking = False
+            try:
+                self.call_from_thread(self._try_process_queue)
+            except Exception:
+                pass
 
     def _process_chain(self: SagoApp, chain_steps: list[list[str]], task: str) -> None:
         step_summary = " -> ".join("+".join(s) for s in chain_steps)
@@ -509,6 +513,10 @@ class AgentOrchestrationMixin:
             self.call_from_thread(self._add_error_inline, f"Chain error: {e}")
         finally:
             self.is_thinking = False
+            try:
+                self.call_from_thread(self._try_process_queue)
+            except Exception:
+                pass
 
     def _process_orchestration(self: SagoApp, task: str) -> None:
         logger.info("orchestration requested: task_len=%d", len(task))
@@ -793,6 +801,10 @@ class AgentOrchestrationMixin:
             self.call_from_thread(self._add_error_inline, f"Orchestration error: {e}")
         finally:
             self.is_thinking = False
+            try:
+                self.call_from_thread(self._try_process_queue)
+            except Exception:
+                pass
 
     def _execute_orchestration_plan(self: SagoApp, plan: list[dict]) -> None:
         """Execute an approved orchestration plan — dispatches to background thread."""
@@ -994,6 +1006,10 @@ class AgentOrchestrationMixin:
             self.call_from_thread(self._add_error_inline, f"Execution error: {e}")
         finally:
             self.is_thinking = False
+            try:
+                self.call_from_thread(self._try_process_queue)
+            except Exception:
+                pass
 
     def _process_parallel(self: SagoApp, agent_tasks: list[tuple[str, str]]) -> None:
         """Run multiple agents in parallel, each with its own task."""
@@ -1194,6 +1210,10 @@ class AgentOrchestrationMixin:
                 with self._parallel_lock:
                     self._active_parallel_futures.clear()
             self.call_from_thread(self._update_dashboard)
+            try:
+                self.call_from_thread(self._try_process_queue)
+            except Exception:
+                pass
 
     def _show_parallel_bar(self: SagoApp, agents: list[str]) -> None:
         """Show the parallel agent status bar."""

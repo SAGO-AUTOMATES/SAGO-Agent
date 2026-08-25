@@ -38,8 +38,8 @@ class EngineConfig:
     """Configuration for the production engine."""
 
     max_workers: int = 4
-    default_effort: str = "medium"
-    show_thinking: bool = False
+    default_effort: str = "high"  # was medium — always have some thinking
+    show_thinking: bool = True  # always show reasoning traces
     use_streaming: bool = True
     auto_delegate: bool = True
     timeout: float = 300.0

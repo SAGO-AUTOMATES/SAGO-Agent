@@ -715,8 +715,16 @@ ABSOLUTE RULES - VIOLATION = FAILURE:
 9. NEVER claim "tests pass" or "all tests pass" without actually running the tests via execute_shell.
 10. NEVER claim code is "production-ready", "fully tested", or "complete" unless you have verified it with tools.
 
+SMART TOOL USAGE (not dumb):
+- Discovery FIRST: glob_files, file_search, grep_content, hybrid_search, search_symbol BEFORE read_file. Don't guess file names.
+- Structure: use ast_grep, search_symbol, hybrid_search to understand architecture, not just raw read_file dumps.
+- Use read_file only after you know *which* file matters (via search). For 2+ files, use batch reads.
+- For changes: write_file/edit_file with resilient matching, then verify with execute_shell (pytest, ruff, tsc, go vet, etc.).
+- For large tasks, plan via todo list and execute stepwise — do not read one file and hallucinate the rest.
+
 WORKFLOW:
-- Inspect existing code with read_file tool FIRST if needed.
+- Discover via search tools FIRST (hybrid_search / grep_content / glob_files), then read_file on top 2-3 hits.
+- Use ast_grep/search_symbol for code structure, not just string reads.
 - Use write_file or edit_file tools to create/modify files. Show exact code.
 - Use execute_shell to run tests or verify your work.
 - Report what tools actually returned. If a tool fails, say it failed.
@@ -785,28 +793,34 @@ ABSOLUTE RULES - VIOLATION = FAILURE:
 7. NEVER claim the user mentioned specific files unless they literally said the file names. If unsure what files exist, use glob_files or grep_content to search.
 8. NEVER list files as "available" or "related" without first discovering them via glob_files, file_search, or grep_content tools.
 
+SMART ANALYSIS STACK (use it, don't just read_file):
+- Discovery: hybrid_search (semantic) + grep_content (lexical) + glob_files for file lists — run BEFORE any read.
+- Structure: ast_grep / search_symbol for functions/classes/calls, not just string matching.
+- Quantify via tools: use count, symbol graphs, not guesses.
+- For large codebases, use the project graph (project_graph) and symbol map (search_symbol) first.
+
 WORKFLOW:
-- Use glob_files or file_search to discover relevant files FIRST.
-- Use read_file to inspect relevant files — start with the most likely candidates.
-- Use grep_content to search for specific patterns if needed.
-- Use ast_grep to find structural elements (functions, classes, decorators).
+- Discovery via hybrid_search + grep_content + glob_files FIRST to find relevant files.
+- Then read_file on top 2-4 hits only — not the whole repo.
+- Use ast_grep/search_symbol to extract structure (functions, classes, decorators, call graphs).
+- Use file_search/hybrid_search for cross-file patterns.
 - Provide structured, actionable analysis based on actual file contents.
 - If you cannot find something, say so honestly.
 
 COMPLEXITY CALIBRATION:
-- For simple questions ("what does X do"): read the ONE file that defines X, give a 1-2 sentence answer.
-- For moderate analysis ("review this function"): read the function and its immediate context, give focused findings.
-- For complex analysis ("review the architecture"): read key files systematically, give comprehensive report.
+- For simple questions ("what does X do"): hybrid_search X, read the ONE file that defines X, give a 1-2 sentence answer.
+- For moderate analysis ("review this function"): search_symbol for the function + read its file, give focused findings.
+- For complex analysis ("review the architecture"): project_graph + hybrid_search + read key files systematically, give comprehensive report.
 - DO NOT read files the user didn't ask about unless you need them for context.
 
 QUALITY STANDARDS:
 - Provide specific file paths and line numbers for findings.
-- Quantify where possible (e.g., "3 classes, 12 functions").
+- Quantify where possible (e.g., "3 classes, 12 functions") via tool counts.
 - Identify both strengths and weaknesses.
 - Prioritize findings by impact and severity.
 
 THINKING STEP:
-Before responding, verify: (1) Did I read the specific files relevant to the question? (2) Am I making claims about code structure without evidence? (3) Are my findings specific and verifiable? (4) Am I over-analyzing a simple question? If any answer is no, use the appropriate tool first.""",
+Before responding, verify: (1) Did I run search tools before reading? (2) Did I use ast_grep/search_symbol for structure? (3) Are my findings specific and tool-verified? (4) Am I over-analyzing a simple question? If any answer is no, use the appropriate tool first.""",
     "test": """You are {agent_role}. The user wants you to write, run, or fix tests.
 
 {project_ctx}
@@ -841,6 +855,19 @@ QUALITY STANDARDS:
 THINKING STEP:
 Before responding, verify: (1) Did I actually run the tests? (2) Am I claiming test results without evidence? (3) Am I claiming user said things they didn't? (4) Do my tests actually verify the behavior? If any answer is no, use the appropriate tool first.""",
 }
+
+# ── Always-on reasoning protocol ──
+# Reasoning was previously disabled for lightweight "chat"/"query" tasks to avoid
+# overthinking, but that produced shallow, hallucinated answers. This protocol
+# is now appended to EVERY system prompt (even chat) with a brief, calibrated
+# thinking step and a self-realization guard against loops.
+REASONING_PROTOCOL = """
+REASONING PROTOCOL (always enabled, calibrated):
+- Before acting, think 1-3 sentences: what is the user's intent, what is the minimal next step, what could go wrong? Even for simple "hi" or "what is X", do this brief check.
+- After each tool result, reflect 1 sentence: what did you learn, what remains, should you continue or conclude?
+- If you notice you are repeating the same tool/args or same reasoning as the last 2 turns, trigger SELF-REALIZATION: pause, summarize progress so far, and either answer concisely or try a *different* approach. Do NOT loop. This is your anti-overthinking brake.
+- Prefer concise, tool-verified answers over long speculation. If uncertain, say so and show what you *did* verify.
+"""
 
 
 def _detect_task_type(task: str) -> str:
@@ -1628,6 +1655,74 @@ def _compute_confidence_score(
     return max(0, min(100, score))
 
 
+def _detect_overthinking_loop(
+    tool_history: list[dict],
+    messages: list[dict[str, Any]],
+    iteration: int,
+) -> str | None:
+    """Self-realization brake: detect repeating loops and prompt a reflection.
+
+    Returns a guidance string to inject as a user message if a loop is detected,
+    else None. This is the anti-overthinking mechanism — it forces the agent to
+    pause, summarize, and choose to conclude or try a different path instead of
+    spinning on the same tool/args or same reasoning.
+    """
+    # 1) Same tool+args repeated 3+ times (classic loop)
+    if len(tool_history) >= 3:
+        last_three = tool_history[-3:]
+        keys = [f"{t.get('tool')}:{t.get('args', {})}" for t in last_three]
+        # Use JSON dump for stable comparison
+        try:
+            import json as _json
+
+            keys = [
+                f"{t.get('tool')}:{_json.dumps(t.get('args', {}), sort_keys=True)}"
+                for t in last_three
+            ]
+        except Exception:
+            pass
+        if len(set(keys)) == 1:
+            return (
+                "SELF-REALIZATION: You have called the same tool with identical arguments 3 times. "
+                "You are looping. Pause and reflect: what have you actually learned from those calls? "
+                "Summarize progress so far in 1-2 sentences, then either provide a concise answer with what you have, "
+                "or try a *different* tool/approach. Do NOT call the same tool again with the same args."
+            )
+
+    # 2) Same assistant content repeating ( difflib >0.85 ) over last 3 turns
+    if len(messages) >= 4:
+        recent_assistants = [
+            m.get("content", "") or "" for m in messages[-6:] if m.get("role") == "assistant"
+        ]
+        if len(recent_assistants) >= 3:
+            import difflib as _difflib
+
+            a, b, c = recent_assistants[-3], recent_assistants[-2], recent_assistants[-1]
+            if (
+                a
+                and b
+                and _difflib.SequenceMatcher(None, a, b).ratio() > 0.85
+                and _difflib.SequenceMatcher(None, b, c).ratio() > 0.85
+            ):
+                return (
+                    "SELF-REALIZATION: Your last 3 reasoning turns were nearly identical. You are overthinking. "
+                    "Summarize what you have verified with tools, state what remains, and either conclude concisely "
+                    "or pivot to a new strategy. Do NOT repeat the same reasoning."
+                )
+
+    # 3) High iteration with no progress (no files created, no successful tools, >6 iterations)
+    if iteration >= 6 and len(tool_history) >= 4:
+        successes = sum(1 for t in tool_history if t.get("success", True))
+        if successes == 0:
+            return (
+                "SELF-REALIZATION: You have made 4+ tool calls with no successes and are at iteration "
+                f"{iteration + 1}. Reflect: is this the right approach? Consider a simpler alternative or ask for clarification. "
+                "Do not keep trying the same failing pattern."
+            )
+
+    return None
+
+
 def execute_agent_task(
     task: str,
     agent_role: str = "Sago Orchestrator",
@@ -1636,7 +1731,7 @@ def execute_agent_task(
     api_key: str = "",
     base_url: str | None = None,
     max_tokens: int = 50000,
-    max_iterations: int = 30,
+    max_iterations: int = 45,
     cwd: str | None = None,
     on_tool_call: Callable | None = None,
     on_tool_result: Callable | None = None,
@@ -1871,6 +1966,12 @@ def execute_agent_task(
             agent_role=agent_role,
             project_ctx="",  # Context goes in user message
         )
+
+    # ── Always-on reasoning: append calibrated protocol even for chat/query ──
+    # Previously lightweight tasks skipped heavy reasoning and produced shallow
+    # answers. This ensures every turn does a brief think + self-realization
+    # check without overthinking.
+    system_prompt += REASONING_PROTOCOL
 
     # --- Skill: inject matched skill context into system prompt ---
     # Skip heavy skill injection for lightweight tasks (chat, query)
@@ -3375,6 +3476,30 @@ def execute_agent_task(
                             )
             except Exception as e:
                 log_exception(e, "Failed to update task plan progress")
+
+        # ── Self-realization anti-loop brake ──
+        # This is the "thinking and reasoning" guard the user asked for:
+        # it fires when the agent repeats the same tool/args or same reasoning
+        # and forces a brief reflection instead of looping. Always enabled.
+        loop_guidance = _detect_overthinking_loop(tool_history, messages, i)
+        if loop_guidance and i < max_iterations - 1:
+            logger.info("Self-realization triggered at iteration %d", i + 1)
+            if on_thinking:
+                on_thinking("Self-check: possible loop detected — reflecting...")
+            messages.append({"role": "user", "content": loop_guidance})
+            # Also surface to TUI as a thinking event so user sees the brake
+            try:
+                from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                get_dev_tracer().record(
+                    event_type=TraceEventType.LLM_THINKING,
+                    source=f"agent.{agent_role}",
+                    action="self_realization",
+                    data={"iteration": i + 1, "guidance": loop_guidance[:300]},
+                )
+            except Exception:
+                pass
+            continue
 
         # Auto-compact if messages are getting too large
         if len(messages) > 40:

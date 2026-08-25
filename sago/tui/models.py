@@ -264,12 +264,24 @@ def auto_refresh_if_stale(api_key: str) -> str | None:
 
 
 EFFORT_LEVELS = {
-    "low": {"max_iterations": 8, "max_tokens": 16384, "desc": "Quick answers, minimal tool use"},
-    "medium": {"max_iterations": 20, "max_tokens": 50000, "desc": "Balanced approach"},
-    "high": {"max_iterations": 35, "max_tokens": 50000, "desc": "Thorough analysis, complex tasks"},
-    "max": {
-        "max_iterations": 50,
+    "low": {
+        "max_iterations": 12,
+        "max_tokens": 20000,
+        "desc": "Quick answers, 1-2 tool calls — still does brief self-check",
+    },
+    "medium": {
+        "max_iterations": 30,
         "max_tokens": 50000,
-        "desc": "Maximum depth, full context utilization",
+        "desc": "Balanced thinking + smart tool use (AST, search, read) — default for most tasks",
+    },
+    "high": {
+        "max_iterations": 45,
+        "max_tokens": 60000,
+        "desc": "Thorough reasoning with self-realization brake (recommended for complex tasks)",
+    },
+    "max": {
+        "max_iterations": 70,
+        "max_tokens": 80000,
+        "desc": "Maximum depth, full reasoning + full context, for large refactors",
     },
 }

@@ -124,6 +124,7 @@ class TestChangeTracker:
 
         tracker = ChangeTracker(session_id="test")
         tracker._backup_dir = tmp_path / "backups"
+        tracker.changes.clear()
 
         change = tracker.track_create(str(tmp_path / "test.txt"), "hello")
         assert change.action == "create"
@@ -135,6 +136,7 @@ class TestChangeTracker:
 
         tracker = ChangeTracker(session_id="test")
         tracker._backup_dir = tmp_path / "backups"
+        tracker.changes.clear()
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("original")
@@ -150,6 +152,7 @@ class TestChangeTracker:
 
         tracker = ChangeTracker(session_id="test")
         tracker._backup_dir = tmp_path / "backups"
+        tracker.changes.clear()
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("created")
@@ -166,6 +169,7 @@ class TestChangeTracker:
 
         tracker = ChangeTracker(session_id="test")
         tracker._backup_dir = tmp_path / "backups"
+        tracker.changes.clear()
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("original")
@@ -182,6 +186,7 @@ class TestChangeTracker:
 
         tracker = ChangeTracker(session_id="test")
         tracker._backup_dir = tmp_path / "backups"
+        tracker.changes.clear()
 
         tracker.track_create(str(tmp_path / "a.txt"), "a")
         tracker.track_modify(str(tmp_path / "b.txt"), "old", "new")
