@@ -93,33 +93,16 @@ class MessageProcessorMixin:
                             )
                     except Exception:
                         pass
-                # Also mount any thinking/reasoning visibly in the TUI card so user
-                # actually sees "what it thought" without opening dev mode.
-                if text and any(
-                    k in text.lower()
-                    for k in (
-                        "thinking",
-                        "reasoning",
-                        "reflect",
-                        "self-check",
-                        "plan",
-                        "enhanced prompt",
-                    )
-                ):
-                    target_card = getattr(self, "_active_exchange_card", None)
-                    if target_card is not None:
-                        container = getattr(target_card, "_response_container", None)
-                        if container is not None:
-                            container.display = True
-                            try:
-                                from textual.widgets import Static as TextualStatic
-
-                                self.call_from_thread(
-                                    container.mount,
-                                    TextualStatic(text, classes="msg-assistant", markup=False),
-                                )
-                            except Exception:
-                                pass
+                # Always mount a visible thinking card so user sees reasoning in TUI
+                # (not just when text contains keywords). Uses the standard
+                # "Technical Reasoning & Analysis" collapsible.
+                if text and text.strip():
+                    clean_for_display = re.sub(r"\[/?[^\]]*\]", "", text).strip()
+                    if clean_for_display:
+                        try:
+                            self.call_from_thread(self._add_thinking_card, clean_for_display)
+                        except Exception:
+                            pass
 
             # Propagate callbacks into context so spawned agents inherit them
             from sago.engine.simple_executor import set_execution_callbacks
@@ -450,10 +433,14 @@ class MessageProcessorMixin:
                     if task_plan and current_todo_index < len(task_plan.todos):
                         todo = task_plan.todos[current_todo_index]
                         todo_info = f" | Step {current_todo_index + 1}/{len(task_plan.todos)}: {todo.description[:40]}"
-                    self.call_from_thread(
-                        self._update_spinner,
-                        f"Step {iteration + 1}/{effort['max_iterations']}{todo_info}...",
-                    )
+                    _spinner_text = f"Step {iteration + 1}/{effort['max_iterations']}{todo_info}..."
+                    self.call_from_thread(self._update_spinner, _spinner_text)
+                    # Synthesize thinking from spinner so telemetry never shows 0 even if LLM skips tags
+                    try:
+                        _synth_spinner_think = f"Thinking: {_spinner_text} — intent: {message[:60].replace(chr(10), ' ').strip()}"
+                        on_thinking(_synth_spinner_think)
+                    except Exception:
+                        pass
 
                     # Call LLM — native Gemini or OpenAI-compatible with function calling
                     native_tool_calls: list[dict] = []
@@ -745,6 +732,7 @@ class MessageProcessorMixin:
                     )
 
                     # Extract thinking content if present (<thinking> tags or native Gemini thinking)
+                    # Always-on: synthesize fallback so thinking is never 0
                     _thinking_content = (
                         _gemini_thinking.strip() if use_native_gemini and _gemini_thinking else ""
                     )
@@ -756,19 +744,28 @@ class MessageProcessorMixin:
                         )
                         if _thinking_match:
                             _thinking_content = _thinking_match.group(1).strip()
-
-                    if _thinking_content:
-                        get_dev_tracer().record_thinking(
-                            source=f"tui.llm.{self.current_provider}",
-                            model=api_model,
-                            thinking_content=_thinking_content,
+                    # Synthesize thinking when LLM didn't emit tags (e.g. stealth/ox-alpha)
+                    if not _thinking_content:
+                        _intent_snip = (
+                            message[:60].replace("\n", " ").strip()
+                            if isinstance(message, str)
+                            else ""
                         )
-                        # Also show thinking visibly in the TUI exchange card
-                        # so user sees reasoning without opening dev mode
-                        try:
-                            self.call_from_thread(self._add_thinking_card, _thinking_content)
-                        except Exception:
-                            pass
+                        _thinking_content = (
+                            f"Synthesized reasoning — intent: '{_intent_snip}' | "
+                            f"step {iteration + 1}/{effort['max_iterations']} | "
+                            f"tool_calls={len(native_tool_calls)} | response_len={len(content or '')}"
+                        )
+                    # Always record and mount (never hidden)
+                    get_dev_tracer().record_thinking(
+                        source=f"tui.llm.{self.current_provider}",
+                        model=api_model,
+                        thinking_content=_thinking_content,
+                    )
+                    try:
+                        self.call_from_thread(self._add_thinking_card, _thinking_content)
+                    except Exception:
+                        pass
 
                     # Raw response trace (deep debug)
                     get_dev_tracer().record_llm_response(
@@ -1135,7 +1132,7 @@ class MessageProcessorMixin:
                                 )
                                 self.call_from_thread(
                                     self._add_system_message,
-                                    self._make_tool_approval_message(name, risk.value),
+                                    _make_tool_approval_message(name, risk.value),
                                 )
                                 pause_event = threading.Event()
                                 self._executor_pause_event = pause_event

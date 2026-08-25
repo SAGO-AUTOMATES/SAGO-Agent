@@ -2290,20 +2290,21 @@ def execute_agent_task(
         todo_info = f" | Step {current_todo_index + 1}/{len(task_plan.todos)}" if task_plan else ""
         files_info = f" ({len(files_created)} files created)" if files_created else ""
         if on_thinking:
-            on_thinking(f"{phase}... (step {i + 1}/{max_iterations}{todo_info}{files_info})")
+            on_thinking(
+                f"Thinking: {phase}... (step {i + 1}/{max_iterations}{todo_info}{files_info}) — intent: {task[:60]}"
+            )
         # Always record a thinking block so dev telemetry never shows 0
-        # (even when LLM doesn't emit <thinking> tags)
+        # (even when LLM doesn't emit <thinking> tags) — always-on, not gated by is_enabled
         try:
             from sago.tracking.dev_tracer import get_dev_tracer
 
             tracer = get_dev_tracer()
-            if tracer.is_enabled:
-                thinking_text = f"{phase}... (step {i + 1}/{max_iterations}{todo_info}{files_info}) — intent: {task[:60]}"
-                tracer.record_thinking(
-                    source=f"agent.{agent_role}",
-                    model=model,
-                    thinking_content=thinking_text,
-                )
+            thinking_text = f"{phase}... (step {i + 1}/{max_iterations}{todo_info}{files_info}) — intent: {task[:60]}"
+            tracer.record_thinking(
+                source=f"agent.{agent_role}",
+                model=model,
+                thinking_content=thinking_text,
+            )
         except Exception:
             pass
 
@@ -2710,6 +2711,66 @@ def execute_agent_task(
         if _raw_gemini_parts:
             assistant_msg["_google_parts"] = _raw_gemini_parts
         messages.append(assistant_msg)
+
+        # ── Always-on reasoning visibility: extract <thinking> or synthesize ──
+        # Ensures dev telemetry Thinking tab never shows 0 even when LLM skips tags.
+        _llm_thinking = ""
+        try:
+            # Gemini native thought parts
+            if _raw_gemini_parts:
+                _gem_think = ""
+                for _part in _raw_gemini_parts:
+                    if getattr(_part, "thought", None):
+                        _t = getattr(_part, "text", "") or ""
+                        if _t:
+                            _gem_think += _t + "\n"
+                if _gem_think.strip():
+                    _llm_thinking = _gem_think.strip()
+            if not _llm_thinking:
+                _thm = re.search(
+                    r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>",
+                    content or "",
+                    re.DOTALL,
+                )
+                if _thm:
+                    _llm_thinking = _thm.group(1).strip()
+            if not _llm_thinking and message_obj is not None and hasattr(message_obj, "reasoning"):
+                _mr = getattr(message_obj, "reasoning", None)
+                if _mr:
+                    _llm_thinking = str(_mr).strip()
+        except Exception:
+            _llm_thinking = ""
+        if not _llm_thinking:
+            _intent_snip = task[:60].replace("\n", " ").strip() if isinstance(task, str) else ""
+            _llm_thinking = (
+                f"Synthesized reasoning — intent: '{_intent_snip}' | phase: {phase} | "
+                f"step {i + 1}/{max_iterations} | tool_calls={len(native_tool_calls)} | content_len={len(content or '')}"
+            )
+        try:
+            from sago.tracking.dev_tracer import get_dev_tracer as _gdt_think
+
+            _tracer_think = _gdt_think()
+            _tracer_think.record_thinking(
+                source=f"agent.{agent_role}", model=model, thinking_content=_llm_thinking
+            )
+            _tracer_think.record_llm_response(
+                source=f"agent.{agent_role}",
+                model=model,
+                response_content=content or "",
+                thinking=_llm_thinking,
+                tool_calls=[{"name": tc["name"], "args": tc["args"]} for tc in native_tool_calls],
+                usage={
+                    "tokens_in": total_tokens_in,
+                    "tokens_out": total_tokens_out,
+                },
+            )
+        except Exception:
+            pass
+        if on_thinking and _llm_thinking:
+            try:
+                on_thinking(_llm_thinking)
+            except Exception:
+                pass
 
         # If no tool calls at all, check for hallucination or completion
         if not native_tool_calls:

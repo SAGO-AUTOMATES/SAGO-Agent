@@ -1,10 +1,11 @@
 """Write File Tool - Write content to a file.
 
-Creates or overwrites files with optional backup.
+Creates or overwrites files with optional backup, syntax validation, and smart encoding.
 """
 
 from __future__ import annotations
 
+import ast
 import shutil
 from typing import Any
 
@@ -83,6 +84,33 @@ class WriteFileTool(BaseTool):
 
             path.write_text(content, encoding=encoding)
             size = len(content)
-            return f"Successfully wrote {size} bytes to {path}"
+            lines = len(content.splitlines())
+            msg = f"Successfully wrote {size} bytes ({lines} lines) to {path}"
+
+            # Smart: syntax validation after write for known languages
+            ext = path.suffix.lower()
+            if ext == ".py":
+                try:
+                    ast.parse(content, filename=str(path))
+                    msg += " [syntax: OK]"
+                except SyntaxError as e:
+                    msg += f" [syntax: ERROR at line {e.lineno}: {e.msg}]"
+            elif ext in (".json",):
+                try:
+                    import json
+
+                    json.loads(content)
+                    msg += " [json: OK]"
+                except Exception as e:
+                    msg += f" [json: ERROR {e}]"
+            elif ext in (".yaml", ".yml"):
+                try:
+                    import yaml  # type: ignore
+
+                    yaml.safe_load(content)
+                    msg += " [yaml: OK]"
+                except Exception:
+                    pass  # yaml not required
+            return msg
         except Exception as e:
             return f"Error writing file: {e}"

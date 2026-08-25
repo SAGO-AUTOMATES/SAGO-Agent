@@ -741,7 +741,7 @@ class AgentOrchestrationMixin:
                     for i, step in enumerate(plan):
                         agent = step.get("agent", "python-engineer")
                         task = step.get("task", "")
-                        plan_lines.append(f"  {i + 1}. [{_escape(agent)}] {_escape(task)}")
+                        plan_lines.append(f"  {i + 1}. ({_escape(agent)}) {_escape(task)}")
 
                     plan_text = "\n".join(plan_lines)
                     instructions = (
@@ -752,16 +752,23 @@ class AgentOrchestrationMixin:
                         f"[dim]/plan remove <step>[/dim] — remove a step  •  "
                         f"[bold green]Y[/bold green] — approve  •  [bold red]N[/bold red] — deny"
                     )
-                    # Use markup=False for user-controlled task text to avoid MarkupError
+                    # Use markup=False fallback for user-controlled task text to avoid MarkupError
                     # from stray brackets like "|agents=339', 'path': '/mnt/ramdisk/sago]"
                     try:
                         container.mount(
                             TextualStatic(instructions, markup=True, classes="msg-assistant")
                         )
                     except Exception:
-                        container.mount(
-                            TextualStatic(instructions, markup=False, classes="msg-assistant")
-                        )
+                        try:
+                            container.mount(
+                                TextualStatic(
+                                    _escape(instructions), markup=True, classes="msg-assistant"
+                                )
+                            )
+                        except Exception:
+                            container.mount(
+                                TextualStatic(instructions, markup=False, classes="msg-assistant")
+                            )
                     container.scroll_end()
                 except Exception as e:
                     logger.debug("mount orchestration plan failed: %s", e)
@@ -776,7 +783,7 @@ class AgentOrchestrationMixin:
             from rich.markup import escape as _escape
 
             step_lines = [
-                f"{i + 1}. [{_escape(s.get('agent', '?'))}] {_escape((s.get('task', '') or '')[:70])}"
+                f"{i + 1}. ({_escape(s.get('agent', '?'))}) {_escape((s.get('task', '') or '')[:70])}"
                 for i, s in enumerate(plan[:5])
             ]
             more = f"\n… +{len(plan) - 5} more" if len(plan) > 5 else ""

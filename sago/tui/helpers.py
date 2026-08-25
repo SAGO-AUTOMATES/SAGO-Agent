@@ -63,6 +63,13 @@ def _render_markdown_rich(content: str) -> Any:
     return RichMarkdown(text)
 
 
+def _make_code_copy_button(code: str) -> Button:
+    """Create a copy button that stores code for clipboard handler in app.py."""
+    btn = Button("📋 Copy Code", classes="btn-copy-code")
+    btn._code_content = code  # type: ignore[attr-defined]
+    return btn
+
+
 def create_collapsible(
     *content: Any,
     title: str = "",
@@ -601,6 +608,15 @@ class UIHelpers:
                                     collapsed=True,
                                 )
                             )
+                            # Copy button for easy clipboard access (Textual captures mouse otherwise)
+                            try:
+                                copy_bar = Horizontal(classes="code-action-bar")
+                                copy_btn = _make_code_copy_button(code)
+                                _mount_element(copy_bar)
+                                copy_bar.mount(Static("", classes="spacer"))
+                                copy_bar.mount(copy_btn)
+                            except Exception:
+                                pass
                         except Exception as e:
                             log_exception(e, "render code syntax highlighting")
                             _mount_element(
@@ -610,6 +626,14 @@ class UIHelpers:
                                     collapsed=True,
                                 )
                             )
+                            try:
+                                copy_bar = Horizontal(classes="code-action-bar")
+                                copy_btn = _make_code_copy_button(code)
+                                _mount_element(copy_bar)
+                                copy_bar.mount(Static("", classes="spacer"))
+                                copy_bar.mount(copy_btn)
+                            except Exception:
+                                pass
         except Exception as e:
             # Last resort: mount raw content as plain text
             log_exception(e, "mount assistant message content")
@@ -1002,6 +1026,14 @@ class UIHelpers:
                                         collapsed=True,
                                     )
                                 )
+                                try:
+                                    bar = Horizontal(classes="code-action-bar")
+                                    btn = _make_code_copy_button(code)
+                                    container.mount(bar)
+                                    bar.mount(Static("", classes="spacer"))
+                                    bar.mount(btn)
+                                except Exception:
+                                    pass
                             except Exception as e:
                                 log_exception(e, "render code syntax in parallel result")
                                 container.mount(
@@ -1011,6 +1043,14 @@ class UIHelpers:
                                         collapsed=True,
                                     )
                                 )
+                                try:
+                                    bar = Horizontal(classes="code-action-bar")
+                                    btn = _make_code_copy_button(code)
+                                    container.mount(bar)
+                                    bar.mount(Static("", classes="spacer"))
+                                    bar.mount(btn)
+                                except Exception:
+                                    pass
             else:
                 from rich.markdown import Markdown as RichMarkdown
 
@@ -1107,6 +1147,14 @@ class UIHelpers:
                                         collapsed=True,
                                     )
                                 )
+                                try:
+                                    bar = Horizontal(classes="code-action-bar")
+                                    btn = _make_code_copy_button(code)
+                                    container.mount(bar)
+                                    bar.mount(Static("", classes="spacer"))
+                                    bar.mount(btn)
+                                except Exception:
+                                    pass
                             except Exception:
                                 container.mount(
                                     Static(
@@ -1115,6 +1163,14 @@ class UIHelpers:
                                         markup=False,
                                     )
                                 )
+                                try:
+                                    bar = Horizontal(classes="code-action-bar")
+                                    btn = _make_code_copy_button(code)
+                                    container.mount(bar)
+                                    bar.mount(Static("", classes="spacer"))
+                                    bar.mount(btn)
+                                except Exception:
+                                    pass
             elif result:
                 from rich.markdown import Markdown as RichMarkdown
 

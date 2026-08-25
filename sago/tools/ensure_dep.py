@@ -15,6 +15,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("sago.tools.ensure_dep")
@@ -358,7 +359,10 @@ def which(name: str) -> str | None:
 
     # Common installation directories to search
     home = os.path.expanduser("~")
+    cwd = Path.cwd()  # type: ignore[name-defined]
     search_dirs = [
+        os.path.join(str(cwd), ".venv", "bin"),
+        os.path.join(str(cwd), "venv", "bin"),
         os.path.join(home, ".local", "bin"),
         os.path.join(home, ".cargo", "bin"),
         os.path.join(home, "go", "bin"),
@@ -368,6 +372,12 @@ def which(name: str) -> str | None:
         os.path.join(home, ".local", "share", "nvim", "mason", "bin"),
         os.path.join(home, ".kube", "bin"),
     ]
+    # Also check for uv-managed python and tool bins
+    search_dirs.extend(
+        [
+            os.path.join(home, ".local", "share", "uv", "python"),
+        ]
+    )
 
     # NVM: check all installed node versions
     nvm_dir = os.path.join(home, ".nvm", "versions", "node")
@@ -411,11 +421,94 @@ def is_available(name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _detect_python_installer() -> str:
+    """Detect best Python installer: uv > pip.
+
+    Checks for uv.lock, pyproject.toml with [tool.uv], poetry.lock, then binary availability.
+    """
+    from pathlib import Path
+
+    cwd = Path.cwd()
+    # Check lockfiles in cwd and parents (use smart which)
+    for parent in [cwd] + list(cwd.parents)[:3]:
+        if (parent / "uv.lock").exists() and is_available("uv"):
+            return "uv"
+        if (parent / "poetry.lock").exists() and is_available("poetry"):
+            return "poetry"
+    try:
+        py = cwd / "pyproject.toml"
+        if (
+            py.exists()
+            and "[tool.uv" in py.read_text(encoding="utf-8", errors="ignore")
+            and is_available("uv")
+        ):
+            return "uv"
+    except Exception:
+        pass
+    if is_available("uv"):
+        return "uv"
+    return "pip"
+
+
+def _detect_js_installer(project_dir: str | os.PathLike = ".") -> str:
+    """Detect best JS installer: bun > pnpm > yarn > npm based on lockfiles and availability."""
+    from pathlib import Path
+
+    p = Path(project_dir)
+    # Prefer lockfile match (use smart availability)
+    if (p / "bun.lockb").exists() and is_available("bun"):
+        return "bun"
+    if (p / "pnpm-lock.yaml").exists() and is_available("pnpm"):
+        return "pnpm"
+    if (p / "yarn.lock").exists() and is_available("yarn"):
+        return "yarn"
+    if (p / "package-lock.json").exists() and is_available("npm"):
+        return "npm"
+    # Check parents
+    for parent in p.parents:
+        if len(str(parent)) < 4:
+            break
+        if (parent / "bun.lockb").exists() and is_available("bun"):
+            return "bun"
+        if (parent / "pnpm-lock.yaml").exists() and is_available("pnpm"):
+            return "pnpm"
+        if (parent / "yarn.lock").exists() and is_available("yarn"):
+            return "yarn"
+        if (parent / "package-lock.json").exists() and is_available("npm"):
+            return "npm"
+    for mgr in ("bun", "pnpm", "yarn", "npm"):
+        if is_available(mgr):
+            return mgr
+    return "npm"
+
+
 def install_pip_package(
     package: str,
     pip_args: list[str] | None = None,
 ) -> InstallResult:
-    """Install a Python package via pip."""
+    """Install a Python package via best available installer (uv > pip)."""
+    installer = _detect_python_installer()
+    if installer == "uv":
+        # uv pip install is faster and respects uv.lock
+        cmd = ["uv", "pip", "install", "--quiet"]
+        if pip_args:
+            # uv pip supports extra args; filter incompatible ones
+            for a in pip_args:
+                if a not in ("--quiet", "--disable-pip-version-check"):
+                    cmd.append(a)
+        cmd.append(package)
+        logger.info("Installing Python package via uv: %s", package)
+        try:
+            result = _run(cmd, timeout=120)
+            if result.returncode == 0:
+                return True, f"Installed {package} via uv successfully."
+            # Fallback to pip on failure
+            logger.warning(
+                "uv pip install failed, falling back to pip: %s", result.stderr.strip()[:200]
+            )
+        except Exception as e:
+            logger.warning("uv pip error %s, falling back to pip", e)
+
     cmd = [sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check"]
     if pip_args:
         cmd.extend(pip_args)
@@ -425,7 +518,8 @@ def install_pip_package(
     try:
         result = _run(cmd, timeout=120)
         if result.returncode == 0:
-            return True, f"Installed {package} successfully."
+            via = "uv" if installer == "uv" and "uv pip" in str(cmd) else "pip"
+            return True, f"Installed {package} via {via} successfully."
         return False, f"pip install failed:\n{result.stderr.strip()}"
     except subprocess.TimeoutExpired:
         return False, f"pip install timed out for {package}."

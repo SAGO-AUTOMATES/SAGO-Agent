@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import platform
+import sys
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -29,7 +30,7 @@ class EnvInfo(BaseTool):
         "Get detailed environment information: system, disk, memory, "
         "network, Python, Node.js, and more."
     )
-    args_model: type[BaseModel] = EnvInfoArgs
+    args_model: type[BaseModel] | None = EnvInfoArgs
 
     def _run(
         self,
@@ -74,7 +75,7 @@ class EnvInfo(BaseTool):
         if detail == "full":
             info.extend(
                 [
-                    f"  OS Name: {platform.os.name}",
+                    f"  OS Name: {os.name}",
                     f"  Architecture: {platform.architecture()[0]}",
                 ]
             )
@@ -123,6 +124,7 @@ class EnvInfo(BaseTool):
                             return f"Memory: {total} MB total"
                 except Exception as e:
                     logger.debug("Failed to read /proc/meminfo: %s", e)
+        return "Memory Information: unavailable (install psutil)"
 
     def _get_network_info(self) -> str:
         """Get network information."""
@@ -158,17 +160,59 @@ class EnvInfo(BaseTool):
             return f"Error: {e}"
 
     def _get_python_info(self) -> str:
-        """Get Python environment information."""
+        """Get Python environment information with smart manager detection."""
         info = [
             "Python Information:",
             f"  Version: {platform.python_version()}",
             f"  Implementation: {platform.python_implementation()}",
             f"  Compiler: {platform.python_compiler()}",
-            f"  Executable: {os.sys.executable}",
+            f"  Executable: {sys.executable}",
         ]
 
-        # Get pip packages count
-        result = self._run_command("pip list 2>/dev/null | wc -l", timeout=10)
+        # Detect preferred manager (uv vs pip vs poetry)
+        from pathlib import Path
+
+        cwd = Path.cwd()
+        preferred = "pip"
+        if (cwd / "uv.lock").exists():
+            preferred = "uv"
+        elif (cwd / "poetry.lock").exists():
+            preferred = "poetry"
+        else:
+            try:
+                if (cwd / "pyproject.toml").exists() and "[tool.uv" in (
+                    cwd / "pyproject.toml"
+                ).read_text():
+                    preferred = "uv"
+            except Exception:
+                pass
+            # Check which binary exists
+            import shutil
+
+            if shutil.which("uv"):
+                preferred = "uv (available)"
+
+        info.append(f"  Preferred manager: {preferred}")
+
+        # uv version if available
+        result = self._run_command("uv --version 2>/dev/null", timeout=5)
+        if result.returncode == 0:
+            info.append(f"  uv: {result.stdout.strip()}")
+
+        # pip version
+        result = self._run_command("pip --version 2>/dev/null", timeout=5)
+        if result.returncode == 0:
+            info.append(f"  pip: {result.stdout.strip().splitlines()[0][:80]}")
+
+        # poetry version
+        result = self._run_command("poetry --version 2>/dev/null", timeout=5)
+        if result.returncode == 0:
+            info.append(f"  poetry: {result.stdout.strip()}")
+
+        # Packages count via preferred manager
+        result = self._run_command(
+            "uv pip list 2>/dev/null | wc -l || pip list 2>/dev/null | wc -l", timeout=10
+        )
         if result.returncode == 0:
             count = result.stdout.strip()
             info.append(f"  Packages: {count}")
@@ -176,25 +220,45 @@ class EnvInfo(BaseTool):
         return "\n".join(info)
 
     def _get_node_info(self) -> str:
-        """Get Node.js environment information."""
+        """Get Node.js environment information with smart manager detection."""
         result = self._run_command("node --version 2>/dev/null", timeout=5)
-        if result.returncode != 0:
-            return "Node.js not found"
+        has_node = result.returncode == 0
+        info = []
+        if has_node:
+            info.append("Node.js Information:")
+            info.append(f"  Version: {result.stdout.strip()}")
+        else:
+            info.append("Node.js Information: not found (but checking JS managers)")
 
-        info = [
-            "Node.js Information:",
-            f"  Version: {result.stdout.strip()}",
-        ]
+        # Detect preferred JS manager from lockfiles
+        from pathlib import Path
 
-        # Get npm version
-        result = self._run_command("npm --version 2>/dev/null", timeout=5)
-        if result.returncode == 0:
-            info.append(f"  npm: {result.stdout.strip()}")
+        cwd = Path.cwd()
+        preferred = "npm"
+        if (cwd / "bun.lockb").exists():
+            preferred = "bun (lockfile)"
+        elif (cwd / "pnpm-lock.yaml").exists():
+            preferred = "pnpm (lockfile)"
+        elif (cwd / "yarn.lock").exists():
+            preferred = "yarn (lockfile)"
+        elif (cwd / "package-lock.json").exists():
+            preferred = "npm (lockfile)"
+        info.append(f"  Preferred manager: {preferred}")
 
-        # Get yarn version
-        result = self._run_command("yarn --version 2>/dev/null", timeout=5)
-        if result.returncode == 0:
-            info.append(f"  yarn: {result.stdout.strip()}")
+        for mgr, cmd in [
+            ("npm", "npm --version 2>/dev/null"),
+            ("yarn", "yarn --version 2>/dev/null"),
+            ("pnpm", "pnpm --version 2>/dev/null"),
+            ("bun", "bun --version 2>/dev/null"),
+        ]:
+            result = self._run_command(cmd, timeout=5)
+            if result.returncode == 0:
+                info.append(f"  {mgr}: {result.stdout.strip()}")
+
+        # deno version
+        result = self._run_command("deno --version 2>/dev/null | head -1", timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            info.append(f"  deno: {result.stdout.strip()}")
 
         return "\n".join(info)
 

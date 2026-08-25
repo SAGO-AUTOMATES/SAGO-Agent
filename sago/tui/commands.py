@@ -965,6 +965,8 @@ class CommandHandlers:
         from sago.llm.registry import get_provider_spec, known_providers, normalize_provider
 
         if not p:
+            from rich.markup import escape as _escape
+
             from sago.llm.registry import fallback_order
 
             current = normalize_provider(self.current_provider)
@@ -976,7 +978,7 @@ class CommandHandlers:
                 marker = " ←" if name == current else ""
                 key_hint = "no key needed" if spec.local else spec.api_key_env
                 lines.append(
-                    f"  • [cyan]{name:<12}[/cyan] [{key_hint}] default={spec.default_model}{marker}"
+                    f"  • [cyan]{name:<12}[/cyan] [dim]{_escape(key_hint)}[/dim] default={_escape(spec.default_model)}{marker}"
                 )
             lines.append("")
             lines.append("[dim]Switch with: /provider <name>[/dim]")
@@ -2007,12 +2009,14 @@ class CommandHandlers:
             self._git_commit(subargs)
         else:
             try:
-                cmd = ["git", subcmd] + (subargs.split() if subargs else [])
+                cwd = str(Path.cwd())
+                cmd = ["git", "-C", cwd, subcmd] + (subargs.split() if subargs else [])
                 r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
                 out = (r.stdout or "") + ("\n" + r.stderr if r.stderr else "")
+                display = out.strip() or "(no output)"
                 from rich.markup import escape
 
-                body = f"[bold]git {args}:[/bold]\n{escape(out[:2000])}"
+                body = f"[bold]git {args}:[/bold]\n{escape(display[:8000])}"
                 container = self.query_one("#messages")
                 container.mount(
                     Collapsible(
@@ -2027,31 +2031,62 @@ class CommandHandlers:
 
     def _git_status(self: SagoApp) -> None:
         try:
+            cwd = str(Path.cwd())
             r = subprocess.run(
-                ["git", "status", "--short"],
+                ["git", "-C", cwd, "status", "--short", "--branch"],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
             from rich.markup import escape
 
-            body = f"[bold]Git status:[/bold]\n{escape(r.stdout[:500])}"
+            out = (r.stdout or "").strip()
+            err = (r.stderr or "").strip()
             container = self.query_one("#messages")
-            container.mount(Collapsible(Static(body), title="Git Status", collapsed=True))
+            if r.returncode != 0:
+                body = f"[bold]Git status:[/bold]\n[red]{escape(err or out or 'Unknown git error')}[/red]"
+                title = "Git Status — Error"
+            elif not out:
+                body = "[bold]Git status:[/bold]\n[green]Working tree clean[/green] [dim](no changes)[/dim]"
+                if err:
+                    body += f"\n[dim]{escape(err[:500])}[/dim]"
+                title = "Git Status — Clean"
+            else:
+                body = f"[bold]Git status:[/bold]\n{escape(out[:8000])}"
+                title = "Git Status"
+            container.mount(Collapsible(Static(body), title=title, collapsed=False))
+            container.scroll_end()
         except Exception as e:
             self._add_system_message(f"Git error: {e}")
 
     def _git_diff(self: SagoApp, file: str) -> None:
         try:
-            cmd = ["git", "diff"]
+            cwd = str(Path.cwd())
+            cmd = ["git", "-C", cwd, "diff", "HEAD"]
             if file:
-                cmd.append(file)
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                cmd.extend(["--", file])
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             from rich.markup import escape
 
-            body = f"[bold]Diff:[/bold]\n{escape(r.stdout[:1000])}"
+            out = (r.stdout or "").strip()
+            err = (r.stderr or "").strip()
             container = self.query_one("#messages")
-            container.mount(Collapsible(Static(body), title="Git Diff", collapsed=True))
+            if r.returncode != 0:
+                body = f"[bold]Diff:[/bold]\n[red]{escape(err or out or 'git diff failed')}[/red]"
+                title = "Git Diff — Error"
+            elif not out:
+                # No diff vs HEAD — check if truly clean or just show empty
+                body = "[bold]Diff:[/bold]\n[green]No changes vs HEAD[/green] [dim](working tree clean)[/dim]"
+                if err:
+                    body += f"\n[dim]{escape(err[:500])}[/dim]"
+                title = "Git Diff — No Changes"
+            else:
+                # Truncate large diffs but keep useful portion
+                truncated = out[:20000] + ("\n… [truncated]" if len(out) > 20000 else "")
+                body = f"[bold]Diff:[/bold]\n{escape(truncated)}"
+                title = "Git Diff"
+            container.mount(Collapsible(Static(body), title=title, collapsed=False))
+            container.scroll_end()
         except Exception as e:
             self._add_system_message(f"Git error: {e}")
 
@@ -2090,14 +2125,16 @@ class CommandHandlers:
         action = getattr(self, "pending_action", None) or {}
         if action.get("type") == "git_commit":
             try:
-                subprocess.run(["git", "add", "-A"], capture_output=True, timeout=5)
+                cwd = str(Path.cwd())
+                subprocess.run(["git", "-C", cwd, "add", "-A"], capture_output=True, timeout=5)
                 r = subprocess.run(
-                    ["git", "commit", "-m", action["message"]],
+                    ["git", "-C", cwd, "commit", "-m", action["message"]],
                     capture_output=True,
                     text=True,
                     timeout=5,
                 )
-                self._add_system_message(f"Committed: {r.stdout.strip()[:100]}")
+                out = (r.stdout or r.stderr or "").strip()[:500] or "Committed"
+                self._add_system_message(f"Committed: {out}")
             except Exception as e:
                 self._add_system_message(f"Failed: {e}")
         elif action.get("type") == "user_input":

@@ -643,15 +643,24 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
     @on(Button.Pressed, ".btn-copy-code")
     def on_copy_code_button(self, event: Button.Pressed) -> None:
-        """Copy code snippet to system clipboard."""
+        """Copy code snippet to system clipboard. TUI captures mouse, so Shift+drag also works natively."""
         event.stop()
         from sago.tools.session.clipboard import ClipboardTool
 
         code = getattr(event.button, "_code_content", "")
         if code:
-            ClipboardTool()._write_clipboard(code)
-            event.button.label = "✓ Copied!"
-            self._add_system_message("📋 Code snippet copied to clipboard.")
+            result = ClipboardTool()._write_clipboard(code)
+            is_error = result.startswith("Error")
+            if is_error:
+                event.button.label = "✗ Copy failed"
+                self._add_system_message(
+                    f"📋 {result} — tip: hold Shift while selecting text to copy natively"
+                )
+            else:
+                event.button.label = "✓ Copied!"
+                self._add_system_message(
+                    f"📋 {result} — tip: Shift+drag selects text natively in terminal"
+                )
 
             def _reset() -> None:
                 try:
@@ -1639,11 +1648,13 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     def on_exception(self, error: Exception) -> None:  # type: ignore[override]
         """Global TUI exception handler — never crash or hang on MarkupError etc."""
         try:
-            from rich.errors import MarkupError
+            from rich.errors import MarkupError, MissingStyle, StyleSyntaxError
 
-            is_markup = isinstance(error, MarkupError)
+            is_markup = isinstance(error, (MarkupError, MissingStyle, StyleSyntaxError))
         except Exception:
-            is_markup = "MarkupError" in type(error).__name__
+            is_markup = any(
+                x in type(error).__name__ for x in ("MarkupError", "MissingStyle", "StyleSyntax")
+            )
         logger.error("TUI unhandled exception (%s): %s", type(error).__name__, error, exc_info=True)
         try:
             from rich.markup import escape

@@ -5,7 +5,10 @@ Read from and write to the system clipboard.
 
 from __future__ import annotations
 
+import base64
+import platform
 import subprocess
+import sys
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -100,12 +103,20 @@ class ClipboardTool(BaseTool):
         except Exception as e:
             return f"Error reading clipboard: {e}"
 
+    def _is_macos(self) -> bool:
+        return platform.system() == "Darwin"
+
+    def _is_windows(self) -> bool:
+        return platform.system() == "Windows"
+
     def _write_clipboard(self, content: str) -> str:
         """Write content to the system clipboard."""
         try:
             if self._is_macos():
                 process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
                 process.communicate(input=content.encode("utf-8"))
+                if process.returncode != 0:
+                    raise RuntimeError("pbcopy failed")
             elif self._is_windows():
                 import shlex
 
@@ -121,6 +132,7 @@ class ClipboardTool(BaseTool):
                 )
             else:
                 # Linux
+                wrote = False
                 for cmd in [
                     ["xclip", "-selection", "clipboard"],
                     ["xsel", "--input", "--clipboard"],
@@ -130,11 +142,28 @@ class ClipboardTool(BaseTool):
                         process = subprocess.Popen(cmd, stdin=subprocess.PIPE)
                         process.communicate(input=content.encode("utf-8"))
                         if process.returncode == 0:
+                            wrote = True
                             break
                     except FileNotFoundError:
                         continue
-                else:
-                    return "Error: No clipboard tool found. Install xclip, xsel, or wl-clipboard."
+                if not wrote:
+                    # Fallback: OSC 52 terminal clipboard — works in many terminals
+                    # even when xclip/xsel not installed; also hint about Shift-select.
+                    try:
+                        b64 = base64.b64encode(content.encode("utf-8")).decode("ascii")
+                        # Write OSC 52 to stderr so it reaches terminal even inside TUI
+                        sys.stderr.write(f"\x1b]52;c;{b64}\x07")
+                        sys.stderr.flush()
+                        # Also try stdout
+                        sys.stdout.write(f"\x1b]52;c;{b64}\x07")
+                        sys.stdout.flush()
+                        if content:
+                            return f"Clipboard updated via OSC 52 ({len(content)} chars) — tip: hold Shift while selecting text to copy natively"
+                        return "Clipboard cleared (OSC 52)"
+                    except Exception:
+                        pass
+                    hint = "Install xclip, xsel, or wl-clipboard. Tip: hold Shift while dragging to select text natively in most terminals."
+                    return f"Error: No clipboard tool found. {hint}"
 
             if content:
                 return f"Clipboard updated ({len(content)} chars)"
