@@ -68,7 +68,7 @@ class MultiReplaceTool(BaseTool):
             standardized_chunks.append({"old": old_s, "new": new_s})
 
         success, new_content, logs, total_replaced = ResilientEditor.apply_multi_replace(
-            content=content, chunks=standardized_chunks
+            content=content, chunks=standardized_chunks, path=str(path)
         )
 
         if not success:

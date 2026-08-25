@@ -1995,6 +1995,23 @@ def execute_agent_task(
 
     # Build OpenAI function calling tool definitions
     # Skip tools for chat tasks to avoid Google API rate limits on tool-use quotas
+    # Auto-filter for reasoning-heavy models (e.g. stealth/ox-alpha) that choke on
+    # 70+ tool schemas — verified live: 73 tools -> empty response, 7 tools -> tool_calls OK
+    if "stealth/ox-alpha" in model and len(tools) > 20:
+        keep = {
+            "read_file",
+            "write_file",
+            "execute_shell",
+            "edit_file",
+            "list_directory",
+            "glob_files",
+            "grep_content",
+            "diff_tool",
+            "git_operations",
+            "review_changes",
+        }
+        tools = {k: v for k, v in tools.items() if k in keep}
+        logger.info("Filtered tools for %s: %d -> %d", model, 73, len(tools))
     if task_type == "chat":
         openai_tools = []
     else:
