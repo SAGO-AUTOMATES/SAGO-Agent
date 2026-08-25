@@ -25,6 +25,56 @@ from sago.tui.models import COMMANDS
 from sago.tui.orchestrator import AgentOrchestrationMixin
 from sago.tui.processor import MessageProcessorMixin
 from sago.tui.styles import TUI_CSS
+
+# ── Global markup hardening ──
+# Any unescaped dynamic content (git diff, tool output, LLM text) that
+# hits Static(markup=True) will otherwise raise MarkupError lazily during
+# get_content_height and kill the TUI. Patch Content.from_markup + visualize
+# to never crash — falls back to escaped plaintext.
+try:
+    from rich.errors import MarkupError as _RichMarkupError  # type: ignore[import-not-found]
+    from textual.content import Content as _Content  # type: ignore[import-not-found]
+
+    _orig_from_markup = _Content.from_markup
+
+    def _safe_from_markup(cls, markup, *a, **kw):  # type: ignore[no-untyped-def]
+        try:
+            return _orig_from_markup(markup, *a, **kw)
+        except Exception as e:
+            if "MarkupError" in type(e).__name__ or isinstance(e, _RichMarkupError):
+                from rich.markup import escape as _esc2
+
+                try:
+                    return _orig_from_markup(_esc2(str(markup)), *a, **kw)
+                except Exception:
+                    from textual.content import Content as _C2
+
+                    return _C2(str(markup))
+            raise
+
+    _Content.from_markup = classmethod(_safe_from_markup)  # type: ignore[assignment]
+    # Also harden visualize() which calls from_markup internally
+    import textual.visual as _vis_mod  # type: ignore[import-not-found]
+
+    _orig_vis = _vis_mod.visualize
+
+    def _safe_visualize(obj, content, markup=True, **kw):  # type: ignore[no-untyped-def]
+        try:
+            return _orig_vis(obj, content, markup=markup, **kw)
+        except Exception as e:
+            if "MarkupError" in type(e).__name__ or "MissingStyle" in type(e).__name__:
+                from rich.markup import escape as _esc3
+
+                try:
+                    return _orig_vis(obj, _esc3(str(content)), markup=True, **kw)
+                except Exception:
+                    return _orig_vis(obj, str(content), markup=False, **kw)
+            raise
+
+    _vis_mod.visualize = _safe_visualize  # type: ignore[assignment]
+except Exception:
+    pass
+
 from sago.tui.widgets import (
     AgentDashboard,
     BackgroundTaskManager,
@@ -1415,18 +1465,43 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         self.suggestion_values = values
         self.suggestion_index = 0
         self.show_suggestions = True
-        container = self.query_one("#suggestions")
-        container.remove_children()
+        try:
+            container = self.query_one("#suggestions")
+        except Exception:
+            return
+        try:
+            container.remove_children()
+        except Exception:
+            pass
         for item in items:
-            container.mount(Static(item, classes="suggestion-item", markup=True))
-        container.add_class("visible")
-        self._update_highlight()
+            try:
+                from rich.markup import escape as _esc_s
+
+                # Escape user/file paths that may contain "[" -> MarkupError in get_content_height
+                safe_item = _esc_s(str(item))
+                container.mount(Static(safe_item, classes="suggestion-item", markup=True))
+            except Exception:
+                try:
+                    container.mount(Static(str(item), classes="suggestion-item", markup=False))
+                except Exception:
+                    pass
+        try:
+            container.add_class("visible")
+        except Exception:
+            pass
+        try:
+            self._update_highlight()
+        except Exception:
+            pass
 
     def _hide_suggestions(self) -> None:
         self.show_suggestions = False
         self.suggestion_items = []
         self.suggestion_values = []
-        self.query_one("#suggestions").remove_class("visible")
+        try:
+            self.query_one("#suggestions").remove_class("visible")
+        except Exception:
+            pass
 
     def action_dismiss_suggestions(self) -> None:
         """Dismiss suggestions and approval bar."""

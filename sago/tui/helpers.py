@@ -14,6 +14,33 @@ from textual.widgets import Button, Collapsible, Static
 from sago.tui.widgets import AgentStatus, get_agent_color
 from sago.utils.safe import log_exception
 
+
+def _safe_static(text: str, classes: str = "", markup: bool = True) -> Static:
+    """Create Static that never crashes on MarkupError (lazy render).
+
+    Textual's Content.from_markup is evaluated lazily during render/layout.
+    If dynamic content produces invalid markup (e.g. "'][/white]"), the
+    exception surfaces in get_content_height and kills the TUI. This helper
+    pre-validates markup and falls back to markup=False + escaped text.
+    """
+    if not markup:
+        return Static(text, classes=classes, markup=False)
+    try:
+        # Pre-validate: this is what Static will do during render
+        from textual.content import Content
+
+        Content.from_markup(text)
+        return Static(text, classes=classes, markup=True)
+    except Exception:
+        # Fallback: render as plain text (still with markup=False, no crash)
+        try:
+            from rich.markup import escape as _esc
+
+            return Static(_esc(text), classes=classes, markup=False)
+        except Exception:
+            return Static(text, classes=classes, markup=False)
+
+
 if TYPE_CHECKING:
     from sago.tui.app import SagoApp
 
@@ -439,7 +466,7 @@ class UIHelpers:
             return
 
         from rich.markup import escape
-        from textual.widgets import Collapsible, Static
+        from textual.widgets import Collapsible
 
         raw_tags = getattr(enhancement, "improvements", [])[:4]
         tags = " • ".join(escape(str(t)) for t in raw_tags)
@@ -480,8 +507,9 @@ class UIHelpers:
 
         # Single collapsed card only — the previous inline one-liner + card was duplicate
         # Keep just the collapsible (contains the one-liner as its title summary)
+        # Use safe static: pre-validates markup, falls back to plaintext on stray "'][/white]"
         card = Collapsible(
-            Static("\n".join(card_lines), markup=True),
+            _safe_static("\n".join(card_lines), markup=True),
             title=title,
             collapsed=True,
         )
@@ -551,7 +579,8 @@ class UIHelpers:
         # Prepend agent tag if specified
         if agent_name:
             color = get_agent_color(agent_name)
-            agent_prefix = f"[{color}][AGENT: {agent_name}][/{color}]\n"
+            # Escape agent_name to prevent markup injection like "'][/white]"
+            agent_prefix = f"[{color}][AGENT: {escape(agent_name)}][/{color}]\n"
         else:
             agent_prefix = "[bold green][SAGO][/bold green]\n"
 
@@ -562,7 +591,7 @@ class UIHelpers:
 
                 md = RichMarkdown(display)
                 _mount_element(
-                    Static(agent_prefix, classes="exchange-assistant agent-tag", markup=True)
+                    _safe_static(agent_prefix, classes="exchange-assistant agent-tag", markup=True)
                 )
                 _mount_element(Static(md, classes="exchange-assistant markdown-body"))
             else:
@@ -576,7 +605,7 @@ class UIHelpers:
                             first_text = False
                             if prefix:
                                 _mount_element(
-                                    Static(
+                                    _safe_static(
                                         prefix, classes="exchange-assistant agent-tag", markup=True
                                     )
                                 )
@@ -836,7 +865,7 @@ class UIHelpers:
         title = f"● Execution Plan ({step_count} steps)" if step_count else "● Execution Plan"
         # Store the plan card reference for in-place updates
         card = Collapsible(
-            Static(_escape(plan_text), classes="plan-text", markup=True),
+            _safe_static(_escape(plan_text), classes="plan-text", markup=True),
             title=title,
             collapsed=False,
         )
@@ -998,21 +1027,14 @@ class UIHelpers:
                 f"[bold green]Result Output:[/bold green]\n{preview_res}"
             )
 
-            # Use markup=False for body which contains dynamic tool output
-            # that may contain brackets like "|agents=339', 'path': '/mnt/ramdisk/sago]"
-            # to avoid MarkupError. The title already has markup for the status.
-            try:
-                card = Collapsible(
-                    Static(body, classes="msg-system", markup=True),
-                    title=title,
-                    collapsed=True,
-                )
-            except Exception:
-                card = Collapsible(
-                    Static(body, classes="msg-system", markup=False),
-                    title=title,
-                    collapsed=True,
-                )
+            # Use safe static that pre-validates markup; body contains escaped
+            # dynamic tool output like "|agents=339', 'path': '/mnt/ramdisk/sago]"
+            # and would otherwise fail lazily during get_content_height.
+            card = Collapsible(
+                _safe_static(body, classes="msg-system", markup=True),
+                title=title,
+                collapsed=True,
+            )
 
             # Insert into exchange body BEFORE response container so it appears
             # between the user prompt divider and the assistant text
