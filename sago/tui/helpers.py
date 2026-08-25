@@ -738,19 +738,94 @@ class UIHelpers:
         self.query_one("#messages").scroll_end(animate=False)
 
     def _add_thinking_card(self: SagoApp, reasoning_text: str) -> None:
-        """Add a dedicated collapsible technical reasoning card inside active turn box."""
+        """Add/update a single technical reasoning card inside active turn box.
+
+        Spawns at TOP of exchange (between divider and response), not bottom.
+        Dedupes per-turn: appends to existing card instead of creating 3 duplicates.
+        Ignores synthetic spam like 'Step 1/30...' / 'Synthesized reasoning'.
+        """
+        # Filter synthetic BS - only real LLM reasoning should be visible
+        low = reasoning_text.strip().lower()
+        if not reasoning_text.strip():
+            return
+        # Ignore our own synthetic placeholders
+        if low.startswith("thinking: step ") or low.startswith("synthesized reasoning"):
+            return
+        # Ignore super-short spinner text
+        if len(reasoning_text.strip()) < 20:
+            return
+
         target_card = getattr(self, "_active_exchange_card", None)
+        if target_card is None:
+            self.query_one("#messages").mount(
+                Collapsible(
+                    Static(reasoning_text, classes="thinking-text", markup=False),
+                    title="● Technical Reasoning & Analysis",
+                    collapsed=False,
+                )
+            )
+            self.query_one("#messages").scroll_end(animate=False)
+            return
+
+        # Try to reuse existing thinking card for this turn (append, don't duplicate)
+        try:
+            # Check if we already have a thinking card for this exchange
+            existing = getattr(target_card, "_thinking_card", None)
+            if existing is not None:
+                try:
+                    # static inside collapsible
+                    static = existing.query_one(".thinking-text", Static)
+                    current = getattr(static, "_sago_thinking_text", "") or ""
+                    # dedupe - don't append identical block
+                    if reasoning_text.strip() in current:
+                        return
+                    new_text = (
+                        current + "\n\n" + reasoning_text.strip()
+                        if current
+                        else reasoning_text.strip()
+                    )
+                    static.update(new_text)
+                    static._sago_thinking_text = new_text  # type: ignore[attr-defined]
+                    # Expand if it was collapsed
+                    try:
+                        existing.is_collapsed = False
+                        existing.query_one(".card-body").display = True  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                    self.query_one("#messages").scroll_end(animate=False)
+                    return
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Create new card - mount at TOP (before response container)
+        static_widget = Static(reasoning_text, classes="thinking-text", markup=False)
+        static_widget._sago_thinking_text = reasoning_text.strip()  # type: ignore[attr-defined]
         card = Collapsible(
-            Static(reasoning_text, classes="thinking-text", markup=False),
+            static_widget,
             title="● Technical Reasoning & Analysis",
-            collapsed=True,
+            collapsed=False,
         )
-        if target_card is not None and hasattr(target_card, "mount_child"):
-            target_card.mount_child(card)
-        elif target_card is not None:
-            target_card.mount(card)
-        else:
-            self.query_one("#messages").mount(card)
+        # Remember for dedupe/append
+        try:
+            target_card._thinking_card = card  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+        # Mount before exchange-response so it appears at top, not bottom
+        try:
+            body_widget = target_card.query_one(".exchange-body")
+            try:
+                resp = target_card.query_one(".exchange-response")
+                body_widget.mount(card, before=resp)
+            except Exception:
+                body_widget.mount(card)
+        except Exception:
+            try:
+                target_card.mount(card)
+            except Exception:
+                self.query_one("#messages").mount(card)
         self.query_one("#messages").scroll_end(animate=False)
 
     def _add_plan_card(self: SagoApp, plan_text: str, step_count: int = 0) -> None:

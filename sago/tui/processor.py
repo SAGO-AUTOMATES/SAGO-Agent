@@ -78,31 +78,36 @@ class MessageProcessorMixin:
 
             def on_thinking(text):
                 self.call_from_thread(self._update_spinner, text)
-                # Always record thinking to dev tracer so the Thinking tab shows 1:1 with LLM
-                if text and text.strip():
+                # For delegated engine tasks, real LLM <thinking> comes via this callback.
+                # Spinner text like "Planning... (step 1/30)" is NOT real reasoning - filter it.
+                low = text.strip().lower() if text else ""
+                if (
+                    low.startswith("planning...")
+                    or low.startswith("working...")
+                    or "step " in low
+                    and "intent:" in low
+                ):
+                    return
+                if text and text.strip() and len(text.strip()) >= 20:
+                    clean = re.sub(r"\[/?[^\]]*\]", "", text).strip()
+                    # Skip synthetic placeholders still
+                    cl = clean.lower()
+                    if cl.startswith("thinking: step ") or cl.startswith("synthesized reasoning"):
+                        return
                     try:
                         from sago.tracking.dev_tracer import get_dev_tracer
 
-                        # Strip markup for clean thinking record
-                        clean_thinking = re.sub(r"\[/?[^\]]*\]", "", text).strip()
-                        if clean_thinking:
-                            get_dev_tracer().record_thinking(
-                                source=f"tui.llm.{self.current_provider}",
-                                model=self.current_model,
-                                thinking_content=clean_thinking,
-                            )
+                        get_dev_tracer().record_thinking(
+                            source=f"tui.llm.{self.current_provider}",
+                            model=self.current_model,
+                            thinking_content=clean,
+                        )
                     except Exception:
                         pass
-                # Always mount a visible thinking card so user sees reasoning in TUI
-                # (not just when text contains keywords). Uses the standard
-                # "Technical Reasoning & Analysis" collapsible.
-                if text and text.strip():
-                    clean_for_display = re.sub(r"\[/?[^\]]*\]", "", text).strip()
-                    if clean_for_display:
-                        try:
-                            self.call_from_thread(self._add_thinking_card, clean_for_display)
-                        except Exception:
-                            pass
+                    try:
+                        self.call_from_thread(self._add_thinking_card, clean)
+                    except Exception:
+                        pass
 
             # Propagate callbacks into context so spawned agents inherit them
             from sago.engine.simple_executor import set_execution_callbacks
@@ -435,12 +440,6 @@ class MessageProcessorMixin:
                         todo_info = f" | Step {current_todo_index + 1}/{len(task_plan.todos)}: {todo.description[:40]}"
                     _spinner_text = f"Step {iteration + 1}/{effort['max_iterations']}{todo_info}..."
                     self.call_from_thread(self._update_spinner, _spinner_text)
-                    # Synthesize thinking from spinner so telemetry never shows 0 even if LLM skips tags
-                    try:
-                        _synth_spinner_think = f"Thinking: {_spinner_text} — intent: {message[:60].replace(chr(10), ' ').strip()}"
-                        on_thinking(_synth_spinner_think)
-                    except Exception:
-                        pass
 
                     # Call LLM — native Gemini or OpenAI-compatible with function calling
                     native_tool_calls: list[dict] = []
@@ -744,28 +743,17 @@ class MessageProcessorMixin:
                         )
                         if _thinking_match:
                             _thinking_content = _thinking_match.group(1).strip()
-                    # Synthesize thinking when LLM didn't emit tags (e.g. stealth/ox-alpha)
-                    if not _thinking_content:
-                        _intent_snip = (
-                            message[:60].replace("\n", " ").strip()
-                            if isinstance(message, str)
-                            else ""
+                    # Only real thinking - no synthetic fallback. If LLM skips tags, show nothing (not BS).
+                    if _thinking_content:
+                        get_dev_tracer().record_thinking(
+                            source=f"tui.llm.{self.current_provider}",
+                            model=api_model,
+                            thinking_content=_thinking_content,
                         )
-                        _thinking_content = (
-                            f"Synthesized reasoning — intent: '{_intent_snip}' | "
-                            f"step {iteration + 1}/{effort['max_iterations']} | "
-                            f"tool_calls={len(native_tool_calls)} | response_len={len(content or '')}"
-                        )
-                    # Always record and mount (never hidden)
-                    get_dev_tracer().record_thinking(
-                        source=f"tui.llm.{self.current_provider}",
-                        model=api_model,
-                        thinking_content=_thinking_content,
-                    )
-                    try:
-                        self.call_from_thread(self._add_thinking_card, _thinking_content)
-                    except Exception:
-                        pass
+                        try:
+                            self.call_from_thread(self._add_thinking_card, _thinking_content)
+                        except Exception:
+                            pass
 
                     # Raw response trace (deep debug)
                     get_dev_tracer().record_llm_response(
@@ -1126,13 +1114,11 @@ class MessageProcessorMixin:
                             ):
                                 self._tool_approved = False
                                 approval_msg = _make_approval_bar_text(name, risk.value, args)
+                                # Approval bar at bottom is the immersive prompt; don't also spam
+                                # a separate breaking-immersion system message (tool call already visible).
                                 self.call_from_thread(
                                     self._show_approval_bar,
                                     approval_msg,
-                                )
-                                self.call_from_thread(
-                                    self._add_system_message,
-                                    _make_tool_approval_message(name, risk.value),
                                 )
                                 pause_event = threading.Event()
                                 self._executor_pause_event = pause_event
@@ -1704,31 +1690,30 @@ class MessageProcessorMixin:
                             len(all_issues),
                             self.current_model,
                         )
+                        # Keep verification silent in normal mode; developer_mode confidence
+                        # is now embedded inline at bottom of the exchange card (not a
+                        # separate breaking-immersion system message outside the turn).
                         if getattr(self, "developer_mode", False):
-                            if confidence < 50:
-                                detail_parts = all_issues[:4]
-                                detail = "; ".join(d[:80] for d in detail_parts)
-                                self.call_from_thread(
-                                    self._add_system_message,
-                                    f"⚠️ Low confidence ({confidence}/100): {detail}",
-                                )
-                            elif confidence < 80:
-                                detail_parts = all_issues[:2]
-                                detail = (
-                                    "; ".join(d[:80] for d in detail_parts)
-                                    if detail_parts
-                                    else "minor verification notes"
-                                )
-                                self.call_from_thread(
-                                    self._add_system_message,
-                                    f"🔍 Confidence: {confidence}/100 — {detail}",
-                                )
-                            else:
-                                tool_count = len(tool_history)
-                                self.call_from_thread(
-                                    self._add_system_message,
-                                    f"✅ Confidence: {confidence}/100 — verified ({tool_count} tool calls)",
-                                )
+                            try:
+                                if confidence < 50:
+                                    detail_parts = all_issues[:4]
+                                    detail = "; ".join(d[:80] for d in detail_parts)
+                                    msg = f"⚠️ Low confidence ({confidence}/100): {detail}"
+                                elif confidence < 80:
+                                    detail_parts = all_issues[:2]
+                                    detail = (
+                                        "; ".join(d[:80] for d in detail_parts)
+                                        if detail_parts
+                                        else "minor verification notes"
+                                    )
+                                    msg = f"🔍 Confidence: {confidence}/100 — {detail}"
+                                else:
+                                    tool_count = len(tool_history)
+                                    msg = f"✅ Confidence: {confidence}/100 — verified ({tool_count} tool calls)"
+                                # Inline inside active exchange so it doesn't break chat flow
+                                self.call_from_thread(self._add_notice_inline, msg)
+                            except Exception:
+                                pass
                     except Exception as e:
                         logger.debug("Verification confidence check failed: %s", e)
                 elif content and content.strip():

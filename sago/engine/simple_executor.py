@@ -2289,24 +2289,9 @@ def execute_agent_task(
         phase = "Planning" if i == 0 else "Working"
         todo_info = f" | Step {current_todo_index + 1}/{len(task_plan.todos)}" if task_plan else ""
         files_info = f" ({len(files_created)} files created)" if files_created else ""
+        # Spinner only - not real thinking. Real thinking is extracted from LLM <thinking> tags below.
         if on_thinking:
-            on_thinking(
-                f"Thinking: {phase}... (step {i + 1}/{max_iterations}{todo_info}{files_info}) — intent: {task[:60]}"
-            )
-        # Always record a thinking block so dev telemetry never shows 0
-        # (even when LLM doesn't emit <thinking> tags) — always-on, not gated by is_enabled
-        try:
-            from sago.tracking.dev_tracer import get_dev_tracer
-
-            tracer = get_dev_tracer()
-            thinking_text = f"{phase}... (step {i + 1}/{max_iterations}{todo_info}{files_info}) — intent: {task[:60]}"
-            tracer.record_thinking(
-                source=f"agent.{agent_role}",
-                model=model,
-                thinking_content=thinking_text,
-            )
-        except Exception:
-            pass
+            on_thinking(f"{phase}... (step {i + 1}/{max_iterations}{todo_info}{files_info})")
 
         # Native tool calls extracted from the model response (OpenAI or Gemini).
         # The gemini branch populates this so the shared execution loop below runs.
@@ -2740,20 +2725,28 @@ def execute_agent_task(
                     _llm_thinking = str(_mr).strip()
         except Exception:
             _llm_thinking = ""
-        if not _llm_thinking:
-            _intent_snip = task[:60].replace("\n", " ").strip() if isinstance(task, str) else ""
-            _llm_thinking = (
-                f"Synthesized reasoning — intent: '{_intent_snip}' | phase: {phase} | "
-                f"step {i + 1}/{max_iterations} | tool_calls={len(native_tool_calls)} | content_len={len(content or '')}"
-            )
-        try:
-            from sago.tracking.dev_tracer import get_dev_tracer as _gdt_think
+        # Only record real thinking - no synthetic fallback (BS). It may be empty for this turn.
+        if _llm_thinking:
+            try:
+                from sago.tracking.dev_tracer import get_dev_tracer as _gdt_think
 
-            _tracer_think = _gdt_think()
-            _tracer_think.record_thinking(
-                source=f"agent.{agent_role}", model=model, thinking_content=_llm_thinking
-            )
-            _tracer_think.record_llm_response(
+                _tracer_think = _gdt_think()
+                _tracer_think.record_thinking(
+                    source=f"agent.{agent_role}", model=model, thinking_content=_llm_thinking
+                )
+            except Exception:
+                pass
+            if on_thinking:
+                try:
+                    on_thinking(_llm_thinking)
+                except Exception:
+                    pass
+        # Always record LLM response trace (thinking may be empty)
+        try:
+            from sago.tracking.dev_tracer import get_dev_tracer as _gdt_resp
+
+            _tracer_resp = _gdt_resp()
+            _tracer_resp.record_llm_response(
                 source=f"agent.{agent_role}",
                 model=model,
                 response_content=content or "",
@@ -2766,11 +2759,6 @@ def execute_agent_task(
             )
         except Exception:
             pass
-        if on_thinking and _llm_thinking:
-            try:
-                on_thinking(_llm_thinking)
-            except Exception:
-                pass
 
         # If no tool calls at all, check for hallucination or completion
         if not native_tool_calls:

@@ -2108,9 +2108,13 @@ class CommandHandlers:
             tool_name = tool_info.get("name", "tool")
             self._tool_approved = True  # Mark tool as approved
             self._executor_pause_event.set()  # Resume executor (unblock wait)
-            self._add_system_message(
-                f"● [bold green]Approved {tool_name}[/bold green] - continuing execution"
-            )
+            # Keep inside exchange card so chat flow stays immersive
+            try:
+                self._add_notice_inline(f"● Approved {tool_name} — continuing execution")
+            except Exception:
+                self._add_system_message(
+                    f"● [bold green]Approved {tool_name}[/bold green] - continuing execution"
+                )
             return
 
         # 2. Check for pending orchestration plan
@@ -2161,9 +2165,12 @@ class CommandHandlers:
             tool_name = tool_info.get("name", "tool")
             self._tool_approved = False  # Mark tool as denied
             self._executor_pause_event.set()  # Resume executor (unblock wait)
-            self._add_system_message(
-                f"● [bold red]Denied {tool_name}[/bold red] - skipping execution"
-            )
+            try:
+                self._add_notice_inline(f"● Denied {tool_name} — skipping execution")
+            except Exception:
+                self._add_system_message(
+                    f"● [bold red]Denied {tool_name}[/bold red] - skipping execution"
+                )
             return
 
         # 2. Check for pending orchestration plan
