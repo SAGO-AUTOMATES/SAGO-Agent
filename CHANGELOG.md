@@ -7,9 +7,7 @@ All notable changes to the SAGO project are documented in this file.
 ### Fixed
 - **web_search returned "No results found" for every query:** DuckDuckGo changed their HTML layout — snippet is now `<a class="result__snippet">` (anchor tag) instead of `<td class="result__snippet">` (table cell). The old `_DDGHTMLParser` never matched `_in_snippet`, so all queries fell through to DDG's JSON API which returns no organic results. Rewrote parser to handle both modern (`<a>`) and legacy (`<td>`, `<div>`) layouts, with safe `class=None` handling. Verified live with 3 queries returning real results. Added 2 new integration tests (`test_web_search_live.py`).
 - **Session stuck at "local" (non-persisted):** `init_db()` executescript failed on legacy DB (missing `agent` column in `tool_usage`), crashing `Session.create()` at startup. `_init_session` silently caught the exception and set `current_session_id = "local"`, causing all messages to skip DB persistence (breaking `/export`, `/load`, reload). Fixed: `_init_session` now retries once after 0.5s with warning-level logging; `_ensure_real_session()` lazily creates a real session on first user message if stuck at "local". Added 6 new integration tests (`test_session_export.py`) covering full session lifecycle + export.
-
-### Fixed
-- **Summary waste on “so what was the sumamry?” (2e6cdf4e-ea4):** Previously re-ran full tool loops (`grep`, `execute_shell`) and gave generic README summary, wasting tokens. Now:
+- **Summary waste on "so what was the sumamry?" (2e6cdf4e-ea4):** Previously re-ran full tool loops (`grep`, `execute_shell`) and gave generic README summary, wasting tokens. Now:
   - `sago/tui/processor.py` detects summary intent via spec regex `r"\b(summar|what was done|what did you do)\b"` (+ typo-tolerant `sumamry`/`summar*` fallbacks) and short-circuits **before** tool discovery — 0 new tool calls.
   - Builds categorized summary **by agent** from `self.messages` + `ToolUsageStore.get_all()` + `DevTracer.get_recent_traces()` + cached `PROJECT_ANALYSIS.md` / `Session.get_full_export()` (per-agent tools, output, cost, output file). Single LLM call with `tool_choice: none` and injected Reference Context, not a tool loop; falls back to deterministic `_build_local_summary_markdown()` if LLM unavailable. Heavy `context_assembler.assemble()` also short-circuits RAG/BM25/symbol search for summary intents.
   - `sago/sessions/manager.py` adds `get_summary_by_agent()` / `is_summary_intent()` helpers reusing `Session.get_full_export()` so fresh sessions also do 0 re-analysis.
@@ -25,7 +23,7 @@ All notable changes to the SAGO project are documented in this file.
 
 ### Validation
 - `ruff check` clean (other than pre-existing `google.genai` missing in CI)
-- `pytest` 842 passed, 1 skipped (14 new integration tests: 8 web search, 6 session/export)
+- `pytest` 921 passed, 1 skipped (79 new tests: processor, orchestrator, dev_tracer, helpers, edge cases, web search, session/export)
 - Live: web_search returns real results for 3 queries via DDG HTML
 - Live: session created with UUID, messages persist, export contains content
 - Manual: summary query `so what was the sumamry ?` creates 1 LLM event, 0 `TOOL_DISPATCH` events (DevTracer delta), no new `grep_content`/`execute_shell`; fresh session `developer_mode == True`

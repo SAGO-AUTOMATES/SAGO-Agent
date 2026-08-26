@@ -116,7 +116,7 @@ All references below point to real modules in the `sago/` package and the
 6. **Session persistence** (`sago/sessions/manager.py`, `sago/database.py`).
    The session manager stores the running conversation, thread state, and
    status. It supports pausing/resuming and migrating legacy status values on
-   reload so a session is never left invalid. `MessageStore` persists `thinking_blocks: [{seq, agent, text, timestamp}]` + `tool_usage` with `created_at`; reload restores via `mount_sequential` in seq/timestamp order (see `docs/TUI_CHAT_STRUCTURE.md` §8, §20).
+   reload so a session is never left invalid. `_init_session` retries once after 0.5s on failure; `_ensure_real_session()` lazily creates a real session on first user message if startup failed (prevents silent "local" bucket that broke `/export`). `MessageStore` persists `thinking_blocks: [{seq, agent, text, timestamp}]` + `tool_usage` with `created_at`; reload restores via `mount_sequential` in seq/timestamp order (see `docs/TUI_CHAT_STRUCTURE.md` §8, §20).
 
 7. **Response render**.
    The final assistant message (and any tool outputs) are streamed back to the

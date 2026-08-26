@@ -226,8 +226,10 @@ def test_export_tool_usage_by_agent_and_outputs_section(tmp_path):
     ]
 
     export_session_dev_artifacts(
-        session_id="outputs_sess", messages=[{"role": "user", "content": "go"}],
-        cwd=tmp_path, tool_calls=tool_calls,
+        session_id="outputs_sess",
+        messages=[{"role": "user", "content": "go"}],
+        cwd=tmp_path,
+        tool_calls=tool_calls,
     )
     chat = (tmp_path / ".sago" / "data" / "outputs_sess" / "chat_export.md").read_text(
         encoding="utf-8"
