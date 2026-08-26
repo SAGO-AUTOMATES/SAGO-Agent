@@ -2,7 +2,11 @@
 
 All notable changes to the SAGO project are documented in this file.
 
-## [0.1.14] - 2026-08-26 (Unreleased — summary waste & dev default fixes)
+## [0.1.14] - 2026-08-26 (Unreleased — summary waste, dev default, session + search fixes)
+
+### Fixed
+- **web_search returned "No results found" for every query:** DuckDuckGo changed their HTML layout — snippet is now `<a class="result__snippet">` (anchor tag) instead of `<td class="result__snippet">` (table cell). The old `_DDGHTMLParser` never matched `_in_snippet`, so all queries fell through to DDG's JSON API which returns no organic results. Rewrote parser to handle both modern (`<a>`) and legacy (`<td>`, `<div>`) layouts, with safe `class=None` handling. Verified live with 3 queries returning real results. Added 2 new integration tests (`test_web_search_live.py`).
+- **Session stuck at "local" (non-persisted):** `init_db()` executescript failed on legacy DB (missing `agent` column in `tool_usage`), crashing `Session.create()` at startup. `_init_session` silently caught the exception and set `current_session_id = "local"`, causing all messages to skip DB persistence (breaking `/export`, `/load`, reload). Fixed: `_init_session` now retries once after 0.5s with warning-level logging; `_ensure_real_session()` lazily creates a real session on first user message if stuck at "local". Added 6 new integration tests (`test_session_export.py`) covering full session lifecycle + export.
 
 ### Fixed
 - **Summary waste on “so what was the sumamry?” (2e6cdf4e-ea4):** Previously re-ran full tool loops (`grep`, `execute_shell`) and gave generic README summary, wasting tokens. Now:
@@ -21,7 +25,9 @@ All notable changes to the SAGO project are documented in this file.
 
 ### Validation
 - `ruff check` clean (other than pre-existing `google.genai` missing in CI)
-- `pytest tests/unit/test_tui_turn_container.py` — `test_tui_developer_mode` updated to expect default ON where applicable, reload order preserved
+- `pytest` 842 passed, 1 skipped (14 new integration tests: 8 web search, 6 session/export)
+- Live: web_search returns real results for 3 queries via DDG HTML
+- Live: session created with UUID, messages persist, export contains content
 - Manual: summary query `so what was the sumamry ?` creates 1 LLM event, 0 `TOOL_DISPATCH` events (DevTracer delta), no new `grep_content`/`execute_shell`; fresh session `developer_mode == True`
 
 ## [0.1.13] - 2026-08-23
