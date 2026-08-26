@@ -79,6 +79,16 @@ def display_logs(
     errors_only: bool = False,
 ) -> None:
     """Display filtered log lines in a formatted table."""
+    logger.debug(
+        "display_logs: level=%s, session_id=%s, module=%s, search=%s, since=%s, limit=%d, errors_only=%s",
+        level,
+        session_id,
+        module,
+        search,
+        since,
+        limit,
+        errors_only,
+    )
     since_ts = _parse_since(since) if since else None
 
     all_lines = []
@@ -98,6 +108,7 @@ def display_logs(
     all_lines.sort(key=lambda line: line.timestamp)
 
     if not all_lines:
+        logger.debug("No matching log lines found for query")
         console.print("[dim]No matching log lines found.[/dim]")
         return
 
@@ -256,10 +267,12 @@ def follow_logs(manager: LogManager, interval: float = 1.0) -> None:
     """Real-time log following (tail -f style)."""
     import os
 
+    logger.info("Starting real-time log follow mode with interval %.2fs", interval)
     console.print("[bold cyan]Following logs (Ctrl+C to stop)...[/bold cyan]\n")
 
     log_files = manager.get_log_files()
     if not log_files:
+        logger.debug("No log files found to follow")
         console.print("[dim]No log files found.[/dim]")
         return
 
@@ -294,11 +307,13 @@ def follow_logs(manager: LogManager, interval: float = 1.0) -> None:
                         positions[str(path)] = current_size
                     elif current_size < pos:
                         # File was rotated
+                        logger.debug("Detected log rotation for %s, resetting position", path)
                         positions[str(path)] = 0
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.debug("Error reading %s during follow: %s", path, e)
             time.sleep(interval)
     except KeyboardInterrupt:
+        logger.info("Log follow mode stopped by user")
         console.print("\n[dim]Stopped following logs.[/dim]")
 
 
@@ -317,23 +332,29 @@ def export_logs(
 
     since_ts = _parse_since(since) if since else None
     out = Path(output_path)
+    logger.info("Exporting logs to %s", out)
 
     count = 0
-    with open(out, "w", encoding="utf-8") as f:
-        for path in manager.get_log_files():
-            lines = manager.read_lines(
-                path,
-                level=level,
-                session_id=session_id,
-                module=module,
-                search=search,
-                since=since_ts,
-                errors_only=errors_only,
-            )
-            for line in lines:
-                f.write(
-                    f"{line.timestamp} | {line.level:8s} | {line.session_id} | {line.module} | {line.message}\n"
+    try:
+        with open(out, "w", encoding="utf-8") as f:
+            for path in manager.get_log_files():
+                lines = manager.read_lines(
+                    path,
+                    level=level,
+                    session_id=session_id,
+                    module=module,
+                    search=search,
+                    since=since_ts,
+                    errors_only=errors_only,
                 )
-                count += 1
+                for line in lines:
+                    f.write(
+                        f"{line.timestamp} | {line.level:8s} | {line.session_id} | {line.module} | {line.message}\n"
+                    )
+                    count += 1
+    except OSError as e:
+        logger.error("Failed to export logs to %s: %s", out, e)
+        raise
 
+    logger.info("Successfully exported %d log lines to %s", count, out)
     console.print(f"[green]Exported {count} log lines to {out}[/green]")

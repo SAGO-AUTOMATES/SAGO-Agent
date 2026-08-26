@@ -26,14 +26,21 @@ def get_sago_home() -> Path:
     """
     if "SAGO_HOME" in os.environ:
         sago_home = Path(os.environ["SAGO_HOME"]).expanduser().resolve()
+        logger.debug("Resolved SAGO_HOME from environment: %s", sago_home)
     elif platform.system() == "Windows":
         base = Path(os.environ.get("USERPROFILE", Path.home()))
         sago_home = (base / ".sago").resolve()
+        logger.debug("Resolved Sago home on Windows: %s", sago_home)
     else:
         base = Path.home()
         sago_home = (base / ".sago").resolve()
+        logger.debug("Resolved Sago home on Unix: %s", sago_home)
 
-    sago_home.mkdir(parents=True, exist_ok=True)
+    try:
+        sago_home.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logger.error("Failed to create Sago home directory %s: %s", sago_home, e)
+        raise
     return sago_home
 
 
@@ -44,7 +51,11 @@ def get_data_dir() -> Path:
         Path to the data directory.
     """
     data_dir = get_sago_home() / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logger.error("Failed to create data directory %s: %s", data_dir, e)
+        raise
     return data_dir
 
 
@@ -55,7 +66,11 @@ def get_sessions_dir() -> Path:
         Path to the sessions directory.
     """
     sessions_dir = get_sago_home() / "sessions"
-    sessions_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logger.error("Failed to create sessions directory %s: %s", sessions_dir, e)
+        raise
     return sessions_dir
 
 
@@ -66,7 +81,11 @@ def get_logs_dir() -> Path:
         Path to the logs directory.
     """
     logs_dir = get_sago_home() / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        logs_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logger.error("Failed to create logs directory %s: %s", logs_dir, e)
+        raise
     return logs_dir
 
 
@@ -77,7 +96,11 @@ def get_config_dir() -> Path:
         Path to the config directory.
     """
     config_dir = get_sago_home() / "config"
-    config_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        config_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logger.error("Failed to create config directory %s: %s", config_dir, e)
+        raise
     return config_dir
 
 
@@ -92,6 +115,7 @@ def get_db_path() -> Path:
 
 def ensure_sago_dirs() -> None:
     """Create all Sago directories if they don't exist."""
+    logger.debug("Ensuring all Sago directories exist")
     get_sago_home()
     get_data_dir()
     get_sessions_dir()
@@ -100,6 +124,11 @@ def ensure_sago_dirs() -> None:
 
     # Additional directories used by various features
     sago_home = get_sago_home()
-    (sago_home / "backups").mkdir(parents=True, exist_ok=True)
-    (sago_home / "cache").mkdir(parents=True, exist_ok=True)
-    (sago_home / "prompts").mkdir(parents=True, exist_ok=True)
+    try:
+        (sago_home / "backups").mkdir(parents=True, exist_ok=True)
+        (sago_home / "cache").mkdir(parents=True, exist_ok=True)
+        (sago_home / "prompts").mkdir(parents=True, exist_ok=True)
+        logger.debug("All Sago directories verified")
+    except Exception as e:
+        logger.error("Failed to create additional Sago directories in %s: %s", sago_home, e)
+        raise

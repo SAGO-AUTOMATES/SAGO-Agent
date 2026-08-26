@@ -8,7 +8,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from crewai.tools import tool as crewai_tool
+try:
+    from crewai.tools import tool as crewai_tool
+except ImportError:
+    crewai_tool = None  # type: ignore
 
 logger = logging.getLogger("sago.tools.crewai_wrappers")
 
@@ -22,6 +25,11 @@ def create_crewai_tool(sago_tool_class: type) -> Any:
     Returns:
         A CrewAI-compatible tool instance.
     """
+    if crewai_tool is None:
+        raise ImportError(
+            "crewai is not installed. Install it via `pip install crewai` to use CrewAI tool wrappers."
+        )
+
     tool_instance = sago_tool_class()
 
     @crewai_tool(tool_instance.name)
@@ -35,10 +43,7 @@ def create_crewai_tool(sago_tool_class: type) -> Any:
 
 def _discover_all_tools() -> dict[str, Any]:
     """Auto-discover ALL BaseTool subclasses and wrap them for CrewAI."""
-    import logging
-
-    _log = logging.getLogger("sago.tools")
-
+    logger.debug("Starting CrewAI tool discovery")
     tools_dir = Path(__file__).parent.parent / "tools"
     crewai_tools: dict[str, Any] = {}
 
@@ -55,7 +60,7 @@ def _discover_all_tools() -> dict[str, Any]:
         try:
             mod = importlib.import_module(module_name)
         except Exception as e:
-            _log.debug(f"Failed to import {module_name}: {e}")
+            logger.debug("Failed to import %s for CrewAI wrapping: %s", module_name, e)
             continue
 
         for attr_name in dir(mod):
@@ -71,9 +76,13 @@ def _discover_all_tools() -> dict[str, Any]:
 
                     if issubclass(obj, BaseTool) and obj.name:
                         crewai_tools[obj.name] = create_crewai_tool(obj)
+                        logger.debug("Discovered and wrapped tool for CrewAI: %s", obj.name)
                 except Exception as e:
-                    _log.debug(f"Failed to wrap tool {obj.__name__}: {e}")
+                    logger.debug(
+                        "Failed to wrap tool %s: %s", getattr(obj, "__name__", str(obj)), e
+                    )
 
+    logger.info("CrewAI tool discovery complete: discovered %d tools", len(crewai_tools))
     return crewai_tools
 
 

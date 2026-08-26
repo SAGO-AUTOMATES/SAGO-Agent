@@ -108,7 +108,9 @@ class LogManager:
         daemon_log = get_sago_home() / "daemon.log"
         if daemon_log.exists():
             files.append(daemon_log)
-        return sorted(files, key=lambda f: f.stat().st_mtime)
+        sorted_files = sorted(files, key=lambda f: f.stat().st_mtime)
+        logger.debug("Discovered %d log files in %s", len(sorted_files), self.log_dir)
+        return sorted_files
 
     def get_file_info(self, path: Path) -> LogFileInfo:
         """Get metadata for a single log file (fast, no line parsing)."""
@@ -253,6 +255,7 @@ class LogManager:
     def extract_errors(self, output_path: Path | None = None) -> int:
         """Extract ERROR+ lines to a separate file. Returns count of errors extracted."""
         out = output_path or (self.log_dir / "errors.log")
+        logger.info("Extracting error logs to %s", out)
         count = 0
         try:
             with open(out, "w", encoding="utf-8") as out_f:
@@ -264,10 +267,14 @@ class LogManager:
                                 if parsed and parsed.level in ("ERROR", "CRITICAL"):
                                     out_f.write(raw)
                                     count += 1
-                    except OSError:
+                    except OSError as e:
+                        logger.warning(
+                            "Failed to read log file %s during error extraction: %s", path, e
+                        )
                         continue
-        except OSError:
-            pass
+        except OSError as e:
+            logger.error("Failed to write extracted error logs to %s: %s", out, e)
+        logger.info("Extracted %d error lines to %s", count, out)
         return count
 
     def get_sessions(self) -> list[str]:
@@ -280,7 +287,8 @@ class LogManager:
                         parsed = self.parse_line(raw)
                         if parsed and parsed.session_id:
                             sessions.add(parsed.session_id)
-            except OSError:
+            except OSError as e:
+                logger.debug("Could not read %s for sessions: %s", path, e)
                 continue
         return sorted(sessions)
 
@@ -302,6 +310,13 @@ class LogManager:
 
         Returns (files_deleted, bytes_reclaimed).
         """
+        logger.info(
+            "Starting log prune: max_total_mb=%.1f, max_age_days=%s, keep_rotated=%d, dry_run=%s",
+            max_total_mb,
+            max_age_days,
+            keep_rotated,
+            dry_run,
+        )
         files = self.get_log_files()
         now = time.time()
         deleted = 0
