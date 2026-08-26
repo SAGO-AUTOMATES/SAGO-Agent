@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +15,11 @@ from textual.widgets import Button, Collapsible, Static
 
 from sago.tui.widgets import AgentStatus, get_agent_color
 from sago.utils.safe import log_exception
+
+if TYPE_CHECKING:
+    from sago.tui.app import SagoApp
+
+logger = logging.getLogger("sago.tui.helpers")
 
 
 def _safe_static(text: str, classes: str = "", markup: bool = True) -> Static:
@@ -1263,6 +1269,27 @@ class UIHelpers:
                 "agent_name": norm_ag,
             }
         )
+
+        # Persist to database ToolUsageStore for session restoration
+        if (
+            not getattr(self, "_loading_session", False)
+            and getattr(self, "current_session_id", None)
+            and self.current_session_id != "local"
+        ):
+            try:
+                from sago.database import ToolUsageStore
+
+                tus = ToolUsageStore(self.current_session_id)
+                tus.log(
+                    tool_name=tool_name,
+                    arguments=args if isinstance(args, str) else json.dumps(args or {}),
+                    result=result,
+                    success=success,
+                    agent=norm_ag,
+                )
+                tus.close()
+            except Exception as e:
+                logger.debug("Failed to persist tool usage in _add_tool_call: %s", e)
 
         target_card = getattr(self, "_active_exchange_card", None)
         if target_card is None:

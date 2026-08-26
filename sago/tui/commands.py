@@ -1535,12 +1535,25 @@ class CommandHandlers:
                                     card_type = "delegate"
                                     tag_label = "DELEGATE"
                                     tag_color = "#bc8cff"
-                                    parts = content[len("/delegate") :].strip().split(maxsplit=1)
+                                    raw_body = content[len("/delegate") :].strip()
+                                    parts = raw_body.split(maxsplit=1)
+                                    # If first part looks like a registered agent name or slug, use it
                                     if parts:
-                                        target_ag = parts[0]
-                                        meta_info = f"-> @{target_ag}"
-                                        tag_label = f"DELEGATE @{target_ag.upper()}"
-                                        display_prompt = parts[1] if len(parts) > 1 else content
+                                        first_tok = parts[0].lstrip("@")
+                                        from sago.agents.registry import get_agent_registry
+
+                                        known_agents = set(get_agent_registry().list_agents())
+                                        if first_tok in known_agents:
+                                            target_ag = first_tok
+                                            meta_info = f"-> @{target_ag}"
+                                            tag_label = f"DELEGATE @{target_ag.upper()}"
+                                            display_prompt = (
+                                                parts[1] if len(parts) > 1 else raw_body
+                                            )
+                                        else:
+                                            meta_info = "-> Specialist"
+                                            tag_label = "DELEGATE"
+                                            display_prompt = raw_body
                                 elif content.startswith("/orchestrate"):
                                     card_type = "orchestrate"
                                     tag_label = "ORCHESTRATE"
