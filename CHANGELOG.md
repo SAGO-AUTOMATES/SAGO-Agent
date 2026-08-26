@@ -2,7 +2,7 @@
 
 All notable changes to the SAGO project are documented in this file.
 
-## [0.1.15] - 2026-08-27 (Security gates, tool guardrails, persistent markdown memory, subagent isolation, & multi-line workspace TUI)
+## [0.1.14] - 2026-08-27 (Unreleased — security gates, tool guardrails, persistent memory, subagents, summary waste, dev default, multi-line workspace TUI)
 
 ### Added
 - **Hardline Security & Approval Gates (`sago/security/approval.py`):**
@@ -30,10 +30,6 @@ All notable changes to the SAGO project are documented in this file.
 ### Fixed
 - **Autocomplete & History Navigation Type Crash:** Removed strict `Input` type assertions across autocomplete, history, and queue depth handlers to support multi-line `SagoTextAreaInput`.
 - **Session Resume Tool Argument Decoding:** Implemented multi-pass recursive JSON decoding in `_build_tool_widget` to safely render complex and double-encoded historical tool arguments.
-
----
-
-## [0.1.14] - 2026-08-26 (Unreleased — summary waste, dev default, session + search fixes)
 
 ### Fixed
 - **web_search returned "No results found" for every query:** DuckDuckGo changed their HTML layout — snippet is now `<a class="result__snippet">` (anchor tag) instead of `<td class="result__snippet">` (table cell). The old `_DDGHTMLParser` never matched `_in_snippet`, so all queries fell through to DDG's JSON API which returns no organic results. Rewrote parser to handle both modern (`<a>`) and legacy (`<td>`, `<div>`) layouts, with safe `class=None` handling. Verified live with 3 queries returning real results. Added 2 new integration tests (`test_web_search_live.py`).
