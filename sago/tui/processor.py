@@ -753,8 +753,8 @@ class MessageProcessorMixin:
                         if _thinking_match:
                             _thinking_content = _thinking_match.group(1).strip()
                     # Fallback to concise natural reasoning if LLM skipped <thinking> (so Thinking tab never 0)
-                    # Uses intent + tool summary, not "Synthesized reasoning — ..." BS metadata.
-                    if not _thinking_content:
+                    # Only once per turn (iteration 0) and only if no real thinking yet — avoid 3× synthetic
+                    if not _thinking_content and iteration == 0:
                         _intent2 = (
                             message[:80].replace("\n", " ").strip()
                             if isinstance(message, str)

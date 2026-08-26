@@ -2743,19 +2743,12 @@ def execute_agent_task(
                     _llm_thinking = str(_mr).strip()
         except Exception:
             _llm_thinking = ""
-        # Fallback: if LLM skipped <thinking> tags and native thought is empty,
-        # synthesize a concise natural reasoning (not "Step 1/30" BS) so Thinking tab is never 0.
-        if not _llm_thinking:
+        # Fallback: only on first iteration and only if no thinking — avoid 3× synthetic per turn
+        if not _llm_thinking and i == 0:
             _intent = task[:80].replace("\n", " ").strip() if isinstance(task, str) else ""
-            _tool_names = (
-                ", ".join(tc["name"] for tc in native_tool_calls[:3])
-                if native_tool_calls
-                else "no tools yet"
-            )
-            _llm_thinking = (
-                f"Intent: '{_intent}'. Phase: {phase} step {i + 1}/{max_iterations}. "
-                f"Tools considered: {_tool_names}. Check: ensure next action matches intent and avoid repetition."
-            )
+            _llm_thinking = f"Considering: {task[:120].replace(chr(10), ' ').strip()[:100]} — planning next step to align with intent."
+        elif not _llm_thinking:
+            _llm_thinking = ""  # No fallback for subsequent steps — keep 1 per turn
         if _llm_thinking:
             try:
                 from sago.tracking.dev_tracer import get_dev_tracer as _gdt_think

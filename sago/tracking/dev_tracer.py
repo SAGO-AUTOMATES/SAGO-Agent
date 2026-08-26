@@ -254,46 +254,50 @@ class DevTracer:
         helpers._add_thinking_card per ExchangeTurnCard.
         """
         # Coalesce into single block per turn — avoids 12 thinking for 12 LLM
-        # Source-agnostic: tui.llm vs agent produce same reasoning, should be 1
+        # Search backwards for last thinking (not just last event) — interleaved TOOL events
         try:
             with self._lock:
-                if self._events:
-                    last = self._events[-1]
-                    if last.event_type == TraceEventType.LLM_THINKING:
-                        # Coalesce any thinking within same turn window, regardless of source
-                        age = time.time() - last.timestamp
-                        if age < 120 and last.data.get("thinking_length", 0) < 18000:
-                            existing = last.data.get("thinking", "") or ""
-                            new_part = thinking_content.strip() if thinking_content else ""
-                            if new_part and new_part not in existing:
-                                # If new is synthetic fallback (Intent: ...) and existing is real
-                                # "**My Assessment...", prefer real and ignore synthetic
-                                is_synthetic = new_part.startswith("Intent:")
-                                is_existing_real = (
-                                    existing.strip().startswith("**My Assessment")
-                                    or len(existing) > 500
-                                )
-                                if is_synthetic and is_existing_real:
-                                    return last  # ignore synthetic when real already present
-                                combined = (
-                                    (existing + "\n\n" + new_part).strip() if existing else new_part
-                                )
-                                last.data["thinking"] = combined[:20000]
-                                last.data["thinking_truncated"] = len(combined) > 20000
-                                last.data["thinking_length"] = len(combined)
-                                last.timestamp = time.time()
-                                # Keep original source/model but update thinking
-                                listeners = list(self._listeners)
-                                if self._enabled:
-                                    for cb in listeners:
-                                        try:
-                                            cb(last)
-                                        except Exception as e:
-                                            logger.debug("Trace listener error: %s", e)
-                                return last
-                            else:
-                                # Exact duplicate — don't create new block
-                                return last
+                # Find most recent LLM_THINKING within window, regardless of interleaving
+                last_thinking = None
+                for ev in reversed(self._events):
+                    if ev.event_type == TraceEventType.LLM_THINKING:
+                        last_thinking = ev
+                        break
+                if last_thinking is not None:
+                    age = time.time() - last_thinking.timestamp
+                    if age < 120 and last_thinking.data.get("thinking_length", 0) < 18000:
+                        existing = last_thinking.data.get("thinking", "") or ""
+                        new_part = thinking_content.strip() if thinking_content else ""
+                        if new_part and new_part not in existing:
+                            is_synthetic = new_part.startswith("Intent:")
+                            is_existing_real = (
+                                existing.strip().startswith("**My Assessment")
+                                or len(existing) > 500
+                            )
+                            if is_synthetic and is_existing_real:
+                                return last_thinking  # ignore synthetic when real already present
+                            # Also ignore synthetic duplicates across steps (step 1 vs 2,3)
+                            if is_synthetic and existing.strip().startswith("Intent:"):
+                                # Synthetic already present — don't add another per-step
+                                return last_thinking
+                            combined = (
+                                (existing + "\n\n" + new_part).strip() if existing else new_part
+                            )
+                            last_thinking.data["thinking"] = combined[:20000]
+                            last_thinking.data["thinking_truncated"] = len(combined) > 20000
+                            last_thinking.data["thinking_length"] = len(combined)
+                            last_thinking.timestamp = time.time()
+                            listeners = list(self._listeners)
+                            if self._enabled:
+                                for cb in listeners:
+                                    try:
+                                        cb(last_thinking)
+                                    except Exception as e:
+                                        logger.debug("Trace listener error: %s", e)
+                            return last_thinking
+                        else:
+                            # Exact duplicate — don't create new block
+                            return last_thinking
         except Exception:
             pass
         data = {
