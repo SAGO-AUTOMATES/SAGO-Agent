@@ -1321,13 +1321,19 @@ class CommandHandlers:
             self._add_system_message(f"Compaction failed: {err}")
 
     def _retry_last(self: SagoApp) -> None:
+        """Retry last user prompt, cleaning trailing failed assistant turn from memory."""
         if self.messages:
             last_user = None
-            for msg in reversed(self.messages):
-                if msg["role"] == "user":
-                    last_user = msg["content"]
+            last_user_idx = None
+            for idx in range(len(self.messages) - 1, -1, -1):
+                if self.messages[idx].get("role") == "user":
+                    last_user = self.messages[idx].get("content")
+                    last_user_idx = idx
                     break
-            if last_user:
+            if last_user and last_user_idx is not None:
+                # Remove everything after the last user message to prevent accumulating failed turns
+                self.messages = self.messages[:last_user_idx]
+                self._add_system_message(f"Retrying prompt: '{last_user[:60]}...'")
                 self._process_message(last_user)
             else:
                 self._add_system_message("No user message to retry")

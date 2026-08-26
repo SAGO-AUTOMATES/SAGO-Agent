@@ -3649,6 +3649,25 @@ def execute_agent_task(
             except Exception as e:
                 log_exception(e, "Failed to record tool result for integrity check")
 
+            # Proactive context protection: clip excessively large tool outputs to prevent context blowup
+            MAX_TOOL_RESULT_CHARS = 12000
+            if len(result_str) > MAX_TOOL_RESULT_CHARS:
+                lines = result_str.splitlines()
+                if len(lines) > 100:
+                    head = "\n".join(lines[:60])
+                    tail = "\n".join(lines[-30:])
+                    omitted = len(lines) - 90
+                    result_str = (
+                        f"{head}\n\n[... {omitted} lines truncated ({len(result_str):,} total chars) "
+                        f"— use specific offset/limit or pattern search to view remaining parts ...]\n\n{tail}"
+                    )
+                else:
+                    result_str = (
+                        result_str[:8000]
+                        + f"\n\n[... output truncated from {len(result_str):,} chars to protect context window ...]\n\n"
+                        + result_str[-3000:]
+                    )
+
             content = (
                 f"[ERROR] {name}:\n{result_str}\nTry a different approach."
                 if is_error
