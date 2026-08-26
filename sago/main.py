@@ -6,6 +6,8 @@ Main entry point for the Sago application.
 from __future__ import annotations
 
 import logging
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -149,7 +151,6 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool, deta
     """
     import os
     import subprocess
-    import sys
     import time
 
     from sago.database import init
@@ -1222,7 +1223,6 @@ def doctor() -> None:
     """Check system health, API keys, database, network ports, and tool dependencies."""
     import os
     import socket
-    import sys
     from pathlib import Path
 
     from rich.table import Table
@@ -1358,7 +1358,6 @@ def update(check: bool, pre: bool) -> None:
     import json
     import shutil
     import subprocess
-    import sys
     import urllib.request
 
     console.print(
@@ -2127,7 +2126,16 @@ def _chat_openai_compatible(
 
 @cli.command()
 @click.option("--resume", "-r", default=None, help="Resume a previous session by ID (prefix)")
-def tui(resume: str | None) -> None:
+@click.option(
+    "--workspace",
+    "-w",
+    "--path",
+    "-p",
+    "workspace_dir",
+    default=None,
+    help="Target workspace directory to open and operate in",
+)
+def tui(resume: str | None, workspace_dir: str | None) -> None:
     """Launch the interactive Textual TUI.
 
     Features:
@@ -2140,9 +2148,16 @@ def tui(resume: str | None) -> None:
 
     Examples:
         sago tui
+        sago tui -w /tmp/sago_sample_test
         sago tui --resume a62c0922
         sago tui -r a62c0922
     """
+    if workspace_dir:
+        target = Path(os.path.expandvars(os.path.expanduser(workspace_dir))).resolve()
+        target.mkdir(parents=True, exist_ok=True)
+        os.chdir(str(target))
+        logger.info("Changed working directory to workspace: %s", target)
+
     from sago.tui.app import SagoApp
 
     app = SagoApp()
@@ -3152,7 +3167,6 @@ sago hook run
 @click.option("--dir", "target_dir", default=".", help="Directory to verify")
 def hook_run(target_dir: str) -> None:
     """Run SAGO pre-commit checks (syntax, types, symbol indexing)."""
-    import sys
 
     from sago.engine.verifier import get_project_verifier
 

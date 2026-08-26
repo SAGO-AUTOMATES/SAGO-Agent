@@ -58,24 +58,13 @@ class ExecuteShellTool(BaseTool):
         else:
             full_command = command
 
-        # Safety check against catastrophic destructive commands
-        dangerous_patterns = [
-            "rm -rf /",
-            "rm -rf /*",
-            "rm -rf ~",
-            ":(){ :|:& };:",
-            "mkfs.",
-            "> /dev/sda",
-            "> /dev/nvme",
-            "dd if=/dev/zero of=/dev/sd",
-        ]
-        cmd_lower = command.strip().lower()
-        for pattern in dangerous_patterns:
-            if pattern in cmd_lower:
-                logger.warning(
-                    "Safety guard rejected command: pattern=%s, command=%s", pattern, command
-                )
-                return f"Error: Command rejected by safety guard: '{pattern}' is forbidden."
+        # Hardline safety gate: unconditional check against catastrophic destructive commands
+        from sago.security.approval import check_hardline_command
+
+        hardline_block = check_hardline_command(command)
+        if hardline_block:
+            logger.warning("execute_shell hardline rejection: %s", hardline_block)
+            return f"Error: {hardline_block}"
 
         # Determine working directory
         work_dir = None

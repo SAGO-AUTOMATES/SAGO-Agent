@@ -738,6 +738,12 @@ Collapsible .collapsible-body {
     height: 1;
     margin: 1 0 0 0;
 }
+.welcome-workspace-badge {
+    text-align: center;
+    width: 100%;
+    height: 1;
+    margin: 1 0 0 0;
+}
 .welcome-subtitle {
     color: #8b949e;
     text-align: center;

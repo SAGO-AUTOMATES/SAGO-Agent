@@ -8,6 +8,7 @@ from __future__ import annotations
 import ast
 import logging
 import shutil
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -62,9 +63,34 @@ class WriteFileTool(BaseTool):
         """
         path = self._expand_path(file_path)
 
+        # Write safety check for sensitive and system paths
+        from sago.security.approval import check_write_safety
+
+        blocked_reason = check_write_safety(path)
+        if blocked_reason:
+            logger.warning("Write safety rejected path '%s': %s", path, blocked_reason)
+            return f"Error: {blocked_reason}"
+
         # Create parent directories if needed
         if create_dirs:
             path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Pre-write syntax validation for structured file formats
+        ext = path.suffix.lower()
+        if ext == ".json":
+            try:
+                import json
+
+                json.loads(content)
+            except Exception as e:
+                return f"Error: Pre-write validation failed for JSON file: {e}"
+        elif ext in (".yaml", ".yml"):
+            try:
+                import yaml  # type: ignore
+
+                yaml.safe_load(content)
+            except Exception as e:
+                return f"Error: Pre-write validation failed for YAML file: {e}"
 
         # Backup existing file
         if backup and path.exists():
@@ -85,13 +111,46 @@ class WriteFileTool(BaseTool):
             except Exception as e:
                 log_error("Failed to track write change", e, context={"path": str(path)})
 
-            path.write_text(content, encoding=encoding)
+            # Atomic write: write to temporary file in same directory then rename
+            import hashlib
+            import os
+            import tempfile
+
+            temp_fd, temp_path_str = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp_sago_")
+            temp_path = Path(temp_path_str)
+            try:
+                with os.fdopen(temp_fd, "w", encoding=encoding) as f:
+                    f.write(content)
+
+                if path.exists():
+                    try:
+                        st = path.stat()
+                        os.chmod(temp_path, st.st_mode)
+                    except Exception:
+                        pass
+
+                temp_path.replace(path)
+
+                # Post-write SHA-256 integrity verification
+                written_hash = hashlib.sha256(
+                    content.encode(encoding, errors="replace")
+                ).hexdigest()
+                disk_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+                if written_hash != disk_hash:
+                    return f"Error: Post-write integrity verification mismatch for {path}"
+            except Exception as e:
+                if temp_path.exists():
+                    try:
+                        temp_path.unlink()
+                    except Exception:
+                        pass
+                raise e
+
             size = len(content)
             lines = len(content.splitlines())
             msg = f"Successfully wrote {size} bytes ({lines} lines) to {path}"
 
             # Smart: syntax validation after write for known languages
-            ext = path.suffix.lower()
             if ext == ".py":
                 try:
                     ast.parse(content, filename=str(path))
@@ -99,21 +158,9 @@ class WriteFileTool(BaseTool):
                 except SyntaxError as e:
                     msg += f" [syntax: ERROR at line {e.lineno}: {e.msg}]"
             elif ext in (".json",):
-                try:
-                    import json
-
-                    json.loads(content)
-                    msg += " [json: OK]"
-                except Exception as e:
-                    msg += f" [json: ERROR {e}]"
+                msg += " [json: OK]"
             elif ext in (".yaml", ".yml"):
-                try:
-                    import yaml  # type: ignore
-
-                    yaml.safe_load(content)
-                    msg += " [yaml: OK]"
-                except Exception:
-                    pass  # yaml not required
+                msg += " [yaml: OK]"
             return msg
         except Exception as e:
             return f"Error writing file: {e}"

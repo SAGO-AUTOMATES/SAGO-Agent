@@ -9,6 +9,7 @@ import os
 import re
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from textual import on
@@ -21,7 +22,7 @@ from textual.containers import (  # noqa: F401
     VerticalScroll,
 )
 from textual.reactive import reactive
-from textual.widgets import Button, Input, Static
+from textual.widgets import Button, Input, Static, TextArea
 
 from sago.logging_config import setup_logging
 from sago.tui.commands import CommandHandlers
@@ -91,6 +92,94 @@ from sago.utils.safe import log_exception
 logger = logging.getLogger("sago.tui.app")
 
 _time = time
+
+
+class SagoTextAreaInput(TextArea):
+    """Auto-expanding multiline text input widget for the Sago chat interface.
+    - Enter submits the prompt (unless shift/alt is held).
+    - Shift+Enter / Alt+Enter / Ctrl+J inserts a newline.
+    - Full multiline paste is supported natively with stack traces and paragraphs.
+    - Dynamic height expands from 3 to 7 lines automatically.
+    """
+
+    class Submitted(Input.Submitted):
+        def __init__(self, input: Any = None, value: str = "") -> None:
+            super().__init__(input=input, value=value)
+
+    class Changed(Input.Changed):
+        def __init__(self, input: Any = None, value: str = "") -> None:
+            # Support both Input.Changed(input, value) and TextArea.Changed(text_area)
+            if isinstance(input, str) and not value:
+                value = input
+                input = None
+            super().__init__(input=input, value=value)
+
+    def __init__(self, placeholder: str = "", **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.show_line_numbers = False
+        self.soft_wrap = True
+        self.placeholder = placeholder
+        self.styles.height = 3
+        self.styles.min_height = 3
+        self.styles.max_height = 5
+
+    @property
+    def value(self) -> str:
+        return self.text
+
+    @value.setter
+    def value(self, v: str) -> None:
+        self.load_text(v)
+        self._update_height()
+
+    @property
+    def cursor_position(self) -> int:
+        loc = self.cursor_location
+        # approximate 1D index
+        lines = self.text.split("\n")
+        return sum(len(line_str) + 1 for line_str in lines[: loc[0]]) + loc[1]
+
+    @cursor_position.setter
+    def cursor_position(self, pos: int) -> None:
+        lines = self.text.split("\n")
+        cur = 0
+        for row, line in enumerate(lines):
+            if cur + len(line) >= pos:
+                col = pos - cur
+                self.move_cursor((row, col))
+                return
+            cur += len(line) + 1
+        self.move_cursor((len(lines) - 1, len(lines[-1]) if lines else 0))
+
+    def _update_height(self) -> None:
+        line_count = max(1, self.document.line_count)
+        self.styles.height = min(5, max(3, line_count + 2))
+
+    async def _on_key(self, event) -> None:
+        if event.key == "enter":
+            event.prevent_default()
+            event.stop()
+            val = self.text
+            self.post_message(self.Submitted(input=self, value=val))
+        elif event.key in ("shift+enter", "ctrl+j", "alt+enter"):
+            event.prevent_default()
+            event.stop()
+            self.insert("\n")
+            self._update_height()
+            self.post_message(self.Changed(input=self, value=self.text))
+        else:
+            await super()._on_key(event)
+            self._update_height()
+            self.post_message(self.Changed(input=self, value=self.text))
+
+    def _on_text_area_changed(self, event) -> None:
+        """Auto-adjust box height whenever text is typed, pasted, or edited."""
+        self._update_height()
+        self.post_message(self.Changed(input=self, value=self.text))
+
+
+# Alias for backward compatibility
+MultiLinePasteInput = SagoTextAreaInput
 
 
 class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageProcessorMixin):
@@ -200,7 +289,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                     )
                     yield Vertical(id="parallel-agents")
                 with Vertical(id="input-area"):
-                    yield Input(
+                    yield MultiLinePasteInput(
                         placeholder="/, @, # for autocomplete (or type a message)", id="msg-input"
                     )
                     with Horizontal(id="input-action-bar"):
@@ -361,6 +450,16 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 )
             )
         welcome.mount(Static("AI-Powered Software Engineering Agent", classes="welcome-subtitle"))
+
+        # Display active workspace path
+        workspace_path = str(Path.cwd().resolve())
+        welcome.mount(
+            Static(
+                f"[dim]Workspace:[/] [bold cyan]{workspace_path}[/bold cyan]",
+                classes="welcome-workspace-badge",
+                markup=True,
+            )
+        )
         welcome.mount(Static("Type a message or use /help for commands", classes="welcome-hint"))
 
     def _hide_welcome_screen(self) -> None:
@@ -914,7 +1013,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                     )
                     # Update input placeholder to show queue depth
                     try:
-                        inp = self.query_one("#msg-input", Input)  # type: ignore[attr-defined]
+                        inp = self.query_one("#msg-input")
                         inp.placeholder = f"Queued {q_len} — type to add more (Enter to queue)"
                     except Exception:
                         pass
@@ -1059,12 +1158,15 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 return
 
             # Command history navigation when no suggestions visible
-            inp = self.query_one("#msg-input", Input)  # type: ignore[attr-defined]
-            if inp.cursor_position == 0 and not inp.value:  # type: ignore[attr-defined]
-                if event.key == "up":
-                    self._navigate_history("up")
-                elif event.key == "down":
-                    self._navigate_history("down")
+            try:
+                inp = self.query_one("#msg-input")
+                if getattr(inp, "cursor_position", 0) == 0 and not getattr(inp, "value", ""):
+                    if event.key == "up":
+                        self._navigate_history("up")
+                    elif event.key == "down":
+                        self._navigate_history("down")
+            except Exception:
+                pass
 
     def _move_sel(self, d: int) -> None:
         n = len(self.suggestion_values)
@@ -1076,10 +1178,10 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     def _select_current(self) -> None:
         if self.suggestion_values:
             val = self.suggestion_values[self.suggestion_index]
-            inp = self.query_one("#msg-input", Input)  # type: ignore[attr-defined]
+            inp = self.query_one("#msg-input")
             if val.startswith("/"):
-                inp.value = val + " "  # type: ignore[attr-defined]
-                inp.cursor_position = len(inp.value)  # type: ignore[attr-defined]
+                inp.value = val + " "
+                inp.cursor_position = len(inp.value)
                 if (
                     val.startswith("/model ")
                     and not val.startswith("/model add")
@@ -1129,7 +1231,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         else:
             self.history_index = min(len(self.command_history) - 1, self.history_index + 1)
         if 0 <= self.history_index < len(self.command_history):
-            self.query_one("#msg-input", Input).value = self.command_history[self.history_index]  # type: ignore[attr-defined]
+            self.query_one("#msg-input").value = self.command_history[self.history_index]
 
     # ── Message queue: serialize concurrent input while thinking ──
     def _is_control_message(self, msg: str) -> bool:
@@ -1182,7 +1284,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                     # Reset placeholder when queue empty and idle
                     if not q and not self.is_thinking:
                         try:
-                            inp = self.query_one("#msg-input", Input)  # type: ignore[attr-defined]
+                            inp = self.query_one("#msg-input")
                             inp.placeholder = "/, @, # for autocomplete (or type a message)"
                         except Exception:
                             pass
@@ -1191,7 +1293,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 remaining = len(q)
             # Update placeholder to reflect queue depth
             try:
-                inp = self.query_one("#msg-input", Input)  # type: ignore[attr-defined]
+                inp = self.query_one("#msg-input")
                 if remaining:
                     inp.placeholder = f"Queued {remaining} — will run after current task"
                 else:

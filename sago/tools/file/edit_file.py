@@ -48,6 +48,14 @@ class EditFileTool(BaseTool):
         """Edit a file using resilient replacement."""
         path = self._expand_path(file_path)
 
+        # Write safety check
+        from sago.security.approval import check_write_safety
+
+        blocked_reason = check_write_safety(path)
+        if blocked_reason:
+            logger.warning("Write safety rejected edit for path '%s': %s", path, blocked_reason)
+            return f"Error: {blocked_reason}"
+
         if not path.exists():
             return f"Error: File not found: {path}"
         if not path.is_file():

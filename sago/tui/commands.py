@@ -1764,15 +1764,25 @@ class CommandHandlers:
                                 result_str = tl.get("result") or ""
 
                                 raw_args = tl.get("arguments") or ""
+                                parsed_args: dict[str, Any] = {}
                                 if isinstance(raw_args, str):
                                     try:
-                                        parsed_args = json.loads(raw_args) if raw_args else {}
-                                    except (json.JSONDecodeError, TypeError):
-                                        parsed_args = {}
+                                        decoded = json.loads(raw_args) if raw_args else {}
+                                        if isinstance(decoded, str):
+                                            try:
+                                                decoded = json.loads(decoded)
+                                            except Exception:
+                                                pass
+                                        if isinstance(decoded, dict):
+                                            parsed_args = decoded
+                                        elif decoded:
+                                            parsed_args = {"args": decoded}
+                                    except Exception:
+                                        parsed_args = {"args": raw_args}
                                 elif isinstance(raw_args, dict):
                                     parsed_args = raw_args
-                                else:
-                                    parsed_args = {}
+                                elif raw_args:
+                                    parsed_args = {"args": raw_args}
 
                                 status_tag = (
                                     "[bold green]● OK[/bold green]"
@@ -1857,18 +1867,23 @@ class CommandHandlers:
                                             card.mount(_tb_card)
 
                                     elif item_type == "tool":
-                                        tool_w = _build_tool_widget(data)
-                                        if hasattr(card, "mount_sequential"):
-                                            try:
-                                                card.mount_sequential(tool_w)
-                                                continue
-                                            except Exception:
-                                                pass
                                         try:
-                                            body_w = card.query_one(".exchange-body")
-                                            body_w.mount(tool_w)
-                                        except Exception:
-                                            card.mount(tool_w)
+                                            tool_w = _build_tool_widget(data)
+                                            if hasattr(card, "mount_sequential"):
+                                                try:
+                                                    card.mount_sequential(tool_w)
+                                                    continue
+                                                except Exception:
+                                                    pass
+                                            try:
+                                                body_w = card.query_one(".exchange-body")
+                                                body_w.mount(tool_w)
+                                            except Exception:
+                                                card.mount(tool_w)
+                                        except Exception as tool_err:
+                                            logger.debug(
+                                                "Failed to mount resumed tool widget: %s", tool_err
+                                            )
 
                                 # Finally mount the assistant response text in the response container
                                 if turn.get("response"):

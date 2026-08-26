@@ -111,6 +111,15 @@ class BaseTool(ABC):
                     record_tool_call(self.name, duration=_span.duration, success=True)
                 except Exception as e:
                     logger.debug("Failed to record tool call success: %s", e)
+
+                # Wrap external/untrusted tool outputs to prevent prompt injection
+                try:
+                    from sago.security.untrusted_wrapper import wrap_if_untrusted
+
+                    result = wrap_if_untrusted(self.name, result)
+                except Exception as e:
+                    logger.debug("Untrusted wrapper check failed: %s", e)
+
                 return result
             except Exception:
                 try:

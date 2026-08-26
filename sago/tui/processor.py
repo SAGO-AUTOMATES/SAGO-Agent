@@ -524,6 +524,16 @@ class MessageProcessorMixin:
                     except Exception as e:
                         logger.debug("Project instructions failed: %s", e)
 
+                    try:
+                        from sago.memory.persistent_store import get_persistent_memory_store
+
+                        pms = get_persistent_memory_store()
+                        mem_snapshot = pms.get_memory_for_prompt()
+                        if mem_snapshot:
+                            system_prompt += f"\n\n{mem_snapshot}"
+                    except Exception as e:
+                        logger.debug("Persistent memory store failed: %s", e)
+
                 # TODO system
                 task_plan = None
                 current_todo_index = 0
