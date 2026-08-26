@@ -301,6 +301,12 @@ class GitOperationsTool(BaseTool):
         return cmd
 
 
+class GitOpsTool(GitOperationsTool):
+    """Alias for git_operations tool."""
+
+    name: str = "git_ops"
+
+
 def get_tool() -> type[GitOperationsTool]:
     """Get the tool class."""
     return GitOperationsTool
