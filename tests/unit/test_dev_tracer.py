@@ -117,3 +117,167 @@ def test_is_dev_mode_enabled(tmp_path, monkeypatch):
     assert is_dev_mode_enabled() is False
 
     monkeypatch.delenv("SAGO_DEV_MODE", raising=False)
+
+
+def _multi_agent_messages(now):
+    """Fake session: 2 agents with per-step thinking blocks (regression data)."""
+    return [
+        {"role": "user", "content": "Inspect and fix", "timestamp": now},
+        {
+            "role": "assistant",
+            "agent_name": "architect",
+            "content": "Plan ready.",
+            "timestamp": now + 10,
+            "metadata": {
+                "thinking_blocks": [
+                    {
+                        "seq": 1,
+                        "agent": "architect",
+                        "text": "Key finding: target dir exists and is not empty.",
+                        "timestamp": now + 5,
+                    },
+                ],
+            },
+        },
+        {
+            "role": "assistant",
+            "agent_name": "python-engineer",
+            "content": "Timed out after 300s (9 iterations completed)",
+            "timestamp": now + 400,
+            "metadata": {
+                "thinking_blocks": [
+                    {
+                        "seq": 2,
+                        "agent": "python-engineer",
+                        "text": "Reading main.py first, then patching the loop guard.",
+                        "timestamp": now + 100,
+                    },
+                ],
+            },
+        },
+    ]
+
+
+def test_export_includes_reasoning_timeline_for_all_agents(tmp_path):
+    import time as time_mod
+
+    from sago.tracking.dev_tracer import export_session_dev_artifacts
+
+    now = time_mod.time()
+    messages = _multi_agent_messages(now)
+    tool_calls = [
+        {
+            "tool": "list_directory",
+            "args": {"path": "/tmp/x"},
+            "result": "main.py",
+            "success": True,
+            "agent": "architect",
+        },
+        {
+            "tool": "read_file",
+            "args": {"file_path": "/tmp/x/main.py"},
+            "result": "X" * 9000,  # > 4000 chars
+            "success": True,
+            "agent": "python-engineer",
+        },
+    ]
+
+    artifacts = export_session_dev_artifacts(
+        session_id="timeline_sess", messages=messages, cwd=tmp_path, tool_calls=tool_calls
+    )
+    chat = (tmp_path / ".sago" / "data" / "timeline_sess" / "chat_export.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "## Reasoning Timeline" in chat
+    assert "Key finding: target dir exists" in chat
+    assert "Reading main.py first" in chat
+    assert "`@architect`" in chat
+    assert "`@python-engineer`" in chat
+    assert "**Reasoning Blocks**: 2" in chat
+    assert artifacts["chat_export"]
+
+
+def test_export_tool_usage_by_agent_and_outputs_section(tmp_path):
+    from sago.tracking.dev_tracer import export_session_dev_artifacts
+
+    tool_calls = [
+        {
+            "tool": "edit_file",
+            "args": {"file_path": "/w/src/main.py"},
+            "result": "patched",
+            "success": True,
+            "agent": "python-engineer",
+        },
+        {
+            "tool": "write_file",
+            "args": {"path": "/w/FIXES.md"},
+            "result": "written",
+            "success": True,
+            "agent": "@Python-Engineer",  # normalization check
+        },
+        {
+            "tool": "read_file",
+            "args": {"file_path": "/w/other.py"},
+            "result": "Y" * 5000,
+            "success": True,
+            "agent": "architect",
+        },
+    ]
+
+    export_session_dev_artifacts(
+        session_id="outputs_sess", messages=[{"role": "user", "content": "go"}],
+        cwd=tmp_path, tool_calls=tool_calls,
+    )
+    chat = (tmp_path / ".sago" / "data" / "outputs_sess" / "chat_export.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "## Tool Usage by Agent" in chat
+    assert "`@python-engineer` — 2 calls" in chat
+    assert "`@architect` — 1 calls" in chat
+    assert "## Outputs" in chat
+    assert "`/w/src/main.py`" in chat
+    assert "`/w/FIXES.md`" in chat
+    # read_file is NOT an output tool
+    assert "/w/other.py` — via `write_file" not in chat
+    # Result raised to 4000-char cap with truncation note
+    assert ("Y" * 4000) in chat
+    assert "truncated to first 4000 chars" in chat
+
+
+def test_export_flushes_shared_store_queues(tmp_path, monkeypatch):
+    """Pending rows queued on one store instance must be flushed by another."""
+    db_path = tmp_path / "flush.db"
+    monkeypatch.setattr("sago.database.get_db_path", lambda: db_path)
+    from sago.database import (
+        MessageStore,
+        Session,
+        ToolUsageStore,
+        _connections,
+        _pool_lock,
+        init_db,
+    )
+
+    with _pool_lock:
+        _connections.clear()
+    init_db()
+
+    s = Session("flush_sess")
+    s.create()
+    s.close()
+
+    writer_ms = MessageStore("flush_sess")
+    writer_ms.add(role="user", content="queued-not-flushed")
+    writer_tu = ToolUsageStore("flush_sess")
+    writer_tu.log(tool_name="probe_tool", agent="tester")
+
+    # Fresh instances (as the dev-artifact exporter creates) drain them
+    MessageStore("flush_sess").flush()
+    rows_ms = MessageStore("flush_sess").get_history()
+    ToolUsageStore("flush_sess").flush()
+    rows_tu = ToolUsageStore("flush_sess").get_all()
+
+    assert any(m["content"] == "queued-not-flushed" for m in rows_ms)
+    assert any(t["tool_name"] == "probe_tool" for t in rows_tu)
+    assert rows_tu[0]["agent"] == "tester"

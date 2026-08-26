@@ -35,6 +35,13 @@ logger = logging.getLogger("sago.database")
 _pool_lock = threading.Lock()
 _connections: dict[int, sqlite3.Connection] = {}
 
+# Per-session SHARED batch queues. Any store instance for a session sees the
+# same pending list, so flushing from a *new* instance (e.g. the dev-artifact
+# exporter right before app exit) also drains rows queued by other instances.
+_batch_lock = threading.Lock()
+_shared_message_pending: dict[str, list[tuple]] = {}
+_shared_tool_pending: dict[str, list[tuple]] = {}
+
 
 def _get_connection() -> sqlite3.Connection:
     """Get a thread-local database connection (pooled)."""
@@ -470,7 +477,10 @@ class MessageStore:
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
         self.conn = _get_connection()
-        self._pending: list[tuple] = []
+        with _batch_lock:
+            # Alias the shared per-session pending list so flush() from any
+            # instance persists rows queued by every instance of this session.
+            self._pending = _shared_message_pending.setdefault(session_id, [])
         self._batch_size = 50
         logger.debug("MessageStore created for session %s", session_id)
 
@@ -515,18 +525,26 @@ class MessageStore:
         return {"id": msg_id, "role": role, "content": content}
 
     def flush(self) -> None:
-        """Flush pending messages to disk."""
-        if not self._pending:
-            return
-        count = len(self._pending)
-        logger.debug("Flushing %d messages for session %s", count, self.session_id)
-        self.conn.executemany(
-            """INSERT INTO messages (id, session_id, task_id, created_at, role, agent_name, content, metadata)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            self._pending,
-        )
-        self.conn.commit()
-        self._pending.clear()
+        """Flush pending messages to disk (drains the shared per-session queue)."""
+        with _batch_lock:
+            if not self._pending:
+                return
+            count = len(self._pending)
+            logger.debug("Flushing %d messages for session %s", count, self.session_id)
+            rows = list(self._pending)
+            self._pending.clear()
+        try:
+            self.conn.executemany(
+                """INSERT INTO messages (id, session_id, task_id, created_at, role, agent_name, content, metadata)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
+            self.conn.commit()
+        except Exception:
+            # Restore rows so they are not lost (new arrivals keep their place at the tail)
+            with _batch_lock:
+                self._pending[:0] = rows
+            raise
 
     def get_history(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get message history."""
@@ -583,7 +601,9 @@ class ToolUsageStore:
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
         self.conn = _get_connection()
-        self._pending: list[tuple] = []
+        with _batch_lock:
+            # Alias the shared per-session pending list (see MessageStore)
+            self._pending = _shared_tool_pending.setdefault(session_id, [])
         self._batch_size = 20
         logger.debug("ToolUsageStore created for session %s", session_id)
 
@@ -636,20 +656,23 @@ class ToolUsageStore:
             self.flush()
 
     def flush(self) -> None:
-        """Flush pending tool usage logs to disk."""
-        if not self._pending:
-            return
-        count = len(self._pending)
+        """Flush pending tool usage logs to disk (drains the shared per-session queue)."""
+        with _batch_lock:
+            if not self._pending:
+                return
+            rows = list(self._pending)
+            self._pending.clear()
+        count = len(rows)
         logger.debug("Flushing %d tool_usage records for session %s", count, self.session_id)
 
-        def _do_insert(rows: list[tuple]) -> None:
+        def _do_insert(insert_rows: list[tuple]) -> None:
             # Handle both 9-field (legacy without agent) and 10-field (with agent) pending tuples
-            if rows and len(rows[0]) == 10:
+            if insert_rows and len(insert_rows[0]) == 10:
                 self.conn.executemany(
                     """INSERT INTO tool_usage (id, session_id, task_id, created_at, tool_name,
                        arguments, result, duration_ms, success, agent)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    rows,
+                    insert_rows,
                 )
             else:
                 # Legacy fallback: no agent column
@@ -658,18 +681,18 @@ class ToolUsageStore:
                         """INSERT INTO tool_usage (id, session_id, task_id, created_at, tool_name,
                            arguments, result, duration_ms, success, agent)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        [(*p, "") if len(p) == 9 else p for p in rows],
+                        [(*p, "") if len(p) == 9 else p for p in insert_rows],
                     )
                 except Exception:
                     self.conn.executemany(
                         """INSERT INTO tool_usage (id, session_id, task_id, created_at, tool_name,
                            arguments, result, duration_ms, success)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        [p[:9] for p in rows],
+                        [p[:9] for p in insert_rows],
                     )
 
         try:
-            _do_insert(self._pending)
+            _do_insert(rows)
         except sqlite3.IntegrityError as e:
             if "FOREIGN KEY" in str(e):
                 # Auto-create missing session for tool_usage (e.g. simple_executor dummy session)
@@ -680,21 +703,24 @@ class ToolUsageStore:
                         (self.session_id, now, now, "auto-created for tool_usage"),
                     )
                     self.conn.commit()
-                    _do_insert(self._pending)
+                    _do_insert(rows)
                 except Exception as e2:
                     logger.debug("tool_usage FK auto-create failed: %s", e2)
                     # Last resort: temporarily disable FK checks
                     try:
                         self.conn.execute("PRAGMA foreign_keys=OFF")
-                        _do_insert(self._pending)
+                        _do_insert(rows)
                         self.conn.execute("PRAGMA foreign_keys=ON")
                     except Exception as e3:
                         logger.debug("tool_usage insert failed even with FK off: %s", e3)
+                        with _batch_lock:
+                            self._pending[:0] = rows
                         raise
             else:
+                with _batch_lock:
+                    self._pending[:0] = rows
                 raise
         self.conn.commit()
-        self._pending.clear()
 
     def get_all(self) -> list[dict[str, Any]]:
         """Get all tool usage for this session."""

@@ -689,9 +689,55 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             session.close()
         except Exception as e:
             import logging
+            import time as _time
 
-            logging.getLogger("sago.tui").debug(f"Session init failed: {e}")
-            self.current_session_id = "local"
+            # Retry once — transient DB lock/migration can fail at first boot
+            logging.getLogger("sago.tui").warning(f"Session init failed, retrying: {e}")
+            try:
+                _time.sleep(0.5)
+                from sago.database import Session, init_db
+
+                init_db()
+                if self._pending_resume:
+                    return
+                session = Session()
+                result = session.create(title="TUI Session")
+                self.current_session_id = result["id"]
+                session.close()
+                logging.getLogger("sago.tui").info(
+                    f"Session created on retry: {self.current_session_id}"
+                )
+                return
+            except Exception as e2:
+                logging.getLogger("sago.tui").error(f"Session init failed twice: {e2}")
+                self.current_session_id = "local"
+
+    def _ensure_real_session(self) -> str:
+        """Lazily create a real session if current id is 'local'.
+
+        Guarantees messages/tools are never silently dropped into the
+        non-persisted 'local' bucket (which also broke /export and reload).
+        """
+        if getattr(self, "current_session_id", "local") != "local":
+            return self.current_session_id
+        try:
+            from sago.database import Session, init_db
+
+            init_db()
+            session = Session()
+            title = getattr(self, "current_session_title", "") or "TUI Session"
+            result = session.create(title=title)
+            self.current_session_id = result["id"]
+            session.close()
+            self._message_store = None
+            import logging
+
+            logging.getLogger("sago.tui").info(f"Lazily created session: {self.current_session_id}")
+        except Exception as e:
+            from sago.utils.safe import log_exception
+
+            log_exception(e, "lazy session creation")
+        return self.current_session_id
 
     @on(Input.Changed, "#msg-input")
     def on_input_changed(self, event: Input.Changed) -> None:

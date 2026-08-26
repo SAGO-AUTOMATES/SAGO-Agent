@@ -43,7 +43,16 @@ class WebSearchArgs(BaseModel):
 
 
 class _DDGHTMLParser(HTMLParser):
-    """Extract organic search results from DuckDuckGo HTML."""
+    """Extract organic search results from DuckDuckGo HTML.
+
+    Real structure (verified live, Aug 2026):
+      <h2 class="result__title"><a rel="nofollow" class="result__a" href="URL">Title</a></h2>
+      ...
+      <a class="result__snippet" href="URL">Snippet text</a>
+
+    Also supports legacy layout where snippet was inside <td> or <div>.
+    Handles class=None safely (HTMLParser returns (key, None) for empty class).
+    """
 
     def __init__(self, max_results: int = 5) -> None:
         super().__init__()
@@ -55,27 +64,52 @@ class _DDGHTMLParser(HTMLParser):
         self._in_title = False
         self._in_snippet = False
 
+    @staticmethod
+    def _classes(attrs: list[tuple[str, str | None]]) -> str:
+        for k, v in attrs:
+            if k == "class" and v:
+                return v
+        return ""
+
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attrs_dict = dict(attrs)
+        classes = self._classes(attrs)
         if tag == "a":
-            href = attrs_dict.get("href", "")
-            classes = attrs_dict.get("class", "")
-            if "result__url" in classes or "result__a" in classes or "result-link" in classes:
+            href = dict(attrs).get("href", "") or ""
+            if "result__a" in classes:
                 self._in_title = True
                 if "uddg=" in href:
                     match = re.search(r"uddg=([^&]+)", href)
                     if match:
                         href = unquote(match.group(1))
                 self._current_url = href
-        elif tag in ("td", "div") and "result__snippet" in attrs_dict.get("class", ""):
+            elif "result__snippet" in classes:
+                # Modern layout: snippet is an <a> tag
+                self._in_snippet = True
+        elif tag in ("td", "div") and "result__snippet" in classes:
+            # Legacy layout: snippet was in <td> or <div>
             self._in_snippet = True
 
     def handle_endtag(self, tag: str) -> None:
-        if tag == "a" and self._in_title:
-            self._in_title = False
-        elif self._in_snippet:
+        if tag == "a":
+            if self._in_snippet:
+                self._in_snippet = False
+                if self._current_url or self._current_title or self._current_snippet:
+                    self.results.append(
+                        {
+                            "title": self._current_title.strip() or "Result",
+                            "url": self._current_url.strip(),
+                            "snippet": self._current_snippet.strip(),
+                        }
+                    )
+                self._current_title = ""
+                self._current_url = ""
+                self._current_snippet = ""
+            elif self._in_title:
+                self._in_title = False
+        elif tag in ("td", "div") and self._in_snippet:
+            # Legacy layout: flush on closing td/div
             self._in_snippet = False
-            if self._current_url and (self._current_title or self._current_snippet):
+            if self._current_url or self._current_title or self._current_snippet:
                 self.results.append(
                     {
                         "title": self._current_title.strip() or "Result",
@@ -83,9 +117,9 @@ class _DDGHTMLParser(HTMLParser):
                         "snippet": self._current_snippet.strip(),
                     }
                 )
-                self._current_title = ""
-                self._current_url = ""
-                self._current_snippet = ""
+            self._current_title = ""
+            self._current_url = ""
+            self._current_snippet = ""
 
     def handle_data(self, data: str) -> None:
         if self._in_title:

@@ -611,6 +611,8 @@ def _merge_tool_calls_into_messages(
             "arguments": tc.get("args", tc.get("arguments", {})),
             "result": tc.get("result", ""),
             "success": tc.get("success", True),
+            # Preserve per-agent attribution so exports can group rows by agent
+            "agent": str(tc.get("agent", "") or "").strip().lstrip("@").lower(),
         }
 
         # Check for sub-agent delegation (spawn_agent tool)
@@ -637,17 +639,116 @@ def export_session_dev_artifacts(
 
     created_files: dict[str, str] = {}
 
+    # Flush batched DB writes FIRST so the export (and any later DB reads)
+    # see every persisted message/tool row. Previously pending batches were
+    # only flushed on app exit *after* export ran, losing recent turns.
+    try:
+        from sago.database import MessageStore, ToolUsageStore
+
+        MessageStore(str(session_id)).flush()
+        ToolUsageStore(str(session_id)).flush()
+    except Exception as e:
+        logger.debug("Pre-export store flush skipped/failed: %s", e)
+
+    def _norm_agent(raw: Any) -> str:
+        n = str(raw or "").strip().lstrip("@").lower()
+        return n or "sago"
+
+    def _msg_meta(msg: dict[str, Any]) -> dict[str, Any]:
+        raw_meta = msg.get("metadata")
+        if isinstance(raw_meta, str):
+            try:
+                raw_meta = json.loads(raw_meta)
+            except Exception:
+                raw_meta = {}
+        return raw_meta if isinstance(raw_meta, dict) else {}
+
     # Merge session tool calls into messages by timestamp correlation
     if tool_calls:
         _merge_tool_calls_into_messages(messages, tool_calls)
 
     # Extract distinct agents involved in session
-    agents_involved = sorted({a for a in (msg.get("agent_name") for msg in messages) if a})  # type: ignore[arg-type]
-    agents_summary = ", ".join(f"`@{a}`" for a in agents_involved) if agents_involved else "`@sago`"
+    agents_involved = sorted({_norm_agent(m.get("agent_name")) for m in messages} - {"sago"}) or [
+        "sago"
+    ]
+    agents_summary = ", ".join(f"`@{a}`" for a in agents_involved)
 
     from sago.engine.prompt_enhancer import generate_session_title
 
     session_title = generate_session_title(messages)
+
+    # ---- Collect ALL reasoning blocks across messages (per-agent, per-step) ----
+    all_blocks: list[dict[str, Any]] = []
+    for msg in messages:
+        meta = _msg_meta(msg)
+        raw_blocks = meta.get("thinking_blocks") or msg.get("thinking_blocks") or []
+        if not isinstance(raw_blocks, list):
+            continue
+        for blk in raw_blocks:
+            if isinstance(blk, dict) and str(blk.get("text") or "").strip():
+                try:
+                    blk_ts = float(blk.get("timestamp") or 0) or float(msg.get("timestamp") or 0)
+                except (TypeError, ValueError):
+                    blk_ts = float(msg.get("timestamp") or 0)
+                try:
+                    blk_seq = int(blk.get("seq") or 0)
+                except (TypeError, ValueError):
+                    blk_seq = 0
+                all_blocks.append(
+                    {
+                        "seq": blk_seq,
+                        "agent": _norm_agent(blk.get("agent") or msg.get("agent_name")),
+                        "text": str(blk.get("text")).strip(),
+                        "timestamp": blk_ts,
+                    }
+                )
+    all_blocks.sort(key=lambda b: (b["timestamp"], b["seq"]))
+
+    # ---- Build flat per-agent tool rows (args/results preserved) ----
+    RESULT_CAP = 4000  # raised from 2000 so real results survive the export
+
+    def _tc_row(tc: dict[str, Any], default_agent: str = "") -> dict[str, Any]:
+        args = tc.get("args", tc.get("arguments", {}))
+        if isinstance(args, str):
+            try:
+                args = json.loads(args) if args.strip() else {}
+            except Exception:
+                args = {"raw": args}
+        if not isinstance(args, dict):
+            args = {"raw": str(args)}
+        return {
+            "tool": str(tc.get("name") or tc.get("tool_name") or tc.get("tool") or "unknown"),
+            "args": args,
+            "result": str(tc.get("result", "") or ""),
+            "success": bool(tc.get("success", True)),
+            "agent": _norm_agent(tc.get("agent") or tc.get("agent_name") or default_agent),
+        }
+
+    tool_rows: list[dict[str, Any]] = [_tc_row(tc) for tc in (tool_calls or [])]
+    if not tool_rows:
+        for msg in messages:
+            default_agent = _norm_agent(msg.get("agent_name"))
+            for tc in msg.get("tool_calls", []) or []:
+                if isinstance(tc, dict):
+                    tool_rows.append(_tc_row(tc, default_agent))
+
+    # ---- Files created/modified (write_file / edit_file / multi_replace_file) ----
+    OUTPUT_TOOLS = {"write_file", "edit_file", "multi_replace_file"}
+    outputs: list[dict[str, Any]] = []
+    seen_out_paths: set[str] = set()
+    for row in tool_rows:
+        if row["tool"] in OUTPUT_TOOLS:
+            fp = str(row["args"].get("file_path") or row["args"].get("path") or "").strip()
+            if fp and fp not in seen_out_paths:
+                seen_out_paths.add(fp)
+                outputs.append(
+                    {
+                        "path": fp,
+                        "tool": row["tool"],
+                        "agent": row["agent"],
+                        "success": row["success"],
+                    }
+                )
 
     # 1. Generate rich chat_export.md
     chat_file = data_dir / "chat_export.md"
@@ -658,6 +759,8 @@ def export_session_dev_artifacts(
         f"- **Export Timestamp**: {time.strftime('%Y-%m-%d %H:%M:%S')}",
         f"- **Total Messages**: {len(messages)}",
         f"- **Engaged Agents**: {agents_summary}",
+        f"- **Reasoning Blocks**: {len(all_blocks)} (see Reasoning Timeline below)",
+        f"- **Tool Calls**: {len(tool_rows)} (see Tool Usage by Agent below)",
         "",
         "---",
         "",
@@ -713,15 +816,21 @@ def export_session_dev_artifacts(
                 tc_args = tc.get("arguments", tc.get("args", {}))
                 tc_result = tc.get("result", "")
                 tc_success = tc.get("success", True)
+                tc_agent = _norm_agent(tc.get("agent") or msg.get("agent_name"))
                 status = "✅" if tc_success else "❌"
-                chat_lines.append(f"#### {status} `{tc_name}`")
+                chat_lines.append(f"#### {status} `{tc_name}` — `@{tc_agent}`")
                 if tc_args:
                     args_str = (
                         json.dumps(tc_args, indent=2) if isinstance(tc_args, dict) else str(tc_args)
                     )
                     chat_lines.append(f"**Arguments:**\n```json\n{args_str}\n```")
                 if tc_result:
-                    chat_lines.append(f"**Result:**\n```\n{tc_result[:2000]}\n```")
+                    chat_lines.append(f"**Result:**\n```\n{tc_result[:RESULT_CAP]}\n```")
+                    if len(str(tc_result)) > RESULT_CAP:
+                        chat_lines.append(
+                            f"_Note: result truncated to first {RESULT_CAP} chars "
+                            f"(full length: {len(str(tc_result))})._"
+                        )
                 chat_lines.append("")
             chat_lines.append("</details>\n")
 
@@ -808,12 +917,7 @@ def export_session_dev_artifacts(
                 chat_lines.append("\n\n</details>\n")
 
         # Also surface model/agent metadata if present
-        _meta_for_info = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
-        if isinstance(msg.get("metadata"), str):
-            try:
-                _meta_for_info = json.loads(msg["metadata"])
-            except Exception:
-                _meta_for_info = {}
+        _meta_for_info = _msg_meta(msg)
         _model_info = _meta_for_info.get("model") or msg.get("model") or ""
         if _model_info:
             chat_lines.append(f"- **Model**: `{_model_info}`")
@@ -824,6 +928,76 @@ def export_session_dev_artifacts(
 
         chat_lines.append(body)
         chat_lines.append("\n\n---\n")
+
+    # ---- Reasoning Timeline: EVERY thinking block, seq order, agent + timestamp ----
+    chat_lines.append("## Reasoning Timeline\n")
+    chat_lines.append(
+        f"_Complete per-agent, per-step reasoning ({len(all_blocks)} blocks), "
+        "in execution order — nothing omitted._\n"
+    )
+    if not all_blocks:
+        chat_lines.append("_No thinking/reasoning blocks were recorded for this session._\n")
+    else:
+        for i, blk in enumerate(all_blocks, 1):
+            blk_ts = blk["timestamp"]
+            time_str = time.strftime("%H:%M:%S", time.localtime(blk_ts)) if blk_ts else "--:--:--"
+            chat_lines.append(f"### #{i} `@{blk['agent']}` — step {blk['seq']} — {time_str}\n")
+            chat_lines.append(blk["text"])
+            chat_lines.append("\n\n---\n")
+
+    # ---- Tool Usage by Agent: full args/results per call ----
+    chat_lines.append("## Tool Usage by Agent\n")
+    if not tool_rows:
+        chat_lines.append("_No tool usage recorded for this session._\n")
+    else:
+        grouped_agents: list[str] = []
+        rows_by_agent: dict[str, list[dict[str, Any]]] = {}
+        for row in tool_rows:
+            ag = row["agent"]
+            if ag not in rows_by_agent:
+                rows_by_agent[ag] = []
+                grouped_agents.append(ag)
+            rows_by_agent[ag].append(row)
+        for ag in grouped_agents:
+            rows = rows_by_agent[ag]
+            n_ok = sum(1 for r in rows if r["success"])
+            chat_lines.append(
+                f"### `@{ag}` — {len(rows)} calls ({n_ok} ok, {len(rows) - n_ok} failed)\n"
+            )
+            for i, row in enumerate(rows, 1):
+                status = "✅" if row["success"] else "❌"
+                chat_lines.append(f"#### {status} `{row['tool']}` (call {i}/{len(rows)})\n")
+                args_str = json.dumps(row["args"], indent=2, default=str)
+                chat_lines.append(f"**Arguments:**\n```json\n{args_str}\n```\n")
+                res = row["result"]
+                if res:
+                    chat_lines.append("**Result:**\n```text\n" + res[:RESULT_CAP] + "\n```")
+                    if len(res) > RESULT_CAP:
+                        chat_lines.append(
+                            f"\n_Note: result truncated to first {RESULT_CAP} chars "
+                            f"(full length: {len(res)})._\n"
+                        )
+                    else:
+                        chat_lines.append("")
+                else:
+                    chat_lines.append("_Result: (empty)_\n")
+
+    # ---- Outputs: files created/modified via write/edit tools ----
+    chat_lines.append("## Outputs\n")
+    chat_lines.append(
+        "_Files created/modified during the session (from write_file / edit_file / "
+        "multi_replace_file tool arguments)._\n"
+    )
+    if not outputs:
+        chat_lines.append("_No files were written or edited via file tools._\n")
+    else:
+        for out in outputs:
+            status = "✅" if out["success"] else "❌"
+            chat_lines.append(
+                f"- {status} `{out['path']}` — via `{out['tool']}` by `@{out['agent']}`"
+            )
+        chat_lines.append("")
+    chat_lines.append("\n---\n")
 
     chat_file.write_text("\n".join(chat_lines), encoding="utf-8")
     created_files["chat_export"] = str(chat_file.resolve())

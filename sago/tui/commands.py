@@ -1787,12 +1787,20 @@ class CommandHandlers:
 
     def _exit_session(self: SagoApp) -> None:
         """Save session and exit, or auto-delete if no human messages exist."""
-        # Flush any pending messages
+        # Flush any pending batched DB writes (messages + tool usage) so the
+        # dev artifacts export below sees complete data
         if hasattr(self, "_message_store") and self._message_store:
             try:
                 self._message_store.flush()
             except Exception as e:
                 log_exception(e, "flush message store on exit")
+        try:
+            from sago.database import ToolUsageStore
+
+            if self.current_session_id and self.current_session_id != "local":
+                ToolUsageStore(self.current_session_id).flush()
+        except Exception as e:
+            log_exception(e, "flush tool usage store on exit")
 
         # Safety net: persist all settings to disk before exit
         try:
@@ -1925,6 +1933,13 @@ class CommandHandlers:
                 self._message_store.flush()
             except Exception as e:
                 log_exception(e, "flush message store on detach")
+        try:
+            from sago.database import ToolUsageStore
+
+            if self.current_session_id and self.current_session_id != "local":
+                ToolUsageStore(self.current_session_id).flush()
+        except Exception as e:
+            log_exception(e, "flush tool usage store on detach")
         from sago.engine.prompt_enhancer import generate_session_title
 
         current_title = getattr(self, "current_session_title", "")

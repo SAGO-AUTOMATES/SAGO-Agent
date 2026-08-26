@@ -473,6 +473,12 @@ class UIHelpers:
 
     def _add_user_message(self: SagoApp, content: str) -> None:
         self._hide_welcome_screen()
+        # Never let messages land in the non-persisted "local" bucket —
+        # lazily create a real session so /export, reload and DB all work.
+        try:
+            self._ensure_real_session()
+        except Exception as e:
+            log_exception(e, "ensure real session on user message")
         self.messages.append({"role": "user", "content": content})
         self._save_message("user", content)
 
@@ -715,7 +721,9 @@ class UIHelpers:
         # Merge caller-provided meta (string) as well
         if meta:
             _meta["meta_str"] = meta
-        self._save_message("assistant", content, metadata=_meta)
+        # Pass explicit agent_name through so delegated turns persist under
+        # the right agent (not whatever current_agent happens to be).
+        self._save_message("assistant", content, metadata=_meta, agent_name=agent_name)
 
         target_card = getattr(self, "_active_exchange_card", None)
 
@@ -1484,6 +1492,50 @@ class UIHelpers:
         else:
             container.display = True
 
+        # ── Persist delegated step BEFORE UI work so exports/reload always
+        # capture every agent turn (previously this path never saved to the
+        # DB or self.messages, so chat_export.md showed only orchestrator
+        # turns while architect/python-engineer reasoning was lost).
+        try:
+            import time as _time_mod
+
+            buf = getattr(self, "_current_thinking_buffer", [])
+            if not isinstance(buf, list):
+                buf = []
+            consumed = getattr(self, "_orchestration_consumed_thinking", 0)
+            if not isinstance(consumed, int) or consumed > len(buf):
+                consumed = 0
+            new_blocks = [dict(b) for b in buf[consumed:] if isinstance(b, dict) and b.get("text")]
+            self._orchestration_consumed_thinking = len(buf)
+            joined_thinking = "\n\n".join(str(b.get("text", "")) for b in new_blocks).strip()
+            _step_meta: dict[str, Any] = {
+                "thinking_blocks": new_blocks,
+                "thinking": joined_thinking,
+                "model": getattr(self, "current_model", ""),
+                "agent": agent_name,
+                "orchestration_step": step_num,
+                "orchestration_steps_total": total_steps,
+                "task": task,
+                "tools_used": list(tools_used or []),
+                "success": success,
+                "elapsed_s": elapsed,
+            }
+            # In-memory copy: export_session_dev_artifacts reads self.messages
+            self.messages.append(
+                {
+                    "role": "assistant",
+                    "content": result,
+                    "agent_name": agent_name,
+                    "timestamp": _time_mod.time(),
+                    "thinking": joined_thinking,
+                    "thinking_blocks": new_blocks,
+                    "metadata": _step_meta,
+                }
+            )
+            self._save_message("assistant", result, metadata=_step_meta, agent_name=agent_name)
+        except Exception as e:
+            log_exception(e, "persist orchestration step message")
+
         try:
             # Mount header
             container.mount(Static(header, classes="msg-assistant agent-tag", markup=True))
@@ -1956,7 +2008,13 @@ class UIHelpers:
         if info.elapsed > 0:
             entry.mount(Static(f"  {info.elapsed:.1f}s", classes="agent-tools", markup=False))
 
-    def _save_message(self: SagoApp, role: str, content: str, metadata: dict | None = None) -> None:
+    def _save_message(
+        self: SagoApp,
+        role: str,
+        content: str,
+        metadata: dict | None = None,
+        agent_name: str = "",
+    ) -> None:
         # Skip saving during session load
         if getattr(self, "_loading_session", False):
             return
@@ -1966,10 +2024,14 @@ class UIHelpers:
 
                 if not hasattr(self, "_message_store") or self._message_store is None:
                     self._message_store = MessageStore(self.current_session_id)
+                # Explicit agent_name wins over current_agent so delegated
+                # turns (e.g. @python-engineer via orchestrator) are not
+                # mis-attributed to @sago-orchestrator in the DB/exports.
+                effective_agent = agent_name or self.current_agent
                 self._message_store.add(
                     role=role,
                     content=content,
-                    agent_name=self.current_agent,
+                    agent_name=effective_agent,
                     metadata=metadata,
                 )
                 self._message_store.flush()

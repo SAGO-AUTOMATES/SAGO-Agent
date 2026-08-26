@@ -53,6 +53,15 @@ DDG_HTML = """
 </body></html>
 """
 
+DDG_HTML_MODERN = """
+<html><body>
+<h2 class="result__title">
+  <a rel="nofollow" class="result__a" href="https://html.duckduckgo.com/l/?uddg=https%3A%2F%2Fmodern.example.com">Modern Result</a>
+</h2>
+<a class="result__snippet" href="https://modern.example.com">This is the modern snippet.</a>
+</body></html>
+"""
+
 
 def test_web_search_returns_real_results():
     from sago.tools.web.search import WebSearchTool
@@ -66,6 +75,18 @@ def test_web_search_returns_real_results():
     assert "A helpful snippet" in res
 
 
+def test_web_search_returns_modern_results():
+    from sago.tools.web.search import WebSearchTool
+
+    fake = _make_fake_httpx(DDG_HTML_MODERN)
+    with patch("httpx.Client", fake):
+        res = WebSearchTool().run(query="modern python", max_results=5)
+    assert isinstance(res, str)
+    assert "Modern Result" in res
+    assert "modern.example.com" in res
+    assert "modern snippet" in res
+
+
 def test_web_search_snippet_parser_ignores_dead_a_branch():
     from sago.tools.web.search import _DDGHTMLParser
 
@@ -75,6 +96,17 @@ def test_web_search_snippet_parser_ignores_dead_a_branch():
     assert parser.results[0]["title"] == "Real Title"
     assert parser.results[0]["url"] == "https://real.example.com"
     assert "helpful snippet" in parser.results[0]["snippet"]
+
+
+def test_web_search_snippet_parser_modern():
+    from sago.tools.web.search import _DDGHTMLParser
+
+    parser = _DDGHTMLParser(max_results=5)
+    parser.feed(DDG_HTML_MODERN)
+    assert len(parser.results) == 1
+    assert parser.results[0]["title"] == "Modern Result"
+    assert "modern.example.com" in parser.results[0]["url"]
+    assert "modern snippet" in parser.results[0]["snippet"]
 
 
 # ---------------------------------------------------------------------------
