@@ -37,6 +37,19 @@ def resolve_active_llm_config(
 
     # 1. Resolve Provider
     resolved_provider = normalize_provider(provider)
+    if not resolved_provider and model:
+        m_lower = model.lower()
+        if m_lower.startswith("gemini"):
+            resolved_provider = "google"
+        elif m_lower.startswith("claude"):
+            resolved_provider = "anthropic"
+        elif m_lower.startswith("ollama"):
+            resolved_provider = "ollama"
+        elif m_lower.startswith("openrouter") or "/" in model:
+            resolved_provider = "openrouter"
+        elif any(m_lower.startswith(pfx) for pfx in ("gpt-", "o1", "o3", "o4", "chatgpt")):
+            resolved_provider = "openai"
+
     if not resolved_provider:
         resolved_provider = normalize_provider(
             os.environ.get("SAGO_PROVIDER") or load_setting("provider")

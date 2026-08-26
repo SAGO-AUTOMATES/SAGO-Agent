@@ -579,16 +579,18 @@ Collapsible .collapsible-body {
 }
 
 #input-action-bar {
-    height: 1;
+    height: auto;
+    max-height: 2;
     margin: 1 0 0 0;
     overflow-x: auto;
+    overflow-y: hidden;
 }
 .hide-action-bar #input-action-bar {
     display: none;
 }
 .btn-input-action {
     height: 1;
-    min-width: 10;
+    min-width: 6;
     border: none;
     background: #161b22;
     color: #8b949e;

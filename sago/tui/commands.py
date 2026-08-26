@@ -1243,16 +1243,82 @@ class CommandHandlers:
         container.mount(Collapsible(Static(body), title="Token Usage", collapsed=True))
 
     def _compact(self: SagoApp) -> None:
-        if len(self.messages) < 5:
-            self._add_system_message("Not enough messages to compact")
+        """Compact conversation history and update TUI cards."""
+        if len(self.messages) < 3:
+            self._add_system_message("Not enough messages to compact (minimum 3 required)")
             return
-        # Keep first and last 2 messages, summarize middle
-        first = self.messages[:2]
-        last = self.messages[-2:]
-        middle = self.messages[2:-2]
-        summary = f"[{len(middle)} messages compacted]"
-        self.messages = first + [{"role": "system", "content": summary}] + last
-        self._add_system_message(f"Compacted {len(middle)} messages")
+
+        try:
+            from sago.memory.compaction import SessionCompactor
+
+            compactor = SessionCompactor(max_context_tokens=1000)
+            compacted = compactor.compact_messages(self.messages, preserve_recent=2)
+
+            orig_count = len(self.messages)
+            # Keep first turn if available and last 2 messages
+            first = self.messages[:1]
+            last = self.messages[-2:]
+            middle_count = max(0, orig_count - len(first) - len(last))
+
+            summary_text = (
+                f"📋 **Compacted Context Summary ({middle_count} messages condensed):**\n"
+                f"{compacted.summary}"
+            )
+            if compacted.key_points:
+                summary_text += "\n\n**Key Points:**\n" + "\n".join(
+                    f"- {kp}" for kp in compacted.key_points[:5]
+                )
+            if compacted.decisions:
+                summary_text += "\n\n**Decisions:**\n" + "\n".join(
+                    f"- {d}" for d in compacted.decisions[:3]
+                )
+
+            summary_msg = {"role": "system", "content": summary_text}
+            self.messages = first + [summary_msg] + last
+
+            # Update database if active session exists
+            if getattr(self, "current_session_id", None) and self.current_session_id != "local":
+                try:
+                    from sago.database import MessageStore
+
+                    ms = MessageStore(self.current_session_id)
+                    ms.add_message(
+                        role="system",
+                        content=summary_text,
+                        agent_name="system",
+                        metadata={"type": "compaction_summary", "compacted_count": middle_count},
+                    )
+                    ms.flush()
+                    ms.close()
+                except Exception as e:
+                    logger.debug("Failed to persist compaction message to DB: %s", e)
+
+            # Collapse older rendered exchange cards in UI to keep UI responsive
+            try:
+                container = self.query_one("#messages")
+                exchange_cards = [c for c in container.children if c.has_class("exchange-box")]
+                # Collapse all but the last exchange card
+                for card in exchange_cards[:-1]:
+                    if hasattr(card, "is_turn_collapsed") and not card.is_turn_collapsed:
+                        card.toggle_collapse()
+            except Exception as e:
+                logger.debug("Failed to auto-collapse cards during compaction: %s", e)
+
+            from rich.markdown import Markdown as RichMarkdown
+
+            compaction_card = Collapsible(
+                Static(RichMarkdown(summary_text), classes="markdown-body msg-system"),
+                title=f"⚡ Session Compacted ({middle_count} messages condensed)",
+                collapsed=False,
+            )
+            container = self.query_one("#messages")
+            container.mount(compaction_card)
+            self._add_system_message(
+                f"✓ Session compacted: {orig_count} messages reduced to {len(self.messages)}."
+            )
+            self._smart_scroll_end(animate=False)
+        except Exception as err:
+            self._add_system_message(f"Compaction failed: {err}")
 
     def _retry_last(self: SagoApp) -> None:
         if self.messages:
@@ -1374,6 +1440,21 @@ class CommandHandlers:
                     except Exception as e:
                         log_exception(e, "load tool usage data for session")
 
+                    # Hydrate DevTracer from saved trace.json if present
+                    try:
+                        from sago.tracking.dev_tracer import get_dev_tracer
+
+                        tracer = get_dev_tracer()
+                        loaded_traces = tracer.load_session_traces(actual_sid)
+                        if loaded_traces:
+                            logger.debug(
+                                "Hydrated %d trace events from session %s",
+                                loaded_traces,
+                                actual_sid,
+                            )
+                    except Exception as e:
+                        logger.debug("Trace hydration failed for %s: %s", actual_sid, e)
+
                     self._add_system_message(
                         f"Loaded session {actual_sid[:8]} ({len(history)} messages)"
                     )
@@ -1391,20 +1472,39 @@ class CommandHandlers:
 
                         container = self.query_one("#messages")
 
-                        # Phase 1: Mount all user cards first, collect assistant
-                        # responses to mount after compose() has run on each card
+                        # Group history and tools per turn
+                        # We will associate each turn card with its intermediate thinking blocks,
+                        # tool calls, and final assistant response in chronological order.
                         current_card = None
-                        deferred_responses: list[tuple] = []
-                        # Track (timestamp, card) pairs for matching tool usage to cards
-                        message_cards: list[tuple[str, object]] = []
+                        # Structure per turn: {card, user_time, items: [('thinking', block), ('tool', tl)], response: (display_content, agent_name)}
+                        turns_data: list[dict[str, Any]] = []
+
+                        # Pre-sort tool logs chronologically
+                        def _parse_ts(val: Any) -> float:
+                            if not val:
+                                return 0.0
+                            if isinstance(val, (int, float)):
+                                return float(val)
+                            try:
+                                from datetime import datetime
+
+                                return datetime.fromisoformat(str(val)).timestamp()
+                            except Exception:
+                                return 0.0
+
+                        sorted_tools = sorted(
+                            tool_logs,
+                            key=lambda t: _parse_ts(t.get("created_at") or t.get("timestamp")),
+                        )
 
                         for msg in history:
                             role = msg["role"]
                             content = msg["content"]
                             agent_name = msg.get("agent_name") or "sago"
                             created_at = msg.get("created_at", "")
+                            msg_ts = _parse_ts(created_at)
 
-                            # Parse metadata for enhancement data
+                            # Parse metadata
                             msg_metadata = {}
                             raw_meta = msg.get("metadata")
                             if raw_meta:
@@ -1422,19 +1522,23 @@ class CommandHandlers:
                                 container.mount(turn_card)
                                 current_card = turn_card
                                 self._active_exchange_card = turn_card
-                                if created_at:
-                                    message_cards.append((created_at, turn_card))
+
+                                current_turn = {
+                                    "card": turn_card,
+                                    "user_ts": msg_ts,
+                                    "items": [],
+                                    "response": None,
+                                }
+                                turns_data.append(current_turn)
 
                                 user_msg_dict = {
                                     "role": "user",
                                     "content": content,
                                     "agent_name": agent_name,
                                 }
-                                # Restore enhancement data if present
                                 enhancement_data = msg_metadata.get("enhancement")
                                 if enhancement_data:
                                     user_msg_dict["enhancement"] = enhancement_data
-                                    # Show the enhancement card on the turn
                                     try:
                                         from sago.engine.prompt_enhancer import (
                                             PromptEnhancementResult,
@@ -1457,7 +1561,6 @@ class CommandHandlers:
                                             improvements=enhancement_data.get("improvements", []),
                                             was_modified=enhancement_data.get("was_modified", True),
                                         )
-                                        # Mount enhancement card into the turn
                                         from sago.tui.helpers import UIHelpers
 
                                         UIHelpers._add_prompt_enhancement_card(self, enhancement)
@@ -1467,26 +1570,21 @@ class CommandHandlers:
                                 self.messages.append(user_msg_dict)
 
                             elif role == "assistant":
-                                # Extract thinking blocks — supports per-agent, per-step distinction
                                 thinking_match = re.search(
                                     r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>",
                                     content,
                                     re.DOTALL,
                                 )
                                 display_content = content
-                                # Collect thinking blocks in order: persisted metadata blocks take precedence
                                 thinking_blocks: list[dict] = []
-                                # First check persisted thinking_blocks (new per-agent list)
                                 meta_blocks = msg_metadata.get("thinking_blocks")
                                 if isinstance(meta_blocks, list) and meta_blocks:
-                                    # Sort by seq for deterministic order
                                     try:
                                         thinking_blocks = sorted(
                                             meta_blocks, key=lambda b: int(b.get("seq", 0) or 0)
                                         )
                                     except Exception:
                                         thinking_blocks = list(meta_blocks)
-                                    # Also build legacy concatenated string for message thinking field
                                     try:
                                         thinking_html = "\n\n".join(
                                             str(b.get("text", "") or "").strip()
@@ -1495,7 +1593,6 @@ class CommandHandlers:
                                         )
                                     except Exception:
                                         thinking_html = ""
-                                    # Ensure display_content stripped of tags even when using blocks
                                     if thinking_match:
                                         display_content = re.sub(
                                             r"<(?:thinking|thought)>.*?</(?:thinking|thought)>",
@@ -1504,7 +1601,6 @@ class CommandHandlers:
                                             flags=re.DOTALL,
                                         ).strip()
                                 else:
-                                    # Legacy: single thinking string or inline tag
                                     thinking_html = ""
                                     if thinking_match:
                                         thinking_content = thinking_match.group(1).strip()
@@ -1533,22 +1629,17 @@ class CommandHandlers:
                                                 "seq": 1,
                                                 "agent": agent_name or "sago",
                                                 "text": thinking_html,
-                                                "timestamp": 0,
+                                                "timestamp": msg_ts,
                                             }
                                         ]
 
-                                # Defer mounting until after compose() has run
-                                deferred_responses.append(
-                                    (
-                                        current_card,
-                                        thinking_blocks,
-                                        display_content,
-                                        agent_name,
-                                    )
-                                )
-
-                                if created_at:
-                                    message_cards.append((created_at, current_card))
+                                # Assign thinking blocks to current turn
+                                target_turn = turns_data[-1] if turns_data else None
+                                if target_turn is not None:
+                                    for tb in thinking_blocks:
+                                        tb_ts = _parse_ts(tb.get("timestamp")) or msg_ts
+                                        target_turn["items"].append(("thinking", tb_ts, tb))
+                                    target_turn["response"] = (display_content, agent_name)
 
                                 self.messages.append(
                                     {
@@ -1560,9 +1651,20 @@ class CommandHandlers:
                                     }
                                 )
 
-                        # Phase 2: Mount all deferred responses after compose() has run
-                        # on all cards (call_after_refresh ensures the DOM is ready)
-                        last_card = current_card  # capture for closure
+                        # Correlate tool calls into the appropriate turn
+                        for tl in sorted_tools:
+                            t_ts = _parse_ts(tl.get("created_at") or tl.get("timestamp"))
+                            target_turn = None
+                            for turn in reversed(turns_data):
+                                if turn["user_ts"] <= t_ts:
+                                    target_turn = turn
+                                    break
+                            if target_turn is None and turns_data:
+                                target_turn = turns_data[-1]
+                            if target_turn is not None:
+                                target_turn["items"].append(("tool", t_ts, tl))
+
+                        last_card = current_card
 
                         def _mount_deferred() -> None:
                             def _build_tool_widget(tl: dict) -> Collapsible:
@@ -1623,153 +1725,84 @@ class CommandHandlers:
                                     collapsed=True,
                                 )
 
-                            # PHASE A: Mount tool usage cards FIRST (above response text)
-                            if tool_logs and message_cards:
-                                sorted_cards = sorted(message_cards, key=lambda x: x[0])
-
-                                for tl in tool_logs:
-                                    tool_time = tl.get("created_at", "")
-                                    if not tool_time:
-                                        continue
-
-                                    target_card = None
-                                    for msg_time, card in reversed(sorted_cards):
-                                        if msg_time <= tool_time:
-                                            target_card = card
-                                            break
-
-                                    if target_card is None:
-                                        target_card = last_card
-
-                                    if target_card is None:
-                                        continue
-
-                                    tool_widget = _build_tool_widget(tl)
-                                    try:
-                                        body_widget = target_card.query_one(".exchange-body")
-                                        try:
-                                            resp = target_card.query_one(".exchange-response")
-                                            body_widget.mount(tool_widget, before=resp)
-                                        except Exception:
-                                            body_widget.mount(tool_widget)
-                                    except Exception:
-                                        try:
-                                            resp = target_card.query_one(".exchange-response")
-                                            try:
-                                                first_child = (
-                                                    resp.children[0] if resp.children else None
-                                                )
-                                                if first_child is not None:
-                                                    resp.mount(tool_widget, before=first_child)
-                                                else:
-                                                    resp.mount(tool_widget)
-                                            except Exception:
-                                                resp.mount(tool_widget)
-                                        except Exception as e:
-                                            log_exception(e, "mount tool call during session load")
-                            elif tool_logs:
-                                if last_card is not None:
-                                    for tl in tool_logs[-20:]:
-                                        tool_widget = _build_tool_widget(tl)
-                                        try:
-                                            body_widget = last_card.query_one(".exchange-body")
-                                            try:
-                                                resp = last_card.query_one(".exchange-response")
-                                                body_widget.mount(tool_widget, before=resp)
-                                            except Exception:
-                                                body_widget.mount(tool_widget)
-                                        except Exception as e:
-                                            log_exception(
-                                                e, "mount tool call during session load fallback"
-                                            )
-
-                            # PHASE B: Mount text content AFTER tool calls — per-agent, per-step thinking in order
-                            for (
-                                card,
-                                thinking_blocks,
-                                display_content,
-                                agent_name,
-                            ) in deferred_responses:
+                            for turn in turns_data:
+                                card = turn["card"]
                                 if card is None:
                                     continue
-                                try:
-                                    resp = card.query_one(".exchange-response")
-                                except Exception:
-                                    resp = None
-                                target = resp if resp is not None else card
 
-                                if thinking_blocks:
-                                    # Ensure sorted by seq
-                                    try:
-                                        _sorted_blocks = sorted(
-                                            thinking_blocks, key=lambda b: int(b.get("seq", 0) or 0)
-                                        )
-                                    except Exception:
-                                        _sorted_blocks = thinking_blocks
-                                    for _tb in _sorted_blocks:
-                                        _t_text = (_tb.get("text") or "").strip()
+                                # Sort all items in this turn chronologically (or by seq for equal ts)
+                                sorted_items = sorted(
+                                    turn["items"],
+                                    key=lambda it: (
+                                        it[1],
+                                        int(it[2].get("seq", 0)) if it[0] == "thinking" else 0,
+                                    ),
+                                )
+
+                                for item_type, _, data in sorted_items:
+                                    if item_type == "thinking":
+                                        _t_text = (data.get("text") or "").strip()
                                         if not _t_text:
                                             continue
-                                        _t_agent = (
-                                            _tb.get("agent") or agent_name or "sago"
-                                        ).strip()
+                                        _t_agent = (data.get("agent") or "sago").strip()
                                         _t_title = (
                                             f"● {_t_agent} — Technical Reasoning"
                                             if _t_agent
                                             else "● Technical Reasoning & Analysis"
                                         )
-                                        # For sequential reconstruction, mount before response if inside ExchangeTurnCard body
-                                        # But deferred target is response container; we mount there preserving order.
-                                        # To keep thinking interleaved before tools when possible, try body mount.
-                                        try:
-                                            # If target is response container, try mount before it via body if available
-                                            if card is not None and hasattr(
-                                                card, "mount_sequential"
-                                            ):
-                                                # Create card-like widget for sequential mount
-                                                _tb_card = Collapsible(
-                                                    Static(
-                                                        _t_text,
-                                                        classes="thinking-text",
-                                                        markup=False,
-                                                    ),
-                                                    title=_t_title,
-                                                    collapsed=True,
-                                                )
-                                                # Use sequential mount if card is ExchangeTurnCard
-                                                try:
-                                                    card.mount_sequential(_tb_card)  # type: ignore
-                                                    continue
-                                                except Exception:
-                                                    pass
-                                        except Exception:
-                                            pass
-                                        target.mount(
-                                            Collapsible(
-                                                Static(
-                                                    _t_text, classes="thinking-text", markup=False
-                                                ),
-                                                title=_t_title,
-                                                collapsed=True,
-                                            )
+                                        _tb_card = Collapsible(
+                                            Static(_t_text, classes="thinking-text", markup=False),
+                                            title=_t_title,
+                                            collapsed=True,
                                         )
+                                        if hasattr(card, "mount_sequential"):
+                                            try:
+                                                card.mount_sequential(_tb_card)
+                                                continue
+                                            except Exception:
+                                                pass
+                                        try:
+                                            body_w = card.query_one(".exchange-body")
+                                            body_w.mount(_tb_card)
+                                        except Exception:
+                                            card.mount(_tb_card)
 
-                                color = get_agent_color(agent_name)
-                                target.mount(
-                                    Static(
-                                        f"[{color}][{agent_name.upper()}][/{color}]",
-                                        classes="exchange-assistant agent-tag",
-                                        markup=True,
-                                    )
-                                )
-                                target.mount(
-                                    Static(
-                                        RichMarkdown(display_content),
-                                        classes="exchange-assistant markdown-body",
-                                    )
-                                )
+                                    elif item_type == "tool":
+                                        tool_w = _build_tool_widget(data)
+                                        if hasattr(card, "mount_sequential"):
+                                            try:
+                                                card.mount_sequential(tool_w)
+                                                continue
+                                            except Exception:
+                                                pass
+                                        try:
+                                            body_w = card.query_one(".exchange-body")
+                                            body_w.mount(tool_w)
+                                        except Exception:
+                                            card.mount(tool_w)
 
-                            # Set active exchange card so new messages attach here
+                                # Finally mount the assistant response text in the response container
+                                if turn.get("response"):
+                                    display_content, agent_name = turn["response"]
+                                    try:
+                                        resp = card.query_one(".exchange-response")
+                                    except Exception:
+                                        resp = card
+                                    color = get_agent_color(agent_name)
+                                    resp.mount(
+                                        Static(
+                                            f"[{color}][{agent_name.upper()}][/{color}]",
+                                            classes="exchange-assistant agent-tag",
+                                            markup=True,
+                                        )
+                                    )
+                                    resp.mount(
+                                        Static(
+                                            RichMarkdown(display_content),
+                                            classes="exchange-assistant markdown-body",
+                                        )
+                                    )
+
                             if last_card is not None:
                                 self._active_exchange_card = last_card
 

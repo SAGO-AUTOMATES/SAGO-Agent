@@ -82,6 +82,60 @@ class DevTracer:
         with self._lock:
             self._enabled = enabled
 
+    def clear(self) -> None:
+        """Clear all stored trace events."""
+        with self._lock:
+            self._events.clear()
+
+    def load_events(self, raw_events: list[dict[str, Any]]) -> int:
+        """Hydrate in-memory trace events from a list of dicts (e.g. from trace.json)."""
+        loaded = 0
+        with self._lock:
+            for item in raw_events:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    et_str = item.get("event_type", "LOG_EVENT")
+                    try:
+                        et = TraceEventType(et_str)
+                    except Exception:
+                        et = TraceEventType.LOG_EVENT
+                    event = DevTraceEvent(
+                        timestamp=float(item.get("timestamp", time.time())),
+                        event_type=et,
+                        source=str(item.get("source", "system")),
+                        action=str(item.get("action", "")),
+                        data=item.get("data") if isinstance(item.get("data"), dict) else {},
+                        duration_ms=float(item.get("duration_ms", 0.0)),
+                        status=str(item.get("status", "OK")),
+                    )
+                    self._events.append(event)
+                    loaded += 1
+                except Exception as exc:
+                    logger.debug("Failed to parse trace event: %s", exc)
+        return loaded
+
+    def load_session_traces(self, session_id: str, cwd: str | Path | None = None) -> int:
+        """Load and hydrate traces from .sago/data/<session_id>/trace.json if available."""
+        project_root = Path(cwd) if cwd else Path.cwd()
+        trace_json = project_root / ".sago" / "data" / session_id / "trace.json"
+        if not trace_json.exists():
+            return 0
+        try:
+            raw_text = trace_json.read_text(encoding="utf-8")
+            data = json.loads(raw_text)
+            events = (
+                data.get("events")
+                if isinstance(data, dict)
+                else (data if isinstance(data, list) else [])
+            )
+            if events:
+                self.clear()
+                return self.load_events(events)
+        except Exception as err:
+            logger.debug("Error loading session traces for %s: %s", session_id, err)
+        return 0
+
     def add_listener(self, listener: Callable[[DevTraceEvent], None]) -> None:
         with self._lock:
             if listener not in self._listeners:
@@ -286,10 +340,6 @@ class DevTracer:
         return self.record(
             TraceEventType.LLM_THINKING, source, f"THINKING ({thinking_type})", data=data
         )
-
-    def clear(self) -> None:
-        with self._lock:
-            self._events.clear()
 
     def _generate_mermaid_graph(self, events: list[DevTraceEvent]) -> str:
         """Generate a Mermaid flowchart representing the interaction graph."""
