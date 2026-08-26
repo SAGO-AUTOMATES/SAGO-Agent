@@ -244,7 +244,51 @@ class DevTracer:
     def record_thinking(
         self, source: str, model: str, thinking_content: str, thinking_type: str = "reasoning"
     ) -> DevTraceEvent:
-        """Record LLM thinking/reasoning content separately for deep analysis."""
+        """Record LLM thinking/reasoning — consolidated per turn (1 block per message).
+
+        Previously each LLM iteration created a new Block, so a 12-step loop
+        showed 12 thinking blocks in the Inspector. User expects 1 per user
+        message/loop. Now we coalesce: if the last event is LLM_THINKING
+        from same model/source within the same turn window, we append to it
+        instead of creating a new Block. TUI card already dedupes via
+        helpers._add_thinking_card per ExchangeTurnCard.
+        """
+        # Coalesce into single block per turn — avoids 12 thinking for 12 LLM
+        try:
+            with self._lock:
+                if self._events:
+                    last = self._events[-1]
+                    if (
+                        last.event_type == TraceEventType.LLM_THINKING
+                        and last.source == source
+                        and last.data.get("model") == model
+                        and last.data.get("thinking_type") == thinking_type
+                    ):
+                        # Same turn window (e.g. within 90s) and not huge yet
+                        age = time.time() - last.timestamp
+                        if age < 90 and last.data.get("thinking_length", 0) < 15000:
+                            # Append with separator, dedupe if already contained
+                            existing = last.data.get("thinking", "") or ""
+                            new_part = thinking_content.strip() if thinking_content else ""
+                            if new_part and new_part not in existing:
+                                combined = (
+                                    (existing + "\n\n" + new_part).strip() if existing else new_part
+                                )
+                                last.data["thinking"] = combined[:20000]
+                                last.data["thinking_truncated"] = len(combined) > 20000
+                                last.data["thinking_length"] = len(combined)
+                                last.timestamp = time.time()
+                                # Notify listeners of update (reuse same event)
+                                listeners = list(self._listeners)
+                                if self._enabled:
+                                    for cb in listeners:
+                                        try:
+                                            cb(last)
+                                        except Exception as e:
+                                            logger.debug("Trace listener error: %s", e)
+                                return last
+        except Exception:
+            pass
         data = {
             "model": model,
             "thinking": thinking_content[:20000] if thinking_content else "",
