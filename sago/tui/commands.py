@@ -1816,6 +1816,7 @@ class CommandHandlers:
                                     display_content, agent_name = turn["response"]
                                     try:
                                         resp = card.query_one(".exchange-response")
+                                        resp.display = True
                                     except Exception:
                                         resp = card
                                     color = get_agent_color(agent_name)
@@ -3775,26 +3776,29 @@ class CommandHandlers:
                 self._add_system_message(f"No semantic code matches found for: '{args}'")
                 return
 
+            from rich.markup import escape as _esc
+
             lines = [
-                f"[bold cyan]═══ HYBRID SEMANTIC SEARCH RESULTS for '{args}' ═══[/bold cyan]\n"
+                f"[bold cyan]═══ HYBRID SEMANTIC SEARCH RESULTS for '{_esc(args)}' ═══[/bold cyan]\n"
             ]
             for i, r in enumerate(results, 1):
                 chunk = r.chunk
                 title = f"{chunk.file_path}:{chunk.start_line}-{chunk.end_line}"
                 if chunk.name:
                     title += f" ({chunk.chunk_type} {chunk.name})"
+                preview_content = chunk.content[:400].replace("\n", "\n  ")
                 lines.append(
-                    f"[bold yellow]#{i} {title}[/bold yellow] "
+                    f"[bold yellow]#{i} {_esc(title)}[/bold yellow] "
                     f"[dim](Score: {r.combined_score:.2f} | BM25: {r.bm25_score:.2f} | Vec: {r.semantic_score:.2f})[/dim]\n"
-                    f"```{chunk.language}\n{chunk.content[:400]}\n```\n"
+                    f"  [white]{_esc(preview_content)}[/white]\n"
                 )
 
             container = self.query_one("#messages")
             container.mount(
                 create_collapsible(
-                    Static("\n".join(lines)),
+                    Static("\n".join(lines), markup=True),
                     title=f"Search: {args.strip()[:30]} ({len(results)} matches)",
-                    collapsed=True,
+                    collapsed=False,
                 )
             )
             container.scroll_end()
