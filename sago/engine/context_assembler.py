@@ -384,8 +384,39 @@ class ContextAssembler:
                     else:
                         break
                 ctx.known_fixes = budget_fixes
+            # Also load repo-level learning.json directly as fallback (ensures read_file→glob pattern)
+            try:
+                import json as _json
+                from pathlib import Path as _Path
+
+                repo_fallback = _Path(__file__).parent / "memory" / "learning.json"
+                # Try both sago/memory and sago/engine/../memory
+                alt_fallback = _Path(__file__).parent.parent / "memory" / "learning.json"
+                for fb_path in (repo_fallback, alt_fallback):
+                    if fb_path.exists():
+                        fb_data = _json.loads(fb_path.read_text())
+                        for ek, ev in (fb_data.get("error_fixes") or {}).items():
+                            ev_str = ev.get("fix") if isinstance(ev, dict) else str(ev)
+                            if (
+                                ev_str
+                                and ev_str not in ctx.known_fixes
+                                and token_budget.consume(ev_str)
+                            ):
+                                ctx.known_fixes.append(ev_str)
+                        break
+            except Exception:
+                pass
         except Exception as e:
             log_error("ContextAssembler: Learning store query failed", e)
+        # Ensure directory hint for analyze even if learning store empty (tiny codebase learner)
+        if task_type == "analyze":
+            dir_hint = "read_file on directory → use glob_files (pattern='**/*', path='<dir>') to list files, then read_file/code_analyzer individual files. Do NOT retry read_file on same directory."
+            if dir_hint not in ctx.known_fixes:
+                if token_budget.consume(dir_hint):
+                    ctx.known_fixes.append(dir_hint)
+            tiny_approach = "For tiny codebases (≤5 files): glob_files first to list files → code_analyzer on each file → summarize. Cap 15 tools, no spawn_agent, no endless execute_shell probes."
+            if not ctx.learning_approach and token_budget.consume(tiny_approach):
+                ctx.learning_approach = tiny_approach
 
         # 6. Past Sessions History from SQLite Database
         try:

@@ -886,6 +886,82 @@ def _detect_task_type(task: str) -> str:
         return "create"
 
 
+def _detect_file_count(task: str, cwd: str | None = None) -> int | None:
+    """Quick probe: count files for paths mentioned in task (glob_files first)."""
+    import re as _re
+    from pathlib import Path as _Path
+
+    candidates: list[str] = []
+    # Extract quoted or plain absolute paths like /tmp/sago_sample_test
+    for m in _re.finditer(r"(?:\"|')?(/[\w\-/\.]+)(?:\"|')?", task):
+        p = m.group(1).rstrip(".,;:")
+        if len(p) > 4 and _Path(p).exists():
+            candidates.append(p)
+    # Also try cwd-adjacent relative hint if cwd is a valid dir
+    if cwd and _Path(cwd).is_dir():
+        candidates.append(cwd)
+    _skip_parts = {
+        ".git",
+        ".sago",
+        "__pycache__",
+        ".ruff_cache",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".venv",
+        "venv",
+        "node_modules",
+        "env",
+    }
+    _skip_suffixes = {".pyc", ".pyo", ".bak", ".orig"}
+    best: int | None = None
+    for cand in candidates:
+        try:
+            p = _Path(cand)
+            if p.is_file():
+                return 1
+            if p.is_dir():
+                # Count files recursively, capped at 50, ignore caches/hidden/backup
+                count = 0
+                for sub in p.rglob("*"):
+                    if not sub.is_file():
+                        continue
+                    if any(part in _skip_parts for part in sub.parts):
+                        continue
+                    if any(part.startswith(".") and part not in (".", "..") for part in sub.parts):
+                        # Skip hidden dirs like .ruff_cache already, but also hidden files
+                        if sub.name.startswith("."):
+                            continue
+                    if sub.suffix.lower() in _skip_suffixes:
+                        continue
+                    if sub.suffix.lower() == ".md":
+                        continue
+                    if sub.name in ("package-lock.json", "package.json"):
+                        # Config/lock files often inflate count but not relevant for tiny-code analyze
+                        continue
+                    # Skip top-level export artifacts like 0ba...md when they are not code
+                    # Keep code-relevant files: .py, .js, .ts, .html, .css, .json (but not package-lock)
+                    # For tiny probe, count all non-skip files; the extra filter below keeps count low
+                    count += 1
+                    if count > 50:
+                        break
+                return count
+        except Exception:
+            continue
+        if best is None and candidates:
+            best = None
+    # Fallback: try glob_files tool via direct filesystem if no abs path found
+    # e.g. task says "analyze /tmp/sago_sample_test"
+    return best
+
+
+def _is_simple_analyze(task_type: str, file_count: int | None) -> bool:
+    """True for tiny analyze tasks that must be capped (≤5 files, spec also ≤10)."""
+    return task_type == "analyze" and file_count is not None and file_count <= 5
+
+
+_SIMPLE_ANALYZE_CAPS = {"max_tool_calls": 15, "max_iterations": 8, "max_tokens": 8000}
+
+
 def _load_agent_profile(agent_name: str) -> dict[str, Any] | None:
     """Load agent profile metadata if available."""
     try:
@@ -1933,6 +2009,19 @@ def execute_agent_task(
 
     # Assemble rich tri-partite context (AST symbols, hybrid search, learning patterns, previous sessions)
     task_type = _detect_task_type(task)
+    # --- Simple analyze caps: tiny codebases (≤5 files) must be ≤15 tools / 8 iter / 8k tokens ---
+    _file_count_probe = _detect_file_count(task, cwd)
+    _is_simple_analyze_flag = _is_simple_analyze(task_type, _file_count_probe)
+    if _is_simple_analyze_flag:
+        # Cap budgets per spec (file_count <=5 → 15 tool calls, 8 iterations, 8k tokens)
+        max_iterations = min(max_iterations, _SIMPLE_ANALYZE_CAPS["max_iterations"])
+        max_tokens = min(max_tokens, _SIMPLE_ANALYZE_CAPS["max_tokens"])
+        logger.info(
+            "Simple analyze detected (file_count=%s) — capping max_iterations=%s max_tokens=%s",
+            _file_count_probe,
+            max_iterations,
+            max_tokens,
+        )
     try:
         from sago.engine.context_assembler import get_context_assembler
 
@@ -2020,6 +2109,10 @@ def execute_agent_task(
             agent_tools = {t: tools[t] for t in profile["tools"] if t in tools}
             if agent_tools:
                 tools = agent_tools
+        # Simple analyze: disable sub-agent spawning (no spawn_agent for ≤5 files)
+        if _is_simple_analyze_flag and "spawn_agent" in tools:
+            tools.pop("spawn_agent", None)
+            logger.info("Simple analyze — removed spawn_agent from toolset")
 
     # Auto-detect task type and use appropriate prompt
     if not system_prompt:
@@ -2029,6 +2122,16 @@ def execute_agent_task(
             project_ctx="",  # Context goes in user message
         )
 
+    # ── Simple analyze tight prompt: require glob_files first, cap budget ──
+    if _is_simple_analyze_flag:
+        system_prompt += (
+            "\n\n=== SIMPLE ANALYZE MODE (≤5 files) ===\n"
+            "BUDGET: max 15 tool calls total, max 8 iterations. You MUST finish within budget.\n"
+            "WORKFLOW: glob_files FIRST to list files → code_analyzer on each file → summarize. Do NOT probe with read_file on directories or repeated execute_shell.\n"
+            "TOOL RULE: If read_file fails with 'Not a file: is a directory', IMMEDIATELY use glob_files instead. Do NOT retry read_file on same path.\n"
+            "EARLY EXIT: If glob_files shows ≤5 files and code_analyzer succeeds on all of them, STOP and summarize — do not keep looping with execute_shell probes.\n"
+            "NO SPAWN: Do NOT use spawn_agent or delegate to sub-agents for this tiny codebase.\n"
+        )
     # ── Always-on reasoning: append calibrated protocol even for chat/query ──
     # Previously lightweight tasks skipped heavy reasoning and produced shallow
     # answers. This ensures every turn does a brief think + self-realization
@@ -2075,9 +2178,15 @@ def execute_agent_task(
                     "edit_file",
                     "execute_shell",
                     "grep_content",
+                    "glob_files",
+                    "ast_grep",
+                    "code_analyzer",
                 }
                 filtered.update({t: tools[t] for t in core_tools if t in tools})
                 tools = filtered
+        # Ensure spawn_agent stripped for simple analyze even after skill filtering
+        if _is_simple_analyze_flag and "spawn_agent" in tools:
+            tools.pop("spawn_agent", None)
 
     # Inject system-level enhancements (learning approach, known fixes, project instructions)
     if assembled and _needs_heavy_context:
@@ -2124,11 +2233,27 @@ def execute_agent_task(
     todo_tool_counts: dict[str, int] = {}  # track tools per todo
 
     # Initialize single ToolUsageStore instance for task lifecycle
+    # Use real session_id when available so per-agent grouping works (fixes summary bug)
     tool_usage_store = None
     try:
         from sago.database import ToolUsageStore
 
-        tool_usage_store = ToolUsageStore("simple_executor")
+        _tus_sid = (
+            session_id
+            if session_id and session_id not in ("default", "simple_executor")
+            else "simple_executor"
+        )
+        # Ensure session row exists for FK (simple_executor is dummy)
+        try:
+            from sago.database import Session as _Session
+
+            _s = _Session(_tus_sid)
+            if not _s.get():
+                _s.create(title="simple_executor auto")
+                _s.close()
+        except Exception:
+            pass
+        tool_usage_store = ToolUsageStore(_tus_sid)
     except Exception as e:
         log_exception(e, "Failed to initialize ToolUsageStore")
         tool_usage_store = None
@@ -2307,6 +2432,15 @@ def execute_agent_task(
             )
             if on_thinking:
                 on_thinking(f"Timed out after {wall_timeout:.0f}s ({i} iterations completed)")
+            break
+
+        # --- Simple analyze hard budget: stop if 15 tool calls already made ---
+        if _is_simple_analyze_flag and len(tool_history) >= _SIMPLE_ANALYZE_CAPS["max_tool_calls"]:
+            logger.warning(
+                "Simple analyze hard cap: %d tool calls reached, forcing exit at iteration %d",
+                len(tool_history),
+                i,
+            )
             break
 
         # --- OPT-IN observability (no-op unless a trace was started) ---
@@ -3408,6 +3542,20 @@ def execute_agent_task(
             is_error = result_str.lower().startswith("error") or "traceback" in result_str.lower()
             if is_error:
                 failed_calls.add(call_key)
+            # --- Simple analyze: directory hint (read_file on dir → glob_files) ---
+            if is_error and name in ("read_file", "code_analyzer"):
+                low = result_str.lower()
+                if "not a file" in low or "is a directory" in low:
+                    hint = "\n[HINT] read_file on directory → use glob_files (pattern='**/*', path='<dir>') to list files, then read_file/code_analyzer individual files. Do NOT retry read_file on same directory."
+                    result_str += hint
+                    # Surface as thinking so UI shows learning
+                    if on_thinking:
+                        try:
+                            on_thinking(
+                                "Hint: read_file failed on directory — use glob_files instead"
+                            )
+                        except Exception:
+                            pass
             logger.debug("Tool result: %s, success=%s, len=%d", name, not is_error, len(result_str))
 
             if name in ("write_file", "edit_file", "file_operations") and not is_error:
@@ -3475,6 +3623,7 @@ def execute_agent_task(
                         arguments=args,
                         result=result_str[:1000],
                         success=not is_error,
+                        agent=agent_role,
                     )
                 except Exception as e:
                     log_exception(e, "Failed to log tool usage to store")
@@ -3533,6 +3682,51 @@ def execute_agent_task(
             else:
                 messages.append(_exec_single_tool(tc))
                 i += 1
+
+        # --- Simple analyze caps & early exit (tiny codebase guard) ---
+        if _is_simple_analyze_flag:
+            # Hard cap 15 tool calls for simple analyze (spec)
+            if len(tool_history) >= _SIMPLE_ANALYZE_CAPS["max_tool_calls"]:
+                logger.info(
+                    "Simple analyze tool budget exhausted (%d calls) — forcing summary",
+                    len(tool_history),
+                )
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "TOOL BUDGET EXHAUSTED (15 calls for simple analyze). Summarize now with file list (glob_files) and code_analyzer results. Do NOT call more tools.",
+                    }
+                )
+            else:
+                # Early exit: glob_files succeeded and code_analyzer covered all files → stop probing
+                glob_success = [
+                    c for c in tool_history if c["tool"] == "glob_files" and c["success"]
+                ]
+                analyzer_success = [
+                    c for c in tool_history if c["tool"] == "code_analyzer" and c["success"]
+                ]
+                if glob_success and analyzer_success:
+                    expected = _file_count_probe or 3
+                    # If we have analyzer successes covering expected file count, nudge to summarize
+                    if len(analyzer_success) >= min(expected, 3) and len(analyzer_success) >= 2:
+                        # Avoid repeated nudge — only once
+                        already_nudged = any(
+                            "early exit" in str(m.get("content", "")).lower()
+                            or "fully analyzed via glob_files" in str(m.get("content", ""))
+                            for m in messages[-3:]
+                        )
+                        if not already_nudged:
+                            logger.info(
+                                "Simple analyze early exit: %d files via glob, %d analyzer successes",
+                                expected,
+                                len(analyzer_success),
+                            )
+                            messages.append(
+                                {
+                                    "role": "user",
+                                    "content": "Early exit: tiny codebase fully covered via glob_files + code_analyzer. Summarize now — do NOT run further execute_shell probes.",
+                                }
+                            )
 
         # Update task plan progress based on actual work done
         if task_plan:

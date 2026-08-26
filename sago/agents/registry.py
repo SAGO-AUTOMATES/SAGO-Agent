@@ -192,7 +192,70 @@ def _load_plugin_agents() -> None:
         logger.debug("Plugin system not available: %s", e)
 
 
+# ---------------------------------------------------------------------------
+# Ensure core AST/tools coverage for all agents (fix endless probes)
+# Every agent — especially architect — must have glob/grep/ast/code/read/shell
+# ---------------------------------------------------------------------------
+_REQUIRED_CORE_TOOLS: list[str] = [
+    "glob_files",
+    "grep_content",
+    "ast_grep",
+    "code_analyzer",
+    "read_file",
+    "execute_shell",
+]
+
+
+def _ensure_required_tools() -> None:
+    """Inject missing core tools into every loaded agent profile.
+
+    Architect and many design-category agents historically lacked
+    glob_files/grep_content/execute_shell, causing the 11x read_file-on-directory
+    + 27x execute_shell probe loop seen in 9aa83042-860 (3 files → 45 tools).
+    This patch runs once at import time and again on reload_agents().
+    """
+    for agent in AGENTS.values():
+        for tool in _REQUIRED_CORE_TOOLS:
+            if tool not in agent.tools:
+                agent.tools.append(tool)
+
+
+_ensure_required_tools()
 _load_plugin_agents()
+# Re-apply after plugins (plugin agents may also lack core tools)
+_ensure_required_tools()
+
+
+def is_spawn_allowed(task_type: str, file_count: int | None) -> bool:
+    """Return False for simple analyze on tiny codebases — no sub-agent spawning.
+
+    For task_type == 'analyze' and file_count <= 5 (or <=10 per spec),
+    spawning sub-agents creates 2× overhead (chain → architect → python-engineer)
+    and endless probe loops. Callers (simple_executor, orchestrator) should
+    check this before using spawn_agent and fall back to direct tool calls.
+    """
+    if task_type == "analyze" and file_count is not None and file_count <= 5:
+        return False
+    if task_type == "analyze" and file_count is not None and file_count <= 10:
+        # Conservative gate: still disallow spawn for <=10 files per spec
+        return False
+    return True
+
+
+def get_effective_tools(
+    agent_name: str,
+    task_type: str | None = None,
+    file_count: int | None = None,
+) -> list[str]:
+    """Get filtered tool list for an agent, stripping spawn_agent when gated."""
+    agent = get_agent(agent_name)
+    if not agent:
+        return []
+    tools = list(agent.tools)
+    if task_type and not is_spawn_allowed(task_type, file_count):
+        if "spawn_agent" in tools:
+            tools.remove("spawn_agent")
+    return tools
 
 
 AGENT_ALIASES: dict[str, str] = {
@@ -284,6 +347,9 @@ def reload_agents() -> None:
     logger.info("Reloading all agent profiles")
     AGENTS.clear()
     _load_profiles()
+    _ensure_required_tools()
+    _load_plugin_agents()
+    _ensure_required_tools()
 
 
 def resolve_specialist_agent(

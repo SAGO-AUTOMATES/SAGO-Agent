@@ -14,7 +14,12 @@ from typing import Any
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, ScrollableContainer, Vertical
+from textual.containers import (  # noqa: F401
+    Horizontal,
+    ScrollableContainer,
+    Vertical,
+    VerticalScroll,
+)
 from textual.reactive import reactive
 from textual.widgets import Button, Input, Static
 
@@ -112,6 +117,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         Binding("shift+down", "scroll_page_down", "Scroll Down", show=False),
         Binding("ctrl+home", "scroll_home", "Top", show=False),
         Binding("ctrl+end", "scroll_end", "Bottom", show=False),
+        Binding("end", "scroll_end", "Bottom", show=False),
     ]
 
     TITLE = "Sago"
@@ -165,6 +171,9 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         with Horizontal(id="main-layout"):
             with Vertical(id="messages-parent"):
                 yield ScrollableContainer(id="messages")
+                yield Static(
+                    "↧ New messages (press End)", id="new-messages-badge", classes="hidden"
+                )
                 yield Vertical(id="welcome-screen")
                 yield Vertical(id="suggestions")
                 with Vertical(id="approval-bar"):
@@ -273,6 +282,54 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         else:
             self.remove_class("hide-action-bar")
         self._save_settings()
+
+    def is_scrolled_to_bottom(self, threshold: int = 100) -> bool:
+        """Check if #messages is within threshold px of bottom via VerticalScroll scroll_y + virtual_size + size.height."""
+        try:
+            container = self.query_one("#messages")
+            scroll_y = getattr(container, "scroll_y", 0)
+            virtual_size = getattr(container, "virtual_size", None)
+            size = getattr(container, "size", None)
+            if virtual_size is None or size is None:
+                return True
+            v_h = virtual_size.height if hasattr(virtual_size, "height") else 0
+            s_h = size.height if hasattr(size, "height") else 0
+            if v_h == 0 or s_h == 0:
+                return True
+            return (v_h - s_h - scroll_y) <= threshold
+        except Exception:
+            return True
+
+    def _show_new_messages_badge(self) -> None:
+        try:
+            badge = self.query_one("#new-messages-badge", Static)
+            badge.remove_class("hidden")
+            badge.add_class("visible")
+        except Exception:
+            pass
+
+    def _hide_new_messages_badge(self) -> None:
+        try:
+            badge = self.query_one("#new-messages-badge", Static)
+            badge.add_class("hidden")
+            badge.remove_class("visible")
+        except Exception:
+            pass
+
+    def _smart_scroll_end(self, animate: bool = False) -> None:
+        """Only auto-scroll if already at bottom; otherwise show badge."""
+        try:
+            if self.is_scrolled_to_bottom():
+                self.query_one("#messages").scroll_end(animate=animate)
+                self._hide_new_messages_badge()
+            else:
+                self._show_new_messages_badge()
+        except Exception as e:
+            log_exception(e, "smart scroll failed")
+            try:
+                self.query_one("#messages").scroll_end(animate=animate)
+            except Exception:
+                pass
 
     def _populate_welcome_screen(self) -> None:
         """Populate the welcome screen with SAGO logo and info."""
@@ -712,7 +769,11 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                         ),
                         before=container.children[0] if container.children else None,
                     )
-                container.scroll_end(animate=False)
+                if self.is_scrolled_to_bottom():
+                    container.scroll_end(animate=False)
+                    self._hide_new_messages_badge()
+                else:
+                    self._show_new_messages_badge()
         except Exception as e:
             logger.debug("TUI compaction failed: %s", e)
 
@@ -900,7 +961,11 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                         collapsed=False,
                     )
                 )
-                container.scroll_end(animate=False)
+                if self.is_scrolled_to_bottom():
+                    container.scroll_end(animate=False)
+                    self._hide_new_messages_badge()
+                else:
+                    self._show_new_messages_badge()
 
             self.call_from_thread(_mount)
 
@@ -933,8 +998,18 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 event.prevent_default()
                 try:
                     self.query_one("#messages").scroll_page_down(animate=False)
+                    if self.is_scrolled_to_bottom():
+                        self._hide_new_messages_badge()
                 except Exception as e:
                     log_exception(e, "Failed to scroll page down via keyboard")
+                return
+            elif event.key in ("end", "ctrl+end"):
+                event.prevent_default()
+                try:
+                    self.query_one("#messages").scroll_end(animate=False)
+                    self._hide_new_messages_badge()
+                except Exception as e:
+                    log_exception(e, "Failed to scroll to end via keyboard")
                 return
 
             # Command history navigation when no suggestions visible
@@ -1104,6 +1179,11 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
     def on_mouse_scroll_down(self, event) -> None:
         self.query_one("#messages").scroll_down()
+        try:
+            if self.is_scrolled_to_bottom():
+                self._hide_new_messages_badge()
+        except Exception:
+            pass
 
     def on_mouse_scroll_up(self, event) -> None:
         self.query_one("#messages").scroll_up()
@@ -1577,7 +1657,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             target_card.mount(s)
         else:
             self.query_one("#messages").mount(s)
-        self.query_one("#messages").scroll_end(animate=False)
+        self._smart_scroll_end(animate=False)
         self._spinner = s
         self._spinner_timer = self.set_interval(0.2, self._advance_spinner)
 
@@ -1717,6 +1797,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         """Scroll message viewport page down."""
         try:
             self.query_one("#messages").scroll_page_down(animate=True)
+            if self.is_scrolled_to_bottom():
+                self._hide_new_messages_badge()
         except Exception as e:
             log_exception(e, "Failed to scroll page down")
 
@@ -1731,6 +1813,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         """Scroll message viewport line down."""
         try:
             self.query_one("#messages").scroll_down(animate=False)
+            if self.is_scrolled_to_bottom():
+                self._hide_new_messages_badge()
         except Exception as e:
             log_exception(e, "Failed to scroll line down")
 
@@ -1742,9 +1826,10 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             log_exception(e, "Failed to scroll to home")
 
     def action_scroll_end(self) -> None:
-        """Scroll message viewport to bottom."""
+        """Scroll message viewport to bottom and hide badge (End key)."""
         try:
             self.query_one("#messages").scroll_end(animate=True)
+            self._hide_new_messages_badge()
         except Exception as e:
             log_exception(e, "Failed to scroll to end")
 

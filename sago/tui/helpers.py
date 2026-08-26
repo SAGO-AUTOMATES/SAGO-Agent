@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from rich.markup import escape
 from rich.syntax import Syntax
 from textual import events, on
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll  # noqa: F401
 from textual.widgets import Button, Collapsible, Static
 
 from sago.tui.widgets import AgentStatus, get_agent_color
@@ -423,6 +423,54 @@ def _summarize_tool_result(result: str) -> str:
 class UIHelpers:
     """Mixin class providing UI helper methods for SagoApp."""
 
+    def is_scrolled_to_bottom(self: SagoApp, threshold: int = 100) -> bool:  # noqa: D401
+        """Check if #messages is within threshold px of bottom via VerticalScroll scroll_y + virtual_size + size.height."""
+        try:
+            container = self.query_one("#messages")
+            scroll_y = getattr(container, "scroll_y", 0)
+            virtual_size = getattr(container, "virtual_size", None)
+            size = getattr(container, "size", None)
+            if virtual_size is None or size is None:
+                return True
+            v_h = virtual_size.height if hasattr(virtual_size, "height") else 0
+            s_h = size.height if hasattr(size, "height") else 0
+            if v_h == 0 or s_h == 0:
+                return True
+            return (v_h - s_h - scroll_y) <= threshold
+        except Exception:
+            return True
+
+    def _show_new_messages_badge(self: SagoApp) -> None:
+        try:
+            badge = self.query_one("#new-messages-badge", Static)
+            badge.remove_class("hidden")
+            badge.add_class("visible")
+        except Exception:
+            pass
+
+    def _hide_new_messages_badge(self: SagoApp) -> None:
+        try:
+            badge = self.query_one("#new-messages-badge", Static)
+            badge.add_class("hidden")
+            badge.remove_class("visible")
+        except Exception:
+            pass
+
+    def _smart_scroll_end(self: SagoApp, animate: bool = False) -> None:
+        """Only auto-scroll if already at bottom; otherwise show badge."""
+        try:
+            if self.is_scrolled_to_bottom():
+                self.query_one("#messages").scroll_end(animate=animate)
+                self._hide_new_messages_badge()
+            else:
+                self._show_new_messages_badge()
+        except Exception as e:
+            log_exception(e, "smart scroll failed")
+            try:
+                self.query_one("#messages").scroll_end(animate=animate)
+            except Exception:
+                pass
+
     def _add_user_message(self: SagoApp, content: str) -> None:
         self._hide_welcome_screen()
         self.messages.append({"role": "user", "content": content})
@@ -448,7 +496,11 @@ class UIHelpers:
         self._active_exchange_card = turn_card
         msg_container = self.query_one("#messages")
         msg_container.mount(turn_card)
-        msg_container.scroll_end(animate=False)
+        if self.is_scrolled_to_bottom():
+            msg_container.scroll_end(animate=False)
+            self._hide_new_messages_badge()
+        else:
+            self._show_new_messages_badge()
 
     def _update_last_user_message_metadata(self: SagoApp, metadata: dict) -> None:
         """Update the last user message's metadata in the database."""
@@ -491,7 +543,11 @@ class UIHelpers:
         self._active_exchange_card = turn_card
         msg_container = self.query_one("#messages")
         msg_container.mount(turn_card)
-        msg_container.scroll_end(animate=False)
+        if self.is_scrolled_to_bottom():
+            msg_container.scroll_end(animate=False)
+            self._hide_new_messages_badge()
+        else:
+            self._show_new_messages_badge()
 
     def _add_prompt_enhancement_card(self: SagoApp, enhancement: Any) -> None:
         """Display clean collapsible Prompt Enhancement section directly inside active exchange turn."""
@@ -556,7 +612,7 @@ class UIHelpers:
             target_card.mount(card)
         else:
             self.query_one("#messages").mount(card)
-        self.query_one("#messages").scroll_end(animate=False)
+        self._smart_scroll_end(animate=False)
 
     def _add_assistant_message(
         self: SagoApp, content: str, meta: str = "", agent_name: str = ""
@@ -901,7 +957,7 @@ class UIHelpers:
 
         # Turn finished -> clear active exchange card
         self._active_exchange_card = None
-        self.query_one("#messages").scroll_end(animate=False)
+        self._smart_scroll_end(animate=False)
 
     def _add_thinking_card(self: SagoApp, reasoning_text: str, agent_name: str = "") -> None:
         """Add a distinct technical reasoning card per-agent, per-step in order.
@@ -1005,7 +1061,7 @@ class UIHelpers:
 
         if target_card is None:
             self.query_one("#messages").mount(card)
-            self.query_one("#messages").scroll_end(animate=False)
+            self._smart_scroll_end(animate=False)
             return
 
         # Track in card's list for reload/debug (multiple cards, not single)
@@ -1037,7 +1093,7 @@ class UIHelpers:
                 target_card.mount(card)
             except Exception:
                 self.query_one("#messages").mount(card)
-        self.query_one("#messages").scroll_end(animate=False)
+        self._smart_scroll_end(animate=False)
 
     def _add_plan_card(self: SagoApp, plan_text: str, step_count: int = 0) -> None:
         """Add a dedicated collapsible plan card inside active turn box."""
@@ -1060,7 +1116,7 @@ class UIHelpers:
             target_card.mount(card)
         else:
             self.query_one("#messages").mount(card)
-        self.query_one("#messages").scroll_end(animate=False)
+        self._smart_scroll_end(animate=False)
 
     def _update_plan_progress(
         self: SagoApp, plan: Any, completed_idx: int, status: str = "completed"
@@ -1132,7 +1188,7 @@ class UIHelpers:
                     classes="msg-system",
                 )
             )
-            self.query_one("#messages").scroll_end(animate=False)
+            self._smart_scroll_end(animate=False)
         except Exception as e:
             log_exception(e, "mount system message")
 
@@ -1154,7 +1210,7 @@ class UIHelpers:
         else:
             # No active card — render as a standalone system notice
             self.query_one("#messages").mount(widget)
-        self.query_one("#messages").scroll_end(animate=False)
+        self._smart_scroll_end(animate=False)
 
     def _add_notice_inline(self: SagoApp, content: str) -> None:
         """Mount an informational notice inline inside the active exchange card."""
@@ -1171,7 +1227,7 @@ class UIHelpers:
             target_card.mount_child(widget)
         else:
             self.query_one("#messages").mount(widget)
-        self.query_one("#messages").scroll_end(animate=False)
+        self._smart_scroll_end(animate=False)
 
     def _add_tool_call(
         self: SagoApp,
@@ -1183,11 +1239,20 @@ class UIHelpers:
     ) -> None:
         if not hasattr(self, "session_tool_calls"):
             self.session_tool_calls = []
+        # Normalize agent (lower, strip @) for consistent grouping
+        raw_ag = agent_name or getattr(self, "current_agent", "") or ""
+        norm_ag = str(raw_ag).strip().lstrip("@").lower() or "sago"
+        # Store full details for summary fallback (needs args/result for skipped detection)
         self.session_tool_calls.append(
             {
                 "tool": tool_name,
+                "tool_name": tool_name,
+                "args": args,
+                "arguments": args,
+                "result": result,
                 "success": success,
-                "agent": agent_name or getattr(self, "current_agent", ""),
+                "agent": norm_ag,
+                "agent_name": norm_ag,
             }
         )
 
@@ -1198,10 +1263,20 @@ class UIHelpers:
         try:
             from rich.markup import escape as _escape
 
-            status_tag = (
-                "[bold green]● OK[/bold green]" if success else "[bold red]✗ FAILED[/bold red]"
+            # Directory-miss should be ⚠️ skipped, not red X (spec: 11 read_file fails are expected)
+            low_res = (result or "").lower()
+            is_dir_miss = not success and (
+                "not a file" in low_res
+                or "is a directory" in low_res
+                or "not a directory" in low_res
             )
-            _agent = (agent_name or getattr(self, "current_agent", "") or "").strip()
+            if is_dir_miss:
+                status_tag = "[bold yellow]⚠️ SKIPPED[/bold yellow]"
+            else:
+                status_tag = (
+                    "[bold green]● OK[/bold green]" if success else "[bold red]✗ FAILED[/bold red]"
+                )
+            _agent = norm_ag
             _agent_suffix = f" [dim]by @{_escape(_agent)}[/dim]" if _agent else ""
             title = f"{status_tag} Tool: [bold cyan]{_escape(tool_name)}[/bold cyan]{_agent_suffix}"
 
@@ -1258,7 +1333,7 @@ class UIHelpers:
         except Exception as e:
             log_exception(e, "mount tool call")
 
-        self.query_one("#messages").scroll_end(animate=False)
+        self._smart_scroll_end(animate=False)
 
     def _add_parallel_result(
         self: SagoApp, agent_name: str, result: str, elapsed: float, success: bool
@@ -1351,7 +1426,18 @@ class UIHelpers:
                 md = RichMarkdown(result)
                 container.mount(Static(header, classes="msg-assistant agent-tag", markup=True))
                 container.mount(Static(md, classes="msg-assistant markdown-body"))
-            container.scroll_end()
+            if self.is_scrolled_to_bottom():
+                try:
+                    self.query_one("#messages").scroll_end(animate=False)
+                except Exception:
+                    pass
+                try:
+                    container.scroll_end()
+                except Exception:
+                    pass
+                self._hide_new_messages_badge()
+            else:
+                self._show_new_messages_badge()
         except Exception as e:
             log_exception(e, "mount parallel result")
 
@@ -1473,7 +1559,18 @@ class UIHelpers:
 
             # Divider between steps
             container.mount(Static("[dim]─[/dim]", classes="msg-assistant", markup=True))
-            container.scroll_end()
+            if self.is_scrolled_to_bottom():
+                try:
+                    self.query_one("#messages").scroll_end(animate=False)
+                except Exception:
+                    pass
+                try:
+                    container.scroll_end()
+                except Exception:
+                    pass
+                self._hide_new_messages_badge()
+            else:
+                self._show_new_messages_badge()
         except Exception as e:
             log_exception(e, "mount orchestrate step")
 
@@ -1544,7 +1641,7 @@ class UIHelpers:
             target_card.mount(card)
         else:
             self.query_one("#messages").mount(card)
-        self.query_one("#messages").scroll_end(animate=False)
+        self._smart_scroll_end(animate=False)
 
     def _add_summary_by_agent_card(
         self: SagoApp,
@@ -1608,11 +1705,17 @@ class UIHelpers:
         t_in = tokens.get("input", 0) or tokens.get("tokens_in", 0) or 0
         t_out = tokens.get("output", 0) or tokens.get("tokens_out", 0) or 0
 
-        # Per-agent grouping
+        # Per-agent grouping (normalized: lower, strip @, trim)
+        def _norm_agent(raw: str | None) -> str:
+            if not raw:
+                return "sago"
+            n = str(raw).strip().lstrip("@").lower()
+            return n or "sago"
+
         per_agent: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
         per_agent_details: dict[str, list[dict]] = defaultdict(list)
         for tc in tool_calls or []:
-            ag = (tc.get("agent") or tc.get("agent_name") or "sago").strip() or "sago"
+            ag = _norm_agent(tc.get("agent") or tc.get("agent_name") or "sago")
             tname = tc.get("tool") or tc.get("tool_name") or "tool"
             per_agent[ag][tname] += 1
             per_agent_details[ag].append(tc)
@@ -1621,7 +1724,7 @@ class UIHelpers:
         try:
             for m in list(getattr(self, "messages", []) or []):
                 if m.get("role") == "assistant":
-                    ag = (m.get("agent_name") or "sago").strip() or "sago"
+                    ag = _norm_agent(m.get("agent_name") or "sago")
                     if ag not in per_agent:
                         per_agent[ag] = defaultdict(int)  # ensure section exists
         except Exception:
@@ -1659,7 +1762,17 @@ class UIHelpers:
                         else ""
                     )
                     succ = d.get("success", True)
-                    icon = "[green]✓[/green]" if succ else "[red]✗[/red]"
+                    result_txt = str(d.get("result") or d.get("content") or "")
+                    low_res = result_txt.lower()
+                    is_dir_miss = not succ and (
+                        "not a file" in low_res
+                        or "is a directory" in low_res
+                        or "not a directory" in low_res
+                    )
+                    if is_dir_miss:
+                        icon = "[yellow]⚠️[/yellow] [dim]skipped[/dim]"
+                    else:
+                        icon = "[green]✓[/green]" if succ else "[red]✗[/red]"
                     if arg_preview:
                         body_lines.append(f"  {icon} [cyan]{_esc(tname)}[/cyan] {arg_preview}")
                     else:
@@ -1672,7 +1785,8 @@ class UIHelpers:
             try:
                 last_out = ""
                 for m in reversed(list(getattr(self, "messages", []) or [])):
-                    if m.get("role") == "assistant" and (m.get("agent_name") or "sago") == ag:
+                    msg_ag = _norm_agent(m.get("agent_name") or "sago")
+                    if m.get("role") == "assistant" and msg_ag == ag:
                         last_out = re.sub(
                             r"<(?:thinking|thought)>.*?</(?:thinking|thought)>",
                             "",
@@ -1751,7 +1865,7 @@ class UIHelpers:
                 target_card.mount(card)
             else:
                 self.query_one("#messages").mount(card)
-            self.query_one("#messages").scroll_end(animate=False)
+            self._smart_scroll_end(animate=False)
         except Exception as e:
             log_exception(e, "mount summary by agent card")
             try:

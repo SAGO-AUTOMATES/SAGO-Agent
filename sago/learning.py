@@ -27,22 +27,62 @@ class LearningStore:
         self._data: dict[str, Any] = self._load()
 
     def _load(self) -> dict[str, Any]:
+        data: dict[str, Any] | None = None
         if self._path.exists():
             try:
                 logger.debug("Loading learning store from %s", self._path)
-                return json.loads(self._path.read_text())
+                data = json.loads(self._path.read_text())
             except Exception as e:
                 log_error("Failed to load learning store", e)
                 logger.error("Failed to load learning store: %s", e)
-        else:
+        if data is None:
             logger.debug("No existing learning store, using defaults")
-        return {
-            "successful_patterns": {},
-            "failed_patterns": {},
-            "tool_effectiveness": {},
-            "language_patterns": {},
-            "error_fixes": {},
+            data = {
+                "successful_patterns": {},
+                "failed_patterns": {},
+                "tool_effectiveness": {},
+                "language_patterns": {},
+                "error_fixes": {},
+            }
+        # Merge repo-level memory/learning.json defaults (read_file→glob_files pattern)
+        # This ensures context_assembler always has the directory hint even on fresh installs
+        try:
+            from pathlib import Path
+
+            repo_learning = Path(__file__).parent / "memory" / "learning.json"
+            if repo_learning.exists():
+                repo_data = json.loads(repo_learning.read_text())
+                # Merge error_fixes (repo defaults win if missing)
+                for k, v in (repo_data.get("error_fixes") or {}).items():
+                    if k not in data.get("error_fixes", {}):
+                        data.setdefault("error_fixes", {})[k] = v
+                # Merge successful_patterns
+                for k, v in (repo_data.get("successful_patterns") or {}).items():
+                    if k not in data.get("successful_patterns", {}):
+                        data.setdefault("successful_patterns", {})[k] = v
+                    else:
+                        # Ensure analyze pattern exists
+                        if k == "analyze" and not any(
+                            "glob_files" in str(x.get("tools"))
+                            for x in data["successful_patterns"][k]
+                        ):
+                            data["successful_patterns"][k].extend(v)
+        except Exception as e:
+            logger.debug("Failed to merge repo learning.json: %s", e)
+        # Ensure critical directory hint is always present
+        essential_fixes = {
+            "Not a file: is a directory": "read_file on directory → use glob_files (pattern='**/*', path='<dir>') to list files, then read_file/code_analyzer individual files.",
+            "read_file on directory": "Use glob_files to list directory contents, then read individual files. Never retry read_file on same directory path.",
+            "Error: Not a file": "Hint: you called read_file or code_analyzer on a directory. Use glob_files with pattern '**/*' to enumerate files first.",
         }
+        for ek, ev in essential_fixes.items():
+            if ek not in data.get("error_fixes", {}):
+                data.setdefault("error_fixes", {})[ek] = {"fix": ev, "timestamp": time.time()}
+        # Normalize any string-valued fixes to dict form
+        for k, v in list(data.get("error_fixes", {}).items()):
+            if isinstance(v, str):
+                data["error_fixes"][k] = {"fix": v, "timestamp": time.time()}
+        return data
 
     def _save(self) -> None:
         try:
@@ -146,7 +186,9 @@ class LearningStore:
             for key, fix_data in self._data["error_fixes"].items():
                 if key.lower() in error.lower():
                     logger.info("Known fix found for error pattern: %s", key)
-                    return fix_data["fix"]
+                    if isinstance(fix_data, dict):
+                        return fix_data.get("fix") or str(fix_data)
+                    return str(fix_data)
             logger.debug("No known fix for error: %s", error[:100])
             return None
 

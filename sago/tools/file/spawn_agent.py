@@ -169,6 +169,63 @@ class SpawnAgentTool(BaseTool):
             "Resolved agent '%s' -> '%s' (raw: '%s')", raw_agent, resolved_agent, agent_name
         )
 
+        # --- Simple analyze spawn gate: tiny codebase (≤5 files) → no sub-agent ---
+        try:
+            import re as _re
+            from pathlib import Path as _Path
+
+            if "analyz" in actual_task.lower():
+                _fc: int | None = None
+                _skip = {
+                    ".git",
+                    ".sago",
+                    "__pycache__",
+                    ".ruff_cache",
+                    ".pytest_cache",
+                    ".mypy_cache",
+                    ".venv",
+                    "venv",
+                    "node_modules",
+                    "env",
+                }
+                _skip_sfx = {".pyc", ".pyo", ".bak", ".orig"}
+                for _m in _re.finditer(r"(?:\"|')?(/[\w\-/\.]+)(?:\"|')?", actual_task):
+                    _p = _Path(_m.group(1).rstrip(".,;:"))
+                    if _p.exists() and _p.is_dir():
+                        _c = 0
+                        for _sub in _p.rglob("*"):
+                            if not _sub.is_file():
+                                continue
+                            if any(part in _skip for part in _sub.parts):
+                                continue
+                            if any(
+                                part.startswith(".") and part not in (".", "..")
+                                for part in _sub.parts
+                            ):
+                                if _sub.name.startswith("."):
+                                    continue
+                            if _sub.suffix.lower() in _skip_sfx:
+                                continue
+                            if _sub.suffix.lower() == ".md":
+                                continue
+                            if _sub.name in ("package-lock.json", "package.json"):
+                                continue
+                            _c += 1
+                            if _c > 50:
+                                break
+                        _fc = _c
+                        break
+                if _fc is not None and _fc <= 5:
+                    logger.info("spawn_agent blocked for simple analyze tiny codebase (fc=%d)", _fc)
+                    return (
+                        f"REJECTED: spawn_agent disabled for simple analyze with {_fc} files (≤5). "
+                        f"Use direct tools: glob_files (pattern='**/*', path='<dir>') + code_analyzer on each file. "
+                        f"Not spawning sub-agent '{resolved_agent}'. "
+                        f"Budget: max 15 tools, 8 iterations, 8k tokens — analyze directly."
+                    )
+        except Exception as _e:
+            logger.debug("spawn gate check failed: %s", _e)
+
         # Warn if agent resolution was purely heuristic (no explicit agent_name given)
         if not raw_agent.strip():
             task_lower = actual_task.lower()

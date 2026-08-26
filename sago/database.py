@@ -165,6 +165,7 @@ def init_db() -> None:
                 result TEXT,
                 duration_ms INTEGER,
                 success INTEGER DEFAULT 1,
+                agent TEXT DEFAULT '',
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
                 FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
             );
@@ -196,6 +197,19 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_checkpoints_workspace ON checkpoints(workspace_root);
             CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id);
         """)
+        # Migration: add agent column if missing (legacy DBs before this fix)
+        try:
+            cols = [row[1] for row in conn.execute("PRAGMA table_info(tool_usage)").fetchall()]
+            if "agent" not in cols:
+                logger.info("Migrating tool_usage table: adding agent column")
+                conn.execute("ALTER TABLE tool_usage ADD COLUMN agent TEXT DEFAULT ''")
+        except Exception as me:
+            logger.debug("tool_usage migration check failed: %s", me)
+        # Ensure agent index exists (for both new and migrated DBs)
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_usage_agent ON tool_usage(agent)")
+        except Exception as me:
+            logger.debug("create idx_tool_usage_agent failed: %s", me)
         conn.commit()
         logger.info("Database schema initialized successfully (6 tables, 14 indexes)")
     except Exception as e:
@@ -587,10 +601,15 @@ class ToolUsageStore:
         duration_ms: int = 0,
         success: bool = True,
         task_id: str | None = None,
+        agent: str | None = None,
     ) -> None:
         """Log a tool usage (batched for performance)."""
         usage_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
+        # Normalize agent: lowercase, strip @, trim
+        norm_agent = ""
+        if agent:
+            norm_agent = str(agent).strip().lstrip("@").lower()
         self._pending.append(
             (
                 usage_id,
@@ -602,11 +621,13 @@ class ToolUsageStore:
                 result,
                 duration_ms,
                 1 if success else 0,
+                norm_agent,
             )
         )
         logger.debug(
-            "Queued tool_usage tool=%s success=%s duration_ms=%d pending=%d",
+            "Queued tool_usage tool=%s agent=%s success=%s duration_ms=%d pending=%d",
             tool_name,
+            norm_agent,
             success,
             duration_ms,
             len(self._pending),
@@ -620,12 +641,58 @@ class ToolUsageStore:
             return
         count = len(self._pending)
         logger.debug("Flushing %d tool_usage records for session %s", count, self.session_id)
-        self.conn.executemany(
-            """INSERT INTO tool_usage (id, session_id, task_id, created_at, tool_name,
-               arguments, result, duration_ms, success)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            self._pending,
-        )
+
+        def _do_insert(rows: list[tuple]) -> None:
+            # Handle both 9-field (legacy without agent) and 10-field (with agent) pending tuples
+            if rows and len(rows[0]) == 10:
+                self.conn.executemany(
+                    """INSERT INTO tool_usage (id, session_id, task_id, created_at, tool_name,
+                       arguments, result, duration_ms, success, agent)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    rows,
+                )
+            else:
+                # Legacy fallback: no agent column
+                try:
+                    self.conn.executemany(
+                        """INSERT INTO tool_usage (id, session_id, task_id, created_at, tool_name,
+                           arguments, result, duration_ms, success, agent)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        [(*p, "") if len(p) == 9 else p for p in rows],
+                    )
+                except Exception:
+                    self.conn.executemany(
+                        """INSERT INTO tool_usage (id, session_id, task_id, created_at, tool_name,
+                           arguments, result, duration_ms, success)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        [p[:9] for p in rows],
+                    )
+
+        try:
+            _do_insert(self._pending)
+        except sqlite3.IntegrityError as e:
+            if "FOREIGN KEY" in str(e):
+                # Auto-create missing session for tool_usage (e.g. simple_executor dummy session)
+                try:
+                    now = datetime.now(UTC).isoformat()
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO sessions (id, created_at, updated_at, title) VALUES (?, ?, ?, ?)",
+                        (self.session_id, now, now, "auto-created for tool_usage"),
+                    )
+                    self.conn.commit()
+                    _do_insert(self._pending)
+                except Exception as e2:
+                    logger.debug("tool_usage FK auto-create failed: %s", e2)
+                    # Last resort: temporarily disable FK checks
+                    try:
+                        self.conn.execute("PRAGMA foreign_keys=OFF")
+                        _do_insert(self._pending)
+                        self.conn.execute("PRAGMA foreign_keys=ON")
+                    except Exception as e3:
+                        logger.debug("tool_usage insert failed even with FK off: %s", e3)
+                        raise
+            else:
+                raise
         self.conn.commit()
         self._pending.clear()
 

@@ -63,6 +63,27 @@ Screen { background: #0a0d12; }
     /* Always visible like dev page's VerticalScroll — not hover-only */
 }
 
+#new-messages-badge {
+    display: none;
+    dock: bottom;
+    width: 100%;
+    height: 1;
+    background: #1f6feb;
+    color: #ffffff;
+    text-align: center;
+    text-style: bold;
+    padding: 0 1;
+    margin: 0;
+    align: center middle;
+    content-align: center middle;
+}
+#new-messages-badge.visible {
+    display: block;
+}
+#new-messages-badge.hidden {
+    display: none;
+}
+
 .msg-user {
     background: transparent;
     border: none;

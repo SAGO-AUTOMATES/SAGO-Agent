@@ -1625,7 +1625,7 @@ class MessageProcessorMixin:
                         tools_used_in_iteration.append(name)
                         on_tool_result(name, args, result_str, not is_error)
 
-                        # Log tool usage to DB
+                        # Log tool usage to DB (with agent normalization)
                         if _tool_usage_store:
                             try:
                                 _tool_usage_store.log(
@@ -1634,6 +1634,7 @@ class MessageProcessorMixin:
                                     result=result_str[:2000],
                                     duration_ms=int(tool_dur_ms),
                                     success=not is_error,
+                                    agent=getattr(self, "current_agent", "") or "",
                                 )
                             except Exception as e:
                                 logger.debug("Failed to log tool usage: %s", e)

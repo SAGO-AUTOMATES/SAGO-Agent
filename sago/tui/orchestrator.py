@@ -68,6 +68,145 @@ def _is_error_result(result: str) -> bool:
     return "rate limit" in lowered[:300]
 
 
+def _detect_file_count_for_task(task: str) -> int | None:
+    """Probe file count for paths mentioned in task (used for budget gates)."""
+    from pathlib import Path
+
+    candidates: list[str] = []
+    for m in re.finditer(r"(?:\"|')?(/[\w\-/\.]+)(?:\"|')?", task):
+        p = m.group(1).rstrip(".,;:")
+        if len(p) > 4 and Path(p).exists():
+            candidates.append(p)
+    _skip_parts = {
+        ".git",
+        ".sago",
+        "__pycache__",
+        ".ruff_cache",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".venv",
+        "venv",
+        "node_modules",
+        "env",
+    }
+    _skip_suffixes = {".pyc", ".pyo", ".bak", ".orig"}
+    best: int | None = None
+    for cand in candidates:
+        try:
+            p = Path(cand)
+            if p.is_file():
+                return 1
+            if p.is_dir():
+                count = 0
+                for sub in p.rglob("*"):
+                    if not sub.is_file():
+                        continue
+                    if any(part in _skip_parts for part in sub.parts):
+                        continue
+                    if any(part.startswith(".") and part not in (".", "..") for part in sub.parts):
+                        if sub.name.startswith("."):
+                            continue
+                    if sub.suffix.lower() in _skip_suffixes:
+                        continue
+                    if sub.suffix.lower() == ".md":
+                        continue
+                    if sub.name in ("package-lock.json", "package.json"):
+                        continue
+                    count += 1
+                    if count > 50:
+                        break
+                return count
+        except Exception:
+            continue
+    return best
+
+
+def _is_simple_analyze_task(task: str) -> bool:
+    """True if task is analyze-type and file count ≤5 (no spawn/sub-session)."""
+    low = task.lower()
+    is_analyze = "analyz" in low  # analyze/analysis
+    if not is_analyze:
+        return False
+    fc = _detect_file_count_for_task(task)
+    return fc is not None and fc <= 5
+
+
+def _direct_simple_analyze(task: str) -> str | None:
+    """Direct tool execution for tiny analyze tasks — no LLM sub-agent spawning.
+
+    Uses glob_files to list and code_analyzer on each file, capped at 5 files.
+    Returns summary string or None if not applicable.
+    """
+    fc = _detect_file_count_for_task(task)
+    if fc is None or fc > 5:
+        return None
+    # Find the directory from task
+    from pathlib import Path
+
+    target_dir: Path | None = None
+    for m in re.finditer(r"(?:\"|')?(/[\w\-/\.]+)(?:\"|')?", task):
+        p = Path(m.group(1).rstrip(".,;:"))
+        if p.exists() and p.is_dir():
+            target_dir = p
+            break
+    if target_dir is None:
+        return None
+    try:
+        from sago.tools.coding.code_analyzer import CodeAnalyzerTool
+        from sago.tools.file.glob_files import GlobFilesTool
+
+        glob_tool = GlobFilesTool()
+        analyzer = CodeAnalyzerTool()
+        # List files via glob_files for display (capped)
+        glob_res = glob_tool.run(pattern="**/*", path=str(target_dir), max_results=30)
+        # Build accurate filtered file list for analysis (skip caches, backups, md, locks)
+        _skip_parts = {
+            ".git",
+            ".sago",
+            "__pycache__",
+            ".ruff_cache",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".venv",
+            "venv",
+            "node_modules",
+            "env",
+        }
+        _skip_sfx = {".pyc", ".pyo", ".bak", ".orig"}
+        files: list[str] = []
+        for p in sorted(target_dir.rglob("*")):
+            if not p.is_file():
+                continue
+            if any(part in _skip_parts for part in p.parts):
+                continue
+            if any(part.startswith(".") and part not in (".", "..") for part in p.parts):
+                if p.name.startswith("."):
+                    continue
+            if p.suffix.lower() in _skip_sfx or p.suffix.lower() == ".md":
+                continue
+            if p.name in ("package-lock.json", "package.json"):
+                continue
+            files.append(str(p.relative_to(target_dir)))
+            if len(files) >= 5:
+                break
+        # Analyze each file (max 5)
+        parts: list[str] = [
+            f"Direct simple analyze of {target_dir} ({len(files)} files, no sub-agents)"
+        ]
+        parts.append(f"Files:\n{glob_res}")
+        for f in files[:5]:
+            fp = target_dir / f
+            try:
+                res = analyzer.run(file_path=str(fp), analysis_type="all")
+                parts.append(f"\n--- {f} ---\n{res[:1500]}")
+            except Exception as e:
+                parts.append(f"\n--- {f} --- Error: {e}")
+        return "\n".join(parts)
+    except Exception as e:
+        logger.debug("Direct simple analyze failed: %s", e)
+        return None
+
+
 class AgentOrchestrationMixin:
     """Mixin for multi-agent delegation, chaining, parallel execution, and approval flows."""
 
@@ -160,6 +299,26 @@ class AgentOrchestrationMixin:
                     f"No API key. Set {self._get_provider_key_name()} environment variable.",
                 )
                 return
+
+            # --- Budget gate: tiny analyze → direct tools, no sub-agent ---
+            if _is_simple_analyze_task(task):
+                logger.info("delegation simple analyze detected — using direct tools, no spawn")
+                direct_res = _direct_simple_analyze(task)
+                if direct_res:
+                    dur_ms = (_time.time() - t0) * 1000
+                    info.status = AgentStatus.COMPLETED
+                    info.result = direct_res
+                    info.elapsed = _time.time() - info.start_time
+                    self.call_from_thread(self._update_dashboard)
+                    self.call_from_thread(self._hide_spinner)
+                    self.call_from_thread(
+                        self._add_assistant_message, direct_res, agent_name="direct-analyzer"
+                    )
+                    try:
+                        self.call_from_thread(self._add_summary_by_agent_card, None, "")
+                    except Exception:
+                        pass
+                    return
 
             from sago.tools.file.spawn_agent import SpawnAgentTool
 
@@ -354,6 +513,38 @@ class AgentOrchestrationMixin:
                     f"No API key. Set {self._get_provider_key_name()} environment variable.",
                 )
                 return
+
+            # --- Budget gate for simple analyze (≤5 files): use direct tools, no spawn ---
+            if _is_simple_analyze_task(task):
+                logger.info(
+                    "chain simple analyze detected — using direct glob/code_analyzer, no spawn"
+                )
+                direct_res = _direct_simple_analyze(task)
+                if direct_res:
+                    self.call_from_thread(self._hide_spinner)
+                    self.call_from_thread(
+                        self._add_assistant_message, direct_res, agent_name="direct-analyzer"
+                    )
+                    # Mount summary card
+                    try:
+                        self.call_from_thread(self._add_summary_by_agent_card, None, "")
+                    except Exception:
+                        pass
+                    # Update handoff widget to completed for all steps
+                    for idx in range(len(chain_flow_data)):
+                        try:
+                            self.call_from_thread(handoff_widget.update_step, idx, "completed")
+                        except Exception:
+                            pass
+                    return
+                else:
+                    # Fallback: budget check before spawning — still enforce max 15 tools / 8 iterations
+                    self.call_from_thread(
+                        self._add_notice_inline,
+                        "Simple analyze tiny codebase — spawning single direct agent (capped 15 tools, no chain)",
+                    )
+                    # Collapse chain to single step to avoid overhead
+                    chain_steps = [chain_steps[0][:1]] if chain_steps else [["python-engineer"]]
 
             from sago.agents.handoff import HandoffContext, create_fresh_guard
             from sago.tools.file.spawn_agent import SpawnAgentTool

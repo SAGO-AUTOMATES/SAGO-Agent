@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from textual.containers import VerticalScroll  # noqa: F401
 from textual.widgets import Collapsible, Static
 
 from sago.utils.safe import log_exception
@@ -22,6 +23,61 @@ if TYPE_CHECKING:
 
 class CommandHandlers:
     """Mixin class providing command handlers for SagoApp."""
+
+    def is_scrolled_to_bottom(self: SagoApp, threshold: int = 100) -> bool:  # noqa: D401
+        """Check if #messages is within threshold px of bottom via VerticalScroll scroll_y + virtual_size + size.height."""
+        try:
+            container = self.query_one("#messages")
+            scroll_y = getattr(container, "scroll_y", 0)
+            virtual_size = getattr(container, "virtual_size", None)
+            size = getattr(container, "size", None)
+            if virtual_size is None or size is None:
+                return True
+            v_h = virtual_size.height if hasattr(virtual_size, "height") else 0
+            s_h = size.height if hasattr(size, "height") else 0
+            if v_h == 0 or s_h == 0:
+                return True
+            return (v_h - s_h - scroll_y) <= threshold
+        except Exception:
+            return True
+
+    def _show_new_messages_badge(self: SagoApp) -> None:
+        try:
+            badge = self.query_one("#new-messages-badge", Static)
+            badge.remove_class("hidden")
+            badge.add_class("visible")
+        except Exception:
+            pass
+
+    def _hide_new_messages_badge(self: SagoApp) -> None:
+        try:
+            badge = self.query_one("#new-messages-badge", Static)
+            badge.add_class("hidden")
+            badge.remove_class("visible")
+        except Exception:
+            pass
+
+    def _smart_scroll_end(self: SagoApp, animate: bool = False) -> None:
+        try:
+            if self.is_scrolled_to_bottom():
+                self.query_one("#messages").scroll_end(animate=animate)
+                self._hide_new_messages_badge()
+            else:
+                self._show_new_messages_badge()
+        except Exception as e:
+            log_exception(e, "smart scroll failed in commands")
+            try:
+                self.query_one("#messages").scroll_end(animate=animate)
+            except Exception:
+                pass
+
+    def action_scroll_end(self: SagoApp) -> None:  # type: ignore[override]
+        """Handle End key: scroll to bottom and hide new-messages badge."""
+        try:
+            self.query_one("#messages").scroll_end(animate=False)
+            self._hide_new_messages_badge()
+        except Exception as e:
+            log_exception(e, "Failed to scroll to end (End key)")
 
     def _show_help(self: SagoApp) -> None:
         from sago.tui.models import COMMANDS

@@ -1,0 +1,20 @@
+{
+  "successful_patterns": {
+    "analyze": [
+      {
+        "tools": ["glob_files", "code_analyzer"],
+        "approach": "For tiny codebases (≤5 files): glob_files first to list files → code_analyzer on each file → summarize. Do NOT use read_file on directories or endless execute_shell probes.",
+        "timestamp": 1787745000.0
+      }
+    ]
+  },
+  "failed_patterns": {},
+  "tool_effectiveness": {},
+  "language_patterns": {},
+  "error_fixes": {
+    "Not a file: is a directory": "read_file on directory → use glob_files (pattern='**/*', path='<dir>') to list files, then read_file/code_analyzer individual files. Error 'Not a file: /path' means you passed a directory to read_file/code_analyzer.",
+    "read_file on directory": "Use glob_files to list directory contents, then read individual files. Never retry read_file on same directory path.",
+    "Error: Not a file": "Hint: you called read_file or code_analyzer on a directory. Use glob_files with pattern '**/*' to enumerate files first.",
+    "Is a directory": "Directory handling: use glob_files or list_directory, not read_file. Then analyze each file with code_analyzer."
+  }
+}
