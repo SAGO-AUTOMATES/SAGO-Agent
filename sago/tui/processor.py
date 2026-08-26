@@ -70,8 +70,12 @@ class MessageProcessorMixin:
             effort = EFFORT_LEVELS.get(self.current_effort, EFFORT_LEVELS["medium"])
 
             def on_tool(name, args):
-                args_str = ", ".join(f"{k}={str(v)[:30]}" for k, v in list(args.items())[:3])
-                self.call_from_thread(self._update_spinner, f"Running: {name}({args_str})")
+                # For ask_question, don't render huge questions=[{'options':...}] in spinner — causes lag + markup leak
+                if name == "ask_question":
+                    self.call_from_thread(self._update_spinner, f"Running: {name}")
+                else:
+                    args_str = ", ".join(f"{k}={str(v)[:20]}" for k, v in list(args.items())[:2])
+                    self.call_from_thread(self._update_spinner, f"Running: {name}({args_str})")
 
             def on_tool_result(name, args, result, success):
                 self.call_from_thread(self._add_tool_call, name, args, result, success)
