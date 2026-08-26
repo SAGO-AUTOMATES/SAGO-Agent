@@ -1524,7 +1524,53 @@ class CommandHandlers:
                                     pass
 
                             if role == "user":
-                                turn_card = ExchangeTurnCard(prompt=content, card_type="user")
+                                # Detect specialized command card type and tags
+                                card_type = "user"
+                                tag_label = "USER"
+                                tag_color = "#58a6ff"
+                                meta_info = ""
+                                display_prompt = content
+
+                                if content.startswith("/delegate"):
+                                    card_type = "delegate"
+                                    tag_label = "DELEGATE"
+                                    tag_color = "#bc8cff"
+                                    parts = content[len("/delegate") :].strip().split(maxsplit=1)
+                                    if parts:
+                                        target_ag = parts[0]
+                                        meta_info = f"-> @{target_ag}"
+                                        tag_label = f"DELEGATE @{target_ag.upper()}"
+                                        display_prompt = parts[1] if len(parts) > 1 else content
+                                elif content.startswith("/orchestrate"):
+                                    card_type = "orchestrate"
+                                    tag_label = "ORCHESTRATE"
+                                    tag_color = "#3fb950"
+                                    display_prompt = (
+                                        content[len("/orchestrate") :].strip() or content
+                                    )
+                                elif content.startswith("/chain"):
+                                    card_type = "chain"
+                                    tag_label = "CHAIN"
+                                    tag_color = "#79c0ff"
+                                    display_prompt = content[len("/chain") :].strip() or content
+                                elif content.startswith("/parallel"):
+                                    card_type = "parallel"
+                                    tag_label = "PARALLEL"
+                                    tag_color = "#d2a8ff"
+                                    display_prompt = content[len("/parallel") :].strip() or content
+                                elif content.startswith("/plan"):
+                                    card_type = "plan"
+                                    tag_label = "PLAN"
+                                    tag_color = "#d29922"
+                                    display_prompt = content[len("/plan") :].strip() or content
+
+                                turn_card = ExchangeTurnCard(
+                                    prompt=display_prompt,
+                                    card_type=card_type,
+                                    tag_label=tag_label,
+                                    tag_color=tag_color,
+                                    meta_info=meta_info,
+                                )
                                 container.mount(turn_card)
                                 current_card = turn_card
                                 self._active_exchange_card = turn_card
