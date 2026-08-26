@@ -43,6 +43,12 @@ Sago is a **production-grade multi-agent orchestration system** built for real-w
 | **Detach Mode & Background Workers** | Detached execution for CLI tasks and TUI sessions allowing safe terminal closing with `sago attach` reconnection |
 | **Systematic Thinking → Tool Order** | Strict `thinking1 → tool1 → thinking2 → tool2 …` interleaving via `mount_sequential`, per-agent headers (`● {agent} — Technical Reasoning`, `by @agent`), DB `thinking_blocks[].seq` + `tool_usage.created_at` for reload fidelity — see `docs/TUI_CHAT_STRUCTURE.md` §20 |
 | **Summary — By Agent (Zero-Tool)** | Auto-mounted `● Summary — by agent` (`collapsed=False`) after chain/orchestrate/parallel/delegate; natural-language “so what was the summary?” reuse cached `PROJECT_ANALYSIS.md` + `ToolUsageStore` + `DevTracer` with single `tool_choice:none` LLM call — 0 wasted tools |
+| **Hardline Security & Approval Gates** | Non-bypassable kernel-level blocks for catastrophic commands (`rm -rf /`, fork bombs, raw disk writes) and protected paths (`~/.ssh`, `/etc/shadow`) |
+| **Tool Loop Circuit Breakers** | SHA-256 tool fingerprinting with identical failure caps (3x) and runaway search caps (25x) to eliminate token burn |
+| **Dual Markdown Persistent Memory** | Structured `MEMORY.md` and `USER.md` storage auto-initialized per workspace, automatically injected into system prompts |
+| **Subagent Tool Isolation & Budgets** | Strict tool whitelisting and deterministic iteration budget caps with refund tracking |
+| **True Multi-Line Auto-Expanding TUI** | Smooth 3-to-5 line multi-line prompt input box with native clean paste and `Shift+Enter` newline support |
+| **Workspace Directory Routing (`-w`/`--path`)** | Direct TUI workspace launch with automatic directory initialization and per-project isolated `.sago/` data |
 | **Containerized Card TUI** | High-density terminal UI with 11 themes, collapsible turn cards, live agent dashboard, smart autocomplete, and fluid animations |
 | **Multi-LLM Support** | OpenRouter, OpenAI, Gemini, Claude, Ollama |
 | **Token Cost Tracking** | Per-model pricing with cache hit/miss analytics |

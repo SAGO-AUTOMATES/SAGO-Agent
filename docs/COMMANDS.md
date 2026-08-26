@@ -241,10 +241,20 @@ Show system and connection status.
 
 ---
 
+| Command / Flag | Description |
+|---|---|
+| `sago tui` | Launch interactive terminal UI |
+| `sago tui -w <path>` / `--path` / `--workspace` | Launch TUI directly into the specified workspace directory (auto-creates if non-existent) |
+| `sago tui -r <id>` / `--resume <id>` | Resume a previous conversation session by ID prefix |
+
+---
+
 ## Keyboard Shortcuts in TUI
 
 | Shortcut | Action |
 | :--- | :--- |
+| `Enter` | Submit current prompt / message |
+| `Shift+Enter` / `Alt+Enter` | Insert newline in multi-line input box |
 | `F1` or `?` | Open interactive Keyboard Shortcuts & Quick Reference Modal |
 | `PageUp` / `Shift+Up` | Scroll messages pane page / line up |
 | `PageDown` / `Shift+Down` | Scroll messages pane page / line down |

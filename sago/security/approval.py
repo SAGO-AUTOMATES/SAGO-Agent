@@ -110,7 +110,10 @@ def check_hardline_command(command: str) -> str | None:
             logger.critical(
                 "Hardline command blocker triggered: %s | command: %s", description, command
             )
-            return f"HARDLINE SECURITY BLOCK: Command matched prohibited pattern: {description}"
+            return (
+                f"Command rejected by safety guard: HARDLINE SECURITY BLOCK: "
+                f"Command matched prohibited pattern: {description}"
+            )
 
     return None
 

@@ -2,6 +2,37 @@
 
 All notable changes to the SAGO project are documented in this file.
 
+## [0.1.15] - 2026-08-27 (Security gates, tool guardrails, persistent markdown memory, subagent isolation, & multi-line workspace TUI)
+
+### Added
+- **Hardline Security & Approval Gates (`sago/security/approval.py`):**
+  - Non-bypassable kernel-level command filtering blocking catastrophic commands (`rm -rf /`, `rm -rf ~`, `rm -rf /home/*`, fork bombs, raw disk writes via `dd`, filesystem formatting, system shutdowns).
+  - Protected filesystem write security denying write/edit access to sensitive system configuration paths (`/etc/passwd`, `/etc/shadow`, `/etc/sudoers`, `~/.ssh/`, `~/.aws/`, `~/.gnupg/`).
+- **Threat Pattern Scanner (`sago/security/threat_scanner.py`):**
+  - High-sensitivity regex detection for prompt injection, role hijacking (DAN mode, unrestricted persona switches, fake template headers), and data exfiltration patterns.
+- **Untrusted Content Wrapper (`sago/security/untrusted_wrapper.py`):**
+  - Auto-wraps external retrieval tools (`web_search`, `web_fetch`, `web_crawler`) into structured `<untrusted_tool_result>` blocks with escaped delimiters to prevent injection breakouts.
+- **Tool Loop Guardrails & Circuit Breakers (`sago/engine/tool_guardrails.py`):**
+  - SHA-256 fingerprinting for tool calls to enforce identical failure caps (3x) and runaway search caps (25x), preventing runaway token consumption.
+- **API Error Classifier & Recovery (`sago/llm/error_classifier.py`):**
+  - Structured classification of provider errors (`RATE_LIMIT`, `AUTH`, `BILLING`, `TIMEOUT`, `CONTEXT_OVERFLOW`) with deterministic recovery strategies.
+- **Anthropic Prompt Caching (`sago/llm/caching.py`):**
+  - Ephemeral cache control markers injected into system prompts and long multi-turn message history.
+- **Dual-Store Markdown Persistent Memory (`sago/memory/persistent_store.py`):**
+  - Workspace-scoped `MEMORY.md` (long-term project knowledge) and `USER.md` (user preferences) with automated prompt snapshot injection into TUI turns.
+- **Subagent Iteration Budget & Tool Isolation (`sago/agents/`):**
+  - Deterministic iteration budgets with refund tracking and strict tool whitelisting for sandboxed subagents.
+- **True Multi-Line Auto-Expanding TUI Input (`sago/tui/app.py`):**
+  - Upgraded `#msg-input` from single-line `Input` to `SagoTextAreaInput`, featuring dynamic auto-expansion (3 to 5 lines), native clean pasting, `Shift+Enter`/`Alt+Enter` newlines, and `Enter` for prompt dispatch.
+- **Workspace Directory Parameter (`sago/main.py`):**
+  - Added `-w` / `--workspace` / `-p` / `--path` flags to `sago tui` with automated directory creation and workspace routing.
+
+### Fixed
+- **Autocomplete & History Navigation Type Crash:** Removed strict `Input` type assertions across autocomplete, history, and queue depth handlers to support multi-line `SagoTextAreaInput`.
+- **Session Resume Tool Argument Decoding:** Implemented multi-pass recursive JSON decoding in `_build_tool_widget` to safely render complex and double-encoded historical tool arguments.
+
+---
+
 ## [0.1.14] - 2026-08-26 (Unreleased — summary waste, dev default, session + search fixes)
 
 ### Fixed
