@@ -32,7 +32,9 @@ class Spinner(Static):
         f = self.FRAMES[self.frame]
         # Tool names/args are arbitrary model/tool output; never let them hit
         # the markup parser (a stray '[' crashed layout resolution).
-        return f"[bold cyan]{f}[/bold cyan] [italic #8b949e]{_escape(self.text)}[/italic #8b949e]"
+        # Use correct closing [/] not [/italic #8b949e] which leaks as literal
+        clipped = self.text[:80].replace("\n", " ") if len(self.text) > 80 else self.text
+        return f"[bold cyan]{f}[/bold cyan] [italic #8b949e]{_escape(clipped)}[/]"
 
     def advance(self) -> None:
         self.frame = (self.frame + 1) % len(self.FRAMES)
@@ -120,12 +122,15 @@ class AgentSpinner(Static):
         self.current_tool = ""
 
     def render(self) -> str:
+        from rich.markup import escape as _escape
+
         icon = (
             self.FRAMES[self.frame] if self.status == AgentStatus.RUNNING else self._status_icon()
         )
-        task_info = f" | {self.current_tool}" if self.current_tool else ""
-        task_preview = f": {self.task[:40]}" if self.task else ""
-        return f"[{self.color}]{icon} {self.agent_name}[/{self.color}]{task_preview}{task_info}"
+        task_info = f" | {_escape(self.current_tool)}" if self.current_tool else ""
+        task_preview = f": {_escape(self.task[:40])}" if self.task else ""
+        # Use [/] not [/{color}] — latter leaks as literal "[/italic #...]"
+        return f"[{self.color}]{icon} {_escape(self.agent_name)}[/]{task_preview}{task_info}"
 
     def _status_icon(self) -> str:
         icons = {

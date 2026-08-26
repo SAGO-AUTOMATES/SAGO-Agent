@@ -679,6 +679,8 @@ class MessageProcessorMixin:
 
                         content = ""
                         tool_call_deltas: dict[int, dict] = {}
+                        # Accumulate reasoning/thinking for OpenRouter/Ollama and other providers
+                        _stream_reasoning = ""
 
                         for chunk in stream:
                             if hasattr(chunk, "usage") and chunk.usage:
@@ -688,6 +690,27 @@ class MessageProcessorMixin:
                             if not chunk.choices:
                                 continue
                             delta = chunk.choices[0].delta
+                            # Capture reasoning/thinking deltas (OpenRouter: delta.reasoning, Ollama: delta.thinking)
+                            for _rfield in (
+                                "reasoning",
+                                "reasoning_content",
+                                "thinking",
+                                "thought",
+                                "reasoning_details",
+                            ):
+                                if hasattr(delta, _rfield):
+                                    _rval = getattr(delta, _rfield)
+                                    if _rval:
+                                        if isinstance(_rval, list):
+                                            _rval = " ".join(
+                                                str(
+                                                    v.get("text", "")
+                                                    if isinstance(v, dict)
+                                                    else str(v)
+                                                )
+                                                for v in _rval
+                                            )
+                                        _stream_reasoning += str(_rval)
                             if delta.content:
                                 content += delta.content
                             # Accumulate streaming tool calls
@@ -739,11 +762,17 @@ class MessageProcessorMixin:
                         total_tokens_out,
                     )
 
-                    # Extract thinking content if present (<thinking> tags or native Gemini thinking)
-                    # Always-on: synthesize fallback so thinking is never 0
+                    # Extract thinking content if present (<thinking> tags, native Gemini, or OpenRouter/Ollama reasoning)
                     _thinking_content = (
                         _gemini_thinking.strip() if use_native_gemini and _gemini_thinking else ""
                     )
+                    # Streaming reasoning captured for OpenRouter / Ollama
+                    try:
+                        _sr = locals().get("_stream_reasoning", "") or ""
+                        if not _thinking_content and _sr.strip():
+                            _thinking_content = _sr.strip()
+                    except Exception:
+                        pass
                     if not _thinking_content:
                         _thinking_match = re.search(
                             r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>",
@@ -752,32 +781,29 @@ class MessageProcessorMixin:
                         )
                         if _thinking_match:
                             _thinking_content = _thinking_match.group(1).strip()
-                    # Fallback to concise natural reasoning if LLM skipped <thinking> (so Thinking tab never 0)
-                    # Only once per turn (iteration 0) and only if no real thinking yet — avoid 3× synthetic
+                    # No synthetic TUI card — only real LLM thinking is shown in UI (prevents BS "Intent: ... step 1/30")
+                    # Fallback is recorded to tracer for non-zero but not mounted to avoid TUI BS
+                    is_synthetic = False
                     if not _thinking_content and iteration == 0:
                         _intent2 = (
                             message[:80].replace("\n", " ").strip()
                             if isinstance(message, str)
                             else ""
                         )
-                        _tool_sum = (
-                            ", ".join(tc["name"] for tc in native_tool_calls[:3])
-                            if native_tool_calls
-                            else "no tools yet"
+                        is_synthetic = True
+                        _thinking_content = f"Considering: {message[:120].replace(chr(10), ' ').strip()[:100]} — planning next step to align with intent."
+                    if _thinking_content:
+                        get_dev_tracer().record_thinking(
+                            source=f"tui.llm.{self.current_provider}",
+                            model=api_model,
+                            thinking_content=_thinking_content,
                         )
-                        _thinking_content = (
-                            f"Intent: '{_intent2}'. Considering step {iteration + 1}/{effort['max_iterations']}, "
-                            f"tools: {_tool_sum}. Check: align response with intent, avoid repetition."
-                        )
-                    get_dev_tracer().record_thinking(
-                        source=f"tui.llm.{self.current_provider}",
-                        model=api_model,
-                        thinking_content=_thinking_content,
-                    )
-                    try:
-                        self.call_from_thread(self._add_thinking_card, _thinking_content)
-                    except Exception:
-                        pass
+                        # Only mount real thinking to TUI; synthetic stays in tracer only (no BS card)
+                        if not is_synthetic:
+                            try:
+                                self.call_from_thread(self._add_thinking_card, _thinking_content)
+                            except Exception:
+                                pass
 
                     # Raw response trace (deep debug)
                     get_dev_tracer().record_llm_response(
@@ -1077,8 +1103,17 @@ class MessageProcessorMixin:
                             )
                             continue
 
-                        # Per-tool call limit (max 3 per tool name)
+                        # Per-tool call limit (max 3 per tool name, ask_question max 1 to avoid stuck loop)
                         tool_call_counts[name] = tool_call_counts.get(name, 0) + 1
+                        if name == "ask_question" and tool_call_counts[name] > 1:
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tc_id,
+                                    "content": "[SKIP] ask_question already asked — waiting for user reply, do not repeat. Answer directly or proceed.",
+                                }
+                            )
+                            continue
                         if tool_call_counts[name] > 3:
                             messages.append(
                                 {

@@ -2737,16 +2737,32 @@ def execute_agent_task(
                 )
                 if _thm:
                     _llm_thinking = _thm.group(1).strip()
-            if not _llm_thinking and message_obj is not None and hasattr(message_obj, "reasoning"):
-                _mr = getattr(message_obj, "reasoning", None)
-                if _mr:
-                    _llm_thinking = str(_mr).strip()
+            if not _llm_thinking and message_obj is not None:
+                for _rf in (
+                    "reasoning",
+                    "reasoning_content",
+                    "thinking",
+                    "thought",
+                    "reasoning_details",
+                ):
+                    if hasattr(message_obj, _rf):
+                        _mr = getattr(message_obj, _rf, None)
+                        if _mr:
+                            if isinstance(_mr, list):
+                                _mr = " ".join(
+                                    str(v.get("text", "") if isinstance(v, dict) else str(v))
+                                    for v in _mr
+                                )
+                            _llm_thinking = str(_mr).strip()
+                            if _llm_thinking:
+                                break
         except Exception:
             _llm_thinking = ""
-        # Fallback: only on first iteration and only if no thinking — avoid 3× synthetic per turn
+        # No synthetic TUI — only real thinking shown (prevents BS). Fallback recorded to tracer only.
+        _is_synthetic = False
         if not _llm_thinking and i == 0:
-            _intent = task[:80].replace("\n", " ").strip() if isinstance(task, str) else ""
-            _llm_thinking = f"Considering: {task[:120].replace(chr(10), ' ').strip()[:100]} — planning next step to align with intent."
+            _is_synthetic = True
+            _llm_thinking = f"Considering: {task[:120].replace(chr(10), ' ').strip()[:100]} — planning next step."
         elif not _llm_thinking:
             _llm_thinking = ""  # No fallback for subsequent steps — keep 1 per turn
         if _llm_thinking:
@@ -2759,7 +2775,8 @@ def execute_agent_task(
                 )
             except Exception:
                 pass
-            if on_thinking:
+            # Only mount real thinking to TUI; synthetic stays in tracer (no BS card)
+            if on_thinking and not _is_synthetic:
                 try:
                     on_thinking(_llm_thinking)
                 except Exception:
