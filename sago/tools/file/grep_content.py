@@ -5,6 +5,7 @@ Cross-platform content search with regex support.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -12,6 +13,8 @@ from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
 from sago.utils.errors import log_error
+
+logger = logging.getLogger("sago.tools.file.grep_content")
 
 
 class GrepContentArgs(BaseModel):

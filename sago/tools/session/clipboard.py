@@ -6,6 +6,7 @@ Read from and write to the system clipboard.
 from __future__ import annotations
 
 import base64
+import logging
 import platform
 import subprocess
 import sys
@@ -14,6 +15,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.session.clipboard")
 
 
 class ClipboardArgs(BaseModel):

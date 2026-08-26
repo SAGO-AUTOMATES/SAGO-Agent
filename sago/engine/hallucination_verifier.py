@@ -21,12 +21,16 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import logging
 import os
 import re
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger("sago.engine.hallucination_verifier")
+
 
 # ---- Constants ----
 _MIN_CODE_LENGTH = 20
@@ -1387,6 +1391,13 @@ class ResponseVerifier:
             VerificationResult with issues, confidence, and cleaned content.
         """
         tool_history = tool_history or []
+        logger.info(
+            "Verification starting: task_type=%s, content_len=%d, tool_calls=%d",
+            task_type,
+            len(content),
+            len(tool_history),
+        )
+        logger.debug("Content preview: %.200s", content)
 
         # Skip verification for simple chat with no tools
         if task_type == "chat" and not tool_history:
@@ -1398,26 +1409,34 @@ class ResponseVerifier:
 
         # 1. Fabrication phrase detection
         fab_issues = _detect_fabrication_phrases(content, tool_history)
+        logger.debug("Stage 1 - Fabrication phrases: %d issues", len(fab_issues))
 
         # 2. Inline fabrication detection (no-tool-call)
         inline_issues = _detect_inline_fabrication(content, tool_history)
+        logger.debug("Stage 2 - Inline fabrication: %d issues", len(inline_issues))
 
         # 3. Claim vs tool-history verification
         claim_issues = _verify_claims(content, tool_history)
+        logger.debug("Stage 3 - Claim verification: %d issues", len(claim_issues))
 
         # 4. Hedging/subtle claim detection
         hedging_issues = _detect_hedging_phrases(content, tool_history)
+        logger.debug("Stage 4 - Hedging phrases: %d issues", len(hedging_issues))
 
         # 5. Code block syntax validation
         code_issues = _validate_code_blocks(content)
+        logger.debug("Stage 5 - Code block syntax: %d issues", len(code_issues))
 
         # 6. External syntax checking
         external_issues = []
         if self.enable_external_checks:
             external_issues = _external_syntax_check(content)
+            logger.debug("Stage 6 - External syntax check: %d issues", len(external_issues))
 
         # 7. Tool result integrity (plugin tamper detection)
         integrity_issues = integrity_result or []
+        if integrity_issues:
+            logger.debug("Stage 7 - Tool integrity: %d issues", len(integrity_issues))
 
         # Combine all issues
         all_issues = (
@@ -1438,13 +1457,36 @@ class ResponseVerifier:
         confidence -= len(hedging_issues) * 8
         confidence -= len(integrity_issues) * 15
         confidence = max(0, min(100, confidence))
+        logger.info(
+            "Verification complete: confidence=%d, hallucinations=%s, total_issues=%d [fab=%d inline=%d claims=%d hedging=%d code=%d external=%d integrity=%d]",
+            confidence,
+            bool(all_issues),
+            len(all_issues),
+            len(fab_issues),
+            len(inline_issues),
+            len(claim_issues),
+            len(hedging_issues),
+            len(code_issues),
+            len(external_issues),
+            len(integrity_issues),
+        )
 
         # 9. Sanitize content if needed
         cleaned_content = content
         sanitized = False
         if self.auto_sanitize and all_issues and confidence < self.confidence_threshold:
+            logger.info(
+                "Sanitizing content: confidence=%d < threshold=%d",
+                confidence,
+                self.confidence_threshold,
+            )
             cleaned_content = _sanitize_content(content, all_issues)
             sanitized = cleaned_content != content
+            logger.debug(
+                "Sanitization result: sanitized=%s, content_change=%d chars",
+                sanitized,
+                len(content) - len(cleaned_content),
+            )
 
         return VerificationResult(
             original_content=content,

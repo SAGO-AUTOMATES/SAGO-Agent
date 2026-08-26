@@ -41,8 +41,22 @@ class HandoffContext:
         """Record an agent's result."""
         self.agent_results[agent_name] = result
         self.completed_agents.append(agent_name)
-        if not success:
+        if success:
+            logger.info(
+                "Handoff result recorded: agent=%s, success=True, result_len=%d, depth=%d",
+                agent_name,
+                len(result),
+                self.depth,
+            )
+        else:
+            error_preview = result[:200]
             self.errors.append(f"{agent_name}: {result[:500]}")
+            logger.warning(
+                "Handoff result recorded (failure): agent=%s, error=%s, depth=%d",
+                agent_name,
+                error_preview,
+                self.depth,
+            )
 
     def request_feedback(self, from_agent: str, to_agent: str, question: str) -> FeedbackRequest:
         """Request feedback from another agent."""
@@ -52,6 +66,12 @@ class HandoffContext:
             question=question,
         )
         self.feedback_requests.append(req)
+        logger.info(
+            "Feedback request created: from=%s, to=%s, question_preview=%s",
+            from_agent,
+            to_agent,
+            question[:80],
+        )
         return req
 
     def get_context_for(self, agent_name: str) -> str:
@@ -201,36 +221,68 @@ class RecursionGuard:
         with self._lock:
             # Check depth
             if self.depth >= self.max_depth:
-                return False, (
+                reason = (
                     f"Max depth {self.max_depth} reached "
                     f"(chain: {' -> '.join(self._parent_chain + [agent_name])}). "
                     f"Cannot spawn {agent_name}."
                 )
+                logger.warning(
+                    "Recursion guard BLOCKED (depth): agent=%s, depth=%d/%d",
+                    agent_name,
+                    self.depth,
+                    self.max_depth,
+                )
+                return False, reason
 
             # Check total visits
             if self._total_visits >= self.max_total:
-                return False, (
-                    f"Max total visits ({self.max_total}) reached. Cannot spawn more agents."
+                reason = f"Max total visits ({self.max_total}) reached. Cannot spawn more agents."
+                logger.warning(
+                    "Recursion guard BLOCKED (total visits): agent=%s, total=%d/%d",
+                    agent_name,
+                    self._total_visits,
+                    self.max_total,
                 )
+                return False, reason
 
             # Check same-agent visits
             visits = self._visits.get(agent_name, 0)
             if visits >= self.max_same_visits:
-                return False, (
+                reason = (
                     f"Agent '{agent_name}' has been visited {visits} times. "
                     f"Max allowed: {self.max_same_visits}. "
                     f"Possible cycle detected: {' -> '.join(self._parent_chain + [agent_name])}"
                 )
+                logger.warning(
+                    "Recursion guard BLOCKED (repeated visits): agent=%s, visits=%d/%d",
+                    agent_name,
+                    visits,
+                    self.max_same_visits,
+                )
+                return False, reason
 
             # Check for direct cycle (A -> B -> A)
             if agent_name in self._parent_chain:
                 cycle_start = self._parent_chain.index(agent_name)
                 cycle = self._parent_chain[cycle_start:] + [agent_name]
-                return False, (
+                reason = (
                     f"Cycle detected: {' -> '.join(cycle)}. "
                     f"Agent '{agent_name}' is already in the chain."
                 )
+                logger.warning(
+                    "Recursion guard BLOCKED (cycle): agent=%s, chain=%s",
+                    agent_name,
+                    self._parent_chain,
+                )
+                return False, reason
 
+            logger.debug(
+                "Recursion guard ALLOWED: agent=%s, depth=%d/%d, visits=%d",
+                agent_name,
+                self.depth,
+                self.max_depth,
+                self._total_visits,
+            )
             return True, "OK"
 
     def enter(self, agent_name: str) -> None:
@@ -294,7 +346,10 @@ def get_recursion_guard() -> RecursionGuard:
     tid = threading.get_ident()
     with _guards_lock:
         if tid not in _thread_guards:
+            logger.debug("Creating new recursion guard for thread %d", tid)
             _thread_guards[tid] = RecursionGuard()
+        else:
+            logger.debug("Reusing existing recursion guard for thread %d", tid)
         return _thread_guards[tid]
 
 
@@ -303,8 +358,10 @@ def reset_recursion_guard() -> None:
     tid = threading.get_ident()
     with _guards_lock:
         if tid in _thread_guards:
+            logger.debug("Resetting recursion guard for thread %d", tid)
             _thread_guards[tid].reset()
         else:
+            logger.debug("No existing guard for thread %d, creating new one", tid)
             _thread_guards[tid] = RecursionGuard()
 
 
@@ -318,4 +375,5 @@ def create_fresh_guard() -> RecursionGuard:
     tid = threading.get_ident()
     with _guards_lock:
         _thread_guards[tid] = guard
+    logger.info("Created fresh recursion guard for thread %d (max_depth=%d)", tid, guard.max_depth)
     return guard

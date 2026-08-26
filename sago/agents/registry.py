@@ -48,13 +48,18 @@ def _load_profiles() -> None:
     profiles_dir = Path(__file__).parent / "profiles"
 
     if not profiles_dir.exists():
-        logger.debug("Profiles directory does not exist: %s", profiles_dir)
+        logger.warning("Profiles directory does not exist: %s", profiles_dir)
         return
 
     logger.info("Loading agent profiles from %s", profiles_dir)
     loaded = 0
+    skipped = 0
+    failed = 0
+
     for py_file in sorted(profiles_dir.glob("*.py")):
         if py_file.name.startswith("_"):
+            logger.debug("Skipping private file: %s", py_file.name)
+            skipped += 1
             continue
 
         try:
@@ -64,16 +69,22 @@ def _load_profiles() -> None:
             spec = spec_from_file_location(module_name, py_file)
 
             if spec is None or spec.loader is None:
+                logger.warning(
+                    "Could not create spec for %s (module_name=%s)", py_file, module_name
+                )
+                failed += 1
                 continue
 
             module = module_from_spec(spec)
             spec.loader.exec_module(module)
+            logger.debug("Executed module: %s", py_file.name)
 
             # Determine category from docstring
             category = "general"
             doc = getattr(module, "__doc__", "") or ""
             if "Category:" in doc:
                 category = doc.split("Category:")[1].splitlines()[0].strip()
+                logger.debug("Detected category from docstring: %s -> %s", py_file.name, category)
 
             # Get profile from module
             profile = None
@@ -132,14 +143,28 @@ def _load_profiles() -> None:
                 )
                 AGENTS[agent.name] = agent
                 loaded += 1
-                logger.debug(
-                    "Loaded agent: %s (category=%s, temp=%.2f)", agent.name, agent.category, temp
+                logger.info(
+                    "Registered agent: name=%s, category=%s, temp=%.2f, file=%s",
+                    agent.name,
+                    agent.category,
+                    temp,
+                    py_file.name,
                 )
+            else:
+                logger.debug("No valid profile in %s (no name attribute)", py_file.name)
+                skipped += 1
 
         except Exception as e:
-            logger.warning("Failed to load profile %s: %s", py_file.name, e)
+            failed += 1
+            logger.error("Failed to load profile %s: %s (full_path=%s)", py_file.name, e, py_file)
 
-    logger.info("Loaded %d agent profiles", loaded)
+    logger.info(
+        "Profile loading complete: loaded=%d, skipped=%d, failed=%d, total_agents=%d",
+        loaded,
+        skipped,
+        failed,
+        len(AGENTS),
+    )
 
 
 # Load profiles on module import
@@ -154,16 +179,29 @@ def _load_plugin_agents() -> None:
 
         pm = get_plugin_manager()
         loaded = 0
+        skipped = 0
         for plugin in pm.discover_plugins():
             if not plugin.meta.enabled:
+                logger.debug("Skipping disabled plugin: %s", plugin.meta.name)
+                skipped += 1
                 continue
             try:
                 for agent_data in plugin.provide_agents():
                     if not isinstance(agent_data, dict) or "name" not in agent_data:
+                        logger.debug(
+                            "Skipping invalid agent_data from plugin %s: %s",
+                            plugin.meta.name,
+                            agent_data,
+                        )
                         continue
                     name = agent_data["name"]
                     if name in AGENTS:
-                        logger.debug("Skipping plugin agent %s (already registered)", name)
+                        logger.debug(
+                            "Skipping plugin agent %s from %s (already registered as built-in)",
+                            name,
+                            plugin.meta.name,
+                        )
+                        skipped += 1
                         continue  # Don't override built-in agents
                     agent = AgentDefinition(
                         name=name,
@@ -182,12 +220,19 @@ def _load_plugin_agents() -> None:
                     AGENTS[agent.name] = agent
                     loaded += 1
                     logger.info(
-                        "Registered plugin agent: %s from plugin %s", name, plugin.meta.name
+                        "Registered plugin agent: name=%s, plugin=%s, category=%s",
+                        name,
+                        plugin.meta.name,
+                        agent.category,
                     )
             except Exception as e:
                 logger.error("Plugin %s failed to provide agents: %s", plugin.meta.name, e)
-        if loaded:
-            logger.info("Loaded %d plugin agents", loaded)
+        logger.info(
+            "Plugin agent loading complete: loaded=%d, skipped=%d, total_agents=%d",
+            loaded,
+            skipped,
+            len(AGENTS),
+        )
     except Exception as e:
         logger.debug("Plugin system not available: %s", e)
 
@@ -214,10 +259,15 @@ def _ensure_required_tools() -> None:
     + 27x execute_shell probe loop seen in 9aa83042-860 (3 files → 45 tools).
     This patch runs once at import time and again on reload_agents().
     """
+    injected_count = 0
     for agent in AGENTS.values():
         for tool in _REQUIRED_CORE_TOOLS:
             if tool not in agent.tools:
                 agent.tools.append(tool)
+                injected_count += 1
+                logger.debug("Injected missing tool '%s' into agent '%s'", tool, agent.name)
+    if injected_count:
+        logger.info("Tool injection complete: %d tools added across agents", injected_count)
 
 
 _ensure_required_tools()
@@ -283,11 +333,18 @@ AGENT_ALIASES: dict[str, str] = {
 def get_agent(name: str) -> AgentDefinition | None:
     """Get an agent definition by name or alias."""
     resolved_name = AGENT_ALIASES.get(name, name)
+    if name != resolved_name:
+        logger.debug("Resolved alias: '%s' -> '%s'", name, resolved_name)
     agent = AGENTS.get(resolved_name)
     if agent:
-        logger.debug("Agent lookup: %s -> %s (found)", name, resolved_name)
+        logger.debug(
+            "Agent lookup found: name=%s, resolved=%s, category=%s",
+            name,
+            resolved_name,
+            agent.category,
+        )
     else:
-        logger.debug("Agent lookup: %s -> %s (not found)", name, resolved_name)
+        logger.warning("Agent lookup missed: name=%s, resolved=%s", name, resolved_name)
     return agent
 
 
@@ -344,12 +401,20 @@ def get_handoff_targets(agent_name: str) -> list[AgentDefinition]:
 
 def reload_agents() -> None:
     """Reload all agent profiles from disk."""
-    logger.info("Reloading all agent profiles")
+    prev_count = len(AGENTS)
+    logger.info("Reloading all agent profiles (previous_count=%d)", prev_count)
     AGENTS.clear()
     _load_profiles()
     _ensure_required_tools()
     _load_plugin_agents()
     _ensure_required_tools()
+    new_count = len(AGENTS)
+    logger.info(
+        "Agent reload complete: previous=%d, current=%d, delta=%+d",
+        prev_count,
+        new_count,
+        new_count - prev_count,
+    )
 
 
 def resolve_specialist_agent(
@@ -377,6 +442,7 @@ def resolve_specialist_agent(
     if mention_match:
         cand = mention_match.group(1).lower().replace("_", "-")
         if get_agent(cand):
+            logger.info("Resolved agent via explicit mention: @%s -> %s", cand, cand)
             return cand
 
     # 2. Technology & Framework Keyword Detection in Task
@@ -526,6 +592,11 @@ def resolve_specialist_agent(
             if "/" in kw or re.search(r"\b" + re.escape(kw) + r"\b", task_lower)
         ):
             if get_agent(agent_name):
+                logger.info(
+                    "Resolved agent via tech keyword match: agent=%s, task_preview=%s",
+                    agent_name,
+                    task_lower[:50],
+                )
                 return agent_name
 
     # 3. Referenced Files / File Extension Inspection
@@ -540,28 +611,47 @@ def resolve_specialist_agent(
     for f in all_files:
         f_lower = f.lower()
         if "app/" in f_lower or "pages/" in f_lower or f_lower.endswith((".tsx", ".jsx")):
-            return "nextjs-engineer" if get_agent("nextjs-engineer") else "react-engineer"
+            agent = "nextjs-engineer" if get_agent("nextjs-engineer") else "react-engineer"
+            logger.info("Resolved agent via file extension: file=%s -> agent=%s", f, agent)
+            return agent
         elif f_lower.endswith(".java") or "pom.xml" in f_lower or "build.gradle" in f_lower:
-            return "spring-boot-engineer" if get_agent("spring-boot-engineer") else "java-engineer"
+            agent = "spring-boot-engineer" if get_agent("spring-boot-engineer") else "java-engineer"
+            logger.info("Resolved agent via file extension: file=%s -> agent=%s", f, agent)
+            return agent
         elif f_lower.endswith(".rs") or "cargo.toml" in f_lower:
+            logger.info("Resolved agent via file extension: file=%s -> agent=rust-engineer", f)
             return "rust-engineer"
         elif f_lower.endswith(".go") or "go.mod" in f_lower:
+            logger.info("Resolved agent via file extension: file=%s -> agent=go-engineer", f)
             return "go-engineer"
         elif f_lower.endswith((".cs", ".csproj", ".sln")):
+            logger.info("Resolved agent via file extension: file=%s -> agent=dotnet-engineer", f)
             return "dotnet-engineer"
         elif f_lower.endswith(".tf") or f_lower.endswith(".tfvars"):
+            logger.info("Resolved agent via file extension: file=%s -> agent=terraform-engineer", f)
             return "terraform-engineer"
         elif f_lower.endswith(".rb") or "gemfile" in f_lower:
-            return "rails-engineer" if get_agent("rails-engineer") else "ruby-engineer"
+            agent = "rails-engineer" if get_agent("rails-engineer") else "ruby-engineer"
+            logger.info("Resolved agent via file extension: file=%s -> agent=%s", f, agent)
+            return agent
         elif f_lower.endswith(".php") or "composer.json" in f_lower:
-            return "laravel-engineer" if get_agent("laravel-engineer") else "php-engineer"
+            agent = "laravel-engineer" if get_agent("laravel-engineer") else "php-engineer"
+            logger.info("Resolved agent via file extension: file=%s -> agent=%s", f, agent)
+            return agent
         elif f_lower.endswith(".sql"):
+            logger.info(
+                "Resolved agent via file extension: file=%s -> agent=postgresql-engineer", f
+            )
             return "postgresql-engineer"
         elif "dockerfile" in f_lower or "docker-compose" in f_lower:
+            logger.info("Resolved agent via file extension: file=%s -> agent=docker-engineer", f)
             return "docker-engineer"
         elif f_lower.endswith(".ts") or f_lower.endswith(".js"):
-            return "typescript-engineer" if get_agent("typescript-engineer") else "node-engineer"
+            agent = "typescript-engineer" if get_agent("typescript-engineer") else "node-engineer"
+            logger.info("Resolved agent via file extension: file=%s -> agent=%s", f, agent)
+            return agent
         elif f_lower.endswith(".py"):
+            logger.info("Resolved agent via file extension: file=%s -> agent=python-engineer", f)
             return "python-engineer"
 
     # 4. Auto-detected Workspace Language & Framework (from config files)

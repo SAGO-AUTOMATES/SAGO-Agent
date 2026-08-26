@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.system.cron_schedule")
 
 
 class CronScheduleArgs(BaseModel):
@@ -36,13 +39,23 @@ class CronSchedule(BaseTool):
         **kwargs: Any,
     ) -> str:
         """Execute cron operation."""
+        logger.debug(
+            "cron_schedule called: operation=%s, schedule=%s, command=%s",
+            operation,
+            schedule,
+            command,
+        )
+
         try:
             if operation == "list":
+                logger.info("Listing cron jobs")
                 result = self._run_command(
                     "crontab -l 2>/dev/null || echo 'No crontab jobs'", timeout=10
                 )
                 if result.returncode != 0 or "no crontab" in result.stdout.lower():
+                    logger.info("No cron jobs found")
                     return "No scheduled jobs found"
+                logger.info("Found cron jobs: returncode=%d", result.returncode)
                 return f"Scheduled jobs:\n{result.stdout}"
 
             elif operation == "add":
@@ -71,6 +84,12 @@ class CronSchedule(BaseTool):
                     f.write(new_crontab + "\n")
                     tmpfile = f.name
                 try:
+                    logger.info(
+                        "Adding cron job: schedule=%s, command=%s, name=%s",
+                        schedule,
+                        command,
+                        name or "unnamed",
+                    )
                     result = self._run_command(
                         f"crontab {tmpfile}",
                         timeout=10,
@@ -81,7 +100,9 @@ class CronSchedule(BaseTool):
                     os.unlink(tmpfile)
 
                 if result.returncode == 0:
+                    logger.info("Cron job added successfully: name=%s", name or "unnamed")
                     return f"Added scheduled job:\n  Schedule: {schedule}\n  Command: {command}\n  Name: {name or 'unnamed'}"
+                logger.error("Failed to add cron job: stderr=%s", result.stderr)
                 return f"Error adding job: {result.stderr}"
 
             elif operation == "remove":
@@ -106,6 +127,7 @@ class CronSchedule(BaseTool):
                     f.write(new_crontab + "\n" if new_crontab else "")
                     tmpfile = f.name
                 try:
+                    logger.info("Removing cron job: name=%s, job_id=%s", name, job_id)
                     result = self._run_command(
                         f"crontab {tmpfile}",
                         timeout=10,
@@ -116,20 +138,26 @@ class CronSchedule(BaseTool):
                     os.unlink(tmpfile)
 
                 if result.returncode == 0:
+                    logger.info("Cron job removed: %s", name or job_id)
                     return f"Removed job: {name or job_id}"
+                logger.error("Failed to remove cron job: stderr=%s", result.stderr)
                 return f"Error removing job: {result.stderr}"
 
             elif operation == "run-now":
                 if not command:
                     return "Error: command required"
 
+                logger.info("Running cron command now: %s", command)
                 result = self._run_command(command, timeout=60)
+                logger.info("Cron command completed: returncode=%d", result.returncode)
                 return f"Command output:\n{result.stdout}\n{result.stderr}"
 
             else:
+                logger.warning("Invalid cron_schedule operation: %s", operation)
                 return f"Error: Invalid operation '{operation}'. Valid: list, add, remove, run-now"
 
         except Exception as e:
+            logger.error("Cron schedule operation failed: operation=%s, error=%s", operation, e)
             return f"Error: {type(e).__name__}: {e}"
 
 

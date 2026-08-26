@@ -5,6 +5,7 @@ Cross-platform environment variable management.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any, Literal
@@ -12,6 +13,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.system.env_manager")
 
 
 class EnvManagerArgs(BaseModel):
@@ -51,33 +54,45 @@ class EnvManagerTool(BaseTool):
         Returns:
             Operation result.
         """
+        logger.debug(
+            "env_manager called: operation=%s, key=%s, file_path=%s", operation, key, file_path
+        )
+
         if operation == "get":
             if key is None:
                 return "Error: key required for get"
-            return os.environ.get(key, f"Variable '{key}' not set")
+            value = os.environ.get(key)
+            logger.debug("Env get: key=%s, found=%s", key, value is not None)
+            return value if value is not None else f"Variable '{key}' not set"
 
         elif operation == "set":
             if key is None or value is None:
                 return "Error: key and value required for set"
             os.environ[key] = value
+            logger.info("Env set: key=%s, value_len=%d", key, len(value))
             return f"Set {key}={value}"
 
         elif operation == "list":
+            logger.info("Listing all environment variables")
             return self._list_env()
 
         elif operation == "path":
+            logger.info("Listing PATH entries")
             return self._list_path()
 
         elif operation == "load":
             if file_path is None:
                 return "Error: file_path required for load"
+            logger.info("Loading env file: %s", file_path)
             return self._load_env_file(file_path)
 
         elif operation == "save":
             if file_path is None:
                 return "Error: file_path required for save"
+            logger.info("Saving env file: %s", file_path)
             return self._save_env_file(file_path)
 
+        logger.warning("Unknown env_manager operation: %s", operation)
         return f"Error: Unknown operation: {operation}"
 
     def _list_env(self) -> str:
@@ -103,6 +118,7 @@ class EnvManagerTool(BaseTool):
         path = self._expand_path(file_path)
 
         if not path.exists():
+            logger.warning("Env file not found: %s", path)
             return f"Error: File not found: {path}"
 
         try:
@@ -121,9 +137,11 @@ class EnvManagerTool(BaseTool):
                     os.environ[key] = val
                     loaded += 1
 
+            logger.info("Loaded %d env vars from %s", loaded, path)
             return f"Loaded {loaded} variables from {path}"
 
         except Exception as e:
+            logger.error("Failed to load env file: path=%s, error=%s", path, e)
             return f"Error loading env file: {e}"
 
     def _save_env_file(self, file_path: str) -> str:
@@ -139,7 +157,9 @@ class EnvManagerTool(BaseTool):
                 lines.append(f'{key}="{value}"')
 
             path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            logger.info("Saved %d env vars to %s", len(os.environ), path)
             return f"Saved {len(os.environ)} variables to {path}"
 
         except Exception as e:
+            logger.error("Failed to save env file: path=%s, error=%s", path, e)
             return f"Error saving env file: {e}"

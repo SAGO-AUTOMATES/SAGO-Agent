@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import difflib
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.file.diff_tool")
 
 
 class DiffArgs(BaseModel):

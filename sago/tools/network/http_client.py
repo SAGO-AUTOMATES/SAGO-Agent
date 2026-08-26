@@ -5,11 +5,14 @@ Cross-platform HTTP client with method support.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.network.http_client")
 
 
 class HTTPClientArgs(BaseModel):
@@ -54,6 +57,8 @@ class HTTPClientTool(BaseTool):
         """
         import httpx
 
+        logger.debug("HTTP request: method=%s, url=%s, timeout=%d", method, url, timeout)
+
         try:
             request_headers = headers or {}
             request_kwargs: dict[str, Any] = {
@@ -74,6 +79,10 @@ class HTTPClientTool(BaseTool):
 
             with httpx.Client() as client:
                 response = client.request(**request_kwargs)
+
+            logger.info(
+                "HTTP response: method=%s, url=%s, status=%d", method, url, response.status_code
+            )
 
             result_parts = [
                 f"HTTP {response.status_code} {response.http_version}",
@@ -97,8 +106,13 @@ class HTTPClientTool(BaseTool):
             return "\n".join(result_parts)
 
         except httpx.TimeoutException:
+            logger.warning(
+                "HTTP request timed out: method=%s, url=%s, timeout=%d", method, url, timeout
+            )
             return f"Error: Request timed out after {timeout} seconds"
         except httpx.ConnectError as e:
+            logger.error("HTTP connection failed: url=%s, error=%s", url, e)
             return f"Error: Could not connect to {url}: {e}"
         except Exception as e:
+            logger.error("HTTP request failed: method=%s, url=%s, error=%s", method, url, e)
             return f"Error: {e}"

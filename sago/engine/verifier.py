@@ -119,6 +119,7 @@ class ProjectVerifier:
 
     def verify_python(self) -> VerificationReport:
         """Run ruff, mypy/pyright, and pytest."""
+        logger.info("Running Python verification: root=%s", self.root_dir)
         issues: list[DiagnosticIssue] = []
         raw_outputs = []
         linter_passed = True
@@ -126,6 +127,7 @@ class ProjectVerifier:
         tests_passed = True
 
         # 1. Ruff linting
+        logger.debug("Running ruff check")
         code, out = self.run_command_safe(["ruff", "check", "."])
         if code != 0 and "Command not found" not in out:
             linter_passed = False
@@ -145,6 +147,7 @@ class ProjectVerifier:
                     )
 
         # 2. Pytest test suite
+        logger.debug("Running pytest")
         code, out = self.run_command_safe(["pytest", "-q", "--tb=short"])
         if code != 0 and "Command not found" not in out and "no tests ran" not in out.lower():
             tests_passed = False
@@ -152,6 +155,13 @@ class ProjectVerifier:
 
         passed = linter_passed and typecheck_passed and tests_passed
         summary = "All checks passed" if passed else f"{len(issues)} issue(s) detected"
+        logger.info(
+            "Python verification complete: passed=%s, issues=%d, linter=%s, tests=%s",
+            passed,
+            len(issues),
+            linter_passed,
+            tests_passed,
+        )
 
         return VerificationReport(
             passed=passed,
@@ -338,17 +348,23 @@ class ProjectVerifier:
 
     def verify_project(self) -> VerificationReport:
         """Auto-detect language and run corresponding verifier."""
+        logger.info("Auto-detecting project language for verification")
         if (self.root_dir / "pyproject.toml").exists() or any(self.root_dir.glob("*.py")):
+            logger.debug("Detected Python project")
             return self.verify_python()
         elif (self.root_dir / "package.json").exists() or (
             self.root_dir / "tsconfig.json"
         ).exists():
+            logger.debug("Detected TypeScript/JavaScript project")
             return self.verify_typescript()
         elif (self.root_dir / "Cargo.toml").exists():
+            logger.debug("Detected Rust project")
             return self.verify_rust()
         elif (self.root_dir / "go.mod").exists():
+            logger.debug("Detected Go project")
             return self.verify_go()
 
+        logger.debug("No language-specific project detected")
         return VerificationReport(
             passed=True,
             linter_passed=True,
@@ -434,10 +450,12 @@ class ContinuousVerifier:
     ) -> None:
         """Enqueue files for background non-blocking verification."""
         clean = [str(f) for f in files]
+        logger.debug("Enqueuing %d files for background verification", len(clean))
         self.queue.put((clean, callback))
 
     def enqueue_project(self, callback: Any = None) -> None:
         """Enqueue full project for background verification."""
+        logger.debug("Enqueuing full project for background verification")
         self.queue.put(([], callback))
 
     def get_latest_report(self) -> VerificationReport | None:

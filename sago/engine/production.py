@@ -55,6 +55,12 @@ class ProductionEngine:
         self.stream_printer = StreamPrinter(show_thinking=self.config.show_thinking)
         self._last_cleanup = time.time()
         self._session_ttl = 3600  # 1 hour TTL for sessions
+        logger.info(
+            "ProductionEngine initialized: max_workers=%d, default_effort=%s, timeout=%.0fs",
+            self.config.max_workers,
+            self.config.default_effort,
+            self.config.timeout,
+        )
 
         # Event callbacks
         self._on_task_start: list[Callable[..., None]] = []
@@ -125,14 +131,16 @@ class ProductionEngine:
 
         task_start = time.time()
         logger.info(
-            "run_task started: agent=%s effort=%s",
+            "run_task started: agent=%s effort=%s session=%s",
             agent or "auto",
             effort or self.config.default_effort,
+            session.id,
         )
         logger.debug("Task: %.200s", task)
 
         # Determine effort level
         effort_level = EffortLevel(effort or self.config.default_effort)
+        logger.debug("Effort level determined: %s", effort_level.value)
 
         # Create streaming response
         response = StreamingResponse(
@@ -180,6 +188,7 @@ class ProductionEngine:
             # Get the agent and execute
             from sago.agents.registry import get_agent
 
+            logger.info("Looking up agent definition: %s", agent_name)
             agent_def = get_agent(agent_name)
 
             if not agent_def:
@@ -196,6 +205,7 @@ class ProductionEngine:
                             response.add_thinking(f"Fallback to agent: {agent_name}")
 
             if agent_def:
+                logger.info("Agent found: %s, executing task", agent_def.codename)
                 response.add_thinking(f"Using agent: {agent_def.codename}")
 
                 # Build context
@@ -210,6 +220,7 @@ class ProductionEngine:
                     effort_level,
                 )
             else:
+                logger.warning("Agent '%s' not found, falling back to generic response", agent_name)
                 result = f"Agent not found: {agent_name}"
 
             # Complete the response
@@ -299,6 +310,7 @@ class ProductionEngine:
         Each agent processes the output of the previous one with full context.
         Breaks on errors instead of propagating error strings.
         """
+        logger.info("run_chain started: chain_length=%d, agents=%s", len(agent_chain), agent_chain)
         from sago.agents.handoff import HandoffContext
 
         session = (
@@ -306,6 +318,7 @@ class ProductionEngine:
             if session_id
             else self.session_manager.create_session(task[:50])
         )
+        logger.debug("Chain session created: %s", session.id)
 
         chain_start = time.time()
         current_input = task
@@ -593,4 +606,6 @@ class ProductionEngine:
 
     def shutdown(self) -> None:
         """Shutdown the engine."""
+        logger.info("ProductionEngine shutting down")
         self.session_manager.shutdown()
+        logger.info("ProductionEngine shutdown complete")

@@ -566,16 +566,24 @@ def _generate_plan_with_llm(
 def _discover_tools() -> dict[str, type[BaseTool]]:
     global _TOOL_CLASSES, _TOOL_DESCRIPTIONS
     if _TOOL_CLASSES and _TOOL_DESCRIPTIONS:
+        logger.debug("Tool cache hit: %d tools available", len(_TOOL_CLASSES))
         return _TOOL_CLASSES
 
     with _tool_discovery_lock:
         if _TOOL_CLASSES and _TOOL_DESCRIPTIONS:
+            logger.debug("Tool cache hit (double-check): %d tools", len(_TOOL_CLASSES))
             return _TOOL_CLASSES
 
         from sago.tools.registry import discover_tools
 
+        logger.info("Starting tool discovery from registry")
         discovered = discover_tools()
         _TOOL_CLASSES = {name: tdef.tool_class for name, tdef in discovered.items()}
+        logger.info(
+            "Discovered %d tools: %s",
+            len(_TOOL_CLASSES),
+            ", ".join(sorted(_TOOL_CLASSES.keys())[:20]),
+        )
 
         lines = []
         for name, tdef in sorted(discovered.items()):
@@ -879,8 +887,16 @@ def _detect_task_type(task: str) -> str:
     """Detect task type using semantic IntentClassifier with micro-LLM and fast-path cache."""
     from sago.engine.intent_classifier import get_intent_classifier
 
+    logger.debug("Classifying task intent: %.100s", task)
     try:
-        return get_intent_classifier().classify(task).task_type
+        result = get_intent_classifier().classify(task)
+        logger.info(
+            "Task classified: type=%s, confidence=%.2f, source=%s",
+            result.task_type,
+            result.confidence,
+            result.source,
+        )
+        return result.task_type
     except Exception as e:
         log_exception(e, "Failed to classify task intent, defaulting to create")
         return "create"
@@ -2009,9 +2025,18 @@ def execute_agent_task(
 
     # Assemble rich tri-partite context (AST symbols, hybrid search, learning patterns, previous sessions)
     task_type = _detect_task_type(task)
+    logger.info(
+        "Execution context assembled: task_type=%s, agent=%s, model=%s",
+        task_type,
+        agent_role,
+        model,
+    )
     # --- Simple analyze caps: tiny codebases (≤5 files) must be ≤15 tools / 8 iter / 8k tokens ---
     _file_count_probe = _detect_file_count(task, cwd)
     _is_simple_analyze_flag = _is_simple_analyze(task_type, _file_count_probe)
+    logger.debug(
+        "File count probe: %s, is_simple_analyze=%s", _file_count_probe, _is_simple_analyze_flag
+    )
     if _is_simple_analyze_flag:
         # Cap budgets per spec (file_count <=5 → 15 tool calls, 8 iterations, 8k tokens)
         max_iterations = min(max_iterations, _SIMPLE_ANALYZE_CAPS["max_iterations"])
@@ -2281,6 +2306,13 @@ def execute_agent_task(
         {"role": "user", "content": user_content},
     ]
 
+    logger.info(
+        "Execution loop starting: max_iterations=%d, max_tokens=%d, tools=%d",
+        max_iterations,
+        max_tokens,
+        len(tools),
+    )
+
     # Build OpenAI function calling tool definitions
     # Skip tools for chat tasks to avoid Google API rate limits on tool-use quotas
     # Auto-filter for reasoning-heavy models (e.g. stealth/ox-alpha) that choke on
@@ -2324,6 +2356,12 @@ def execute_agent_task(
         )
         total_chars = sum(len(str(m.get("content", "") or "")) for m in msgs)
         estimated_tokens = total_chars // 4
+        logger.debug(
+            "Message compaction check: estimated_tokens=%d, max=%d, messages=%d",
+            estimated_tokens,
+            effective_max_tokens,
+            len(msgs),
+        )
         if estimated_tokens <= effective_max_tokens:
             return msgs
 

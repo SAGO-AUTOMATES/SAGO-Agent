@@ -6,9 +6,12 @@ Skills provide higher-level abstractions over tools.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger("sago.skills.registry")
 
 
 @dataclass

@@ -5,6 +5,7 @@ Cross-platform file operations with safety checks.
 
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 from typing import Any, Literal
@@ -12,6 +13,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.file.file_ops")
 
 
 class FileOperationsArgs(BaseModel):

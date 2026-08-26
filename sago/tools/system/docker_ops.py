@@ -6,6 +6,7 @@ Uses explicit argument lists (no shell injection). Auto-installs Docker if missi
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from typing import Any
 
@@ -13,6 +14,9 @@ from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool, ToolCategory, ToolResult
 from sago.tools.ensure_dep import ensure_binary, is_available
+
+logger = logging.getLogger("sago.tools.system.docker_ops")
+
 
 _DOCKER_TIMEOUT = 120
 
@@ -73,13 +77,18 @@ class DockerOps(BaseTool):
         **extra: Any,
     ) -> ToolResult:
         op = (operation or "").strip().lower()
+        logger.debug(
+            "docker_ops called: operation=%s, container=%s, image=%s", op, container, image
+        )
 
         # Ensure Docker is available
         if auto_install and not is_available("docker"):
             ok, msg = ensure_binary("docker", auto_install=True)
             if not ok:
+                logger.warning("Docker not found, auto-install failed")
                 return ToolResult(output=msg, success=False, error="docker_not_found")
         elif not is_available("docker"):
+            logger.warning("Docker not found on system")
             return ToolResult(
                 output=(
                     "Docker not found.\n"
@@ -108,6 +117,8 @@ class DockerOps(BaseTool):
         if isinstance(cmd, ToolResult):
             return cmd
 
+        logger.info("Executing docker command: %s", " ".join(cmd))
+
         try:
             proc = subprocess.run(
                 cmd,
@@ -118,24 +129,35 @@ class DockerOps(BaseTool):
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired:
+            logger.error("Docker command timed out: operation=%s, timeout=%d", op, timeout)
             return ToolResult(
                 output=f"Docker {op} timed out after {timeout}s.", success=False, error="timeout"
             )
         except FileNotFoundError:
+            logger.error("Docker binary not found during execution")
             return ToolResult(output="Docker not found.", success=False, error="docker_not_found")
         except Exception as e:
+            logger.error("Docker command failed: operation=%s, error=%s", op, e)
             return ToolResult(output=f"Failed to run docker {op}: {e}", success=False, error=str(e))
 
         stdout = proc.stdout.strip()
         stderr = proc.stderr.strip()
 
         if proc.returncode != 0:
+            logger.error(
+                "Docker command failed: operation=%s, returncode=%d, stderr=%s",
+                op,
+                proc.returncode,
+                stderr[:200],
+            )
             return ToolResult(
                 output=stderr or stdout or f"docker {op} failed (code {proc.returncode}).",
                 success=False,
                 error=f"exit_{proc.returncode}",
                 metadata={"returncode": proc.returncode, "command": cmd},
             )
+
+        logger.info("Docker command succeeded: operation=%s, returncode=%d", op, proc.returncode)
 
         metadata: dict[str, Any] = {"returncode": proc.returncode, "command": cmd}
         if stdout:

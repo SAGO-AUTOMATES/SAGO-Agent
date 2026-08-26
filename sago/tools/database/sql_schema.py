@@ -5,6 +5,7 @@ Introspects tables, columns, indexes, foreign keys, and views across SQL databas
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.database.sql_schema")
 
 
 class SqlSchemaArgs(BaseModel):

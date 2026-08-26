@@ -5,12 +5,15 @@ Cross-platform file transfer to/from remote hosts.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.ssh.ssh_transfer")
 
 
 class SSHTransferArgs(BaseModel):
@@ -60,9 +63,18 @@ class SSHTransferTool(BaseTool):
         Returns:
             Transfer status.
         """
+        logger.debug(
+            "ssh_transfer called: operation=%s, source=%s, dest=%s, host=%s",
+            operation,
+            source,
+            destination,
+            hostname,
+        )
+
         try:
             import paramiko
         except ImportError:
+            logger.error("paramiko not installed")
             return "Error: paramiko is not installed. Install with: pip install paramiko"
 
         client = paramiko.SSHClient()
@@ -82,18 +94,39 @@ class SSHTransferTool(BaseTool):
 
         try:
             client.connect(**connect_kwargs)
+            logger.info("SSH connected for transfer: %s@%s", username, hostname)
             sftp = client.open_sftp()
 
             if operation == "upload":
                 local_path = str(self._expand_path(source))
                 remote_path = destination
+                logger.info(
+                    "Uploading file: local=%s, remote=%s@%s:%s",
+                    local_path,
+                    username,
+                    hostname,
+                    remote_path,
+                )
                 sftp.put(local_path, remote_path)
+                logger.info(
+                    "Upload complete: %s -> %s@%s:%s", source, username, hostname, destination
+                )
                 result = f"Uploaded {source} -> {username}@{hostname}:{destination}"
             else:
                 local_path = str(self._expand_path(destination))
                 remote_path = source
                 Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+                logger.info(
+                    "Downloading file: remote=%s@%s:%s, local=%s",
+                    username,
+                    hostname,
+                    remote_path,
+                    local_path,
+                )
                 sftp.get(remote_path, local_path)
+                logger.info(
+                    "Download complete: %s@%s:%s -> %s", username, hostname, source, destination
+                )
                 result = f"Downloaded {username}@{hostname}:{source} -> {destination}"
 
             sftp.close()
@@ -101,6 +134,10 @@ class SSHTransferTool(BaseTool):
             return result
 
         except paramiko.AuthenticationException:
+            logger.error("SSH authentication failed for transfer: %s@%s", username, hostname)
             return f"Error: Authentication failed for {username}@{hostname}"
         except Exception as e:
+            logger.error(
+                "SSH transfer failed: operation=%s, source=%s, error=%s", operation, source, e
+            )
             return f"Error during transfer: {e}"

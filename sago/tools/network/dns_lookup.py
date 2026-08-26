@@ -67,21 +67,31 @@ class DNSLookupTool(BaseTool):
             Structured DNS resolution results.
         """
         requested = lookup_type.strip().lower()
+        logger.debug("dns_lookup called: hostname=%s, lookup_type=%s", hostname, requested)
+
         lines: list[str] = [f"=== DNS Lookup: {hostname} (type={requested}) ==="]
 
         # Basic address resolution via stdlib (works for A/AAAA).
         try:
             infos = socket.getaddrinfo(hostname, None)
             unique_ips = sorted({addr[4][0] for addr in infos})
+            logger.info("DNS resolution succeeded: hostname=%s, ips=%s", hostname, unique_ips)
             lines.append("IP Addresses:")
             for ip in unique_ips:
                 lines.append(f"  {ip}")
         except (socket.gaierror, socket.herror) as e:
+            logger.warning("DNS address resolution failed: hostname=%s, error=%s", hostname, e)
             lines.append(f"Address resolution failed: {e}")
 
         # Hostname info (name, aliases, IPs).
         try:
             host_info = socket.gethostbyname_ex(hostname)
+            logger.debug(
+                "Hostname info: hostname=%s, canonical=%s, aliases=%s",
+                hostname,
+                host_info[0],
+                host_info[1],
+            )
             lines.append(f"\nHost name: {host_info[0]}")
             lines.append(f"Aliases: {host_info[1]}")
             lines.append(f"IPs: {host_info[2]}")
@@ -92,6 +102,12 @@ class DNSLookupTool(BaseTool):
                 if requested in ("all", rtype.lower()):
                     answers = self._query_record(hostname, rtype)
                     if answers:
+                        logger.debug(
+                            "DNS record query: hostname=%s, type=%s, answers=%d",
+                            hostname,
+                            rtype,
+                            len(answers),
+                        )
                         lines.append(f"\n--- {rtype} records ---")
                         for answer in answers:
                             lines.append(f"  {answer}")

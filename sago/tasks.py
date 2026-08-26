@@ -7,6 +7,7 @@ and handles user confirmations.
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from collections.abc import Callable
@@ -17,6 +18,8 @@ from typing import Any
 
 from sago.paths import get_sago_home
 from sago.utils.errors import log_error
+
+logger = logging.getLogger("sago.tasks")
 
 
 class TaskStatus(Enum):
@@ -124,6 +127,7 @@ class TaskManager:
     def _load(self) -> None:
         path = self._get_storage_path()
         if path.exists():
+            logger.debug("Loading task plans from %s", path)
             try:
                 data = json.loads(path.read_text())
                 for plan_data in data.get("plans", []):
@@ -146,7 +150,9 @@ class TaskManager:
                         )
                         plan.todos.append(todo)
                     self.plans[plan.id] = plan
+                logger.debug("Loaded %d task plans", len(self.plans))
             except Exception as e:
+                logger.error("Failed to load task plans from %s: %s", path, e)
                 log_error("Failed to load persisted task plans", e)
 
     def _save(self) -> None:
@@ -154,6 +160,7 @@ class TaskManager:
         path.parent.mkdir(parents=True, exist_ok=True)
         data = {"plans": [p.to_dict() for p in self.plans.values()]}
         path.write_text(json.dumps(data, indent=2))
+        logger.debug("Saved %d task plans to %s", len(self.plans), path)
 
     def on_update(self, callback: Callable[..., None]) -> None:
         """Register a callback for task updates."""
@@ -182,6 +189,9 @@ class TaskManager:
                 )
         self.plans[plan.id] = plan
         self._save()
+        logger.info(
+            "Created task plan %s with %d steps for goal: %r", plan.id, len(plan.todos), goal[:80]
+        )
         self._notify("plan_created", plan.to_dict())
         return plan
 
@@ -225,6 +235,7 @@ class TaskManager:
         """Mark a todo as completed."""
         plan = self.plans.get(plan_id)
         if not plan:
+            logger.warning("complete_todo: plan %s not found", plan_id)
             return False
         for todo in plan.todos:
             if todo.id == todo_id:
@@ -232,13 +243,16 @@ class TaskManager:
                 todo.result = result
                 todo.completed_at = time.time()
                 self._save()
+                logger.debug("Todo %s completed in plan %s", todo_id, plan_id)
                 self._notify("todo_completed", {"plan_id": plan_id, "todo": todo.to_dict()})
                 if plan.is_complete:
                     plan.completed_at = time.time()
                     plan.status = "completed"
                     self._save()
+                    logger.info("Plan %s fully completed (%d steps)", plan_id, len(plan.todos))
                     self._notify("plan_completed", plan.to_dict())
                 return True
+        logger.warning("complete_todo: todo %s not found in plan %s", todo_id, plan_id)
         return False
 
     def fail_todo(self, plan_id: str, todo_id: str, error: str) -> bool:

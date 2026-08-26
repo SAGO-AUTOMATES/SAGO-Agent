@@ -5,11 +5,14 @@ Cross-platform linting with auto-detection of linters.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.coding.linter")
 
 
 class LinterArgs(BaseModel):
@@ -107,9 +110,11 @@ class LinterTool(BaseTool):
         Returns:
             Linting results.
         """
+        logger.debug("Linting started: file_path=%s, linter=%s, fix=%s", file_path, linter, fix)
         path = self._expand_path(file_path)
 
         if not path.exists():
+            logger.warning("Path not found for linting: %s", path)
             return f"Error: Path not found: {path}"
 
         # Determine file extension (smart for directories)
@@ -121,6 +126,8 @@ class LinterTool(BaseTool):
         else:
             ext = self._infer_dir_extension(path)
 
+        logger.debug("Extension detected: ext=%s, path=%s", ext, path)
+
         # Find available linter
         if linter:
             linter_cmd = [linter]
@@ -128,16 +135,21 @@ class LinterTool(BaseTool):
             linter_cmd = self._find_linter(ext)
 
         if not linter_cmd:
+            logger.warning("No linter found for extension: %s", ext)
             return f"No linter found for extension: {ext} (tried {ext}; install ruff/eslint/golangci-lint etc.)"
+
+        logger.info("Using linter: %s for path=%s", linter_cmd[0], path)
 
         # When autofix is requested, run the linter's fix command first so that
         # fixes are actually applied to the file before reporting results.
         if fix:
+            logger.debug("Running autofix: linter=%s, path=%s", linter_cmd[0], path)
             fix_cmd = self._build_fix_command(linter_cmd, str(path))
             self._run_command(fix_cmd, timeout=120)
 
         # Build report command and execute
         cmd = " ".join(linter_cmd + [str(path)])
+        logger.debug("Running lint command: %s", cmd)
         result = self._run_command(cmd, timeout=120)
 
         output_parts = [f"Linter: {linter_cmd[0]}"]
@@ -149,8 +161,15 @@ class LinterTool(BaseTool):
             output_parts.append(f"\nErrors:\n{result.stderr.strip()}")
 
         if result.returncode == 0:
+            logger.info("Linting passed: linter=%s, path=%s", linter_cmd[0], path)
             output_parts.append("\nLinting passed!")
         else:
+            logger.warning(
+                "Linting issues found: linter=%s, path=%s, exit_code=%d",
+                linter_cmd[0],
+                path,
+                result.returncode,
+            )
             output_parts.append(f"\nExit code: {result.returncode}")
 
         return "\n".join(output_parts)

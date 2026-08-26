@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from sago.memory.symbol_index import PersistentSymbolIndex
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.coding.search_symbol_tool")
 
 
 class SearchSymbolsTool(BaseTool):

@@ -6,12 +6,15 @@ Cross-platform code analysis using AST and regex patterns.
 from __future__ import annotations
 
 import ast
+import logging
 import re
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.coding.code_analyzer")
 
 
 class CodeAnalyzerArgs(BaseModel):
@@ -45,20 +48,27 @@ class CodeAnalyzerTool(BaseTool):
         Returns:
             Analysis report.
         """
+        logger.debug("Analysis started: file_path=%s, analysis_type=%s", file_path, analysis_type)
         path = self._expand_path(file_path)
 
         if not path.exists():
+            logger.warning("File not found: %s", path)
             return f"Error: File not found: {path}"
         if not path.is_file():
+            logger.warning("Not a file: %s", path)
             return f"Error: Not a file: {path}"
 
         try:
             content = path.read_text(encoding="utf-8", errors="replace")
         except Exception as e:
+            logger.error("Failed to read file: %s, error=%s", path, e)
             return f"Error reading file: {e}"
 
         ext = path.suffix.lower()
         lines = content.splitlines()
+        logger.info(
+            "File loaded: path=%s, ext=%s, lines=%d, bytes=%d", path, ext, len(lines), len(content)
+        )
         results: list[str] = []
 
         # Basic stats
@@ -68,17 +78,26 @@ class CodeAnalyzerTool(BaseTool):
         results.append(f"Language: {ext or 'unknown'}")
 
         if analysis_type in ("structure", "all"):
+            logger.debug("Running structure analysis: ext=%s", ext)
             results.append("\n--- Structure ---")
             results.extend(self._analyze_structure(content, ext))
 
         if analysis_type in ("complexity", "all"):
+            logger.debug("Running complexity analysis: ext=%s", ext)
             results.append("\n--- Complexity ---")
             results.extend(self._analyze_complexity(content, ext))
 
         if analysis_type in ("issues", "all"):
+            logger.debug("Running issues analysis: ext=%s", ext)
             results.append("\n--- Potential Issues ---")
             results.extend(self._analyze_issues(content, ext, lines))
 
+        logger.info(
+            "Analysis complete: file=%s, analysis_type=%s, result_lines=%d",
+            path.name,
+            analysis_type,
+            len(results),
+        )
         return "\n".join(results)
 
     def _analyze_structure(self, content: str, ext: str) -> list[str]:
@@ -90,6 +109,9 @@ class CodeAnalyzerTool(BaseTool):
                 tree = ast.parse(content)
                 classes = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
                 functions = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
+                logger.debug(
+                    "Python AST parsed: classes=%d, functions=%d", len(classes), len(functions)
+                )
 
                 results.append(f"Classes: {len(classes)}")
                 for cls in classes:
@@ -102,7 +124,8 @@ class CodeAnalyzerTool(BaseTool):
                 for func in functions:
                     args = len(func.args.args)
                     results.append(f"  {func.name}({args} args, line {func.lineno})")
-            except SyntaxError:
+            except SyntaxError as e:
+                logger.warning("Python syntax error during structure analysis: %s", e)
                 results.append("  (Python syntax error - cannot parse AST)")
         else:
             # Generic pattern matching for other languages
@@ -169,6 +192,7 @@ class CodeAnalyzerTool(BaseTool):
         todo_pattern = re.compile(r"#\s*(TODO|FIXME|HACK|XXX|NOTE)", re.IGNORECASE)
         todos = [(i + 1, line.strip()) for i, line in enumerate(lines) if todo_pattern.search(line)]
         if todos:
+            logger.debug("Found %d TODO/FIXME markers", len(todos))
             results.append(f"TODO/FIXME markers ({len(todos)}):")
             for num, line in todos[:10]:
                 results.append(f"  Line {num}: {line}")

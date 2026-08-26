@@ -155,6 +155,13 @@ class ContextAssembler:
         max_tokens: int = 12000,
     ) -> AssembledContext:
         """Assemble comprehensive context for a task following the 5-layer pipeline."""
+        logger.info(
+            "Context assembly starting: task_type=%s, agent=%s, max_tokens=%d",
+            task_type,
+            agent_name,
+            max_tokens,
+        )
+        logger.debug("Task: %.100s", task)
         ctx = AssembledContext()
         if task_type == "chat":
             # For casual conversation, greetings, weather — skip heavy context assembly.
@@ -195,15 +202,20 @@ class ContextAssembler:
             return ctx
 
         token_budget = _TokenBudget(max_tokens)
+        logger.debug("Token budget initialized: max=%d", max_tokens)
 
         # 1. Detect project structure, languages, frameworks
         try:
             from sago.engine.simple_executor import _detect_project_context, _get_context
 
+            logger.debug("Step 1: Detecting project structure")
             base_ctx = _get_context(str(self.cwd))
             p_info = _detect_project_context(str(self.cwd))
             ctx.languages = p_info.get("languages", [])
             ctx.frameworks = p_info.get("frameworks", [])
+            logger.debug(
+                "Project detected: languages=%s, frameworks=%s", ctx.languages, ctx.frameworks
+            )
 
             summary_lines = [base_ctx]
             if ctx.languages:
@@ -280,6 +292,7 @@ class ContextAssembler:
         try:
             from sago.memory.symbol_graph import SymbolGraph
 
+            logger.debug("Step 2: Extracting AST symbols")
             sg = SymbolGraph(root_dir=str(self.cwd))
             task_words = set(re.findall(r"[a-zA-Z0-9_]{3,}", task.lower()))
             matching_symbols = []
@@ -314,6 +327,11 @@ class ContextAssembler:
 
             if matching_symbols:
                 ctx.ast_symbols_context = token_budget.consume_strict("\n".join(matching_symbols))
+                logger.debug(
+                    "AST symbols found: %d symbols, budget_used=%d",
+                    len(matching_symbols),
+                    token_budget.used,
+                )
         except Exception as e:
             log_error("ContextAssembler: AST symbol extraction failed", e)
 
@@ -321,6 +339,7 @@ class ContextAssembler:
         try:
             from sago.memory.hybrid_indexer import get_hybrid_code_indexer
 
+            logger.debug("Step 3: Running hybrid code search")
             indexer = get_hybrid_code_indexer(str(self.cwd))
             # Fast query for relevant code chunks
             results = indexer.search(task, limit=max_rag_snippets)
@@ -339,12 +358,14 @@ class ContextAssembler:
 
             if snippets:
                 ctx.rag_snippets_context = "\n\n".join(snippets)
+                logger.debug("RAG snippets found: %d snippets", len(snippets))
         except Exception as e:
             log_error("ContextAssembler: Hybrid code search failed", e)
 
         # 4. Hierarchical Memory Pyramid Context
         if pyramid:
             try:
+                logger.debug("Step 4: Processing memory pyramid")
                 pyramid_parts = []
                 if pyramid.architectural_goals:
                     pyramid_parts.append(f"Goals: {'; '.join(pyramid.architectural_goals[:3])}")
@@ -367,6 +388,7 @@ class ContextAssembler:
 
         # 5. Learning Store (Successes, Known Fixes & Strategies)
         try:
+            logger.debug("Step 5: Querying learning store")
             ls = get_learning_store()
             tools_list = available_tools or []
             suggestion = ls.suggest_approach(task_type, tools_list)
@@ -422,6 +444,7 @@ class ContextAssembler:
         try:
             from sago.database import MessageStore, init_db
 
+            logger.debug("Step 6: Loading past session history")
             init_db()
             msg_store = MessageStore(session_id)
             past_messages = msg_store.get_history(limit=4)
@@ -441,6 +464,7 @@ class ContextAssembler:
 
         # 7. Project Instructions (CLAUDE.md / .sago/instructions.md)
         try:
+            logger.debug("Step 7: Loading project instructions")
             pi = get_project_instructions(str(self.cwd))
             prompt_instr = pi.get_for_prompt()
             if prompt_instr:
@@ -453,6 +477,7 @@ class ContextAssembler:
             try:
                 from sago.agents.registry import get_handoff_targets
 
+                logger.debug("Step 8: Resolving handoff targets for agent=%s", agent_name)
                 targets = get_handoff_targets(agent_name)
                 if targets:
                     ctx.handoff_targets = [
@@ -461,6 +486,26 @@ class ContextAssembler:
             except Exception as e:
                 log_error("ContextAssembler: Handoff targets resolution failed", e)
 
+        logger.info(
+            "Context assembly complete: budget_used=%d/%d, sections=[%s]",
+            token_budget.used,
+            token_budget.max_tokens,
+            ", ".join(
+                filter(
+                    None,
+                    [
+                        "project" if ctx.project_summary else None,
+                        "ast" if ctx.ast_symbols_context else None,
+                        "rag" if ctx.rag_snippets_context else None,
+                        "pyramid" if ctx.memory_pyramid_context else None,
+                        "learning" if ctx.learning_approach else None,
+                        "history" if ctx.past_session_context else None,
+                        "instructions" if ctx.project_instructions else None,
+                        "handoff" if ctx.handoff_targets else None,
+                    ],
+                )
+            ),
+        )
         return ctx
 
 

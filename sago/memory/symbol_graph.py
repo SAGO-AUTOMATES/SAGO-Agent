@@ -7,11 +7,14 @@ multiple languages without bloating the LLM context window.
 from __future__ import annotations
 
 import ast
+import logging
 import os
 import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger("sago.memory.symbol_graph")
 
 
 @dataclass

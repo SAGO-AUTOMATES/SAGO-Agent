@@ -6,6 +6,7 @@ respecting a max depth and a set of ignored directories.
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool, ToolCategory, ToolResult
+
+logger = logging.getLogger("sago.tools.file.file_search")
+
 
 _DEFAULT_IGNORE = {
     ".git",

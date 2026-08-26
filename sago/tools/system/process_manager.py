@@ -5,11 +5,14 @@ Cross-platform process management.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.system.process_manager")
 
 
 class ProcessManagerArgs(BaseModel):
@@ -46,23 +49,31 @@ class ProcessManagerTool(BaseTool):
         Returns:
             Operation result.
         """
+        logger.debug("process_manager called: operation=%s, query=%s", operation, query)
+
         if operation == "list":
+            logger.info("Listing running processes")
             return self._list_processes()
         elif operation == "search":
             if query is None:
                 return "Error: query required for search"
+            logger.info("Searching processes: query=%s", query)
             return self._search_processes(query)
         elif operation == "kill":
             if query is None:
                 return "Error: PID required for kill"
+            logger.info("Killing process: pid=%s, signal=%s", query, signal)
             return self._kill_process(query, signal)
         elif operation == "info":
             if query is None:
                 return "Error: PID required for info"
+            logger.info("Getting process info: pid=%s", query)
             return self._process_info(query)
         elif operation == "top":
+            logger.info("Getting top processes")
             return self._top_processes()
 
+        logger.warning("Unknown process_manager operation: %s", operation)
         return f"Error: Unknown operation: {operation}"
 
     def _list_processes(self) -> str:
@@ -112,10 +123,12 @@ class ProcessManagerTool(BaseTool):
         try:
             pid = int(pid_str)
         except ValueError:
+            logger.warning("Invalid PID for kill: %s", pid_str)
             return f"Error: Invalid PID: {pid_str}"
 
         sig = getattr(signal_module, f"SIG{signal.upper()}", None)
         if sig is None:
+            logger.warning("Invalid signal: %s", signal)
             return f"Error: Invalid signal: {signal}"
 
         try:
@@ -123,12 +136,15 @@ class ProcessManagerTool(BaseTool):
             proc_name = proc.name()
 
             proc.send_signal(sig)
+            logger.info("Sent signal %s to process %d (%s)", signal, pid, proc_name)
 
             return f"Sent {signal} to process {pid} ({proc_name})"
 
         except psutil.NoSuchProcess:
+            logger.warning("Process not found for kill: pid=%d", pid)
             return f"Error: Process {pid} not found"
         except psutil.AccessDenied:
+            logger.error("Access denied killing process: pid=%d", pid)
             return f"Error: Access denied to kill process {pid}"
 
     def _process_info(self, pid_str: str) -> str:

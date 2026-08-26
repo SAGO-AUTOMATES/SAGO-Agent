@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import ast
+import logging
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.coding.ast_grep")
 
 
 class AstGrepArgs(BaseModel):

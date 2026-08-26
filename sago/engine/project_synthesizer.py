@@ -87,6 +87,8 @@ class ProjectSynthesizer:
     ) -> SynthesisPlan:
         """Create a structured synthesis plan with phased file dependencies."""
         stack = tech_stack or ["python", "pytest"]
+        logger.info("Planning project: name=%s, tech_stack=%s", self.root_dir.name, stack)
+        logger.debug("Project description: %.200s", project_description)
         plan = SynthesisPlan(
             project_name=self.root_dir.name,
             root_dir=str(self.root_dir),
@@ -97,14 +99,17 @@ class ProjectSynthesizer:
 
     def save_plan(self, plan: SynthesisPlan, file_name: str = ".sago_plan.json") -> Path:
         target = self.root_dir / file_name
+        logger.info("Saving synthesis plan: files=%d, target=%s", len(plan.files), target)
         target.write_text(json.dumps(plan.to_dict(), indent=2), encoding="utf-8")
         return target
 
     def load_plan(self, file_name: str = ".sago_plan.json") -> SynthesisPlan | None:
         target = self.root_dir / file_name
         if not target.exists():
+            logger.debug("No synthesis plan found at %s", target)
             return None
         try:
+            logger.info("Loading synthesis plan from %s", target)
             data = json.loads(target.read_text(encoding="utf-8"))
             files = [
                 FileSpec(

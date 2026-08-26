@@ -59,6 +59,7 @@ class IntentClassifier:
     ) -> IntentClassification:
         """Classify user intent using Cache -> Micro-LLM -> Heuristic."""
         if not prompt or not prompt.strip():
+            logger.debug("Empty prompt, defaulting to chat")
             return IntentClassification(
                 task_type="chat",
                 needs_tools=False,

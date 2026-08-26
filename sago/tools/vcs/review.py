@@ -13,6 +13,7 @@ so agents don't have to improvise chains of raw git commands.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.vcs.review")
+
 
 _GIT_TIMEOUT = 30
 _DIFF_CHAR_CAP = 60_000

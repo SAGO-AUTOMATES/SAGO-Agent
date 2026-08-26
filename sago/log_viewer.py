@@ -6,6 +6,7 @@ follow mode. All output uses Rich for clean terminal rendering.
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime
 
@@ -17,6 +18,7 @@ from rich.tree import Tree
 
 from sago.log_manager import LogManager, LogStats
 
+logger = logging.getLogger("sago.log_viewer")
 console = Console()
 
 # Level color mapping

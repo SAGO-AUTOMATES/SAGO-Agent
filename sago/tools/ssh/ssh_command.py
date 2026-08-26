@@ -5,11 +5,14 @@ Cross-platform remote command execution.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.ssh.ssh_command")
 
 
 class SSHCommandArgs(BaseModel):
@@ -56,9 +59,14 @@ class SSHCommandTool(BaseTool):
         Returns:
             Command output (stdout + stderr).
         """
+        logger.debug(
+            "ssh_command called: host=%s, user=%s, command=%s", hostname, username, command
+        )
+
         try:
             import paramiko
         except ImportError:
+            logger.error("paramiko not installed")
             return "Error: paramiko is not installed. Install with: pip install paramiko"
 
         client = paramiko.SSHClient()
@@ -78,8 +86,10 @@ class SSHCommandTool(BaseTool):
 
         try:
             client.connect(**connect_kwargs)
+            logger.info("SSH connected for command: %s@%s", username, hostname)
 
             # Execute command
+            logger.info("Executing remote command: command=%s, timeout=%d", command, timeout)
             stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
 
             exit_code = stdout.channel.recv_exit_status()
@@ -87,6 +97,13 @@ class SSHCommandTool(BaseTool):
             stderr_text = stderr.read().decode("utf-8", errors="replace").strip()
 
             client.close()
+
+            logger.info(
+                "Remote command completed: exit_code=%d, stdout_len=%d, stderr_len=%d",
+                exit_code,
+                len(stdout_text),
+                len(stderr_text),
+            )
 
             result_parts = [
                 f"Command: {command}",
@@ -102,6 +119,10 @@ class SSHCommandTool(BaseTool):
             return "\n".join(result_parts)
 
         except paramiko.AuthenticationException:
+            logger.error("SSH authentication failed: %s@%s", username, hostname)
             return f"Error: Authentication failed for {username}@{hostname}"
         except Exception as e:
+            logger.error(
+                "Remote command failed: command=%s, host=%s, error=%s", command, hostname, e
+            )
             return f"Error executing remote command: {e}"

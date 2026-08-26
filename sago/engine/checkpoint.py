@@ -93,6 +93,7 @@ class CheckpointManager:
         """Create a new checkpoint snapshotting specified files (or all tracked/modified files)."""
         ts = time.time()
         chk_id = f"chk_{int(ts)}_{abs(hash(description)) % 10000:04d}"
+        logger.info("Creating checkpoint: id=%s, description=%s", chk_id, description[:80])
         snap_dir = self.checkpoints_dir / chk_id
         snap_dir.mkdir(parents=True, exist_ok=True)
 
@@ -182,6 +183,12 @@ class CheckpointManager:
 
         snapshots = [d for d in self.checkpoints_dir.iterdir() if d.is_dir()]
         snapshots.sort(key=lambda p: p.name, reverse=True)
+        logger.debug(
+            "Pruning checkpoints: total=%d, keep_latest=%d, max_age_days=%s",
+            len(snapshots),
+            keep_latest,
+            max_age_days,
+        )
 
         to_delete: list[Path] = []
         if max_age_days is not None and cutoff_ts is not None:
@@ -196,6 +203,7 @@ class CheckpointManager:
             try:
                 shutil.rmtree(snap, ignore_errors=True)
                 deleted_ids.append(snap.name)
+                logger.debug("Pruned checkpoint: %s", snap.name)
                 # Remove from SQLite database
                 try:
                     from sago.database import CheckpointStore
@@ -246,6 +254,7 @@ class CheckpointManager:
         """
         snap_dir = self.checkpoints_dir / checkpoint_id
         if not snap_dir.exists():
+            logger.warning("Checkpoint not found: %s", checkpoint_id)
             return {"success": False, "error": f"Checkpoint '{checkpoint_id}' not found."}
 
         data_dir = snap_dir / "data"
@@ -308,6 +317,13 @@ class CheckpointManager:
             result["errors"] = errors
             result["error_count"] = len(errors)
 
+        logger.info(
+            "Checkpoint restored: id=%s, restored=%d, skipped=%d, errors=%d",
+            checkpoint_id,
+            len(restored_files),
+            len(skipped_files),
+            len(errors),
+        )
         return result
 
 

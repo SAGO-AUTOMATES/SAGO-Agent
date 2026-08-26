@@ -5,11 +5,14 @@ Supports Windows (PowerShell), macOS/Linux (bash/zsh).
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.shell.execute")
 
 
 class ExecuteShellArgs(BaseModel):
@@ -46,6 +49,8 @@ class ExecuteShellTool(BaseTool):
         Returns:
             Command output (stdout + stderr).
         """
+        logger.debug("execute_shell called: command=%s, cwd=%s, timeout=%d", command, cwd, timeout)
+
         # Platform-specific command wrapping
         if self._is_windows():
             # Use PowerShell on Windows
@@ -67,6 +72,9 @@ class ExecuteShellTool(BaseTool):
         cmd_lower = command.strip().lower()
         for pattern in dangerous_patterns:
             if pattern in cmd_lower:
+                logger.warning(
+                    "Safety guard rejected command: pattern=%s, command=%s", pattern, command
+                )
                 return f"Error: Command rejected by safety guard: '{pattern}' is forbidden."
 
         # Determine working directory
@@ -74,12 +82,15 @@ class ExecuteShellTool(BaseTool):
         if cwd:
             work_dir = self._expand_path(cwd)
             if not work_dir.exists():
+                logger.warning("Working directory not found: %s", work_dir)
                 return f"Error: Working directory not found: {work_dir}"
 
         # Validate timeout
         if timeout <= 0:
             timeout = 300
         timeout = min(timeout, 3600)  # Cap at 1 hour
+
+        logger.info("Executing shell command: %s (timeout=%d, cwd=%s)", command, timeout, work_dir)
 
         try:
             result = self._run_command(
@@ -99,12 +110,22 @@ class ExecuteShellTool(BaseTool):
             if result.returncode != 0:
                 output_parts.append(f"\nExit code: {result.returncode}")
 
+            logger.debug(
+                "Command completed: returncode=%d, stdout_len=%d, stderr_len=%d",
+                result.returncode,
+                len(result.stdout) if result.stdout else 0,
+                len(result.stderr) if result.stderr else 0,
+            )
+
             if not output_parts:
+                logger.info("Command executed successfully (no output)")
                 return "Command executed successfully (no output)"
 
             return "\n".join(output_parts)
 
         except TimeoutError:
+            logger.warning("Command timed out after %d seconds: %s", timeout, command)
             return f"Error: Command timed out after {timeout} seconds"
         except Exception as e:
+            logger.error("Command execution failed: command=%s, error=%s", command, e)
             return f"Error executing command: {e}"

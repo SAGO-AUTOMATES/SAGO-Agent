@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -9,6 +10,9 @@ from pydantic import BaseModel, Field
 
 from sago.memory.hybrid_indexer import get_hybrid_code_indexer
 from sago.tools.base import BaseTool, ToolCategory, ToolResult
+
+logger = logging.getLogger("sago.tools.coding.hybrid_search_tool")
+
 
 EMBEDDING_ENV_FLAG = "SAGO_HYBRID_EMBEDDINGS"
 EMBEDDING_MODEL_ENV = "SAGO_HYBRID_EMBED_MODEL"

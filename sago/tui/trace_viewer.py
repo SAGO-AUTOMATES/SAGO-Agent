@@ -13,6 +13,7 @@ Features:
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -23,6 +24,9 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Collapsible, Label, Static, TabbedContent, TabPane
+
+logger = logging.getLogger("sago.tui.trace_viewer")
+
 
 if TYPE_CHECKING:
     from sago.tracking.dev_tracer import DevTraceEvent

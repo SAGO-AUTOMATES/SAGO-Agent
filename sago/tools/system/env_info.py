@@ -39,25 +39,35 @@ class EnvInfo(BaseTool):
         **kwargs: Any,
     ) -> str:
         """Execute environment info operation."""
+        logger.debug("env_info called: operation=%s, detail=%s", operation, detail)
         try:
             if operation in ("system", "full"):
                 detail_level = "full" if operation == "full" else detail
+                logger.info("Gathering system info: detail=%s", detail_level)
                 return self._get_system_info(detail_level)
             elif operation == "disk":
+                logger.info("Gathering disk info")
                 return self._get_disk_info()
             elif operation == "memory":
+                logger.info("Gathering memory info")
                 return self._get_memory_info()
             elif operation == "network":
+                logger.info("Gathering network info")
                 return self._get_network_info()
             elif operation == "python":
+                logger.info("Gathering Python info")
                 return self._get_python_info()
             elif operation == "node":
+                logger.info("Gathering Node.js info")
                 return self._get_node_info()
             elif operation == "env":
+                logger.info("Gathering environment variables")
                 return self._get_env_vars()
             else:
+                logger.warning("Invalid env_info operation: %s", operation)
                 return f"Error: Invalid operation '{operation}'"
         except Exception as e:
+            logger.error("env_info operation failed: operation=%s, error=%s", operation, e)
             return f"Error: {type(e).__name__}: {e}"
 
     def _get_system_info(self, detail: str) -> str:

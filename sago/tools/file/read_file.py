@@ -7,11 +7,14 @@ binary detection, and smart size handling.
 from __future__ import annotations
 
 import ast
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.file.read_file")
 
 
 class ReadFileArgs(BaseModel):
@@ -61,30 +64,44 @@ class ReadFileTool(BaseTool):
         Returns:
             File contents as a string.
         """
+        logger.debug(
+            "read_file called: path=%s, encoding=%s, offset=%d, limit=%d, with_structure=%s",
+            file_path,
+            encoding,
+            offset,
+            limit,
+            with_structure,
+        )
         path = self._expand_path(file_path)
+        logger.debug("Resolved path: %s -> %s", file_path, path)
 
         if not path.exists():
+            logger.warning("File not found: %s", path)
             return f"Error: File not found: {path}"
         if not path.is_file():
+            logger.warning("Not a file: %s", path)
             return f"Error: Not a file: {path}"
 
         # Binary detection: check for null bytes in first 8KB
+        logger.debug("Performing binary detection on %s", path)
         try:
             with path.open("rb") as f:
                 chunk = f.read(8192)
                 if b"\x00" in chunk:
                     size = path.stat().st_size
+                    logger.warning("Binary file detected: %s (%d bytes)", path, size)
                     return (
                         f"Error: Binary file detected: {path} ({size} bytes). "
                         f"Use hash_checksum or appropriate binary tool instead of read_file."
                     )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Binary detection check failed: %s", e)
 
         # Large file warning: >500KB or >5000 lines
         try:
             size = path.stat().st_size
             if size > 500 * 1024:
+                logger.warning("Large file detected: %s (%d bytes)", path, size)
                 # Still allow reading but add warning in header
                 pass
         except Exception:
@@ -93,7 +110,9 @@ class ReadFileTool(BaseTool):
         from sago.utils.markitdown_converter import convert_file_to_markdown, is_document_file
 
         # Check if the file is a document format best parsed via MarkItDown
+        logger.debug("Checking document format for %s", path)
         if is_document_file(path):
+            logger.info("Document file detected, converting to Markdown: %s", path)
             success, md_content = convert_file_to_markdown(path)
             if success:
                 lines = md_content.splitlines(keepends=True)
@@ -111,8 +130,13 @@ class ReadFileTool(BaseTool):
                 return header + result
 
         try:
+            logger.debug("Reading file with encoding=%s: %s", encoding, path)
             content = path.read_text(encoding=encoding)
+            logger.debug("Read %d bytes from %s", len(content), path)
         except UnicodeDecodeError:
+            logger.warning(
+                "Encoding %s failed for %s, trying MarkItDown and latin-1 fallback", encoding, path
+            )
             # Try MarkItDown first on decode failure before latin-1
             success, md_content = convert_file_to_markdown(path)
             if success:
@@ -132,13 +156,17 @@ class ReadFileTool(BaseTool):
 
             # Try with latin-1 as fallback
             try:
+                logger.debug("Attempting latin-1 fallback for %s", path)
                 content = path.read_text(encoding="latin-1")
+                logger.info("Successfully read with latin-1 fallback: %s", path)
             except Exception as e:
+                logger.error("All encoding attempts failed for %s: %s", path, e)
                 return f"Error: Could not read file with any encoding: {e}"
 
         # Smart: AST parsing for Python files - syntax validation + optional structure
         ast_summary = ""
         if path.suffix.lower() == ".py":
+            logger.debug("Parsing Python AST for %s", path)
             try:
                 tree = ast.parse(content, filename=str(path))
                 # Syntax OK - optionally build structure summary
@@ -152,6 +180,13 @@ class ReadFileTool(BaseTool):
                         f"\n[AST] Python structure: {len(classes)} classes, "
                         f"{len(funcs)} functions, {len(imports)} imports"
                     )
+                    logger.info(
+                        "AST parsed %s: %d classes, %d functions, %d imports",
+                        path,
+                        len(classes),
+                        len(funcs),
+                        len(imports),
+                    )
                     if with_structure:
                         details = []
                         for cls in classes[:10]:
@@ -162,8 +197,9 @@ class ReadFileTool(BaseTool):
                             ast_summary += "\n" + "\n".join(details)
             except SyntaxError as e:
                 ast_summary = f"\n[AST] SyntaxError at line {e.lineno}: {e.msg}"
-            except Exception:
-                pass
+                logger.warning("Python syntax error in %s at line %d: %s", path, e.lineno, e.msg)
+            except Exception as e:
+                logger.debug("AST parsing failed for %s: %s", path, e)
 
         lines = content.splitlines(keepends=True)
 

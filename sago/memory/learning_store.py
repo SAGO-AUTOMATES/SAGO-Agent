@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 from sago.learning import LearningStore, get_learning_store
+
+logger = logging.getLogger("sago.memory.learning_store")
+
 
 __all__ = ["LearningStore", "get_learning_store"]

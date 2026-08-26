@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Generator
 from typing import Any
 
 from sago.llm.base import BaseLLMProvider
+
+logger = logging.getLogger("sago.llm.mock")
 
 
 class MockLLMProvider(BaseLLMProvider):

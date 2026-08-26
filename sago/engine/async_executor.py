@@ -47,6 +47,7 @@ class AsyncAgentExecutor:
         )
         logger.debug("Task preview: '%s'", task[:200])
         assembler = get_context_assembler(self.cwd)
+        logger.debug("Context assembled for async task")
         assembled_ctx = assembler.assemble(task=task, task_type="exec")
 
         enhanced_user_prompt = f"{task}\n\n{assembled_ctx.format_user_context_block()}"
@@ -61,6 +62,7 @@ class AsyncAgentExecutor:
             # Fallback to mock provider
             logger.warning("Provider '%s' unavailable, falling back to mock", self.provider_name)
             provider = get_provider("mock", {"model": self.model})
+        logger.debug("Provider initialized: %s", self.provider_name)
 
         response_chunks = []
         if provider:
@@ -75,6 +77,7 @@ class AsyncAgentExecutor:
                 )
 
             tokens = await loop.run_in_executor(None, _stream_sync)
+            logger.debug("Async streaming completed: %d tokens received", len(tokens))
             for tok in tokens:
                 response_chunks.append(tok)
                 if on_token:
@@ -130,6 +133,7 @@ async def execute_parallel_tasks(
     """Execute multiple agent tasks in parallel with a bounded concurrency semaphore."""
     logger.info("Executing %d parallel tasks (max_concurrency=%d)", len(tasks), max_concurrency)
     semaphore = asyncio.Semaphore(max_concurrency)
+    logger.debug("Semaphore created, launching %d coroutines", len(tasks))
 
     async def _run_bounded(t_cfg: dict[str, Any]) -> dict[str, Any]:
         async with semaphore:
@@ -145,4 +149,6 @@ async def execute_parallel_tasks(
                 system_prompt=t_cfg.get("system_prompt"),
             )
 
-    return await asyncio.gather(*[_run_bounded(t) for t in tasks], return_exceptions=False)
+    results = await asyncio.gather(*[_run_bounded(t) for t in tasks], return_exceptions=False)
+    logger.info("Parallel tasks completed: %d results", len(results))
+    return results

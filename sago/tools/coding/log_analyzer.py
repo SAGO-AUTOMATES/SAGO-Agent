@@ -5,12 +5,15 @@ Cross-platform log analysis with pattern detection.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.coding.log_analyzer")
 
 
 class LogAnalyzerArgs(BaseModel):

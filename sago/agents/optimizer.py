@@ -45,18 +45,24 @@ def optimize_profile_file(profile_path: Path) -> bool:
     was successfully applied; False when the profile cannot be optimized (e.g. it
     is not a recognized profile, or has no injection point for the guidelines).
     """
+    logger.debug("Attempting optimization of %s", profile_path)
     try:
         content = profile_path.read_text(encoding="utf-8")
         if not content.startswith('"""Agent Profile:'):
+            logger.debug("Skipping %s (not a profile file)", profile_path.name)
             return False
 
         # Already optimized: nothing to do.
         if "Enterprise Execution Guidelines" in content:
+            logger.debug("Profile already optimized: %s", profile_path.name)
             return True
 
         # Add enterprise guidelines if not already present.
         if 'system_prompt="""' not in content:
             # No known injection point -> cannot optimize this profile.
+            logger.warning(
+                "Cannot optimize %s (no system_prompt injection point found)", profile_path.name
+            )
             return False
 
         content = content.replace(
@@ -66,6 +72,7 @@ def optimize_profile_file(profile_path: Path) -> bool:
         )
 
         profile_path.write_text(content, encoding="utf-8")
+        logger.info("Optimized profile: %s", profile_path.name)
         return True
     except Exception as exc:
         logger.error("Failed to optimize profile at %s: %s", profile_path, exc)
@@ -77,16 +84,35 @@ def optimize_all_profiles(profiles_dir: Path | None = None) -> int:
     if profiles_dir is None:
         profiles_dir = Path(__file__).parent / "profiles"
 
+    logger.info("Starting batch optimization of profiles in %s", profiles_dir)
     count = 0
+    skipped = 0
+    total = 0
+
     for file_path in profiles_dir.glob("*.py"):
         if file_path.name.startswith("__"):
             continue
-        if optimize_profile_file(file_path):
+        total += 1
+        result = optimize_profile_file(file_path)
+        if result:
             count += 1
+        elif result is False:
+            # Distinguish between "skipped" (not a profile / no injection point) and "already done"
+            skipped += 1
 
+    logger.info(
+        "Batch optimization complete: optimized=%d, skipped=%d, total_files=%d, dir=%s",
+        count,
+        skipped,
+        total,
+        profiles_dir,
+    )
     return count
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    logger.info("Starting optimizer from __main__")
     n = optimize_all_profiles()
+    logger.info("Optimizer finished: %d profiles optimized", n)
     print(f"Optimized {n} specialist agent profiles with enterprise guidelines.")

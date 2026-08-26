@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any
+
+logger = logging.getLogger("sago.utils.report_generator")
 
 
 def generate_html_report(

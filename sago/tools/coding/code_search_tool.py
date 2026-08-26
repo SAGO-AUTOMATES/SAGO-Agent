@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
 from sago.utils.safe import log_exception
+
+logger = logging.getLogger("sago.tools.coding.code_search_tool")
 
 
 class CodeSearchArgs(BaseModel):

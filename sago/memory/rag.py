@@ -93,6 +93,9 @@ class RAGMemory:
     ) -> MemoryEntry:
         """Add a new memory entry."""
         entry_id = hashlib.sha256(content.encode()).hexdigest()[:16]
+        logger.debug(
+            "Adding memory entry: id=%s, importance=%.2f, tags=%s", entry_id, importance, tags
+        )
 
         entry = MemoryEntry(
             id=entry_id,
@@ -105,6 +108,7 @@ class RAGMemory:
         )
 
         self._entries[entry_id] = entry
+        logger.info("Memory entry added: id=%s, total_entries=%d", entry_id, len(self._entries))
 
         # Update indexes
         for tag in entry.tags:
@@ -135,6 +139,7 @@ class RAGMemory:
         user_id: str | None = None,
     ) -> list[MemoryEntry]:
         """Search memory entries by relevance."""
+        logger.debug("Searching memory: query=%r, limit=%d, tags=%s", query[:50], limit, tags)
         query_lower = query.lower()
         query_words = set(query_lower.split())
 
@@ -171,7 +176,14 @@ class RAGMemory:
             entry.access_count += 1
             entry.last_accessed = time.time()
 
-        return [entry for _, entry in scored_entries[:limit]]
+        results = [entry for _, entry in scored_entries[:limit]]
+        logger.info(
+            "Memory search complete: query=%r, scored=%d, returned=%d",
+            query[:30],
+            len(scored_entries),
+            len(results),
+        )
+        return results
 
     def get(self, entry_id: str) -> MemoryEntry | None:
         """Get a specific memory entry."""
@@ -278,6 +290,7 @@ class RAGMemory:
         session_id: str | None = None,
     ) -> str:
         """Get relevant context for a query within token limit."""
+        logger.debug("Building context window: query=%r, max_tokens=%d", query[:50], max_tokens)
         entries = self.search(query, limit=20, session_id=session_id)
 
         context_parts = []
@@ -292,7 +305,14 @@ class RAGMemory:
             context_parts.append(f"[Memory {entry.timestamp:.0f}] {entry.content}")
             current_tokens += entry_tokens
 
-        return "\n\n".join(context_parts)
+        context = "\n\n".join(context_parts)
+        logger.info(
+            "Context window built: entries=%d, tokens_used=%d/%d",
+            len(context_parts),
+            current_tokens,
+            max_tokens,
+        )
+        return context
 
     def _score_relevance(
         self,

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.network.web_crawler")
 
 
 class WebCrawlerArgs(BaseModel):
@@ -57,6 +60,10 @@ class WebCrawler(BaseTool):
             from html.parser import HTMLParser
         except ImportError:
             return "Error: html.parser not available"
+
+        logger.debug(
+            "web_crawler called: url=%s, max_depth=%d, max_pages=%d", url, max_depth, max_pages
+        )
 
         visited: set[str] = set()
         results: list[dict[str, Any]] = []
@@ -117,11 +124,19 @@ class WebCrawler(BaseTool):
                 return
 
             visited.add(current_url)
+            logger.debug("Fetching page: url=%s, depth=%d", current_url, depth)
 
             try:
                 with httpx.Client(timeout=15, follow_redirects=True) as client:
                     response = client.get(current_url, headers={"User-Agent": user_agent})
                     response.raise_for_status()
+
+                logger.info(
+                    "Page fetched: url=%s, status=%d, content_type=%s",
+                    current_url,
+                    response.status_code,
+                    response.headers.get("content-type", ""),
+                )
 
                 content_type = response.headers.get("content-type", "")
                 if "text/html" not in content_type:
@@ -157,11 +172,14 @@ class WebCrawler(BaseTool):
                             crawl_page(link, depth + 1)
 
             except Exception as e:
+                logger.error("Failed to crawl page: url=%s, error=%s", current_url, e)
                 results.append({"url": current_url, "error": str(e)})
 
+        logger.info("Starting crawl: url=%s, max_depth=%d, max_pages=%d", url, max_depth, max_pages)
         crawl_page(url, 0)
 
         # Format output
+        logger.info("Crawl completed: pages_crawled=%d, start_url=%s", len(results), url)
         output_parts = [f"Crawled {len(results)} pages starting from: {url}\n"]
 
         for i, page in enumerate(results, 1):

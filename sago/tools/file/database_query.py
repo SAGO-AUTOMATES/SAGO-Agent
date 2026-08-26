@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.file.database_query")
+
 
 # SQL injection prevention: only allow SELECT statements for queries
 _READ_ONLY_KEYWORDS = {

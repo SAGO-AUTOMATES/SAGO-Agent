@@ -58,24 +58,44 @@ class AgentSpawner:
         """
         from crewai import Agent
 
+        logger.info(
+            "Spawning agent: name=%s, provider=%s, model_override=%s",
+            agent_name,
+            provider,
+            model_override,
+        )
+
         definition = get_agent(agent_name)
         if definition is None:
-            logger.error(f"Agent not found: {agent_name}")
+            logger.error("Agent not found: name=%s, cannot spawn", agent_name)
             return None
+
+        logger.debug(
+            "Agent definition loaded: name=%s, codename=%s, category=%s, tools=%d, handoff_to=%s",
+            definition.name,
+            definition.codename,
+            definition.category,
+            len(definition.tools),
+            definition.handoff_to,
+        )
 
         # Resolve tools via crewai_wrappers
         tools = self._resolve_tools(definition.tools)
+        logger.debug("Resolved %d tools for agent %s", len(tools), agent_name)
 
         # Build system prompt with structured context
         system_prompt = definition.system_prompt
         if isinstance(context, HandoffContext):
             context_str = context.get_context_for(agent_name)
             system_prompt += f"\n\n{context_str}"
+            logger.debug("Injected HandoffContext into prompt for %s", agent_name)
         elif context:
             context_str = "\n\n".join(f"## {k}\n{v}" for k, v in context.items())
             system_prompt += f"\n\n## Context from Previous Agent\n{context_str}"
+            logger.debug("Injected dict context into prompt for %s", agent_name)
 
         # Create CrewAI agent
+        llm = self._get_llm(model_override or definition.model_preference, provider)
         agent = Agent(
             role=definition.role,
             goal=definition.description,
@@ -84,11 +104,18 @@ class AgentSpawner:
             verbose=self.config.settings.verbose_output,
             allow_delegation=len(definition.handoff_to) > 0,
             max_iter=definition.max_iterations,
-            llm=self._get_llm(model_override or definition.model_preference, provider),
+            llm=llm,
         )
 
         self._crew_agents[agent_name] = agent
-        logger.info(f"Spawned agent: {agent_name} ({definition.codename})")
+        logger.info(
+            "Spawned agent successfully: name=%s, codename=%s, role=%s, tools=%d, max_iter=%d",
+            agent_name,
+            definition.codename,
+            definition.role,
+            len(tools),
+            definition.max_iterations,
+        )
         return agent
 
     def execute_with_agent(
@@ -115,12 +142,16 @@ class AgentSpawner:
         """
         from crewai import Crew, Task
 
+        logger.info("Executing task with agent: agent=%s, task_preview=%s", agent_name, task[:80])
+
         # Create or get session
         if session_id:
             session = Session(session_id)
+            logger.debug("Using existing session: %s", session_id)
         else:
             session = Session()
             session.create(title=task[:100])
+            logger.debug("Created new session: %s, title=%s", session.id, task[:50])
 
         # Spawn the agent
         agent = self.spawn(
@@ -131,6 +162,7 @@ class AgentSpawner:
             model_override=model_override,
         )
         if agent is None:
+            logger.error("Failed to execute: could not spawn agent '%s'", agent_name)
             return f"Error: Could not spawn agent '{agent_name}'"
 
         # Create task
@@ -147,7 +179,11 @@ class AgentSpawner:
             verbose=self.config.settings.verbose_output,
         )
 
+        logger.debug("Starting CrewAI kickoff for agent %s", agent_name)
         result = crew.kickoff()
+        logger.info(
+            "CrewAI kickoff completed for agent %s, result_len=%d", agent_name, len(str(result))
+        )
 
         # Store result
         msg_store = MessageStore(session.id)
@@ -156,6 +192,7 @@ class AgentSpawner:
             content=str(result),
             agent_name=agent_name,
         )
+        logger.debug("Stored result in session %s for agent %s", session.id, agent_name)
 
         return str(result)
 
@@ -187,10 +224,21 @@ class AgentSpawner:
         Returns:
             Final result.
         """
+        logger.info(
+            "Starting orchestration: session_id=%s, chain=%s, max_handoffs=%d, enable_feedback=%s",
+            session_id,
+            agent_chain,
+            max_handoffs,
+            enable_feedback,
+        )
+
         # Create session
         session = Session(session_id)
         if not session_id:
             session.create(title=task[:100], agent_chain=agent_chain or [])
+            logger.debug("Created new session: %s", session.id)
+        else:
+            logger.debug("Using existing session: %s", session.id)
 
         # Initialize structured context
         handoff_ctx = HandoffContext(
@@ -206,17 +254,27 @@ class AgentSpawner:
         # Use predefined chain or auto-route
         if agent_chain:
             chain = agent_chain
+            logger.info("Using predefined agent chain: %s", chain)
         else:
             chain = self._plan_chain(task)
+            logger.info("Auto-planned agent chain: %s", chain)
 
         result = ""
         for i, agent_name in enumerate(chain[: max_handoffs + 1]):
-            logger.info(f"Agent {i + 1}/{len(chain)}: {agent_name}")
+            logger.info(
+                "Orchestration step %d/%d: agent=%s, task_preview=%s",
+                i + 1,
+                len(chain),
+                agent_name,
+                task[:60],
+            )
 
             # Check recursion guard
             allowed, reason = guard.can_spawn(agent_name)
             if not allowed:
-                logger.warning(f"Recursion guard blocked {agent_name}: {reason}")
+                logger.warning(
+                    "Recursion guard blocked agent %s at step %d: %s", agent_name, i + 1, reason
+                )
                 handoff_ctx.errors.append(f"Blocked: {reason}")
                 break
 
@@ -226,9 +284,15 @@ class AgentSpawner:
                 # Build step task with structured context
                 if i == 0:
                     step_task = task
+                    logger.debug("Using original task for first step")
                 else:
                     # Provide rich context for subsequent agents
                     step_task = self._build_step_task(task, handoff_ctx, agent_name)
+                    logger.debug(
+                        "Built enriched step task for %s (completed_agents=%d)",
+                        agent_name,
+                        len(handoff_ctx.completed_agents),
+                    )
 
                 # Execute
                 step_result = self.execute_with_agent(
@@ -240,7 +304,9 @@ class AgentSpawner:
 
                 # Check for errors — break chain on failure
                 if step_result.startswith("Error:"):
-                    logger.error(f"Agent {agent_name} failed: {step_result}")
+                    logger.error(
+                        "Agent %s failed at step %d: %s", agent_name, i + 1, step_result[:200]
+                    )
                     handoff_ctx.add_result(agent_name, step_result, success=False)
                     # Break chain on error — don't propagate error strings
                     result = step_result
@@ -249,14 +315,33 @@ class AgentSpawner:
                 # Record successful result
                 handoff_ctx.add_result(agent_name, step_result, success=True)
                 result = step_result
+                logger.info(
+                    "Step %d completed: agent=%s, result_len=%d, completed_agents=%d",
+                    i + 1,
+                    agent_name,
+                    len(step_result),
+                    len(handoff_ctx.completed_agents),
+                )
 
                 # Feedback loop: if agent requested feedback, handle it
                 if enable_feedback and handoff_ctx.feedback_requests:
+                    pending_count = sum(1 for r in handoff_ctx.feedback_requests if not r.answered)
+                    logger.info(
+                        "Feedback loop triggered: %d pending requests, current_agent=%s",
+                        pending_count,
+                        agent_name,
+                    )
                     result = self._handle_feedback_loop(handoff_ctx, agent_name, result, session.id)
 
             finally:
                 guard.exit(agent_name)
 
+        logger.info(
+            "Orchestration complete: session=%s, steps=%d, result_len=%d",
+            session.id,
+            len(handoff_ctx.completed_agents),
+            len(result),
+        )
         return result
 
     def _build_step_task(self, original_task: str, ctx: HandoffContext, next_agent: str) -> str:
@@ -330,7 +415,20 @@ class AgentSpawner:
         if not pending:
             return current_result
 
-        for request in pending:
+        logger.info(
+            "Processing %d feedback requests for current_agent=%s", len(pending), current_agent
+        )
+
+        for idx, request in enumerate(pending, 1):
+            logger.info(
+                "Feedback request %d/%d: from=%s, to=%s, question_preview=%s",
+                idx,
+                len(pending),
+                request.from_agent,
+                request.to_agent,
+                request.question[:60],
+            )
+
             # Ask the previous agent for clarification
             feedback_task = (
                 f"The {request.from_agent} has a question for you:\n\n"
@@ -346,13 +444,23 @@ class AgentSpawner:
                     parent_context=ctx,
                 )
                 request.respond(answer)
+                logger.info(
+                    "Feedback response received: from=%s, answer_len=%d",
+                    request.to_agent,
+                    len(answer),
+                )
 
                 # Inject the answer into the current agent's context
                 current_result += (
                     f"\n\n## Feedback from {request.to_agent}\nQ: {request.question}\nA: {answer}"
                 )
             except Exception as e:
-                logger.warning(f"Feedback loop failed: {e}")
+                logger.error(
+                    "Feedback loop failed: from=%s, to=%s, error=%s",
+                    request.from_agent,
+                    request.to_agent,
+                    e,
+                )
                 current_result += (
                     f"\n\n## Feedback Failed\nCould not get feedback from {request.to_agent}: {e}"
                 )
@@ -379,9 +487,17 @@ class AgentSpawner:
 
         from sago.engine.simple_executor import execute_agent_task
 
+        logger.info(
+            "Starting parallel orchestration: subtasks=%d, max_workers=%d, session_id=%s",
+            len(subtasks),
+            max_workers,
+            session_id,
+        )
+
         session = Session(session_id)
         if not session_id:
             session.create(title="Parallel execution")
+            logger.debug("Created new parallel session: %s", session.id)
 
         # Shared context for all parallel agents
         shared_ctx = HandoffContext(
@@ -394,6 +510,9 @@ class AgentSpawner:
         def execute_subtask(subtask: dict[str, str]) -> dict[str, Any]:
             agent_name = subtask.get("agent", "sago-orchestrator")
             task = subtask.get("task", "")
+            logger.debug(
+                "Parallel subtask starting: agent=%s, task_preview=%s", agent_name, task[:60]
+            )
             try:
                 # Build context for this subtask
                 ctx_str = shared_ctx.get_context_for(agent_name)
@@ -407,6 +526,12 @@ class AgentSpawner:
                         "OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")
                     ),
                 )
+                logger.info(
+                    "Parallel subtask completed: agent=%s, success=%s, result_len=%d",
+                    agent_name,
+                    result.get("success", False),
+                    len(result.get("output", "")),
+                )
                 return {
                     "agent": agent_name,
                     "task": task,
@@ -416,6 +541,7 @@ class AgentSpawner:
                     "files_created": result.get("files_created", []),
                 }
             except Exception as e:
+                logger.error("Parallel subtask failed: agent=%s, error=%s", agent_name, e)
                 return {
                     "agent": agent_name,
                     "task": task,
@@ -428,6 +554,13 @@ class AgentSpawner:
             for future in concurrent.futures.as_completed(futures):
                 results.append(future.result())
 
+        succeeded = sum(1 for r in results if r.get("success"))
+        logger.info(
+            "Parallel orchestration complete: total=%d, succeeded=%d, failed=%d",
+            len(results),
+            succeeded,
+            len(results) - succeeded,
+        )
         return results
 
     def _get_parallel_prompt(self, agent_name: str, context: str) -> str:
@@ -461,9 +594,10 @@ class AgentSpawner:
 
             chain = route_for_chain(task, max_agents=4)
             if chain:
+                logger.info("Smart router planned chain: %s", chain)
                 return chain
         except Exception as e:
-            logger.debug("Smart router failed for chain planning, using fallback: %s", e)
+            logger.warning("Smart router failed for chain planning, using fallback: %s", e)
 
         # Fallback to basic keyword matching
         task_lower = task.lower()
@@ -554,12 +688,21 @@ class AgentSpawner:
         from sago.tools.crewai_wrappers import get_crewai_tool
 
         resolved = []
+        missing = []
         for name in tool_names:
             crewai_tool = get_crewai_tool(name)
             if crewai_tool:
                 resolved.append(crewai_tool)
             else:
-                logger.warning(f"No CrewAI wrapper for tool: {name}")
+                missing.append(name)
+        if missing:
+            logger.warning("Missing CrewAI wrappers for tools: %s", missing)
+        logger.debug(
+            "Tool resolution: requested=%d, resolved=%d, missing=%d",
+            len(tool_names),
+            len(resolved),
+            len(missing),
+        )
         return resolved
 
     def _get_llm(
@@ -573,7 +716,12 @@ class AgentSpawner:
         provider_name = provider_override or self.config.llm_providers.default
         provider_config = self.config.llm_providers.providers.get(provider_name)
 
+        logger.debug(
+            "LLM provider lookup: provider=%s, model_override=%s", provider_name, model_override
+        )
+
         if provider_config is None:
+            logger.warning("No provider config found for: %s", provider_name)
             return None
 
         # Get API key from environment
@@ -585,7 +733,7 @@ class AgentSpawner:
             api_key = os.environ.get("OPENAI_API_KEY", "")
 
         if not api_key:
-            logger.warning(f"No API key found for {provider_name} (env: {api_key_env})")
+            logger.warning("No API key found for provider %s (env: %s)", provider_name, api_key_env)
             return None
 
         model = model_override or provider_config.model
@@ -605,7 +753,12 @@ class AgentSpawner:
                 temperature=provider_config.temperature,
                 max_tokens=min(provider_config.max_tokens, 4096),
             )
+            logger.info(
+                "LLM created: provider=%s, model=%s, base_url=%s", provider_name, model, base_url
+            )
             return llm
         except Exception as e:
-            logger.warning(f"Could not create LLM: {e}")
+            logger.error(
+                "Could not create LLM: provider=%s, model=%s, error=%s", provider_name, model, e
+            )
             return None

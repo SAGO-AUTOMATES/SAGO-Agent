@@ -5,6 +5,7 @@ Cross-platform system information gathering.
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 from typing import Any
@@ -13,6 +14,8 @@ from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
 from sago.utils.errors import log_error
+
+logger = logging.getLogger("sago.tools.system.os_detector")
 
 
 class OSDetectorArgs(BaseModel):
@@ -41,6 +44,14 @@ class OSDetectorTool(BaseTool):
         Returns:
             System information.
         """
+        logger.debug("os_detector called: detailed=%s", detailed)
+        logger.info(
+            "Detecting OS: system=%s, release=%s, machine=%s",
+            platform.system(),
+            platform.release(),
+            platform.machine(),
+        )
+
         info = [
             "=== System Information ===",
             f"OS: {platform.system()}",

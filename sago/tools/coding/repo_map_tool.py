@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.memory.symbol_graph import SymbolGraph
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.coding.repo_map_tool")
 
 
 class RepoMapArgs(BaseModel):

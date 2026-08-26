@@ -6,6 +6,7 @@ Prefers k3s (lightweight, ~50MB) over full k8s. Auto-installs k3s/kubectl if mis
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from typing import Any
 
@@ -13,6 +14,9 @@ from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool, ToolCategory, ToolResult
 from sago.tools.ensure_dep import ensure_binary, is_available
+
+logger = logging.getLogger("sago.tools.system.k8s_ops")
+
 
 _K8S_TIMEOUT = 60
 DESTRUCTIVE_OPS = {"delete", "drain", "taint", "uncordon", "rollout undo"}
@@ -73,10 +77,14 @@ class K8sOpsTool(BaseTool):
         **extra: Any,
     ) -> ToolResult:
         op = (operation or "").strip().lower()
+        logger.debug(
+            "k8s_ops called: operation=%s, resource=%s, namespace=%s", op, resource, namespace
+        )
 
         # Ensure kubectl/k3s is available - prefer k3s on Linux
         kubectl_cmd = self._resolve_kubectl(auto_install)
         if not kubectl_cmd:
+            logger.warning("kubectl/k3s not found on system")
             return ToolResult(
                 output=(
                     "kubectl/k3s not found.\n"
@@ -108,12 +116,15 @@ class K8sOpsTool(BaseTool):
             cmd.append("--dry-run=client")
 
         if is_destructive and not dry_run:
+            logger.warning("Destructive K8s operation blocked: operation=%s", op)
             return ToolResult(
                 output=f"BLOCKED: '{op}' is destructive. Set dry_run=true to preview first.",
                 success=False,
                 error="destructive_operation_blocked",
                 metadata={"operation": op},
             )
+
+        logger.info("Executing k8s command: %s", " ".join(cmd))
 
         try:
             proc = subprocess.run(
@@ -125,12 +136,15 @@ class K8sOpsTool(BaseTool):
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired:
+            logger.error("K8s command timed out: operation=%s, timeout=%d", op, timeout)
             return ToolResult(
                 output=f"kubectl {op} timed out after {timeout}s.", success=False, error="timeout"
             )
         except FileNotFoundError:
+            logger.error("kubectl binary not found during execution")
             return ToolResult(output="kubectl not found.", success=False, error="kubectl_not_found")
         except Exception as e:
+            logger.error("K8s command failed: operation=%s, error=%s", op, e)
             return ToolResult(
                 output=f"Failed to run kubectl {op}: {e}", success=False, error=str(e)
             )
@@ -139,12 +153,20 @@ class K8sOpsTool(BaseTool):
         stderr = proc.stderr.strip()
 
         if proc.returncode != 0:
+            logger.error(
+                "K8s command failed: operation=%s, returncode=%d, stderr=%s",
+                op,
+                proc.returncode,
+                stderr[:200],
+            )
             return ToolResult(
                 output=stderr or f"kubectl {op} failed (code {proc.returncode}).",
                 success=False,
                 error=f"exit_{proc.returncode}",
                 metadata={"returncode": proc.returncode, "command": cmd},
             )
+
+        logger.info("K8s command succeeded: operation=%s, returncode=%d", op, proc.returncode)
 
         metadata: dict[str, Any] = {
             "returncode": proc.returncode,

@@ -39,16 +39,20 @@ class SagoOrchestrator:
         """Build the CrewAI crew from configuration."""
         from crewai import Agent
 
+        logger.info("Building orchestrator crew")
+
         # Load tool registry
         self._load_tools()
 
         # Create agents from config
         for agent_name in self.config.agents.enabled:
             if agent_name == "sago":
+                logger.debug("Skipping 'sago' (orchestrator, not a crew member)")
                 continue  # Sago is the orchestrator, not a crew member
 
             agent_config = self._get_agent_config(agent_name)
             if agent_config is None:
+                logger.warning("No agent config found for: %s", agent_name)
                 continue
 
             tools = self._resolve_tools(agent_config.get("tools", []))
@@ -63,8 +67,15 @@ class SagoOrchestrator:
                 max_iter=agent_config.get("max_iterations", 15),
             )
             self._agents[agent_name] = agent
+            logger.info(
+                "Built agent: name=%s, role=%s, tools=%d, max_iter=%d",
+                agent_name,
+                agent_config["role"],
+                len(tools),
+                agent_config.get("max_iterations", 15),
+            )
 
-        logger.info(f"Built orchestrator with {len(self._agents)} agents")
+        logger.info("Orchestrator build complete: %d agents created", len(self._agents))
 
     def execute(self, task: str) -> str:
         """Execute a task using the appropriate agents.
@@ -77,7 +88,10 @@ class SagoOrchestrator:
         """
         from crewai import Crew, Task
 
+        logger.info("Executing task: task_preview=%s", task[:80])
+
         if not self._agents:
+            logger.debug("No agents built yet, calling build()")
             self.build()
 
         # Route task to appropriate agent
@@ -85,7 +99,12 @@ class SagoOrchestrator:
         agent = self._agents.get(agent_name)
 
         if agent is None:
+            logger.error(
+                "No agent found for task after routing: agent=%s, task=%s", agent_name, task[:50]
+            )
             return f"Error: No agent found for task: {task}"
+
+        logger.info("Routed task to agent: %s", agent_name)
 
         # Create and execute task
         crew_task = Task(
@@ -100,8 +119,12 @@ class SagoOrchestrator:
             verbose=self.config.settings.verbose_output,
         )
 
+        logger.debug("Starting CrewAI execution for agent %s", agent_name)
         result = crew.kickoff()
         result_str = str(result)
+        logger.info(
+            "CrewAI execution completed: agent=%s, result_len=%d", agent_name, len(result_str)
+        )
 
         # Run hallucination verification on CrewAI result
         try:
@@ -111,22 +134,28 @@ class SagoOrchestrator:
             verification = verifier.verify(result_str, tool_history=[], task_type="create")
             if verification.has_hallucinations:
                 logger.warning(
-                    f"Hallucinations detected in orchestrator result: {verification.all_issues[:3]}"
+                    "Hallucinations detected in orchestrator result: issues=%s",
+                    verification.all_issues[:3],
                 )
                 result_str = verification.cleaned_content
                 if verification.confidence < 50:
                     result_str += "\n\n[Confidence Warning]\nThis response may contain unverified claims. Please verify independently."
+            else:
+                logger.debug(
+                    "Hallucination verification passed (confidence=%d)", verification.confidence
+                )
         except Exception as e:
-            logger.debug(f"Hallucination verification skipped: {e}")
+            logger.debug("Hallucination verification skipped: %s", e)
 
         # Quality gate: validate result addresses the task
         quality_issues = self._validate_result(result_str, task)
         if quality_issues:
-            logger.warning(f"Quality issues in orchestrator result: {quality_issues}")
+            logger.warning("Quality issues in orchestrator result: %s", quality_issues)
             result_str += "\n\n[Quality Review]\n" + "\n".join(
                 f"- {issue}" for issue in quality_issues
             )
 
+        logger.info("Task execution complete: agent=%s, result_len=%d", agent_name, len(result_str))
         return result_str
 
     def _validate_result(self, result: str, task: str) -> list[str]:
@@ -170,12 +199,21 @@ class SagoOrchestrator:
                 scores[agent_name] = score
 
         if scores:
-            return max(scores, key=scores.get)  # type: ignore[arg-type]
+            chosen = max(scores, key=scores.get)  # type: ignore[arg-type]
+            logger.info(
+                "Task routed via config triggers: agent=%s, score=%d, all_scores=%s",
+                chosen,
+                scores[chosen],
+                scores,
+            )
+            return chosen
 
         # Default to coder for code-related tasks
         if any(word in task_lower for word in ["code", "function", "class", "file", "write"]):
+            logger.debug("Task routed to 'coder' (code-related keywords detected)")
             return "coder"
 
+        logger.debug("Task routed to default agent: 'coder'")
         return "coder"  # Default agent
 
     def _load_tools(self) -> None:
@@ -186,19 +224,25 @@ class SagoOrchestrator:
             discovered = discover_tools()
             for tool_name, tool_def in discovered.items():
                 self._tools[tool_name] = tool_def.tool_class
+            logger.info("Loaded %d tools from registry", len(self._tools))
         except Exception as e:
-            logger.warning(f"Error discovering tools in orchestrator: {e}")
+            logger.warning("Error discovering tools in orchestrator: %s", e)
 
     def _resolve_tools(self, tool_names: list[str]) -> list[Any]:
         """Resolve tool names to CrewAI tool instances."""
         resolved = []
+        missing = []
         for name in tool_names:
             tool_class = self._tools.get(name)
             if tool_class:
                 try:
                     resolved.append(tool_class.to_langchain_tool())
                 except Exception as e:
-                    logger.warning(f"Could not convert tool {name}: {e}")
+                    logger.warning("Could not convert tool %s: %s", name, e)
+            else:
+                missing.append(name)
+        if missing:
+            logger.debug("Missing tools: %s", missing)
         return resolved
 
     def _get_agent_config(self, agent_name: str) -> dict[str, Any] | None:
@@ -214,10 +258,18 @@ class SagoOrchestrator:
             with open(agents_yaml) as f:
                 data = yaml.safe_load(f) or {}
                 agents = data.get("agents", {})
-                return agents.get(agent_name)
+                config = agents.get(agent_name)
+                if config:
+                    logger.debug("Loaded agent config from YAML: %s", agent_name)
+                else:
+                    logger.debug("Agent %s not found in YAML, using built-in", agent_name)
+                return config
 
         # Fallback to built-in configs
-        return self._get_builtin_agent_config(agent_name)
+        config = self._get_builtin_agent_config(agent_name)
+        if config:
+            logger.debug("Using built-in config for agent: %s", agent_name)
+        return config
 
     def _get_builtin_agent_config(self, agent_name: str) -> dict[str, Any] | None:
         """Get built-in agent configuration."""

@@ -5,12 +5,15 @@ Cross-platform permission management.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.admin.permission_manager")
 
 
 class PermissionManagerArgs(BaseModel):

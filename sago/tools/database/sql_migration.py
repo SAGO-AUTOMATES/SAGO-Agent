@@ -5,12 +5,15 @@ Generates safe, idempotent forward and rollback migration DDL scripts with schem
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.database.sql_migration")
 
 
 class SqlMigrationArgs(BaseModel):

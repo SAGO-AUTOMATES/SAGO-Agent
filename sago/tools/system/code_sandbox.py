@@ -5,6 +5,7 @@ Auto-installs Node.js if missing for JavaScript execution.
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import tempfile
@@ -16,6 +17,9 @@ from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool, ToolCategory, ToolResult
 from sago.tools.ensure_dep import ensure_binary
+
+logger = logging.getLogger("sago.tools.system.code_sandbox")
+
 
 _SANDBOX_TIMEOUT = 30
 _MAX_OUTPUT = 100_000
@@ -66,6 +70,9 @@ class CodeSandboxTool(BaseTool):
         **extra: Any,
     ) -> ToolResult:
         lang = (language or "").strip().lower()
+        logger.debug(
+            "code_sandbox called: language=%s, timeout=%d, packages=%s", lang, timeout, packages
+        )
 
         exec_env = os.environ.copy()
         exec_env["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -85,17 +92,22 @@ class CodeSandboxTool(BaseTool):
         tmpfile = Path(tempfile.mktemp(suffix=suffix, prefix="sago_sandbox_"))
 
         try:
+            logger.info("Writing code to sandbox file: lang=%s, path=%s", lang, tmpfile)
             tmpfile.write_text(code, encoding="utf-8")
 
             if lang == "python":
+                logger.info("Running Python code in sandbox")
                 return self._run_python(tmpfile, timeout, packages or [], exec_env, capture_output)
             elif lang in ("javascript", "js"):
+                logger.info("Running JavaScript code in sandbox")
                 return self._run_javascript(
                     tmpfile, timeout, exec_env, capture_output, auto_install
                 )
             elif lang in ("bash", "shell", "sh"):
+                logger.info("Running Shell code in sandbox")
                 return self._run_shell(tmpfile, timeout, exec_env, capture_output)
             else:
+                logger.warning("Unsupported language for sandbox: %s", lang)
                 return ToolResult(
                     output=f"Unsupported language: '{lang}'. Supported: python, javascript, bash",
                     success=False,
@@ -114,10 +126,12 @@ class CodeSandboxTool(BaseTool):
     ) -> ToolResult:
         venv_dir = Path(tempfile.mkdtemp(prefix="sago_venv_"))
         try:
+            logger.debug("Creating Python venv: %s", venv_dir)
             builder = venv.EnvBuilder(
                 system_site_packages=False, with_pip=True, clear=True, symlinks=False
             )
             builder.create(venv_dir)
+            logger.debug("Python venv created successfully")
 
             pip_cmd = [
                 str(venv_dir / "bin" / "pip"),
@@ -128,16 +142,19 @@ class CodeSandboxTool(BaseTool):
             python_cmd = str(venv_dir / "bin" / "python")
 
             if packages:
+                logger.info("Installing Python packages: %s", packages)
                 install_result = subprocess.run(
                     [*pip_cmd, *packages], capture_output=True, text=True, timeout=60, env=env
                 )
                 if install_result.returncode != 0:
+                    logger.error("Package installation failed: %s", install_result.stderr[:200])
                     return ToolResult(
                         output=f"Package installation failed:\n{install_result.stderr}",
                         success=False,
                         error="package_install_failed",
                         metadata={"packages": packages},
                     )
+                logger.info("Python packages installed successfully")
 
             proc = subprocess.run(
                 [python_cmd, str(tmpfile)],
@@ -149,6 +166,13 @@ class CodeSandboxTool(BaseTool):
             )
             stdout = (proc.stdout or "")[:_MAX_OUTPUT]
             stderr = (proc.stderr or "")[:_MAX_OUTPUT]
+
+            logger.info(
+                "Python execution completed: exit_code=%d, stdout_len=%d, stderr_len=%d",
+                proc.returncode,
+                len(stdout),
+                len(stderr),
+            )
 
             if proc.returncode != 0:
                 return ToolResult(
@@ -195,6 +219,7 @@ class CodeSandboxTool(BaseTool):
         for node_bin in ["node", "nodejs"]:
             path = _find_binary(node_bin)
             if path:
+                logger.info("Running JavaScript with: %s", path)
                 proc = subprocess.run(
                     [path, str(tmpfile)],
                     capture_output=capture_output,
@@ -204,6 +229,13 @@ class CodeSandboxTool(BaseTool):
                 )
                 stdout = (proc.stdout or "")[:_MAX_OUTPUT]
                 stderr = (proc.stderr or "")[:_MAX_OUTPUT]
+
+                logger.info(
+                    "JavaScript execution completed: exit_code=%d, stdout_len=%d, stderr_len=%d",
+                    proc.returncode,
+                    len(stdout),
+                    len(stderr),
+                )
 
                 if proc.returncode != 0:
                     return ToolResult(
@@ -224,6 +256,7 @@ class CodeSandboxTool(BaseTool):
         self, tmpfile: Path, timeout: int, env: dict[str, str], capture_output: bool
     ) -> ToolResult:
         tmpfile.chmod(0o755)
+        logger.info("Running shell script: %s", tmpfile)
         proc = subprocess.run(
             ["bash", "-c", f"ulimit -t {timeout} -f 100000 -u 50 2>/dev/null; bash {tmpfile}"],
             capture_output=capture_output,
@@ -233,6 +266,13 @@ class CodeSandboxTool(BaseTool):
         )
         stdout = (proc.stdout or "")[:_MAX_OUTPUT]
         stderr = (proc.stderr or "")[:_MAX_OUTPUT]
+
+        logger.info(
+            "Shell execution completed: exit_code=%d, stdout_len=%d, stderr_len=%d",
+            proc.returncode,
+            len(stdout),
+            len(stderr),
+        )
 
         if proc.returncode != 0:
             return ToolResult(

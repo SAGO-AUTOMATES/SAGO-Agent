@@ -32,6 +32,11 @@ class PlatformDiagnosticsTool(BaseTool):
     risk_level = "safe"
 
     def _run(self, check_docker: bool = True, check_git: bool = True, **kwargs: Any) -> str:
+        logger.debug(
+            "platform_diagnostics called: check_docker=%s, check_git=%s", check_docker, check_git
+        )
+        logger.info("Running platform diagnostics")
+
         lines = ["## System & Platform Diagnostics\n"]
 
         # 1. OS & Hardware
@@ -45,6 +50,12 @@ class PlatformDiagnosticsTool(BaseTool):
             total, used, free = shutil.disk_usage(Path.cwd())
             lines.append(
                 f"• **Disk Usage**: {used // (2**30)}GB used / {total // (2**30)}GB total ({free // (2**30)}GB free)"
+            )
+            logger.debug(
+                "Disk usage: used=%dGB, total=%dGB, free=%dGB",
+                used // (2**30),
+                total // (2**30),
+                free // (2**30),
             )
         except Exception as e:
             logger.debug("Failed to get disk usage: %s", e)
@@ -60,6 +71,7 @@ class PlatformDiagnosticsTool(BaseTool):
             "uv",
         ]
         avail = [b for b in common_binaries if shutil.which(b)]
+        logger.debug("Available binaries: %s", avail)
         lines.append(f"• **Available CLI Binaries**: {', '.join(avail)}")
 
         # 4. Git status
@@ -68,10 +80,12 @@ class PlatformDiagnosticsTool(BaseTool):
                 try:
                     res = self._run_command("git rev-parse --abbrev-ref HEAD", timeout=5)
                     branch = res.stdout.strip() if res.returncode == 0 else "unknown"
+                    logger.debug("Git branch: %s", branch)
                     lines.append(f"• **Git Repo**: Initialized (active branch: {branch})")
                 except Exception:
                     lines.append("• **Git Repo**: Initialized (branch unknown)")
             else:
                 lines.append("• **Git Repo**: Not a git repository")
 
+        logger.info("Platform diagnostics completed")
         return "\n".join(lines)

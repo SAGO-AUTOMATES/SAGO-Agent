@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,9 @@ from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
 from sago.utils.errors import log_error
+
+logger = logging.getLogger("sago.tools.security.secret_scanner")
+
 
 # Common sensitive regex patterns
 SECRET_PATTERNS = {

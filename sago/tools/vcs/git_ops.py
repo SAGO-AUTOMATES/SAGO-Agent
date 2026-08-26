@@ -7,6 +7,7 @@ and vcs/git_ops for a single, comprehensive, safe git tool.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool, ToolCategory, ToolResult
+
+logger = logging.getLogger("sago.tools.vcs.git_ops")
+
 
 _GIT_TIMEOUT = 30
 

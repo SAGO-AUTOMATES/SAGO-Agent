@@ -278,8 +278,14 @@ class SmartRouter:
                     self._skill_index[skill.lower()].add(name)
                 self._category_index[agent.category.lower()].add(name)
             self._loaded = True
+            logger.info(
+                "Smart router loaded: agents=%d, skill_index=%d, category_index=%d",
+                len(self._agents),
+                len(self._skill_index),
+                len(self._category_index),
+            )
         except Exception as e:
-            logger.warning(f"Failed to load agent registry: {e}")
+            logger.error("Failed to load agent registry: %s", e)
 
     def _tokenize(self, text: str) -> list[str]:
         """Tokenize text into lowercase words, filtering short tokens."""
@@ -566,6 +572,13 @@ class SmartRouter:
             logger.warning("No agents loaded, cannot route")
             return []
 
+        logger.debug(
+            "Routing task: top_n=%d, min_score=%.2f, task_preview=%s",
+            top_n,
+            min_score,
+            task[:80],
+        )
+
         # Score all agents
         scores = []
         for agent_name in self._agents:
@@ -576,7 +589,19 @@ class SmartRouter:
         # Sort by total score descending
         scores.sort(key=lambda s: s.total_score, reverse=True)
 
-        return scores[:top_n]
+        top_scores = scores[:top_n]
+        if top_scores:
+            logger.info(
+                "Routing result: top_agent=%s, score=%.2f, total_candidates=%d, reasons=%s",
+                top_scores[0].agent_name,
+                top_scores[0].total_score,
+                len(scores),
+                top_scores[0].reasons[:3],
+            )
+        else:
+            logger.warning("No agents met min_score=%.2f for task: %s", min_score, task[:50])
+
+        return top_scores
 
     def route_single(self, task: str) -> str:
         """Route a task to the single best agent name.
@@ -585,7 +610,11 @@ class SmartRouter:
         """
         scores = self.route(task, top_n=1, min_score=0.5)
         if scores:
+            logger.info(
+                "Single route: agent=%s, score=%.2f", scores[0].agent_name, scores[0].total_score
+            )
             return scores[0].agent_name
+        logger.warning("No agent found, using fallback: software-engineer")
         return "software-engineer"
 
     def route_for_chain(self, task: str, max_agents: int = 4) -> list[str]:
@@ -617,6 +646,8 @@ class SmartRouter:
             if any(p in task_lower for p in patterns):
                 detected_domains.append(domain)
 
+        logger.debug("Detected domains in task: %s", detected_domains)
+
         # If multiple domains detected, create a chain
         if len(detected_domains) > 1:
             chain = []
@@ -624,6 +655,7 @@ class SmartRouter:
                 scores = self.route(f"{task} {domain}", top_n=1, min_score=0.5)
                 if scores and scores[0].agent_name not in chain:
                     chain.append(scores[0].agent_name)
+            logger.info("Multi-domain chain created: domains=%s, chain=%s", detected_domains, chain)
             return chain
 
         # Single domain — route to best agent + optional reviewer
@@ -637,7 +669,15 @@ class SmartRouter:
         )
         if word_count > 15 and verb_count > 1 and "reviewer" not in chain:
             chain.append("code-reviewer")
+            logger.debug(
+                "Added code-reviewer to chain (complex task: %d words, %d verbs)",
+                word_count,
+                verb_count,
+            )
 
+        logger.info(
+            "Chain routing result: chain=%s, task_preview=%s", chain[:max_agents], task[:50]
+        )
         return chain[:max_agents]
 
 

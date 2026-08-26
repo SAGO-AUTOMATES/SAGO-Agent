@@ -14,12 +14,15 @@ from __future__ import annotations
 
 import ast
 import difflib
+import logging
 import os
 import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger("sago.tools.file.resilient_editor")
 
 
 @dataclass

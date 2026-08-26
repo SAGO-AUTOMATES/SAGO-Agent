@@ -24,7 +24,9 @@ def _find_project_root() -> Path | None:
     cwd = Path.cwd()
     for p in [cwd, *cwd.parents]:
         if (p / ".git").exists() or (p / "pyproject.toml").exists():
+            logger.debug("Project root found: %s", p)
             return p
+    logger.debug("No project root found from %s", cwd)
     return None
 
 
@@ -65,11 +67,14 @@ def load_settings() -> dict[str, Any]:
     settings: dict[str, Any] = {}
     # Global base
     if GLOBAL_SETTINGS.exists():
+        logger.debug("Loading global settings from %s", GLOBAL_SETTINGS)
         settings.update(_load_settings_file(GLOBAL_SETTINGS))
     # Project overrides
     proj = _project_settings_path()
     if proj and proj.exists():
+        logger.debug("Loading project settings from %s", proj)
         settings.update(_load_settings_file(proj))
+    logger.debug("Settings loaded: %d keys", len(settings))
     return settings
 
 
@@ -97,6 +102,7 @@ def save_setting(key: str, value: Any, scope: str = "global") -> None:
             )
     data[key] = value
     path.write_text(json.dumps(data, indent=2))
+    logger.debug("Setting saved: key=%s, scope=%s, path=%s", key, scope, path)
 
 
 def load_setting(key: str, default: Any = None) -> Any:
@@ -106,10 +112,13 @@ def load_setting(key: str, default: Any = None) -> Any:
     if proj and proj.exists():
         data = _load_settings_file(proj)
         if key in data:
+            logger.debug("Setting '%s' found in project settings", key)
             return data[key]
     # Then global
     if GLOBAL_SETTINGS.exists():
         data = _load_settings_file(GLOBAL_SETTINGS)
         if key in data:
+            logger.debug("Setting '%s' found in global settings", key)
             return data[key]
+    logger.debug("Setting '%s' not found, using default=%s", key, default)
     return default

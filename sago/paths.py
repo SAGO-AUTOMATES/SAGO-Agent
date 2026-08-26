@@ -5,9 +5,12 @@ Handles ~/.sago/ directory across Linux, macOS, and Windows.
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 from pathlib import Path
+
+logger = logging.getLogger("sago.paths")
 
 
 def get_sago_home() -> Path:

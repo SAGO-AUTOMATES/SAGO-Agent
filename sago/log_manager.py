@@ -7,12 +7,15 @@ and the cleanup system.
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from sago.paths import get_logs_dir, get_sago_home
+
+logger = logging.getLogger("sago.log_manager")
 
 # Log line format: 2025-01-15 10:30:45 | INFO     | abc123def456 | sago.config | message
 _LOG_PATTERN = re.compile(

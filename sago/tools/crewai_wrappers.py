@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import sys
 from pathlib import Path
 from typing import Any
 
 from crewai.tools import tool as crewai_tool
+
+logger = logging.getLogger("sago.tools.crewai_wrappers")
 
 
 def create_crewai_tool(sago_tool_class: type) -> Any:

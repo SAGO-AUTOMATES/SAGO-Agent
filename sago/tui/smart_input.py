@@ -6,9 +6,12 @@ to enable selective reading and token-efficient processing.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger("sago.tui.smart_input")
 
 
 @dataclass

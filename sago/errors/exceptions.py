@@ -6,7 +6,10 @@ docs/ERRORS.md for tools, agents, LLM providers, and system storage.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger("sago.errors.exceptions")
 
 
 class SagoError(Exception):

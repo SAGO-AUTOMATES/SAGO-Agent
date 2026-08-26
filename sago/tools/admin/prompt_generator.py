@@ -5,12 +5,15 @@ Cross-platform prompt management and generation.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.admin.prompt_generator")
 
 
 class PromptGeneratorArgs(BaseModel):

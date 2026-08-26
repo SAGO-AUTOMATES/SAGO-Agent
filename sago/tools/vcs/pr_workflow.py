@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 from pathlib import Path
@@ -10,6 +11,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool, ToolCategory, ToolResult
+
+logger = logging.getLogger("sago.tools.vcs.pr_workflow")
 
 
 class PRCreateArgs(BaseModel):

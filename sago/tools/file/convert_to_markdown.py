@@ -5,12 +5,15 @@ Powered by MarkItDown with graceful fallbacks.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
 from sago.utils.markitdown_converter import convert_file_to_markdown, is_markitdown_available
+
+logger = logging.getLogger("sago.tools.file.convert_to_markdown")
 
 
 class ConvertToMarkdownArgs(BaseModel):

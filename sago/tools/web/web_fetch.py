@@ -6,6 +6,7 @@ URL validation, content-type filtering, and optional HTML-to-text conversion.
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 import urllib.parse
@@ -16,6 +17,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool, ToolCategory, ToolResult
+
+logger = logging.getLogger("sago.tools.web.web_fetch")
+
 
 _DEFAULT_TIMEOUT = 15
 _MAX_RETRIES = 3

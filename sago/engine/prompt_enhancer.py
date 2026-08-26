@@ -209,6 +209,7 @@ class PromptEnhancer:
         """Enhance a user prompt with minimal, targeted additions."""
         raw = (task or "").strip()
         if not raw:
+            logger.debug("Empty prompt, skipping enhancement")
             return PromptEnhancementResult(
                 original_prompt="",
                 enhanced_prompt="",
@@ -229,6 +230,12 @@ class PromptEnhancer:
 
         # Classify intent
         intent_key, intent_desc, constraints = self._classify_intent(raw)
+        logger.debug(
+            "Intent classified: key=%s, desc=%s, constraints=%d",
+            intent_key,
+            intent_desc,
+            len(constraints),
+        )
 
         # Skip enhancement for casual chat
         if intent_key == "casual":
@@ -242,6 +249,7 @@ class PromptEnhancer:
 
         # Extract file targets (fast regex only, no directory walking)
         targets = self._extract_file_refs(raw)
+        logger.debug("File targets extracted: %s", targets)
 
         # Detect domain for targeted constraints
         domain = self._detect_domain(agent_role, raw)
@@ -275,6 +283,12 @@ class PromptEnhancer:
             improvements=improvements,
             was_modified=True,
             agent_role=agent_role,
+        )
+        logger.info(
+            "Prompt enhanced: intent=%s, improvements=%s, targets=%d",
+            intent_key,
+            improvements,
+            len(targets),
         )
 
         self._record_telemetry(result)

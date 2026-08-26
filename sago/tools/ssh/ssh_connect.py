@@ -5,11 +5,14 @@ Cross-platform SSH connection management using paramiko.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.ssh.ssh_connect")
 
 
 class SSHConnectArgs(BaseModel):
@@ -53,9 +56,12 @@ class SSHConnectTool(BaseTool):
         Returns:
             Connection status and host information.
         """
+        logger.debug("ssh_connect called: host=%s, port=%d, user=%s", hostname, port, username)
+
         try:
             import paramiko
         except ImportError:
+            logger.error("paramiko not installed")
             return "Error: paramiko is not installed. Install with: pip install paramiko"
 
         client = paramiko.SSHClient()
@@ -75,7 +81,11 @@ class SSHConnectTool(BaseTool):
             connect_kwargs["password"] = password
 
         try:
+            logger.info(
+                "SSH connecting: %s@%s:%d (key=%s)", username, hostname, port, key_file or "none"
+            )
             client.connect(**connect_kwargs)
+            logger.info("SSH connection established: %s@%s:%d", username, hostname, port)
 
             # Get server info
             transport = client.get_transport()
@@ -88,6 +98,7 @@ class SSHConnectTool(BaseTool):
             system_info = stdout.read().decode("utf-8", errors="replace").strip()
 
             client.close()
+            logger.info("SSH connection closed: %s@%s", username, hostname)
 
             return (
                 f"SSH connection successful!\n"
@@ -98,8 +109,11 @@ class SSHConnectTool(BaseTool):
             )
 
         except paramiko.AuthenticationException:
+            logger.error("SSH authentication failed: %s@%s:%d", username, hostname, port)
             return f"Error: Authentication failed for {username}@{hostname}"
         except paramiko.SSHException as e:
+            logger.error("SSH connection failed: %s@%s:%d, error=%s", username, hostname, port, e)
             return f"Error: SSH connection failed: {e}"
         except Exception as e:
+            logger.error("SSH connect error: host=%s, error=%s", hostname, e)
             return f"Error: {e}"

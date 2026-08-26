@@ -6,12 +6,15 @@ architectural decisions, and design options during execution.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.interactive.ask_question")
 
 
 class QuestionItem(BaseModel):

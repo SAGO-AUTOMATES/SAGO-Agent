@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.memory.project_graph import ProjectGraph
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.coding.project_graph_tool")
 
 
 class ProjectGraphArgs(BaseModel):

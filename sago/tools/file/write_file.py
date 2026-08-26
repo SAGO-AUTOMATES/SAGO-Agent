@@ -6,6 +6,7 @@ Creates or overwrites files with optional backup, syntax validation, and smart e
 from __future__ import annotations
 
 import ast
+import logging
 import shutil
 from typing import Any
 
@@ -13,6 +14,8 @@ from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
 from sago.utils.errors import log_error
+
+logger = logging.getLogger("sago.tools.file.write_file")
 
 
 class WriteFileArgs(BaseModel):

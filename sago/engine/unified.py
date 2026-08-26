@@ -62,17 +62,20 @@ class UnifiedExecutor:
         from sago.tracking.dev_tracer import get_dev_tracer
 
         logger.info(
-            "Task execution started: agent=%s, backend=%s, model=%s",
+            "Task execution started: agent=%s, backend=%s, model=%s, max_iterations=%d",
             agent_name,
             backend,
             self.model,
+            max_iterations,
         )
+        logger.debug("Task preview: %.200s", task)
         tracer = get_dev_tracer()
         with tracer.trace_block(
             source=f"sago.engine.{backend}",
             action=f"execute({agent_name})",
             data={"task": task[:120], "agent": agent_name, "model": self.model, "backend": backend},
         ) as trace_data:
+            logger.info("Dispatching to backend: %s", backend)
             if backend == "crewai":
                 res = self._execute_crewai(
                     task, agent_name, system_prompt, max_tokens, max_iterations
@@ -138,12 +141,14 @@ class UnifiedExecutor:
         try:
             from sago.agents.spawner import AgentSpawner
 
+            logger.info("CrewAI execution starting: agent=%s, model=%s", agent_name, self.model)
             spawner = AgentSpawner()
             result_str = spawner.execute_with_agent(
                 agent_name=agent_name,
                 task=task,
                 model_override=self.model,
             )
+            logger.info("CrewAI execution completed: output_length=%d", len(result_str))
             return {
                 "success": not result_str.startswith("Error:"),
                 "output": result_str,
@@ -154,6 +159,7 @@ class UnifiedExecutor:
                 "files_created": [],
             }
         except Exception as e:
+            logger.error("CrewAI execution failed: %s", e)
             return {
                 "success": False,
                 "output": f"CrewAI error: {e}",
@@ -174,10 +180,13 @@ class UnifiedExecutor:
         try:
             from sago.workflow.langgraph_engine import SagoWorkflowEngine
 
+            logger.info("LangGraph execution starting: agent=%s, model=%s", agent_name, self.model)
             engine = SagoWorkflowEngine(api_key=self.api_key, model=self.model)
             result = engine.run(task, agent_name, max_iterations)
+            logger.info("LangGraph execution completed")
             return result.to_dict()
         except Exception as e:
+            logger.error("LangGraph execution failed: %s", e)
             return {
                 "success": False,
                 "output": f"LangGraph error: {e}",

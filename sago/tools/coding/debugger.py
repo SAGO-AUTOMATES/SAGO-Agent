@@ -6,6 +6,7 @@ Cross-platform debugging with Python, JavaScript, and general code support.
 from __future__ import annotations
 
 import ast
+import logging
 import re
 import subprocess
 import sys
@@ -15,6 +16,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.coding.debugger")
 
 
 class DebuggerArgs(BaseModel):
@@ -57,6 +60,13 @@ class DebuggerTool(BaseTool):
         Returns:
             Debug analysis.
         """
+        logger.debug(
+            "Debug session started: file_path=%s, command=%s, error_message=%s, breakpoint_line=%s",
+            file_path,
+            command,
+            error_message[:100] if error_message else None,
+            breakpoint_line,
+        )
         results: list[str] = []
 
         if command:
@@ -70,18 +80,22 @@ class DebuggerTool(BaseTool):
             if path.exists():
                 results.extend(self._debug_file(path, breakpoint_line))
             else:
+                logger.warning("File not found for debugging: %s", path)
                 results.append(f"Error: File not found: {path}")
 
         if code_snippet:
             results.extend(self._analyze_code(code_snippet))
 
         if not results:
+            logger.debug("No debug target provided")
             return "No debug target. Provide command, file_path, code_snippet, or error_message."
 
+        logger.info("Debug session complete: file_path=%s, command=%s", file_path, command)
         return "\n".join(results)
 
     def _run_and_debug(self, command: str) -> list[str]:
         """Run a command and capture output for debugging."""
+        logger.debug("Running command for debugging: %s", command)
         results = ["=== Command Execution ===\n"]
         results.append(f"Command: {command}\n")
 
@@ -104,20 +118,30 @@ class DebuggerTool(BaseTool):
                 results.append(proc.stderr[-3000:])
 
             results.append(f"\nExit code: {proc.returncode}")
+            logger.debug(
+                "Command completed: exit_code=%d, stdout_len=%d, stderr_len=%d",
+                proc.returncode,
+                len(proc.stdout),
+                len(proc.stderr),
+            )
 
             if proc.returncode != 0:
+                logger.warning("Command failed with non-zero exit code: %d", proc.returncode)
                 results.append("\n=== Error Analysis ===")
                 results.extend(self._analyze_error(proc.stderr or proc.stdout))
 
         except subprocess.TimeoutExpired:
+            logger.warning("Command timed out after 30s: %s", command)
             results.append("Command timed out after 30s")
         except Exception as e:
+            logger.error("Execution error: command=%s, error=%s", command, e)
             results.append(f"Execution error: {e}")
 
         return results
 
     def _analyze_error(self, error_message: str) -> list[str]:
         """Analyze an error message and provide actionable suggestions."""
+        logger.debug("Analyzing error message: len=%d", len(error_message))
         results = ["=== Error Analysis ===\n"]
 
         error_lower = error_message.lower()
@@ -209,12 +233,14 @@ class DebuggerTool(BaseTool):
 
     def _debug_file(self, path: Path, breakpoint_line: int | None = None) -> list[str]:
         """Debug a file - run it and analyze issues."""
+        logger.debug("Debugging file: %s, breakpoint_line=%s", path, breakpoint_line)
         results = ["\n=== File Debug ==="]
         results.append(f"File: {path}")
 
         try:
             content = path.read_text(encoding="utf-8", errors="replace")
         except Exception as e:
+            logger.error("Failed to read file for debugging: %s, error=%s", path, e)
             return [f"Error reading file: {e}"]
 
         lines = content.splitlines()
@@ -223,8 +249,10 @@ class DebuggerTool(BaseTool):
         # Check syntax
         try:
             compile(content, str(path), "exec")
+            logger.debug("Syntax check passed for: %s", path)
             results.append("Syntax: Valid")
         except SyntaxError as e:
+            logger.warning("Syntax error in %s: line %d - %s", path, e.lineno, e.msg)
             results.append(f"Syntax Error: Line {e.lineno}: {e.msg}")
             if e.lineno and e.lineno <= len(lines):
                 start = max(0, e.lineno - 2)
@@ -265,6 +293,7 @@ class DebuggerTool(BaseTool):
 
         # Set breakpoint info
         if breakpoint_line and 1 <= breakpoint_line <= len(lines):
+            logger.debug("Setting breakpoint at line %d in %s", breakpoint_line, path)
             results.append(f"\n=== Breakpoint at line {breakpoint_line} ===")
             start = max(0, breakpoint_line - 3)
             end = min(len(lines), breakpoint_line + 3)

@@ -5,12 +5,15 @@ Cross-platform background process management.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.shell.background")
 
 
 class BackgroundProcessArgs(BaseModel):
@@ -49,6 +52,10 @@ class BackgroundProcessTool(BaseTool):
         Returns:
             Process ID and status.
         """
+        logger.debug(
+            "background_process called: command=%s, cwd=%s, log_file=%s", command, cwd, log_file
+        )
+
         work_dir = None
         if cwd:
             work_dir = str(self._expand_path(cwd))
@@ -60,6 +67,7 @@ class BackgroundProcessTool(BaseTool):
             stdout_dest = open(log_path, "w")
 
         try:
+            logger.info("Starting background process: command=%s, cwd=%s", command, work_dir)
             if self._is_windows():
                 process = subprocess.Popen(
                     command,
@@ -80,6 +88,7 @@ class BackgroundProcessTool(BaseTool):
                 )
 
             self._processes[process.pid] = process
+            logger.info("Background process started: pid=%d, command=%s", process.pid, command)
 
             return (
                 f"Background process started (PID: {process.pid})\n"
@@ -90,6 +99,7 @@ class BackgroundProcessTool(BaseTool):
             )
 
         except Exception as e:
+            logger.error("Failed to start background process: command=%s, error=%s", command, e)
             return f"Error starting background process: {e}"
 
     def get_process(self, pid: int) -> subprocess.Popen[bytes] | None:

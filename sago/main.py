@@ -103,13 +103,14 @@ def _get_configured_model() -> str:
 
 @click.group()
 @click.version_option(version=__version__, prog_name="sago")
-def cli() -> None:
+@click.pass_context
+def cli(ctx: click.Context) -> None:
     """Sago - Sophisticated Multi-Agent Orchestration System.
 
     A CrewAI-based system with infinite tools, cross-platform support,
     and a master orchestrator named Sago.
     """
-    pass
+    logger.debug("CLI invoked: command=%s, args=%s", ctx.invoked_subcommand, ctx.args)
 
 
 @cli.result_callback()
@@ -220,9 +221,16 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool, deta
     # Get API key from environment
     api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
     if not api_key:
+        logger.error("No API key found in environment (OPENROUTER_API_KEY or OPENAI_API_KEY)")
         console.print("[red]Error: No API key found. Set OPENROUTER_API_KEY or OPENAI_API_KEY[/]")
         return
 
+    logger.debug(
+        "CLI 'run' options parsed: agent=%s, model=%s, interactive=%s",
+        agent_name,
+        _get_configured_model(),
+        interactive,
+    )
     console.print(f"[green]Using agent: {agent_name}[/]\n")
 
     from sago.engine.prompt_enhancer import enhance_prompt
@@ -251,6 +259,11 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool, deta
         max_tokens=4096,
         max_iterations=8,
     )
+
+    if not result:
+        logger.error("Task execution returned empty result for agent=%s", agent_name)
+        console.print("[red]Error: Task execution returned no result[/]")
+        return
 
     # Display result
     if isinstance(result, dict):
@@ -281,6 +294,11 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool, deta
             )
         )
     else:
+        logger.warning(
+            "Task execution returned non-dict result type=%s for agent=%s",
+            type(result).__name__,
+            agent_name,
+        )
         console.print(
             Panel(
                 str(result),

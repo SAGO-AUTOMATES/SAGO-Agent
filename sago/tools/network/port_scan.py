@@ -5,12 +5,15 @@ Cross-platform port scanning with common port detection.
 
 from __future__ import annotations
 
+import logging
 import socket
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.network.port_scan")
 
 
 class PortScanArgs(BaseModel):
@@ -73,7 +76,16 @@ class PortScanTool(BaseTool):
         """
         port_list = self._parse_ports(ports)
         if not port_list:
+            logger.warning("Invalid port specification: %s", ports)
             return "Error: Invalid port specification"
+
+        logger.debug(
+            "port_scan called: host=%s, ports=%s (%d ports), timeout=%.1f",
+            host,
+            ports,
+            len(port_list),
+            timeout,
+        )
 
         results: list[str] = [f"=== Port Scan: {host} ===\n"]
         results.append(f"Scanning {len(port_list)} ports...\n")
@@ -90,8 +102,16 @@ class PortScanTool(BaseTool):
                 if result == 0:
                     service = self._COMMON_SERVICES.get(port, "unknown")
                     open_ports.append((port, service))
+                    logger.debug("Port open: host=%s, port=%d, service=%s", host, port, service)
             except (TimeoutError, OSError):
                 continue
+
+        logger.info(
+            "Port scan completed: host=%s, scanned=%d, open=%d",
+            host,
+            len(port_list),
+            len(open_ports),
+        )
 
         if open_ports:
             results.append(f"Open ports ({len(open_ports)}):")

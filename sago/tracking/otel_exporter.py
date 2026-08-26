@@ -7,11 +7,14 @@ Trace JSON schemas and Prometheus metrics exposition format for enterprise obser
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 from typing import Any
 
 from sago.tracking.dev_tracer import DevTraceEvent, get_dev_tracer
 from sago.version import __version__
+
+logger = logging.getLogger("sago.tracking.otel_exporter")
 
 
 def _generate_id(seed: str, length: int = 16) -> str:

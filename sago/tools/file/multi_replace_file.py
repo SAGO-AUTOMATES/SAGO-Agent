@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -9,6 +10,8 @@ from pydantic import BaseModel, Field
 from sago.tools.base import BaseTool
 from sago.tools.file.resilient_editor import ResilientEditor
 from sago.utils.errors import log_error
+
+logger = logging.getLogger("sago.tools.file.multi_replace_file")
 
 
 class ReplacementChunk(BaseModel):

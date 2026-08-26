@@ -114,8 +114,16 @@ class SandboxedExecutor:
         timeout = timeout or self.config.max_cpu_seconds
         use_namespaces = self.config.use_namespaces and _check_namespace_support()
 
+        logger.debug(
+            "sandbox run_command: command=%s, timeout=%d, use_namespaces=%s",
+            command,
+            timeout,
+            use_namespaces,
+        )
+
         with tempfile.TemporaryDirectory(prefix="sago_sandbox_") as temp_dir:
             sandbox_path = Path(temp_dir)
+            logger.info("Sandbox created: path=%s, namespaces=%s", sandbox_path, use_namespaces)
 
             # Mirror current workspace if requested (copying project files)
             if self.config.copy_workspace and self.workspace_root.exists():
@@ -157,6 +165,7 @@ class SandboxedExecutor:
                 full_cmd = self._build_resource_limited_cmd(cmd_args, sandbox_path)
 
             try:
+                logger.debug("Sandbox executing: cmd=%s", full_cmd)
                 proc = subprocess.run(
                     full_cmd,
                     shell=False,  # Never use shell with sandboxed commands
@@ -180,6 +189,7 @@ class SandboxedExecutor:
                         ]
                     )
                 ):
+                    logger.warning("Namespace isolation failed, falling back to resource limits")
                     # Fall back to non-namespace approach
                     full_cmd = self._build_resource_limited_cmd(cmd_args, sandbox_path)
                     proc = subprocess.run(
@@ -193,6 +203,11 @@ class SandboxedExecutor:
                     )
                     use_namespaces = False
 
+                logger.info(
+                    "Sandbox execution completed: exit_code=%d, isolated=%s",
+                    proc.returncode,
+                    use_namespaces,
+                )
                 return {
                     "success": proc.returncode == 0,
                     "stdout": proc.stdout,
@@ -202,6 +217,7 @@ class SandboxedExecutor:
                     "isolated": use_namespaces,
                 }
             except subprocess.TimeoutExpired:
+                logger.warning("Sandbox execution timed out: timeout=%d", timeout)
                 return {
                     "success": False,
                     "stdout": "",
@@ -211,6 +227,7 @@ class SandboxedExecutor:
                     "isolated": use_namespaces,
                 }
             except Exception as e:
+                logger.error("Sandbox execution failed: error=%s", e)
                 return {
                     "success": False,
                     "stdout": "",

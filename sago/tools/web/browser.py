@@ -6,6 +6,7 @@ Auto-installs Playwright + Chromium if not available.
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import tempfile
 from pathlib import Path
@@ -15,6 +16,9 @@ from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool, ToolCategory, ToolResult
 from sago.tools.ensure_dep import ensure_binary, ensure_pip_package, is_available
+
+logger = logging.getLogger("sago.tools.web.browser")
+
 
 _BROWSER_TIMEOUT = 30
 

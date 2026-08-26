@@ -5,11 +5,14 @@ Cross-platform code formatting with auto-detection.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.coding.formatter")
 
 
 class FormatterArgs(BaseModel):
@@ -97,9 +100,11 @@ class FormatterTool(BaseTool):
         Returns:
             Formatting results.
         """
+        logger.debug("Formatting started: file_path=%s, formatter=%s", file_path, formatter)
         path = self._expand_path(file_path)
 
         if not path.exists():
+            logger.warning("Path not found for formatting: %s", path)
             return f"Error: Path not found: {path}"
 
         if path.is_file():
@@ -109,25 +114,38 @@ class FormatterTool(BaseTool):
         else:
             ext = self._infer_dir_extension(path)
 
+        logger.debug("Extension detected: ext=%s, path=%s", ext, path)
+
         if formatter:
             formatter_cmd = [formatter, str(path)]
         else:
             formatter_cmd = self._find_formatter(ext)
 
         if not formatter_cmd:
+            logger.warning("No formatter found for extension: %s", ext)
             return (
                 f"No formatter found for extension: {ext} (install ruff/prettier/clang-format etc.)"
             )
 
+        logger.info("Using formatter: %s for path=%s", formatter_cmd[0], path)
+
         cmd = formatter_cmd + [str(path)]
+        logger.debug("Running format command: %s", cmd)
         result = self._run_command(cmd, timeout=120)
 
         output_parts = [f"Formatter: {formatter_cmd[0]}"]
         output_parts.append(f"Path: {path}")
 
         if result.returncode == 0:
+            logger.info("Formatting succeeded: formatter=%s, path=%s", formatter_cmd[0], path)
             output_parts.append("Formatted successfully!")
         else:
+            logger.warning(
+                "Formatting failed: formatter=%s, path=%s, exit_code=%d",
+                formatter_cmd[0],
+                path,
+                result.returncode,
+            )
             output_parts.append(f"Exit code: {result.returncode}")
             if result.stderr:
                 output_parts.append(f"Errors:\n{result.stderr.strip()}")

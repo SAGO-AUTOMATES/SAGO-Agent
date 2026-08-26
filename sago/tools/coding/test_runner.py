@@ -5,12 +5,15 @@ Cross-platform test execution with auto-detection.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.coding.test_runner")
 
 
 class TestRunnerArgs(BaseModel):
@@ -74,20 +77,28 @@ class TestRunnerTool(BaseTool):
         Returns:
             Test results.
         """
+        logger.debug(
+            "Test execution started: path=%s, framework=%s, pattern=%s", path, framework, pattern
+        )
         test_path = self._expand_path(path)
 
         if not test_path.exists():
+            logger.warning("Test path not found: %s", test_path)
             return f"Error: Path not found: {test_path}"
 
         # Auto-detect framework
         if framework:
+            logger.debug("Using specified framework: %s", framework)
             cmd = self._get_framework_cmd(framework, test_path, pattern)
         else:
+            logger.debug("Auto-detecting test framework for: %s", test_path)
             cmd = self._auto_detect_framework(test_path, pattern)
 
         if not cmd:
+            logger.warning("Could not detect test framework for: %s", test_path)
             return f"Could not detect test framework for: {test_path}"
 
+        logger.info("Running tests: command=%s, cwd=%s", cmd, test_path)
         result = self._run_command(cmd, timeout=600, cwd=test_path)
 
         output_parts = [f"Command: {' '.join(cmd)}"]
@@ -99,8 +110,10 @@ class TestRunnerTool(BaseTool):
             output_parts.append(f"\nSTDERR:\n{result.stderr.strip()}")
 
         if result.returncode == 0:
+            logger.info("All tests passed: command=%s", cmd)
             output_parts.append("\nAll tests passed!")
         else:
+            logger.warning("Tests failed: command=%s, exit_code=%d", cmd, result.returncode)
             output_parts.append(f"\nExit code: {result.returncode}")
 
         return "\n".join(output_parts)

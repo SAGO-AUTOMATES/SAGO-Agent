@@ -5,11 +5,14 @@ Edit code by structure (function name, class name) instead of text matching.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from sago.tools.base import BaseTool
+
+logger = logging.getLogger("sago.tools.coding.ast_edit_tool")
 
 
 class ASTEditArgs(BaseModel):

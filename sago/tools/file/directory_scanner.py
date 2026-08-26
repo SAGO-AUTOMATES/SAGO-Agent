@@ -6,9 +6,13 @@ and provides smart file routing to appropriate agents.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("sago.tools.file.directory_scanner")
+
 
 # Language detection by file extension
 LANGUAGE_MAP: dict[str, str] = {
