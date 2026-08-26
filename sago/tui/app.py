@@ -1474,15 +1474,18 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         except Exception:
             pass
         for item in items:
+            # Items are intentional markup like "[bold cyan]/pr[/bold cyan] [dim]..." for
+            # command help — don't pre-escape or markup breaks (shows literal tags).
+            # Try markup=True first; file paths with stray "[" will fallback to plaintext.
             try:
-                from rich.markup import escape as _esc_s
-
-                # Escape user/file paths that may contain "[" -> MarkupError in get_content_height
-                safe_item = _esc_s(str(item))
-                container.mount(Static(safe_item, classes="suggestion-item", markup=True))
+                container.mount(Static(str(item), classes="suggestion-item", markup=True))
             except Exception:
                 try:
-                    container.mount(Static(str(item), classes="suggestion-item", markup=False))
+                    from rich.markup import escape as _esc_s
+
+                    container.mount(
+                        Static(_esc_s(str(item)), classes="suggestion-item", markup=False)
+                    )
                 except Exception:
                     pass
         try:
