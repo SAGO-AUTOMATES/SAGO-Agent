@@ -166,7 +166,10 @@ class ContextAssembler:
         # Avoid false-positive on file-specific "summarize this file" (needs heavy context)
         _low = task.lower() if task else ""
         _has_file_hint = bool(
-            re.search(r"\b[\w\-/\\.]+\.(?:py|js|ts|tsx|jsx|md|txt|json|yaml|yml|toml|html|css|java|go|rs|c|cpp|h|rb|php|sh|sql)\b", _low)
+            re.search(
+                r"\b[\w\-/\\.]+\.(?:py|js|ts|tsx|jsx|md|txt|json|yaml|yml|toml|html|css|java|go|rs|c|cpp|h|rb|php|sh|sql)\b",
+                _low,
+            )
             or "#file" in _low
             or "this file" in _low
             or "the file" in _low
@@ -181,7 +184,11 @@ class ContextAssembler:
         elif "sumam" in _low:
             _is_summary = True
         # File-specific summarize should NOT short-circuit unless explicitly about prior work
-        if _is_summary and _has_file_hint and not re.search(r"\b(what you did|what was done|what did you do)\b", _low):
+        if (
+            _is_summary
+            and _has_file_hint
+            and not re.search(r"\b(what you did|what was done|what did you do)\b", _low)
+        ):
             _is_summary = False
         if _is_summary:
             logger.debug("Summary intent detected — skipping heavy context assembly (0 search/RAG)")

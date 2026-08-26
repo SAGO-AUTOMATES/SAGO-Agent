@@ -37,7 +37,10 @@ def _is_summary_intent(msg: str) -> bool:
     # Quick file-pattern guard: if user asks to summarize a specific file, it's NOT a prior-session summary
     # e.g. "summarize this file", "summarize README.md", "#file" — those need read_file tools
     has_file_hint = bool(
-        re.search(r"\b[\w\-/\\.]+\.(?:py|js|ts|tsx|jsx|md|txt|json|yaml|yml|toml|html|css|java|go|rs|c|cpp|h|rb|php|sh|sql)\b", low)
+        re.search(
+            r"\b[\w\-/\\.]+\.(?:py|js|ts|tsx|jsx|md|txt|json|yaml|yml|toml|html|css|java|go|rs|c|cpp|h|rb|php|sh|sql)\b",
+            low,
+        )
         or "#file" in low
         or "this file" in low
         or "the file" in low
@@ -109,24 +112,37 @@ def _build_local_summary_markdown(
             ag = m.get("agent_name") or "sago"
             content = (m.get("content") or "").strip()
             # Remove thinking tags for summary display
-            content = re.sub(r"<(?:thinking|thought)>.*?</(?:thinking|thought)>", "", content, flags=re.DOTALL).strip()
+            content = re.sub(
+                r"<(?:thinking|thought)>.*?</(?:thinking|thought)>", "", content, flags=re.DOTALL
+            ).strip()
             if content:
                 per_agent_outputs[ag].append(content[:800])
 
     # Distinct agents from both
-    all_agents = sorted(set(list(per_agent_tools.keys()) + list(per_agent_outputs.keys())) or ["sago"])
+    all_agents = sorted(
+        set(list(per_agent_tools.keys()) + list(per_agent_outputs.keys())) or ["sago"]
+    )
 
     lines = ["# ● Summary — by agent", ""]
-    lines.append(f"_Generated from cached analysis — 0 new tool calls, {len(tool_calls or [])} prior tool calls reused_")
+    lines.append(
+        f"_Generated from cached analysis — 0 new tool calls, {len(tool_calls or [])} prior tool calls reused_"
+    )
     lines.append("")
 
     for ag in all_agents:
-        if ag == "sago" and len(all_agents) > 1 and not per_agent_tools.get(ag) and not per_agent_outputs.get(ag):
+        if (
+            ag == "sago"
+            and len(all_agents) > 1
+            and not per_agent_tools.get(ag)
+            and not per_agent_outputs.get(ag)
+        ):
             continue
         lines.append(f"## @{ag}")
         tcounts = per_agent_tool_counts.get(ag, {})
         if tcounts:
-            tools_str = ", ".join(f"{k} ({v})" for k, v in sorted(tcounts.items(), key=lambda x: -x[1]))
+            tools_str = ", ".join(
+                f"{k} ({v})" for k, v in sorted(tcounts.items(), key=lambda x: -x[1])
+            )
             lines.append(f"- **Tools used:** {tools_str}")
             # List recent tool details (max 5)
             details = per_agent_tools[ag][-5:]
@@ -138,7 +154,11 @@ def _build_local_summary_markdown(
                         args = json.loads(args) if args else {}
                     except Exception:
                         args = {}
-                arg_preview = ", ".join(f"{k}={str(v)[:30]}" for k, v in list(args.items())[:2]) if isinstance(args, dict) else str(args)[:60]
+                arg_preview = (
+                    ", ".join(f"{k}={str(v)[:30]}" for k, v in list(args.items())[:2])
+                    if isinstance(args, dict)
+                    else str(args)[:60]
+                )
                 success = d.get("success", True)
                 icon = "✓" if success else "✗"
                 lines.append(f"  - {icon} `{tname}` {arg_preview}")
@@ -155,7 +175,9 @@ def _build_local_summary_markdown(
     # Global stats
     total_tools = len(tool_calls or [])
     lines.append("---")
-    lines.append(f"**Total tools:** {total_tools} | **Tokens:** {total_in:,}+{total_out:,} ({total_in+total_out:,} total) | **Elapsed:** {elapsed:.1f}s")
+    lines.append(
+        f"**Total tools:** {total_tools} | **Tokens:** {total_in:,}+{total_out:,} ({total_in + total_out:,} total) | **Elapsed:** {elapsed:.1f}s"
+    )
     if project_analysis:
         # Use first 500 chars of cached analysis
         pa_preview = project_analysis.strip().split("\n")[:20]
@@ -177,7 +199,11 @@ def _build_local_summary_markdown(
                         args = json.loads(args) if args else {}
                     except Exception:
                         args = {}
-                fp = (args.get("file_path") or args.get("path") or "") if isinstance(args, dict) else ""
+                fp = (
+                    (args.get("file_path") or args.get("path") or "")
+                    if isinstance(args, dict)
+                    else ""
+                )
                 if fp:
                     out_files.append(fp)
         if out_files:
@@ -186,8 +212,17 @@ def _build_local_summary_markdown(
 
     # Traces summary if available
     if traces:
-        llm_c = sum(1 for t in traces if getattr(t.event_type, "value", str(t.event_type)) in ("LLM_PAYLOAD", "LLM_RAW_RESPONSE", "LLM_RAW_REQUEST"))
-        tool_c = sum(1 for t in traces if getattr(t.event_type, "value", str(t.event_type)) == "TOOL_DISPATCH")
+        llm_c = sum(
+            1
+            for t in traces
+            if getattr(t.event_type, "value", str(t.event_type))
+            in ("LLM_PAYLOAD", "LLM_RAW_RESPONSE", "LLM_RAW_REQUEST")
+        )
+        tool_c = sum(
+            1
+            for t in traces
+            if getattr(t.event_type, "value", str(t.event_type)) == "TOOL_DISPATCH"
+        )
         lines.append(f"**Traces:** {len(traces)} events, {llm_c} LLM, {tool_c} tools")
 
     lines.append("")
@@ -295,7 +330,11 @@ class MessageProcessorMixin:
                     try:
                         from sago.tracking.dev_tracer import get_dev_tracer
 
-                        _src = f"agent.{_ag_think}" if _ag_think and _ag_think != "sago" else f"tui.llm.{self.current_provider}"
+                        _src = (
+                            f"agent.{_ag_think}"
+                            if _ag_think and _ag_think != "sago"
+                            else f"tui.llm.{self.current_provider}"
+                        )
                         get_dev_tracer().record_thinking(
                             source=_src,
                             model=self.current_model,
@@ -1001,7 +1040,11 @@ class MessageProcessorMixin:
                             if "active_agent" in locals() and active_agent
                             else getattr(self, "current_agent", "") or "sago"
                         )
-                        _src2 = f"agent.{_ag2}" if _ag2 and _ag2 != "sago" else f"tui.llm.{self.current_provider}"
+                        _src2 = (
+                            f"agent.{_ag2}"
+                            if _ag2 and _ag2 != "sago"
+                            else f"tui.llm.{self.current_provider}"
+                        )
                         get_dev_tracer().record_thinking(
                             source=_src2,
                             model=api_model,
@@ -1010,7 +1053,9 @@ class MessageProcessorMixin:
                         # Only mount real thinking to TUI; synthetic stays in tracer only (no BS card)
                         if not is_synthetic:
                             try:
-                                self.call_from_thread(self._add_thinking_card, _thinking_content, _ag2)
+                                self.call_from_thread(
+                                    self._add_thinking_card, _thinking_content, _ag2
+                                )
                             except TypeError:
                                 self.call_from_thread(self._add_thinking_card, _thinking_content)
                             except Exception:
@@ -2184,7 +2229,9 @@ class MessageProcessorMixin:
                     # Normalize DB row to common shape
                     args_raw = tc.get("arguments", "{}")
                     try:
-                        args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
+                        args = (
+                            json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
+                        )
                     except Exception:
                         args = {}
                     tool_calls.append(
@@ -2210,9 +2257,20 @@ class MessageProcessorMixin:
                 tool_calls = mem_calls
             elif mem_calls:
                 # Add mem calls that are not duplicates (by tool+args)
-                existing_keys = {(tc.get("tool") or tc.get("tool_name"), json.dumps(tc.get("args") or tc.get("arguments") or {}, sort_keys=True)[:80]) for tc in tool_calls}
+                existing_keys = {
+                    (
+                        tc.get("tool") or tc.get("tool_name"),
+                        json.dumps(tc.get("args") or tc.get("arguments") or {}, sort_keys=True)[
+                            :80
+                        ],
+                    )
+                    for tc in tool_calls
+                }
                 for mc in mem_calls:
-                    key = (mc.get("tool") or mc.get("tool_name"), json.dumps(mc.get("args") or {}, sort_keys=True)[:80])
+                    key = (
+                        mc.get("tool") or mc.get("tool_name"),
+                        json.dumps(mc.get("args") or {}, sort_keys=True)[:80],
+                    )
                     if key not in existing_keys:
                         tool_calls.append(mc)
         except Exception:
@@ -2252,7 +2310,9 @@ class MessageProcessorMixin:
                 s.close()
                 # If project_analysis empty, use last assistant message as fallback
                 if not project_analysis and exp.get("messages"):
-                    last_assist = next((m for m in reversed(exp["messages"]) if m.get("role") == "assistant"), None)
+                    last_assist = next(
+                        (m for m in reversed(exp["messages"]) if m.get("role") == "assistant"), None
+                    )
                     if last_assist:
                         project_analysis = (last_assist.get("content") or "")[:4000]
         except Exception:
@@ -2314,7 +2374,9 @@ class MessageProcessorMixin:
                     temperature=0.2,
                 )
                 # No tools — tool_choice none
-                response = client.models.generate_content(model=api_model, contents=contents, config=config)
+                response = client.models.generate_content(
+                    model=api_model, contents=contents, config=config
+                )
                 llm_text = (response.text or "").strip()
                 # Record tracer for this summary LLM call
                 try:
@@ -2324,7 +2386,12 @@ class MessageProcessorMixin:
                         event_type=TraceEventType.LLM_PAYLOAD,
                         source=f"tui.llm.{self.current_provider}",
                         action=f"summary({api_model})",
-                        data={"model": api_model, "provider": self.current_provider, "messages_count": len(messages_for_llm), "latency_ms": (_time.time() - llm_start) * 1000},
+                        data={
+                            "model": api_model,
+                            "provider": self.current_provider,
+                            "messages_count": len(messages_for_llm),
+                            "latency_ms": (_time.time() - llm_start) * 1000,
+                        },
                     )
                 except Exception:
                     pass
@@ -2347,7 +2414,14 @@ class MessageProcessorMixin:
                         event_type=TraceEventType.LLM_PAYLOAD,
                         source=f"tui.llm.{self.current_provider}",
                         action=f"summary({api_model})",
-                        data={"model": api_model, "provider": self.current_provider, "messages_count": len(messages_for_llm), "tokens_in": t_in, "tokens_out": t_out, "latency_ms": (_time.time() - llm_start) * 1000},
+                        data={
+                            "model": api_model,
+                            "provider": self.current_provider,
+                            "messages_count": len(messages_for_llm),
+                            "tokens_in": t_in,
+                            "tokens_out": t_out,
+                            "latency_ms": (_time.time() - llm_start) * 1000,
+                        },
                     )
                 except Exception:
                     pass
@@ -2377,4 +2451,9 @@ class MessageProcessorMixin:
             self.call_from_thread(self._try_process_queue)
         except Exception:
             pass
-        logger.info("Summary intent handled (llm_success=%s, tools_reused=%d, elapsed=%.1fs)", llm_success, len(tool_calls), _time.time() - thread_start)
+        logger.info(
+            "Summary intent handled (llm_success=%s, tools_reused=%d, elapsed=%.1fs)",
+            llm_success,
+            len(tool_calls),
+            _time.time() - thread_start,
+        )

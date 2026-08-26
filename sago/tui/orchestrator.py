@@ -98,7 +98,11 @@ class AgentOrchestrationMixin:
         def _on_thinking(t, ag=""):
             self.call_from_thread(self._update_spinner, t)
             low = t.strip().lower() if t else ""
-            if low.startswith("planning...") or low.startswith("working...") or ("step " in low and "intent:" in low):
+            if (
+                low.startswith("planning...")
+                or low.startswith("working...")
+                or ("step " in low and "intent:" in low)
+            ):
                 return
             if t and len(t.strip()) >= 20:
                 _ag2 = ag or agent_name
@@ -111,7 +115,9 @@ class AgentOrchestrationMixin:
                     from sago.tracking.dev_tracer import get_dev_tracer
 
                     get_dev_tracer().record_thinking(
-                        source=f"agent.{_ag2}", model=getattr(self, "current_model", ""), thinking_content=t
+                        source=f"agent.{_ag2}",
+                        model=getattr(self, "current_model", ""),
+                        thinking_content=t,
                     )
                 except Exception:
                     pass
@@ -275,7 +281,11 @@ class AgentOrchestrationMixin:
         def _on_thinking(t, ag=""):
             self.call_from_thread(self._update_spinner, t)
             low = t.strip().lower() if t else ""
-            if low.startswith("planning...") or low.startswith("working...") or ("step " in low and "intent:" in low):
+            if (
+                low.startswith("planning...")
+                or low.startswith("working...")
+                or ("step " in low and "intent:" in low)
+            ):
                 return
             if t and len(t.strip()) >= 20:
                 _ag2 = ag or getattr(self, "current_agent", "") or "sago"
@@ -287,7 +297,9 @@ class AgentOrchestrationMixin:
                     from sago.tracking.dev_tracer import get_dev_tracer
 
                     get_dev_tracer().record_thinking(
-                        source=f"agent.{_ag2}", model=getattr(self, "current_model", ""), thinking_content=t
+                        source=f"agent.{_ag2}",
+                        model=getattr(self, "current_model", ""),
+                        thinking_content=t,
                     )
                 except Exception:
                     pass
@@ -623,7 +635,11 @@ class AgentOrchestrationMixin:
         def _on_thinking(t, ag=""):
             self.call_from_thread(self._update_spinner, t)
             low = t.strip().lower() if t else ""
-            if low.startswith("planning...") or low.startswith("working...") or ("step " in low and "intent:" in low):
+            if (
+                low.startswith("planning...")
+                or low.startswith("working...")
+                or ("step " in low and "intent:" in low)
+            ):
                 return
             if t and len(t.strip()) >= 20:
                 _ag2 = ag or getattr(self, "current_agent", "") or "sago"
@@ -635,7 +651,9 @@ class AgentOrchestrationMixin:
                     from sago.tracking.dev_tracer import get_dev_tracer
 
                     get_dev_tracer().record_thinking(
-                        source=f"agent.{_ag2}", model=getattr(self, "current_model", ""), thinking_content=t
+                        source=f"agent.{_ag2}",
+                        model=getattr(self, "current_model", ""),
+                        thinking_content=t,
                     )
                 except Exception:
                     pass
@@ -958,7 +976,11 @@ class AgentOrchestrationMixin:
         def _on_thinking(t, ag=""):
             self.call_from_thread(self._update_spinner, t)
             low = t.strip().lower() if t else ""
-            if low.startswith("planning...") or low.startswith("working...") or ("step " in low and "intent:" in low):
+            if (
+                low.startswith("planning...")
+                or low.startswith("working...")
+                or ("step " in low and "intent:" in low)
+            ):
                 return
             if t and len(t.strip()) >= 20:
                 _ag2 = ag or getattr(self, "current_agent", "") or "sago"
@@ -970,7 +992,9 @@ class AgentOrchestrationMixin:
                     from sago.tracking.dev_tracer import get_dev_tracer
 
                     get_dev_tracer().record_thinking(
-                        source=f"agent.{_ag2}", model=getattr(self, "current_model", ""), thinking_content=t
+                        source=f"agent.{_ag2}",
+                        model=getattr(self, "current_model", ""),
+                        thinking_content=t,
                     )
                 except Exception:
                     pass
@@ -1204,7 +1228,11 @@ class AgentOrchestrationMixin:
         def _on_thinking(t, ag=""):
             self.call_from_thread(self._update_spinner, t)
             low = t.strip().lower() if t else ""
-            if low.startswith("planning...") or low.startswith("working...") or ("step " in low and "intent:" in low):
+            if (
+                low.startswith("planning...")
+                or low.startswith("working...")
+                or ("step " in low and "intent:" in low)
+            ):
                 return
             if t and len(t.strip()) >= 20:
                 _ag2 = ag or getattr(self, "current_agent", "") or "sago"
@@ -1216,7 +1244,9 @@ class AgentOrchestrationMixin:
                     from sago.tracking.dev_tracer import get_dev_tracer
 
                     get_dev_tracer().record_thinking(
-                        source=f"agent.{_ag2}", model=getattr(self, "current_model", ""), thinking_content=t
+                        source=f"agent.{_ag2}",
+                        model=getattr(self, "current_model", ""),
+                        thinking_content=t,
                     )
                 except Exception:
                     pass

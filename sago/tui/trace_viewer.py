@@ -688,7 +688,8 @@ class TraceViewerScreen(ModalScreen[None]):
 
     def _tab_thinking(self) -> ComposeResult:
         with VerticalScroll(classes="tv-tab-scroll"):
-            # Dedupe per-agent: same thinking[:300] from same source is duplicate, but different agents are distinct
+            # Show each thinking per turn, per-agent — dedupe only exact duplicate within same turn (5s window)
+            # Extract agent from source like "tui.llm.openrouter" or "agent.sago-orchestrator"
             seen: set[tuple[str, str]] = set()
             blocks: list[tuple[str, str, object]] = []
             for e in self.events:

@@ -576,7 +576,9 @@ class UIHelpers:
             _thinking_blocks = list(_buf_raw)
             # Merge inline thinking as final block if present and not duplicate
             if _thinking_for_db:
-                _already = any(b.get("text", "").strip() == _thinking_for_db for b in _thinking_blocks)
+                _already = any(
+                    b.get("text", "").strip() == _thinking_for_db for b in _thinking_blocks
+                )
                 if not _already:
                     _thinking_blocks.append(
                         {
@@ -587,7 +589,9 @@ class UIHelpers:
                         }
                     )
             # Concatenated legacy field
-            _thinking_for_db = "\n\n".join(b.get("text", "") for b in _thinking_blocks if b.get("text"))
+            _thinking_for_db = "\n\n".join(
+                b.get("text", "") for b in _thinking_blocks if b.get("text")
+            )
             try:
                 self._current_thinking_buffer = []  # type: ignore[attr-defined]
             except Exception:
@@ -601,7 +605,9 @@ class UIHelpers:
                 elif not _thinking_for_db:
                     _thinking_for_db = _buf_str
                 else:
-                    _thinking_for_db = _buf_str if len(_buf_str) > len(_thinking_for_db) else _thinking_for_db
+                    _thinking_for_db = (
+                        _buf_str if len(_buf_str) > len(_thinking_for_db) else _thinking_for_db
+                    )
             elif _buf_str:
                 _thinking_for_db = _buf_str
             try:
@@ -691,7 +697,11 @@ class UIHelpers:
                 )
                 if not _already_mounted:
                     _ag = (agent_name or getattr(self, "current_agent", "") or "sago").strip()
-                    _t_title = f"● {_ag} — Technical Reasoning" if _ag else "● Technical Reasoning & Analysis"
+                    _t_title = (
+                        f"● {_ag} — Technical Reasoning"
+                        if _ag
+                        else "● Technical Reasoning & Analysis"
+                    )
                     _mount_element(
                         Collapsible(
                             Static(thinking_content, classes="thinking-text", markup=False),
@@ -893,9 +903,7 @@ class UIHelpers:
         self._active_exchange_card = None
         self.query_one("#messages").scroll_end(animate=False)
 
-    def _add_thinking_card(
-        self: SagoApp, reasoning_text: str, agent_name: str = ""
-    ) -> None:
+    def _add_thinking_card(self: SagoApp, reasoning_text: str, agent_name: str = "") -> None:
         """Add a distinct technical reasoning card per-agent, per-step in order.
 
         Each call creates a NEW collapsible card (no coalesce to single card)
@@ -944,7 +952,10 @@ class UIHelpers:
                 self._current_thinking_buffer = _buf  # type: ignore[attr-defined]
             # Per-agent dedupe: same [:300] within 5s from same agent
             for _b in reversed(_buf):  # type: ignore[union-attr]
-                if _b.get("agent") == _agent and _time_mod.time() - float(_b.get("timestamp", 0)) < 5:
+                if (
+                    _b.get("agent") == _agent
+                    and _time_mod.time() - float(_b.get("timestamp", 0)) < 5
+                ):
                     if _b.get("text", "").strip()[:300] == _clean[:300]:
                         _is_dup = True
                         break
@@ -974,7 +985,9 @@ class UIHelpers:
 
         target_card = getattr(self, "_active_exchange_card", None)
         # Build per-agent title
-        _title = f"● {_agent} — Technical Reasoning" if _agent else "● Technical Reasoning & Analysis"
+        _title = (
+            f"● {_agent} — Technical Reasoning" if _agent else "● Technical Reasoning & Analysis"
+        )
         static_widget = Static(_clean, classes="thinking-text", markup=False)
         static_widget._sago_thinking_text = _clean  # type: ignore[attr-defined]
         static_widget._sago_agent = _agent  # type: ignore[attr-defined]
@@ -1171,7 +1184,11 @@ class UIHelpers:
         if not hasattr(self, "session_tool_calls"):
             self.session_tool_calls = []
         self.session_tool_calls.append(
-            {"tool": tool_name, "success": success, "agent": agent_name or getattr(self, "current_agent", "")}
+            {
+                "tool": tool_name,
+                "success": success,
+                "agent": agent_name or getattr(self, "current_agent", ""),
+            }
         )
 
         target_card = getattr(self, "_active_exchange_card", None)
@@ -1556,7 +1573,11 @@ class UIHelpers:
                     for r in db_rows:
                         args_raw = r.get("arguments", "{}")
                         try:
-                            args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
+                            args = (
+                                json.loads(args_raw)
+                                if isinstance(args_raw, str)
+                                else (args_raw or {})
+                            )
                         except Exception:
                             args = {}
                         tool_calls.append(
@@ -1616,7 +1637,10 @@ class UIHelpers:
         for ag in sorted(per_agent.keys()):
             counts = per_agent[ag]
             if counts:
-                tools_str = ", ".join(f"[cyan]{_esc(k)}[/cyan] ({v})" for k, v in sorted(counts.items(), key=lambda x: -x[1]))
+                tools_str = ", ".join(
+                    f"[cyan]{_esc(k)}[/cyan] ({v})"
+                    for k, v in sorted(counts.items(), key=lambda x: -x[1])
+                )
                 body_lines.append(f"[bold yellow]@{_esc(ag)}[/bold yellow]  —  {tools_str}")
                 # Show up to 3 tool details per agent
                 for d in per_agent_details[ag][:3]:
@@ -1627,7 +1651,13 @@ class UIHelpers:
                             args = json.loads(args) if args else {}
                         except Exception:
                             args = {}
-                    arg_preview = ", ".join(f"{_esc(str(k))}={_esc(str(v)[:25])}" for k, v in list(args.items())[:2]) if isinstance(args, dict) and args else ""
+                    arg_preview = (
+                        ", ".join(
+                            f"{_esc(str(k))}={_esc(str(v)[:25])}" for k, v in list(args.items())[:2]
+                        )
+                        if isinstance(args, dict) and args
+                        else ""
+                    )
                     succ = d.get("success", True)
                     icon = "[green]✓[/green]" if succ else "[red]✗[/red]"
                     if arg_preview:
@@ -1635,24 +1665,35 @@ class UIHelpers:
                     else:
                         body_lines.append(f"  {icon} [cyan]{_esc(tname)}[/cyan]")
             else:
-                body_lines.append(f"[bold yellow]@{_esc(ag)}[/bold yellow]  —  [dim]no tools, reasoning only[/dim]")
+                body_lines.append(
+                    f"[bold yellow]@{_esc(ag)}[/bold yellow]  —  [dim]no tools, reasoning only[/dim]"
+                )
             # Append last output preview for this agent if available
             try:
                 last_out = ""
                 for m in reversed(list(getattr(self, "messages", []) or [])):
                     if m.get("role") == "assistant" and (m.get("agent_name") or "sago") == ag:
-                        last_out = re.sub(r"<(?:thinking|thought)>.*?</(?:thinking|thought)>", "", m.get("content") or "", flags=re.DOTALL).strip()
+                        last_out = re.sub(
+                            r"<(?:thinking|thought)>.*?</(?:thinking|thought)>",
+                            "",
+                            m.get("content") or "",
+                            flags=re.DOTALL,
+                        ).strip()
                         break
                 if last_out:
                     preview = _esc(last_out.replace("\n", " ")[:180])
-                    body_lines.append(f"  [dim]↳ {preview}{'...' if len(last_out) > 180 else ''}[/dim]")
+                    body_lines.append(
+                        f"  [dim]↳ {preview}{'...' if len(last_out) > 180 else ''}[/dim]"
+                    )
             except Exception:
                 pass
             body_lines.append("")
 
         # Global footer
         total_tools = len(tool_calls or [])
-        body_lines.append(f"[dim]── Total: {total_tools} tool(s) | Tokens: {t_in:,}+{t_out:,} ({t_in+t_out:,} total) ──[/dim]")
+        body_lines.append(
+            f"[dim]── Total: {total_tools} tool(s) | Tokens: {t_in:,}+{t_out:,} ({t_in + t_out:,} total) ──[/dim]"
+        )
 
         # Output file detection
         out_file = ""
@@ -1674,7 +1715,11 @@ class UIHelpers:
                                     args = json.loads(args) if args else {}
                                 except Exception:
                                     args = {}
-                            fp = (args.get("file_path") or args.get("path") or "") if isinstance(args, dict) else ""
+                            fp = (
+                                (args.get("file_path") or args.get("path") or "")
+                                if isinstance(args, dict)
+                                else ""
+                            )
                             if fp:
                                 out_file = fp
                                 break
@@ -1683,9 +1728,15 @@ class UIHelpers:
         if out_file:
             body_lines.append(f"[bold green]Output:[/bold green] [cyan]{_esc(out_file)}[/cyan]")
             if project_analysis:
-                body_lines.append(f"[dim]{len(project_analysis)} chars cached — 0 re-analysis[/dim]")
+                body_lines.append(
+                    f"[dim]{len(project_analysis)} chars cached — 0 re-analysis[/dim]"
+                )
 
-        body = "\n".join(body_lines) if body_lines else "[dim]No prior tools — summary from conversation history[/dim]"
+        body = (
+            "\n".join(body_lines)
+            if body_lines
+            else "[dim]No prior tools — summary from conversation history[/dim]"
+        )
 
         card = Collapsible(
             Static(body, classes="summary-box", markup=True),

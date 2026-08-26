@@ -545,7 +545,9 @@ def _get_summary_re():
 
     global _SUMMARY_INTENT_RE
     if _SUMMARY_INTENT_RE is None:
-        _SUMMARY_INTENT_RE = re.compile(r"\b(summar|what was done|what did you do)\b", re.IGNORECASE)
+        _SUMMARY_INTENT_RE = re.compile(
+            r"\b(summar|what was done|what did you do)\b", re.IGNORECASE
+        )
     return _SUMMARY_INTENT_RE
 
 
@@ -560,18 +562,25 @@ def is_summary_intent(msg: str) -> bool:
         return False
     low = msg.lower().strip()
     has_file_hint = bool(
-        re.search(r"\b[\w\-/\\.]+\.(?:py|js|ts|tsx|jsx|md|txt|json|yaml|yml|toml|html|css|java|go|rs|c|cpp|h|rb|php|sh|sql)\b", low)
+        re.search(
+            r"\b[\w\-/\\.]+\.(?:py|js|ts|tsx|jsx|md|txt|json|yaml|yml|toml|html|css|java|go|rs|c|cpp|h|rb|php|sh|sql)\b",
+            low,
+        )
         or "#file" in low
         or "this file" in low
         or "the file" in low
     )
     if _get_summary_re().search(low):
         # Even if file hint, still check explicit prior-work phrase
-        if has_file_hint and not re.search(r"\b(what you did|what was done|what did you do)\b", low):
+        if has_file_hint and not re.search(
+            r"\b(what you did|what was done|what did you do)\b", low
+        ):
             return False
         return True
     if "summar" in low or "sumam" in low:
-        if has_file_hint and not re.search(r"\b(what you did|what was done|what did you do|so what)\b", low):
+        if has_file_hint and not re.search(
+            r"\b(what you did|what was done|what did you do|so what)\b", low
+        ):
             return False
         # Short queries like "summary" are prior-session summaries
         if len(low) < 60 and not has_file_hint:

@@ -132,7 +132,9 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     _orchestration_lock: threading.Lock | None = None
     approval_message: reactive[str] = reactive("")
     yolo_mode: reactive[bool] = reactive(False)
-    developer_mode: reactive[bool] = reactive(True)  # TODO: flip to false at 1.0 — default ON until beta
+    developer_mode: reactive[bool] = reactive(
+        True
+    )  # TODO: flip to false at 1.0 — default ON until beta
     show_summary: reactive[bool] = reactive(False)
     show_action_bar: reactive[bool] = reactive(True)
     # Pause/resume mechanism for todo confirmations
@@ -488,7 +490,9 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             # v0.1.14: default ON until 1.0 — need to respect explicit False in settings.json
             # but also allow env var SAGO_DEV_MODE to override persisted False (test expects env true → enabled)
             dev_config = is_dev_mode_enabled()
-            _env_explicit = (os.environ.get("SAGO_DEV_MODE") is not None) or (os.environ.get("DEV_MODE") is not None)
+            _env_explicit = (os.environ.get("SAGO_DEV_MODE") is not None) or (
+                os.environ.get("DEV_MODE") is not None
+            )
             try:
                 from sago.settings import load_settings
 

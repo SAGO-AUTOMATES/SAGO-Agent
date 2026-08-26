@@ -1803,7 +1803,9 @@ def execute_agent_task(
         except Exception:
             pass
 
-    def _wrap_tool_result(name: str, args: dict, result: str, success: bool, agent_name: str | None = None) -> None:
+    def _wrap_tool_result(
+        name: str, args: dict, result: str, success: bool, agent_name: str | None = None
+    ) -> None:
         if _orig_tool_result is None:
             return
         _ag = agent_name or agent_role
@@ -1926,7 +1928,7 @@ def execute_agent_task(
 
     if on_thinking and enhancement.improvements:
         on_thinking(
-            f"✨ Enhanced Prompt: {enhancement.intent_summary} [dim]({', '.join(enhancement.improvements[:3])})[/dim]"
+            f"✨ Enhanced Prompt: {enhancement.intent_summary} ({', '.join(enhancement.improvements[:3])})"
         )
 
     # Assemble rich tri-partite context (AST symbols, hybrid search, learning patterns, previous sessions)

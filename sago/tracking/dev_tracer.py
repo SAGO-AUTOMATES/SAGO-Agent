@@ -765,7 +765,11 @@ def export_session_dev_artifacts(
                 pass
             for _blk in meta_blocks:
                 _blk_text = (_blk.get("text") or "").strip()
-                _blk_agent = (_blk.get("agent") or (msg.get("agent_name") if isinstance(msg, dict) else "") or "sago").strip()  # type: ignore[attr-defined]
+                _blk_agent = (
+                    _blk.get("agent")
+                    or (msg.get("agent_name") if isinstance(msg, dict) else "")
+                    or "sago"
+                ).strip()  # type: ignore[attr-defined]
                 if not _blk_text:
                     continue
                 # Avoid duplicate if same as inline thinking_text
