@@ -2,14 +2,19 @@
 
 Developer Mode enables deep live telemetry, microsecond execution tracing, transparent reasoning inspection, and automatic project-specific session artifact persistence.
 
+> **v0.1.14 — Default ON until beta:** `dev_mode` defaults to `true` on fresh installs (see `sago/config/sago.yaml`, `sago/config/loader.py`, `sago/tui/app.py`). Fresh `sago tui` shows Inspector without `/dev on`. **TODO: flip to false at 1.0**.
+
 ---
 
 ## 🛠️ Configuration & Activation
 
-Developer Mode can be enabled through hidden user-level configuration files or environment variables without requiring command-line flags.
+Developer Mode is **ON by default until v1.0** — no manual toggle needed. To explicitly control:
+
+### 0. Default (v0.1.14 beta) — No Action Needed
+Fresh install: `dev_mode: true` (`sago.yaml:64`, `loader.py SettingsConfig dev_mode: True # TODO: flip to false at 1.0`, `app.py developer_mode: True`, `settings.json dev_mode: True`). `DevTracer.is_enabled=True` on `on_mount`; Inspector (`F2`) shows events immediately. After 1.0, defaults will flip to `false` and require explicit enable.
 
 ### 1. User Configuration File (`~/.sago/config.json` or `~/.sago/settings.json`)
-Manually add `"dev_mode": true` to your user configuration:
+Manually add `"dev_mode": true` to your user configuration (or `false` to disable early):
 
 ```json
 {
@@ -28,6 +33,8 @@ settings:
 export SAGO_DEV_MODE=1
 # or
 export DEV_MODE=true
+# to force OFF (even with default ON):
+export SAGO_DEV_MODE=0
 ```
 
 ---

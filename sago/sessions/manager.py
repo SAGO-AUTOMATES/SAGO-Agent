@@ -497,3 +497,89 @@ class SessionManager:
             return session
         except Exception:
             return None
+
+    def get_summary_by_agent(self, session_id: str) -> dict[str, Any]:
+        """Build categorized summary by agent without re-running tools — 0 wasted tokens.
+
+        Uses cached Session.get_full_export() + ToolUsageStore + DevTracer traces.
+        Called by summary-intent short-circuit to avoid new grep/execute_shell calls.
+        """
+        session = self.sessions.get(session_id)
+        if not session:
+            return {"error": "session not found"}
+        # Reuse export already cached
+        try:
+            from pathlib import Path
+
+            pa = Path.cwd() / "PROJECT_ANALYSIS.md"
+            cached = pa.read_text(encoding="utf-8", errors="replace")[:5000] if pa.exists() else ""
+        except Exception:
+            cached = ""
+        # Group by agent
+        from collections import defaultdict
+
+        per_agent: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for t in session.threads:
+            per_agent[t.agent_name].append(t.to_dict())
+        # Messages by agent
+        msg_by_agent: dict[str, int] = {}
+        for m in session.messages:
+            ag = m.agent_name or "sago"
+            msg_by_agent[ag] = msg_by_agent.get(ag, 0) + 1
+        return {
+            "session_id": session_id,
+            "per_agent_threads": dict(per_agent),
+            "per_agent_messages": msg_by_agent,
+            "cached_analysis_preview": cached[:800],
+            "total_threads": len(session.threads),
+            "total_messages": len(session.messages),
+        }
+
+
+# Summary intent detection — shared helper (spec regex)
+_SUMMARY_INTENT_RE = None  # lazy init
+
+
+def _get_summary_re():
+    import re
+
+    global _SUMMARY_INTENT_RE
+    if _SUMMARY_INTENT_RE is None:
+        _SUMMARY_INTENT_RE = re.compile(r"\b(summar|what was done|what did you do)\b", re.IGNORECASE)
+    return _SUMMARY_INTENT_RE
+
+
+def is_summary_intent(msg: str) -> bool:
+    """Detect summary intent via spec regex plus typo tolerance (sumamry).
+
+    Avoids false-positive on file-specific 'summarize this file' (needs tools).
+    """
+    import re
+
+    if not msg or not msg.strip():
+        return False
+    low = msg.lower().strip()
+    has_file_hint = bool(
+        re.search(r"\b[\w\-/\\.]+\.(?:py|js|ts|tsx|jsx|md|txt|json|yaml|yml|toml|html|css|java|go|rs|c|cpp|h|rb|php|sh|sql)\b", low)
+        or "#file" in low
+        or "this file" in low
+        or "the file" in low
+    )
+    if _get_summary_re().search(low):
+        # Even if file hint, still check explicit prior-work phrase
+        if has_file_hint and not re.search(r"\b(what you did|what was done|what did you do)\b", low):
+            return False
+        return True
+    if "summar" in low or "sumam" in low:
+        if has_file_hint and not re.search(r"\b(what you did|what was done|what did you do|so what)\b", low):
+            return False
+        # Short queries like "summary" are prior-session summaries
+        if len(low) < 60 and not has_file_hint:
+            return True
+        if re.search(r"\b(what|done|did|so)\b", low):
+            return True
+        if re.search(r"\bsummar\w*\b.*\b(what|you did|was done)\b", low):
+            return True
+    if re.search(r"\bsum\w*ry\b", low) and len(low.split()) <= 10 and not has_file_hint:
+        return True
+    return False

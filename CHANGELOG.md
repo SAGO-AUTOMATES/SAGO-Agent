@@ -2,6 +2,28 @@
 
 All notable changes to the SAGO project are documented in this file.
 
+## [0.1.14] - 2026-08-26 (Unreleased — summary waste & dev default fixes)
+
+### Fixed
+- **Summary waste on “so what was the sumamry?” (2e6cdf4e-ea4):** Previously re-ran full tool loops (`grep`, `execute_shell`) and gave generic README summary, wasting tokens. Now:
+  - `sago/tui/processor.py` detects summary intent via spec regex `r"\b(summar|what was done|what did you do)\b"` (+ typo-tolerant `sumamry`/`summar*` fallbacks) and short-circuits **before** tool discovery — 0 new tool calls.
+  - Builds categorized summary **by agent** from `self.messages` + `ToolUsageStore.get_all()` + `DevTracer.get_recent_traces()` + cached `PROJECT_ANALYSIS.md` / `Session.get_full_export()` (per-agent tools, output, cost, output file). Single LLM call with `tool_choice: none` and injected Reference Context, not a tool loop; falls back to deterministic `_build_local_summary_markdown()` if LLM unavailable. Heavy `context_assembler.assemble()` also short-circuits RAG/BM25/symbol search for summary intents.
+  - `sago/sessions/manager.py` adds `get_summary_by_agent()` / `is_summary_intent()` helpers reusing `Session.get_full_export()` so fresh sessions also do 0 re-analysis.
+- **Auto Summary Card by agent:** `sago/tui/helpers.py` adds `_add_summary_by_agent_card()` (`Collapsible(title="● Summary — by agent", collapsed=False)`) with per-agent sections (tools `✓/✗` + args, output preview, token cost, output file `PROJECT_ANALYSIS.md` cached). `sago/tui/orchestrator.py` auto-mounts it after **chain** (20/20 + HandoffFlow), **delegate**, **parallel**, and **orchestrate** completions so user sees summary without asking.
+- **Systematic thinking → tool order & per-agent headers:** All flows (`processor` normal + `orchestrator` chain/parallel/delegate/orchestrate) now share `set_execution_callbacks(on_tool/on_tool_result/on_thinking with agent_name)` → `ExchangeTurnCard.mount_sequential()` (seq_id, inserts `before=.exchange-response` in call order) so `thinking1 → tool1 → thinking2 → tool2 …` is deterministic, not bulk at end. Titles are now `● {agent} — Technical Reasoning` and `● OK Tool: read_file by @agent`. `DevTracer.record_thinking` dedups only same `source` + same `[:300]` within 5s (not global 120s), preserving architect vs python-engineer distinction. DB `messages.metadata.thinking_blocks[{seq, agent, text, timestamp}]` + `tool_usage.created_at` are sorted on reload (`commands._load_session` / `_switch_session`) via `mount_sequential`, so `sago tui --resume 2e6cdf4e-ea4` shows 3 thinking cards in same positions and `Inspector 19 events 6 LLM 3 thinking`.
+- **Docs caps & updates:** `docs/tui_chat_structure.md` → `docs/TUI_CHAT_STRUCTURE.md` (caps, canonical) rewritten with systematic pipeline §20, per-agent headers §12, DB persistence/reload §8/§20, Inspector §16, auto Summary — by agent §15, uniform chain/parallel/delegate handling table §20d. `docs/DEVELOPER_MODE.md`, `docs/ARCHITECTURE.md`, `docs/COMMANDS.md`, `README.md` updated to mention dev default ON, systematic order, zero-tool summary.
+- **Dev mode default ON until beta:** `sago/config/sago.yaml` `settings.dev_mode: true # TODO: flip to false at 1.0` (was `false`), `sago/config/loader.py` `SettingsConfig.dev_mode: True` + `init_user_config` `dev_mode: True` (both TODO), `sago/tui/app.py` `developer_mode: True # TODO: flip to false at 1.0`. Fresh `rm -rf ~/.sago/data && sago tui` shows Inspector (`F2`) without `/dev on`; `is_dev_mode_enabled()` now returns true on clean install.
+
+### Changed
+- `README.md` Key Capabilities + Documentation table now lists `TUI_CHAT_STRUCTURE.md`, `DEVELOPER_MODE.md` (default ON), `ARCHITECTURE.md` (systematic order + summary).
+- `docs/COMMANDS.md` `/dev` row notes default ON until 1.0; `/summary` row documents natural-language short-circuit.
+- `docs/ARCHITECTURE.md` adds § Systematic Thinking → Tool Order and § Summary — By Agent, and notes `context_assembler`/`processor`/`sessions/manager` summary short-circuit.
+
+### Validation
+- `ruff check` clean (other than pre-existing `google.genai` missing in CI)
+- `pytest tests/unit/test_tui_turn_container.py` — `test_tui_developer_mode` updated to expect default ON where applicable, reload order preserved
+- Manual: summary query `so what was the sumamry ?` creates 1 LLM event, 0 `TOOL_DISPATCH` events (DevTracer delta), no new `grep_content`/`execute_shell`; fresh session `developer_mode == True`
+
 ## [0.1.13] - 2026-08-23
 
 ### Fixed

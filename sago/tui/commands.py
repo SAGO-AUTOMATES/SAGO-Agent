@@ -614,30 +614,76 @@ class CommandHandlers:
                                             e, "restore enhancement card on session switch"
                                         )
                             elif role == "assistant":
-                                # Extract thinking blocks
+                                # Extract thinking blocks — per-agent, per-step (supports reload with persistence)
                                 thinking_match = re.search(
                                     r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>",
                                     content,
                                     re.DOTALL,
                                 )
                                 display_content = content
-                                thinking_html = ""
-                                if thinking_match:
-                                    thinking_content = thinking_match.group(1).strip()
-                                    if thinking_content:
-                                        thinking_html = thinking_content
-                                    display_content = re.sub(
-                                        r"<(?:thinking|thought)>.*?</(?:thinking|thought)>",
-                                        "",
-                                        content,
-                                        flags=re.DOTALL,
-                                    ).strip()
+                                thinking_blocks: list[dict] = []
+                                # Check persisted thinking_blocks first (new format)
+                                _meta_blocks_sw = msg_metadata.get("thinking_blocks") if isinstance(msg_metadata, dict) else None
+                                # Also handle msg.get("thinking_blocks") if stored at top level? fallback
+                                if isinstance(_meta_blocks_sw, list) and _meta_blocks_sw:
+                                    try:
+                                        thinking_blocks = sorted(_meta_blocks_sw, key=lambda b: int(b.get("seq", 0) or 0))
+                                    except Exception:
+                                        thinking_blocks = list(_meta_blocks_sw)
+                                    if thinking_match:
+                                        display_content = re.sub(
+                                            r"<(?:thinking|thought)>.*?</(?:thinking|thought)>",
+                                            "",
+                                            content,
+                                            flags=re.DOTALL,
+                                        ).strip()
+                                else:
+                                    thinking_html = ""
+                                    if thinking_match:
+                                        thinking_content = thinking_match.group(1).strip()
+                                        if thinking_content:
+                                            thinking_html = thinking_content
+                                        display_content = re.sub(
+                                            r"<(?:thinking|thought)>.*?</(?:thinking|thought)>",
+                                            "",
+                                            content,
+                                            flags=re.DOTALL,
+                                        ).strip()
+                                    # Also check legacy meta thinking
+                                    meta_thinking_sw = msg_metadata.get("thinking", "") if isinstance(msg_metadata, dict) else ""
+                                    if meta_thinking_sw and meta_thinking_sw.strip():
+                                        if thinking_html:
+                                            if meta_thinking_sw.strip() not in thinking_html:
+                                                thinking_html = (thinking_html + "\n\n" + meta_thinking_sw.strip()).strip()
+                                        else:
+                                            thinking_html = meta_thinking_sw.strip()
+                                        if not display_content:
+                                            display_content = content.strip()
+                                    if thinking_html:
+                                        # Preserve legacy as single block but attempt to split by double newline per-agent?
+                                        # Keep as single block with current agent
+                                        thinking_blocks = [{"seq": 1, "agent": agent_name or "sago", "text": thinking_html, "timestamp": 0}]
+                                    # Also check direct msg thinking field
+                                    if not thinking_blocks:
+                                        _msg_think = ""
+                                        try:
+                                            _msg_think = (m.get("thinking", "") if 'm' in locals() or 'm' in globals() else "") or (msg.get("thinking", "") if 'msg' in locals() else "")  # noqa: F821
+                                        except Exception:
+                                            try:
+                                                _msg_think = m.get("thinking", "")  # type: ignore
+                                            except Exception:
+                                                try:
+                                                    _msg_think = msg.get("thinking", "")  # type: ignore  # noqa: F821
+                                                except Exception:
+                                                    _msg_think = ""
+                                        if _msg_think and isinstance(_msg_think, str) and _msg_think.strip():
+                                            thinking_blocks = [{"seq": 1, "agent": agent_name or "sago", "text": _msg_think.strip(), "timestamp": 0}]
 
                                 # Defer mounting until after compose() has run
                                 deferred_responses.append(
                                     (
                                         current_card,
-                                        thinking_html,
+                                        thinking_blocks,
                                         display_content,
                                         agent_name,
                                     )
@@ -673,8 +719,10 @@ class CommandHandlers:
                                     if success
                                     else "[bold red]✗ FAILED[/bold red]"
                                 )
+                                _tool_agent = tl.get("agent") or tl.get("agent_name") or ""
+                                _agent_suffix = f" [dim]by @{_esc(_tool_agent)}[/dim]" if _tool_agent else ""
                                 title = (
-                                    f"{status_tag} Tool: [bold cyan]{_esc(tool_name)}[/bold cyan]"
+                                    f"{status_tag} Tool: [bold cyan]{_esc(tool_name)}[/bold cyan]{_agent_suffix}"
                                 )
 
                                 param_lines = []
@@ -753,10 +801,10 @@ class CommandHandlers:
                                                 e, "mount tool call during session switch"
                                             )
 
-                            # PHASE B: Mount text content AFTER tool calls
+                            # PHASE B: Mount text content AFTER tool calls — per-agent, per-step thinking in order
                             for (
                                 card,
-                                thinking_html,
+                                thinking_blocks,
                                 display_content,
                                 agent_name,
                             ) in deferred_responses:
@@ -768,16 +816,47 @@ class CommandHandlers:
                                     resp = None
                                 target = resp if resp is not None else card
 
-                                if thinking_html:
-                                    target.mount(
-                                        Collapsible(
-                                            Static(
-                                                thinking_html, classes="thinking-text", markup=False
-                                            ),
-                                            title="Technical Reasoning & Analysis",
-                                            collapsed=True,
+                                if thinking_blocks:
+                                    # Ensure sorted by seq
+                                    try:
+                                        _sorted_blocks = sorted(thinking_blocks, key=lambda b: int(b.get("seq", 0) or 0))
+                                    except Exception:
+                                        _sorted_blocks = thinking_blocks
+                                    for _tb in _sorted_blocks:
+                                        _t_text = (_tb.get("text") or "").strip()
+                                        if not _t_text:
+                                            continue
+                                        _t_agent = (_tb.get("agent") or agent_name or "sago").strip()
+                                        _t_title = f"● {_t_agent} — Technical Reasoning" if _t_agent else "● Technical Reasoning & Analysis"
+                                        # For sequential reconstruction, mount before response if inside ExchangeTurnCard body
+                                        # But deferred target is response container; we mount there preserving order.
+                                        # To keep thinking interleaved before tools when possible, try body mount.
+                                        try:
+                                            # If target is response container, try mount before it via body if available
+                                            if card is not None and hasattr(card, "mount_sequential"):
+                                                # Create card-like widget for sequential mount
+                                                _tb_card = Collapsible(
+                                                    Static(_t_text, classes="thinking-text", markup=False),
+                                                    title=_t_title,
+                                                    collapsed=True,
+                                                )
+                                                # Use sequential mount if card is ExchangeTurnCard
+                                                try:
+                                                    card.mount_sequential(_tb_card)  # type: ignore
+                                                    continue
+                                                except Exception:
+                                                    pass
+                                        except Exception:
+                                            pass
+                                        target.mount(
+                                            Collapsible(
+                                                Static(
+                                                    _t_text, classes="thinking-text", markup=False
+                                                ),
+                                                title=_t_title,
+                                                collapsed=True,
+                                            )
                                         )
-                                    )
 
                                 color = get_agent_color(agent_name)
                                 target.mount(
@@ -1288,44 +1367,68 @@ class CommandHandlers:
                                 self.messages.append(user_msg_dict)
 
                             elif role == "assistant":
-                                # Extract thinking blocks — check both content tags and persisted metadata
+                                # Extract thinking blocks — supports per-agent, per-step distinction
                                 thinking_match = re.search(
                                     r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>",
                                     content,
                                     re.DOTALL,
                                 )
                                 display_content = content
-                                thinking_html = ""
-                                if thinking_match:
-                                    thinking_content = thinking_match.group(1).strip()
-                                    if thinking_content:
-                                        thinking_html = thinking_content
-                                    display_content = re.sub(
-                                        r"<(?:thinking|thought)>.*?</(?:thinking|thought)>",
-                                        "",
-                                        content,
-                                        flags=re.DOTALL,
-                                    ).strip()
-                                # Persisted thinking from helpers metadata (new sessions)
-                                meta_thinking = msg_metadata.get("thinking", "")
-                                if meta_thinking and meta_thinking.strip():
-                                    # Merge: metadata thinking is already deduped single block per turn
+                                # Collect thinking blocks in order: persisted metadata blocks take precedence
+                                thinking_blocks: list[dict] = []
+                                # First check persisted thinking_blocks (new per-agent list)
+                                meta_blocks = msg_metadata.get("thinking_blocks")
+                                if isinstance(meta_blocks, list) and meta_blocks:
+                                    # Sort by seq for deterministic order
+                                    try:
+                                        thinking_blocks = sorted(meta_blocks, key=lambda b: int(b.get("seq", 0) or 0))
+                                    except Exception:
+                                        thinking_blocks = list(meta_blocks)
+                                    # Also build legacy concatenated string for message thinking field
+                                    try:
+                                        thinking_html = "\n\n".join(str(b.get("text", "") or "").strip() for b in thinking_blocks if b.get("text"))
+                                    except Exception:
+                                        thinking_html = ""
+                                    # Ensure display_content stripped of tags even when using blocks
+                                    if thinking_match:
+                                        display_content = re.sub(
+                                            r"<(?:thinking|thought)>.*?</(?:thinking|thought)>",
+                                            "",
+                                            content,
+                                            flags=re.DOTALL,
+                                        ).strip()
+                                else:
+                                    # Legacy: single thinking string or inline tag
+                                    thinking_html = ""
+                                    if thinking_match:
+                                        thinking_content = thinking_match.group(1).strip()
+                                        if thinking_content:
+                                            thinking_html = thinking_content
+                                        display_content = re.sub(
+                                            r"<(?:thinking|thought)>.*?</(?:thinking|thought)>",
+                                            "",
+                                            content,
+                                            flags=re.DOTALL,
+                                        ).strip()
+                                    meta_thinking = msg_metadata.get("thinking", "")
+                                    if meta_thinking and meta_thinking.strip():
+                                        if thinking_html:
+                                            if meta_thinking.strip() not in thinking_html:
+                                                thinking_html = (thinking_html + "\n\n" + meta_thinking.strip()).strip()
+                                        else:
+                                            thinking_html = meta_thinking.strip()
+                                        if not display_content:
+                                            display_content = content.strip()
                                     if thinking_html:
-                                        if meta_thinking.strip() not in thinking_html:
-                                            thinking_html = (
-                                                thinking_html + "\n\n" + meta_thinking.strip()
-                                            ).strip()
-                                    else:
-                                        thinking_html = meta_thinking.strip()
-                                    # Ensure display_content still stripped of any tags
-                                    if not display_content:
-                                        display_content = content.strip()
+                                        thinking_blocks = [
+                                            {"seq": 1, "agent": agent_name or "sago", "text": thinking_html, "timestamp": 0}
+                                        ]
 
                                 # Defer mounting until after compose() has run
                                 deferred_responses.append(
                                     (
                                         current_card,
-                                        thinking_html,
+                                        thinking_blocks,
                                         display_content,
                                         agent_name,
                                     )
@@ -1372,8 +1475,10 @@ class CommandHandlers:
                                     if success
                                     else "[bold red]✗ FAILED[/bold red]"
                                 )
+                                _tool_agent = tl.get("agent") or tl.get("agent_name") or ""
+                                _agent_suffix = f" [dim]by @{_esc(_tool_agent)}[/dim]" if _tool_agent else ""
                                 title = (
-                                    f"{status_tag} Tool: [bold cyan]{_esc(tool_name)}[/bold cyan]"
+                                    f"{status_tag} Tool: [bold cyan]{_esc(tool_name)}[/bold cyan]{_agent_suffix}"
                                 )
 
                                 param_lines = []
@@ -1465,10 +1570,10 @@ class CommandHandlers:
                                                 e, "mount tool call during session load fallback"
                                             )
 
-                            # PHASE B: Mount text content AFTER tool calls
+                            # PHASE B: Mount text content AFTER tool calls — per-agent, per-step thinking in order
                             for (
                                 card,
-                                thinking_html,
+                                thinking_blocks,
                                 display_content,
                                 agent_name,
                             ) in deferred_responses:
@@ -1480,16 +1585,47 @@ class CommandHandlers:
                                     resp = None
                                 target = resp if resp is not None else card
 
-                                if thinking_html:
-                                    target.mount(
-                                        Collapsible(
-                                            Static(
-                                                thinking_html, classes="thinking-text", markup=False
-                                            ),
-                                            title="Technical Reasoning & Analysis",
-                                            collapsed=True,
+                                if thinking_blocks:
+                                    # Ensure sorted by seq
+                                    try:
+                                        _sorted_blocks = sorted(thinking_blocks, key=lambda b: int(b.get("seq", 0) or 0))
+                                    except Exception:
+                                        _sorted_blocks = thinking_blocks
+                                    for _tb in _sorted_blocks:
+                                        _t_text = (_tb.get("text") or "").strip()
+                                        if not _t_text:
+                                            continue
+                                        _t_agent = (_tb.get("agent") or agent_name or "sago").strip()
+                                        _t_title = f"● {_t_agent} — Technical Reasoning" if _t_agent else "● Technical Reasoning & Analysis"
+                                        # For sequential reconstruction, mount before response if inside ExchangeTurnCard body
+                                        # But deferred target is response container; we mount there preserving order.
+                                        # To keep thinking interleaved before tools when possible, try body mount.
+                                        try:
+                                            # If target is response container, try mount before it via body if available
+                                            if card is not None and hasattr(card, "mount_sequential"):
+                                                # Create card-like widget for sequential mount
+                                                _tb_card = Collapsible(
+                                                    Static(_t_text, classes="thinking-text", markup=False),
+                                                    title=_t_title,
+                                                    collapsed=True,
+                                                )
+                                                # Use sequential mount if card is ExchangeTurnCard
+                                                try:
+                                                    card.mount_sequential(_tb_card)  # type: ignore
+                                                    continue
+                                                except Exception:
+                                                    pass
+                                        except Exception:
+                                            pass
+                                        target.mount(
+                                            Collapsible(
+                                                Static(
+                                                    _t_text, classes="thinking-text", markup=False
+                                                ),
+                                                title=_t_title,
+                                                collapsed=True,
+                                            )
                                         )
-                                    )
 
                                 color = get_agent_color(agent_name)
                                 target.mount(

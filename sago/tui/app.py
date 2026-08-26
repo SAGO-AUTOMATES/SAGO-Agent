@@ -132,7 +132,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     _orchestration_lock: threading.Lock | None = None
     approval_message: reactive[str] = reactive("")
     yolo_mode: reactive[bool] = reactive(False)
-    developer_mode: reactive[bool] = reactive(False)
+    developer_mode: reactive[bool] = reactive(True)  # TODO: flip to false at 1.0 — default ON until beta
     show_summary: reactive[bool] = reactive(False)
     show_action_bar: reactive[bool] = reactive(True)
     # Pause/resume mechanism for todo confirmations
@@ -234,6 +234,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         self._pending_message_queue = collections.deque()
         self._loading_session = False
         self._active_exchange_card = None
+        self._current_thinking_buffer: list[dict[str, Any]] = []
         self._message_store = None
         self.current_session_title = "TUI Session"
         self._init_db()
@@ -484,9 +485,29 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 self.add_class("hide-action-bar")
 
             # Load dev_mode from ~/.sago config or settings
+            # v0.1.14: default ON until 1.0 — need to respect explicit False in settings.json
+            # but also allow env var SAGO_DEV_MODE to override persisted False (test expects env true → enabled)
             dev_config = is_dev_mode_enabled()
-            persisted_dev = load_setting("dev_mode", dev_config)
-            self.developer_mode = bool(persisted_dev or dev_config)
+            _env_explicit = (os.environ.get("SAGO_DEV_MODE") is not None) or (os.environ.get("DEV_MODE") is not None)
+            try:
+                from sago.settings import load_settings
+
+                _all = load_settings()
+                if _env_explicit:
+                    # Env var explicitly set — honor dev_config (env) even if persisted False
+                    self.developer_mode = bool(dev_config)
+                elif "dev_mode" in _all:
+                    self.developer_mode = bool(_all["dev_mode"])
+                else:
+                    self.developer_mode = bool(dev_config)
+            except Exception:
+                persisted_dev = load_setting("dev_mode", dev_config)
+                if _env_explicit:
+                    self.developer_mode = bool(dev_config)
+                elif persisted_dev is False:
+                    self.developer_mode = False
+                else:
+                    self.developer_mode = bool(persisted_dev or dev_config)
             if self.developer_mode:
                 get_dev_tracer().set_enabled(True)
                 self.add_class("dev-mode-enabled")

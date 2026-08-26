@@ -19,6 +19,180 @@ if TYPE_CHECKING:
 logger = logging.getLogger("sago.tui.processor")
 _time = time
 
+# Summary intent detection — short-circuit to avoid wasted tool calls on "so what was the summary?"
+# Spec requires simple regex r"\b(summar|what was done|what did you do)\b" plus typo tolerance (sumamry)
+_SUMMARY_RE = re.compile(r"\b(summar|what was done|what did you do)\b", re.IGNORECASE)
+
+
+def _is_summary_intent(msg: str) -> bool:
+    """Detect summary intent: 'so what was the summary', 'summarize what you did', 'what was done' etc.
+
+    Uses spec regex plus typo-tolerant fallbacks (sumamry, summarise, sum*ry) and substring checks
+    so 'summarize' (which contains 'summar' but without trailing word boundary) still matches.
+    Avoids false-positive on file-specific summarization like 'summarize this file' (which needs tools).
+    """
+    if not msg or not msg.strip():
+        return False
+    low = msg.lower().strip()
+    # Quick file-pattern guard: if user asks to summarize a specific file, it's NOT a prior-session summary
+    # e.g. "summarize this file", "summarize README.md", "#file" — those need read_file tools
+    has_file_hint = bool(
+        re.search(r"\b[\w\-/\\.]+\.(?:py|js|ts|tsx|jsx|md|txt|json|yaml|yml|toml|html|css|java|go|rs|c|cpp|h|rb|php|sh|sql)\b", low)
+        or "#file" in low
+        or "this file" in low
+        or "the file" in low
+        or "summarize the" in low  # likely file/code summarization, not prior session
+    )
+    # If it's a file-specific summarize, do NOT short-circuit (needs tools)
+    if has_file_hint and "summar" in low:
+        # But still treat as summary if it explicitly says "what you did" / "what was done"
+        if re.search(r"\b(what you did|what was done|what did you do)\b", low):
+            pass  # explicit prior-session reference → still summary
+        else:
+            return False
+    # Primary spec regex
+    if _SUMMARY_RE.search(low):
+        return True
+    # Substring fallbacks for typo / summarize variants (covers 'summarize', 'sumamry', 'summry')
+    # Only treat generic 'summar' as summary when it's about prior work (contains what/done/did/so) or is very short query
+    if "summar" in low or "sumam" in low:
+        # If it's short (<60 chars) and no file hint, likely "summary" query about prior work
+        if len(low) < 60 and not has_file_hint:
+            return True
+        # If it mentions what/done/did/so, it's prior-session summary
+        if re.search(r"\b(what|done|did|so)\b", low):
+            return True
+        # Explicit "summarize what you did" pattern
+        if re.search(r"\bsummar\w*\b.*\b(what|you did|was done)\b", low):
+            return True
+    if re.search(r"\bsum\w*ry\b", low):
+        # limit to short queries to avoid false positive
+        if len(low.split()) <= 10:
+            return True
+    if "what was the summ" in low or "what was summ" in low:
+        return True
+    # "summarize what you did" / "what you did" etc.
+    if re.search(r"\bwhat (was|did|you did)\b", low) and "summ" in low:
+        return True
+    if re.search(r"\bwhat you did\b", low) or re.search(r"\bwhat was done\b", low):
+        return True
+    return False
+
+
+def _build_local_summary_markdown(
+    messages: list[dict[str, Any]],
+    tool_calls: list[dict[str, Any]],
+    traces: list[Any] | None = None,
+    project_analysis: str = "",
+    total_in: int = 0,
+    total_out: int = 0,
+    elapsed: float = 0.0,
+) -> str:
+    """Build deterministic categorized summary by agent without LLM — 0 tool calls."""
+    from collections import defaultdict
+
+    # Group tool calls by agent
+    per_agent_tools: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    per_agent_tool_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for tc in tool_calls or []:
+        ag = (tc.get("agent") or tc.get("agent_name") or tc.get("tool", "") and "sago") or "sago"
+        # Try to infer agent from tool call; prefer explicit agent field
+        ag = str(ag).strip() or "sago"
+        per_agent_tools[ag].append(tc)
+        tname = tc.get("tool") or tc.get("tool_name") or "tool"
+        per_agent_tool_counts[ag][tname] += 1
+
+    # Group assistant messages by agent
+    per_agent_outputs: dict[str, list[str]] = defaultdict(list)
+    for m in messages:
+        if m.get("role") == "assistant":
+            ag = m.get("agent_name") or "sago"
+            content = (m.get("content") or "").strip()
+            # Remove thinking tags for summary display
+            content = re.sub(r"<(?:thinking|thought)>.*?</(?:thinking|thought)>", "", content, flags=re.DOTALL).strip()
+            if content:
+                per_agent_outputs[ag].append(content[:800])
+
+    # Distinct agents from both
+    all_agents = sorted(set(list(per_agent_tools.keys()) + list(per_agent_outputs.keys())) or ["sago"])
+
+    lines = ["# ● Summary — by agent", ""]
+    lines.append(f"_Generated from cached analysis — 0 new tool calls, {len(tool_calls or [])} prior tool calls reused_")
+    lines.append("")
+
+    for ag in all_agents:
+        if ag == "sago" and len(all_agents) > 1 and not per_agent_tools.get(ag) and not per_agent_outputs.get(ag):
+            continue
+        lines.append(f"## @{ag}")
+        tcounts = per_agent_tool_counts.get(ag, {})
+        if tcounts:
+            tools_str = ", ".join(f"{k} ({v})" for k, v in sorted(tcounts.items(), key=lambda x: -x[1]))
+            lines.append(f"- **Tools used:** {tools_str}")
+            # List recent tool details (max 5)
+            details = per_agent_tools[ag][-5:]
+            for d in details:
+                tname = d.get("tool") or d.get("tool_name") or "tool"
+                args = d.get("args") or d.get("arguments") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args) if args else {}
+                    except Exception:
+                        args = {}
+                arg_preview = ", ".join(f"{k}={str(v)[:30]}" for k, v in list(args.items())[:2]) if isinstance(args, dict) else str(args)[:60]
+                success = d.get("success", True)
+                icon = "✓" if success else "✗"
+                lines.append(f"  - {icon} `{tname}` {arg_preview}")
+        else:
+            lines.append("- **Tools used:** _none in this session_")
+        outs = per_agent_outputs.get(ag, [])
+        if outs:
+            last = outs[-1]
+            # Truncate and clean
+            preview = last.replace("\n", " ").strip()[:300]
+            lines.append(f"- **Output:** {preview}{'...' if len(last) > 300 else ''}")
+        lines.append("")
+
+    # Global stats
+    total_tools = len(tool_calls or [])
+    lines.append("---")
+    lines.append(f"**Total tools:** {total_tools} | **Tokens:** {total_in:,}+{total_out:,} ({total_in+total_out:,} total) | **Elapsed:** {elapsed:.1f}s")
+    if project_analysis:
+        # Use first 500 chars of cached analysis
+        pa_preview = project_analysis.strip().split("\n")[:20]
+        lines.append("")
+        lines.append(f"**Output file:** `PROJECT_ANALYSIS.md` ({len(project_analysis)} chars)")
+        lines.append("")
+        lines.append("<details><summary>Cached analysis preview</summary>\n")
+        lines.append("\n".join(pa_preview))
+        lines.append("\n</details>")
+    elif tool_calls:
+        # Infer output file from write_file tools
+        out_files = []
+        for tc in tool_calls:
+            tname = tc.get("tool") or tc.get("tool_name") or ""
+            if tname == "write_file":
+                args = tc.get("args") or tc.get("arguments") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args) if args else {}
+                    except Exception:
+                        args = {}
+                fp = (args.get("file_path") or args.get("path") or "") if isinstance(args, dict) else ""
+                if fp:
+                    out_files.append(fp)
+        if out_files:
+            uniq = sorted(set(out_files))
+            lines.append(f"**Output files:** {', '.join(f'`{f}`' for f in uniq[:5])}")
+
+    # Traces summary if available
+    if traces:
+        llm_c = sum(1 for t in traces if getattr(t.event_type, "value", str(t.event_type)) in ("LLM_PAYLOAD", "LLM_RAW_RESPONSE", "LLM_RAW_REQUEST"))
+        tool_c = sum(1 for t in traces if getattr(t.event_type, "value", str(t.event_type)) == "TOOL_DISPATCH")
+        lines.append(f"**Traces:** {len(traces)} events, {llm_c} LLM, {tool_c} tools")
+
+    lines.append("")
+    return "\n".join(lines)
+
 
 class MessageProcessorMixin:
     """Mixin class for processing user chat messages, LLM streaming, function execution, and post-verification."""
@@ -65,22 +239,40 @@ class MessageProcessorMixin:
                     pass
             return
 
+        # Summary intent short-circuit — 0 tool calls, reuse cached analysis (spec: detect via regex)
+        if _is_summary_intent(clean_msg):
+            try:
+                self._handle_summary_intent(message)
+            except Exception as e:
+                logger.debug("Summary handler failed, falling back to normal flow: %s", e)
+                # Fall through to normal flow if summary handler errors
+                pass
+            else:
+                return
+
         try:
             cancel_ev = getattr(self, "_active_cancel_event", None)
             effort = EFFORT_LEVELS.get(self.current_effort, EFFORT_LEVELS["medium"])
 
-            def on_tool(name, args):
+            def on_tool(name, args, agent_name=""):
                 # For ask_question, don't render huge questions=[{'options':...}] in spinner — causes lag + markup leak
                 if name == "ask_question":
                     self.call_from_thread(self._update_spinner, f"Running: {name}")
                 else:
                     args_str = ", ".join(f"{k}={str(v)[:20]}" for k, v in list(args.items())[:2])
                     self.call_from_thread(self._update_spinner, f"Running: {name}({args_str})")
+                # Also route tool start via _add_tool_call? spinner already; tool result handled separately
 
-            def on_tool_result(name, args, result, success):
-                self.call_from_thread(self._add_tool_call, name, args, result, success)
+            def on_tool_result(name, args, result, success, agent_name=""):
+                # Pass agent for per-agent tool header (by @engineer)
+                _ag = agent_name or getattr(self, "current_agent", "") or ""
+                try:
+                    self.call_from_thread(self._add_tool_call, name, args, result, success, _ag)
+                except TypeError:
+                    # Fallback for older signature without agent
+                    self.call_from_thread(self._add_tool_call, name, args, result, success)
 
-            def on_thinking(text):
+            def on_thinking(text, agent_name=""):
                 self.call_from_thread(self._update_spinner, text)
                 # For delegated engine tasks, real LLM <thinking> comes via this callback.
                 # Spinner text like "Planning... (step 1/30)" is NOT real reasoning - filter it.
@@ -98,17 +290,22 @@ class MessageProcessorMixin:
                     cl = clean.lower()
                     if cl.startswith("thinking: step ") or cl.startswith("synthesized reasoning"):
                         return
+                    _ag_think = agent_name or getattr(self, "current_agent", "") or "sago"
+                    # Use per-agent source for dev tracer distinction
                     try:
                         from sago.tracking.dev_tracer import get_dev_tracer
 
+                        _src = f"agent.{_ag_think}" if _ag_think and _ag_think != "sago" else f"tui.llm.{self.current_provider}"
                         get_dev_tracer().record_thinking(
-                            source=f"tui.llm.{self.current_provider}",
+                            source=_src,
                             model=self.current_model,
                             thinking_content=clean,
                         )
                     except Exception:
                         pass
                     try:
+                        self.call_from_thread(self._add_thinking_card, clean, _ag_think)
+                    except TypeError:
                         self.call_from_thread(self._add_thinking_card, clean)
                     except Exception:
                         pass
@@ -799,14 +996,22 @@ class MessageProcessorMixin:
                         is_synthetic = True
                         _thinking_content = f"Considering: {message[:120].replace(chr(10), ' ').strip()[:100]} — planning next step to align with intent."
                     if _thinking_content:
+                        _ag2 = (
+                            active_agent
+                            if "active_agent" in locals() and active_agent
+                            else getattr(self, "current_agent", "") or "sago"
+                        )
+                        _src2 = f"agent.{_ag2}" if _ag2 and _ag2 != "sago" else f"tui.llm.{self.current_provider}"
                         get_dev_tracer().record_thinking(
-                            source=f"tui.llm.{self.current_provider}",
+                            source=_src2,
                             model=api_model,
                             thinking_content=_thinking_content,
                         )
                         # Only mount real thinking to TUI; synthetic stays in tracer only (no BS card)
                         if not is_synthetic:
                             try:
+                                self.call_from_thread(self._add_thinking_card, _thinking_content, _ag2)
+                            except TypeError:
                                 self.call_from_thread(self._add_thinking_card, _thinking_content)
                             except Exception:
                                 pass
@@ -1950,3 +2155,226 @@ class MessageProcessorMixin:
                 self.call_from_thread(self._try_process_queue)
             except Exception:
                 pass
+
+    def _handle_summary_intent(self: SagoApp, message: str) -> None:
+        """Handle summary intent with 0 tool calls — reuse cached analysis, categorize by agent.
+
+        Gathers self.messages, ToolUsageStore.get_all(), DevTracer.get_recent_traces(),
+        cached PROJECT_ANALYSIS.md or Session.get_full_export(), builds categorized summary
+        by agent (tools, output, cost, files) and performs a SINGLE LLM call with
+        tool_choice: none (no tool loop). If LLM unavailable, falls back to deterministic markdown.
+        """
+        thread_start = _time.time()
+        self.call_from_thread(self._update_spinner, "Summarizing previous work (0 tools)…")
+        # Gather prior messages (exclude current summary query? keep history)
+        try:
+            all_messages = list(getattr(self, "messages", []) or [])
+        except Exception:
+            all_messages = []
+
+        # Gather tool calls — prefer DB, fallback to in-memory session_tool_calls
+        tool_calls: list[dict[str, Any]] = []
+        try:
+            if getattr(self, "current_session_id", None) and self.current_session_id != "local":
+                from sago.database import ToolUsageStore
+
+                tus = ToolUsageStore(self.current_session_id)
+                db_calls = tus.get_all()
+                for tc in db_calls:
+                    # Normalize DB row to common shape
+                    args_raw = tc.get("arguments", "{}")
+                    try:
+                        args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
+                    except Exception:
+                        args = {}
+                    tool_calls.append(
+                        {
+                            "tool": tc.get("tool_name", "tool"),
+                            "tool_name": tc.get("tool_name", "tool"),
+                            "args": args,
+                            "arguments": args,
+                            "result": tc.get("result", "") or "",
+                            "success": bool(tc.get("success", 1)),
+                            "agent": tc.get("agent") or "",  # may be empty; will fallback
+                        }
+                    )
+                tus.close()
+        except Exception as e:
+            logger.debug("Summary: DB tool_usage gather failed: %s", e)
+
+        # Fallback / supplement with in-memory tool calls (has agent)
+        try:
+            mem_calls = list(getattr(self, "session_tool_calls", []) or [])
+            # If DB was empty, use mem_calls; if both exist, merge mem_calls that not in DB
+            if not tool_calls and mem_calls:
+                tool_calls = mem_calls
+            elif mem_calls:
+                # Add mem calls that are not duplicates (by tool+args)
+                existing_keys = {(tc.get("tool") or tc.get("tool_name"), json.dumps(tc.get("args") or tc.get("arguments") or {}, sort_keys=True)[:80]) for tc in tool_calls}
+                for mc in mem_calls:
+                    key = (mc.get("tool") or mc.get("tool_name"), json.dumps(mc.get("args") or {}, sort_keys=True)[:80])
+                    if key not in existing_keys:
+                        tool_calls.append(mc)
+        except Exception:
+            pass
+
+        # Gather tracer traces
+        traces: list[Any] = []
+        try:
+            from sago.tracking.dev_tracer import get_dev_tracer
+
+            traces = get_dev_tracer().get_recent_traces(limit=500) or []
+        except Exception:
+            traces = []
+
+        # Cached PROJECT_ANALYSIS.md or session export
+        project_analysis = ""
+        try:
+            pa_path = Path.cwd() / "PROJECT_ANALYSIS.md"
+            if pa_path.exists():
+                project_analysis = pa_path.read_text(encoding="utf-8", errors="replace")[:8000]
+            else:
+                # Try .sago/data/<session>/chat_export.md as fallback
+                if getattr(self, "current_session_id", None):
+                    alt = Path.cwd() / ".sago" / "data" / self.current_session_id / "chat_export.md"
+                    if alt.exists():
+                        project_analysis = alt.read_text(encoding="utf-8", errors="replace")[:8000]
+        except Exception:
+            project_analysis = ""
+
+        # Also try Session.get_full_export for completeness (not used directly, but ensures DB flush)
+        try:
+            if getattr(self, "current_session_id", None) and self.current_session_id != "local":
+                from sago.database import Session
+
+                s = Session(self.current_session_id)
+                exp = s.get_full_export()
+                s.close()
+                # If project_analysis empty, use last assistant message as fallback
+                if not project_analysis and exp.get("messages"):
+                    last_assist = next((m for m in reversed(exp["messages"]) if m.get("role") == "assistant"), None)
+                    if last_assist:
+                        project_analysis = (last_assist.get("content") or "")[:4000]
+        except Exception:
+            pass
+
+        total_in = int(getattr(self, "total_input_tokens", 0) or 0)
+        total_out = int(getattr(self, "total_output_tokens", 0) or 0)
+        elapsed = _time.time() - thread_start
+
+        # Build deterministic local summary (0 tools)
+        local_md = _build_local_summary_markdown(
+            messages=all_messages,
+            tool_calls=tool_calls,
+            traces=traces,
+            project_analysis=project_analysis,
+            total_in=total_in,
+            total_out=total_out,
+            elapsed=elapsed,
+        )
+
+        # Try single LLM call with tool_choice none and injected context (spec requirement)
+        final_content = local_md
+        llm_success = False
+        try:
+            from sago.llm.tui_providers import get_tui_client
+
+            client, api_model = get_tui_client(self.current_provider, self.current_model)
+            use_native_gemini = self.current_provider == "google"
+            # Prepare injected context block for LLM
+            context_block = local_md[:8000]
+            # Also include last assistant reasoning if any
+            system_prompt = (
+                "You are SAGO summary assistant. Summarize previous work categorized by agent. "
+                "You MUST NOT call any tools — use ONLY the injected Reference Context below. "
+                "Produce a concise markdown summary with per-agent sections: tools used, output, cost, and output file. "
+                "Keep it factual, no hallucinations, reuse cached analysis verbatim where possible."
+            )
+            user_content = (
+                f"## Reference Context (read-only, do not re-run tools)\n{context_block}\n\n"
+                f"## User Query\n{message}\n\n"
+                f"## Instructions\nSummarize what was done categorized by @architect vs @python-engineer etc., list tools, output file, token cost. No tools."
+            )
+            messages_for_llm: list[dict[str, Any]] = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ]
+            llm_start = _time.time()
+            llm_text = ""
+            if use_native_gemini:
+                from google.genai import types as google_types
+
+                sys_msg = system_prompt
+                contents = [
+                    google_types.Content(role="user", parts=[google_types.Part(text=user_content)])
+                ]
+                config = google_types.GenerateContentConfig(
+                    system_instruction=sys_msg,
+                    max_output_tokens=1200,
+                    temperature=0.2,
+                )
+                # No tools — tool_choice none
+                response = client.models.generate_content(model=api_model, contents=contents, config=config)
+                llm_text = (response.text or "").strip()
+                # Record tracer for this summary LLM call
+                try:
+                    from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                    get_dev_tracer().record(
+                        event_type=TraceEventType.LLM_PAYLOAD,
+                        source=f"tui.llm.{self.current_provider}",
+                        action=f"summary({api_model})",
+                        data={"model": api_model, "provider": self.current_provider, "messages_count": len(messages_for_llm), "latency_ms": (_time.time() - llm_start) * 1000},
+                    )
+                except Exception:
+                    pass
+            else:
+                # OpenAI-compatible — single call, no tools, tool_choice none
+                resp = client.chat.completions.create(
+                    model=api_model,
+                    messages=messages_for_llm,
+                    max_tokens=1200,
+                    temperature=0.2,
+                )
+                llm_text = (resp.choices[0].message.content or "").strip() if resp.choices else ""
+                try:
+                    from sago.tracking.dev_tracer import TraceEventType, get_dev_tracer
+
+                    usage = getattr(resp, "usage", None)
+                    t_in = getattr(usage, "prompt_tokens", 0) if usage else 0
+                    t_out = getattr(usage, "completion_tokens", 0) if usage else 0
+                    get_dev_tracer().record(
+                        event_type=TraceEventType.LLM_PAYLOAD,
+                        source=f"tui.llm.{self.current_provider}",
+                        action=f"summary({api_model})",
+                        data={"model": api_model, "provider": self.current_provider, "messages_count": len(messages_for_llm), "tokens_in": t_in, "tokens_out": t_out, "latency_ms": (_time.time() - llm_start) * 1000},
+                    )
+                except Exception:
+                    pass
+            if llm_text and len(llm_text.strip()) >= 40:
+                # Prefer LLM polished summary but prepend per-agent header to ensure categorization
+                final_content = llm_text
+                llm_success = True
+        except Exception as e:
+            logger.debug("Summary LLM call failed, using local markdown: %s", e)
+            llm_success = False
+
+        # Mount result — also update spinner and hide
+        self.call_from_thread(self._hide_spinner)
+        # Use assistant message with agent tag "sago" and mount per-agent summary card if not already via LLM?
+        # The markdown already contains per-agent sections; mount as assistant message plus also a collapsible summary card
+        self.call_from_thread(self._add_assistant_message, final_content, agent_name="sago")
+        # Auto-mount summary card by agent (collapsed=False) so user sees categorized view without asking again
+        try:
+            # Build per-agent data for card if needed
+            self.call_from_thread(self._add_summary_by_agent_card, tool_calls, project_analysis)
+        except Exception as e:
+            logger.debug("Mount summary card failed: %s", e)
+
+        # Flush and finish
+        self.is_thinking = False
+        try:
+            self.call_from_thread(self._try_process_queue)
+        except Exception:
+            pass
+        logger.info("Summary intent handled (llm_success=%s, tools_reused=%d, elapsed=%.1fs)", llm_success, len(tool_calls), _time.time() - thread_start)

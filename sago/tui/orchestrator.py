@@ -82,15 +82,44 @@ class AgentOrchestrationMixin:
     def _process_delegation_thread(self: SagoApp, agent_name: str, task: str) -> None:
         logger.debug("delegation thread started: agent=%s", agent_name)
 
-        # Set callbacks in context so spawned agents inherit UI updates
+        # Set callbacks in context so spawned agents inherit UI updates (per-agent distinct)
         from sago.engine.simple_executor import set_execution_callbacks
 
+        def _on_tool_call(n, a, ag=""):
+            self.call_from_thread(self._update_spinner, f"Running: {n}")
+
+        def _on_tool_result(n, a, r, s, ag=""):
+            _ag = ag or agent_name
+            try:
+                self.call_from_thread(self._add_tool_call, n, a, r, s, _ag)
+            except TypeError:
+                self.call_from_thread(self._add_tool_call, n, a, r, s)
+
+        def _on_thinking(t, ag=""):
+            self.call_from_thread(self._update_spinner, t)
+            low = t.strip().lower() if t else ""
+            if low.startswith("planning...") or low.startswith("working...") or ("step " in low and "intent:" in low):
+                return
+            if t and len(t.strip()) >= 20:
+                _ag2 = ag or agent_name
+                try:
+                    self.call_from_thread(self._add_thinking_card, t, _ag2)
+                except TypeError:
+                    self.call_from_thread(self._add_thinking_card, t)
+                # Also record per-agent thinking to dev tracer (distinct)
+                try:
+                    from sago.tracking.dev_tracer import get_dev_tracer
+
+                    get_dev_tracer().record_thinking(
+                        source=f"agent.{_ag2}", model=getattr(self, "current_model", ""), thinking_content=t
+                    )
+                except Exception:
+                    pass
+
         set_execution_callbacks(
-            on_tool_call=lambda n, a: self.call_from_thread(self._update_spinner, f"Running: {n}"),
-            on_tool_result=lambda n, a, r, s: self.call_from_thread(
-                self._add_tool_call, n, a, r, s
-            ),
-            on_thinking=lambda t: self.call_from_thread(self._update_spinner, t),
+            on_tool_call=_on_tool_call,
+            on_tool_result=_on_tool_result,
+            on_thinking=_on_thinking,
         )
 
         tm = self._task_manager or get_task_manager()
@@ -177,6 +206,18 @@ class AgentOrchestrationMixin:
                 )
             else:
                 self.call_from_thread(self._add_assistant_message, result, agent_name=agent_name)
+                # Auto summary card by agent for delegation
+                try:
+                    _pa = ""
+                    try:
+                        _pa_path = __import__("pathlib").Path.cwd() / "PROJECT_ANALYSIS.md"
+                        if _pa_path.exists():
+                            _pa = _pa_path.read_text(encoding="utf-8", errors="replace")[:8000]
+                    except Exception:
+                        _pa = ""
+                    self.call_from_thread(self._add_summary_by_agent_card, None, _pa)
+                except Exception as _e:
+                    logger.debug("Auto summary after delegation failed: %s", _e)
         except Exception as e:
             logger.error("delegation failed: agent=%s error=%s", agent_name, e, exc_info=True)
             dur_ms = (_time.time() - t0) * 1000
@@ -218,15 +259,43 @@ class AgentOrchestrationMixin:
     def _process_chain_thread(self: SagoApp, chain_steps: list[list[str]], task: str) -> None:
         logger.debug("chain thread started: %d steps", len(chain_steps))
 
-        # Set callbacks in context so spawned agents inherit UI updates
+        # Set callbacks in context so spawned agents inherit UI updates (per-agent distinct, sequential)
         from sago.engine.simple_executor import set_execution_callbacks
 
+        def _on_tool_call(n, a, ag=""):
+            self.call_from_thread(self._update_spinner, f"Running: {n}")
+
+        def _on_tool_result(n, a, r, s, ag=""):
+            _ag = ag or getattr(self, "current_agent", "")
+            try:
+                self.call_from_thread(self._add_tool_call, n, a, r, s, _ag)
+            except TypeError:
+                self.call_from_thread(self._add_tool_call, n, a, r, s)
+
+        def _on_thinking(t, ag=""):
+            self.call_from_thread(self._update_spinner, t)
+            low = t.strip().lower() if t else ""
+            if low.startswith("planning...") or low.startswith("working...") or ("step " in low and "intent:" in low):
+                return
+            if t and len(t.strip()) >= 20:
+                _ag2 = ag or getattr(self, "current_agent", "") or "sago"
+                try:
+                    self.call_from_thread(self._add_thinking_card, t, _ag2)
+                except TypeError:
+                    self.call_from_thread(self._add_thinking_card, t)
+                try:
+                    from sago.tracking.dev_tracer import get_dev_tracer
+
+                    get_dev_tracer().record_thinking(
+                        source=f"agent.{_ag2}", model=getattr(self, "current_model", ""), thinking_content=t
+                    )
+                except Exception:
+                    pass
+
         set_execution_callbacks(
-            on_tool_call=lambda n, a: self.call_from_thread(self._update_spinner, f"Running: {n}"),
-            on_tool_result=lambda n, a, r, s: self.call_from_thread(
-                self._add_tool_call, n, a, r, s
-            ),
-            on_thinking=lambda t: self.call_from_thread(self._update_spinner, t),
+            on_tool_call=_on_tool_call,
+            on_tool_result=_on_tool_result,
+            on_thinking=_on_thinking,
         )
 
         tm = self._task_manager or get_task_manager()
@@ -495,6 +564,19 @@ class AgentOrchestrationMixin:
                 current_input,
                 agent_name=flat_agents[-1] if flat_agents else "chain",
             )
+            # Auto-mount Summary Card by agent (spec: collapsed=False, per-agent sections)
+            try:
+                # Reuse cached analysis if available for output file hint
+                _pa = ""
+                try:
+                    _pa_path = __import__("pathlib").Path.cwd() / "PROJECT_ANALYSIS.md"
+                    if _pa_path.exists():
+                        _pa = _pa_path.read_text(encoding="utf-8", errors="replace")[:8000]
+                except Exception:
+                    _pa = ""
+                self.call_from_thread(self._add_summary_by_agent_card, None, _pa)
+            except Exception as _e:
+                logger.debug("Auto summary card after chain failed: %s", _e)
         except Exception as e:
             logger.error("chain failed: error=%s", e, exc_info=True)
             try:
@@ -525,15 +607,43 @@ class AgentOrchestrationMixin:
         t.start()
 
     def _process_orchestration_thread(self: SagoApp, task: str) -> None:
-        # Set callbacks in context so spawned agents inherit UI updates
+        # Set callbacks in context so spawned agents inherit UI updates (per-agent distinct, sequential)
         from sago.engine.simple_executor import set_execution_callbacks
 
+        def _on_tool_call(n, a, ag=""):
+            self.call_from_thread(self._update_spinner, f"Running: {n}")
+
+        def _on_tool_result(n, a, r, s, ag=""):
+            _ag = ag or getattr(self, "current_agent", "")
+            try:
+                self.call_from_thread(self._add_tool_call, n, a, r, s, _ag)
+            except TypeError:
+                self.call_from_thread(self._add_tool_call, n, a, r, s)
+
+        def _on_thinking(t, ag=""):
+            self.call_from_thread(self._update_spinner, t)
+            low = t.strip().lower() if t else ""
+            if low.startswith("planning...") or low.startswith("working...") or ("step " in low and "intent:" in low):
+                return
+            if t and len(t.strip()) >= 20:
+                _ag2 = ag or getattr(self, "current_agent", "") or "sago"
+                try:
+                    self.call_from_thread(self._add_thinking_card, t, _ag2)
+                except TypeError:
+                    self.call_from_thread(self._add_thinking_card, t)
+                try:
+                    from sago.tracking.dev_tracer import get_dev_tracer
+
+                    get_dev_tracer().record_thinking(
+                        source=f"agent.{_ag2}", model=getattr(self, "current_model", ""), thinking_content=t
+                    )
+                except Exception:
+                    pass
+
         set_execution_callbacks(
-            on_tool_call=lambda n, a: self.call_from_thread(self._update_spinner, f"Running: {n}"),
-            on_tool_result=lambda n, a, r, s: self.call_from_thread(
-                self._add_tool_call, n, a, r, s
-            ),
-            on_thinking=lambda t: self.call_from_thread(self._update_spinner, t),
+            on_tool_call=_on_tool_call,
+            on_tool_result=_on_tool_result,
+            on_thinking=_on_thinking,
         )
 
         self.call_from_thread(self._show_spinner, "Analyzing task for delegation...")
@@ -832,15 +942,43 @@ class AgentOrchestrationMixin:
 
     def _execute_orchestration_plan_thread(self: SagoApp, plan: list[dict]) -> None:
         """Runs in a background thread — all call_from_thread calls are safe here."""
-        # Set callbacks in context so spawned agents inherit UI updates
+        # Set callbacks in context so spawned agents inherit UI updates (per-agent distinct, sequential)
         from sago.engine.simple_executor import set_execution_callbacks
 
+        def _on_tool_call(n, a, ag=""):
+            self.call_from_thread(self._update_spinner, f"Running: {n}")
+
+        def _on_tool_result(n, a, r, s, ag=""):
+            _ag = ag or getattr(self, "current_agent", "")
+            try:
+                self.call_from_thread(self._add_tool_call, n, a, r, s, _ag)
+            except TypeError:
+                self.call_from_thread(self._add_tool_call, n, a, r, s)
+
+        def _on_thinking(t, ag=""):
+            self.call_from_thread(self._update_spinner, t)
+            low = t.strip().lower() if t else ""
+            if low.startswith("planning...") or low.startswith("working...") or ("step " in low and "intent:" in low):
+                return
+            if t and len(t.strip()) >= 20:
+                _ag2 = ag or getattr(self, "current_agent", "") or "sago"
+                try:
+                    self.call_from_thread(self._add_thinking_card, t, _ag2)
+                except TypeError:
+                    self.call_from_thread(self._add_thinking_card, t)
+                try:
+                    from sago.tracking.dev_tracer import get_dev_tracer
+
+                    get_dev_tracer().record_thinking(
+                        source=f"agent.{_ag2}", model=getattr(self, "current_model", ""), thinking_content=t
+                    )
+                except Exception:
+                    pass
+
         set_execution_callbacks(
-            on_tool_call=lambda n, a: self.call_from_thread(self._update_spinner, f"Running: {n}"),
-            on_tool_result=lambda n, a, r, s: self.call_from_thread(
-                self._add_tool_call, n, a, r, s
-            ),
-            on_thinking=lambda t: self.call_from_thread(self._update_spinner, t),
+            on_tool_call=_on_tool_call,
+            on_tool_result=_on_tool_result,
+            on_thinking=_on_thinking,
         )
 
         try:
@@ -1002,6 +1140,18 @@ class AgentOrchestrationMixin:
                     self.query_one("#messages").mount,
                     TextualStatic(summary, markup=True, classes="msg-assistant"),
                 )
+            # Auto summary card by agent after orchestration
+            try:
+                _pa = ""
+                try:
+                    _pa_path = __import__("pathlib").Path.cwd() / "PROJECT_ANALYSIS.md"
+                    if _pa_path.exists():
+                        _pa = _pa_path.read_text(encoding="utf-8", errors="replace")[:8000]
+                except Exception:
+                    _pa = ""
+                self.call_from_thread(self._add_summary_by_agent_card, None, _pa)
+            except Exception as _e:
+                logger.debug("Auto summary after orchestration failed: %s", _e)
         except Exception as e:
             logger.error("plan execution failed: error=%s", e, exc_info=True)
             try:
@@ -1038,15 +1188,43 @@ class AgentOrchestrationMixin:
         agents = [a for a, _ in agent_tasks]
         logger.info("parallel thread started: agents=%s", agents)
 
-        # Set callbacks in context so spawned agents inherit UI updates
+        # Set callbacks in context so spawned agents inherit UI updates (per-agent distinct, sequential)
         from sago.engine.simple_executor import set_execution_callbacks
 
+        def _on_tool_call(n, a, ag=""):
+            self.call_from_thread(self._update_spinner, f"Running: {n}")
+
+        def _on_tool_result(n, a, r, s, ag=""):
+            _ag = ag or getattr(self, "current_agent", "")
+            try:
+                self.call_from_thread(self._add_tool_call, n, a, r, s, _ag)
+            except TypeError:
+                self.call_from_thread(self._add_tool_call, n, a, r, s)
+
+        def _on_thinking(t, ag=""):
+            self.call_from_thread(self._update_spinner, t)
+            low = t.strip().lower() if t else ""
+            if low.startswith("planning...") or low.startswith("working...") or ("step " in low and "intent:" in low):
+                return
+            if t and len(t.strip()) >= 20:
+                _ag2 = ag or getattr(self, "current_agent", "") or "sago"
+                try:
+                    self.call_from_thread(self._add_thinking_card, t, _ag2)
+                except TypeError:
+                    self.call_from_thread(self._add_thinking_card, t)
+                try:
+                    from sago.tracking.dev_tracer import get_dev_tracer
+
+                    get_dev_tracer().record_thinking(
+                        source=f"agent.{_ag2}", model=getattr(self, "current_model", ""), thinking_content=t
+                    )
+                except Exception:
+                    pass
+
         set_execution_callbacks(
-            on_tool_call=lambda n, a: self.call_from_thread(self._update_spinner, f"Running: {n}"),
-            on_tool_result=lambda n, a, r, s: self.call_from_thread(
-                self._add_tool_call, n, a, r, s
-            ),
-            on_thinking=lambda t: self.call_from_thread(self._update_spinner, t),
+            on_tool_call=_on_tool_call,
+            on_tool_result=_on_tool_result,
+            on_thinking=_on_thinking,
         )
 
         tm = self._task_manager or get_task_manager()
@@ -1212,6 +1390,18 @@ class AgentOrchestrationMixin:
                 f"Parallel complete: {ok} ok, {fail} failed | "
                 f"Total wall time: {max_time:.1f}s | Combined: {total_time:.1f}s",
             )
+            # Auto summary card by agent for parallel
+            try:
+                _pa = ""
+                try:
+                    _pa_path = __import__("pathlib").Path.cwd() / "PROJECT_ANALYSIS.md"
+                    if _pa_path.exists():
+                        _pa = _pa_path.read_text(encoding="utf-8", errors="replace")[:8000]
+                except Exception:
+                    _pa = ""
+                self.call_from_thread(self._add_summary_by_agent_card, None, _pa)
+            except Exception as _e:
+                logger.debug("Auto summary after parallel failed: %s", _e)
 
         except Exception as e:
             logger.error("parallel execution failed: error=%s", e, exc_info=True)

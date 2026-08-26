@@ -70,7 +70,7 @@ def init_user_config(force: bool = False) -> None:
             "yolo": False,
             "show_summary": True,
             "show_action_bar": True,
-            "dev_mode": False,
+            "dev_mode": True,  # TODO: flip to false at 1.0 — default ON until beta
             "log_level": "info",
         }
         try:
@@ -119,7 +119,7 @@ class SettingsConfig(BaseModel):
     verbose_output: bool = False
     color_output: bool = True
     markdown_output: bool = True
-    dev_mode: bool = False
+    dev_mode: bool = True  # TODO: flip to false at 1.0 — default ON until beta
 
 
 class AgentOverride(BaseModel):

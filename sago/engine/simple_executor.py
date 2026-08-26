@@ -1767,6 +1767,61 @@ def execute_agent_task(
     on_todo_update = on_todo_update or ctx["on_todo_update"]
     on_request_input = on_request_input or ctx["on_request_input"]
 
+    # Wrap callbacks to inject per-agent distinction so TUI can show
+    # "● {agent} — Technical Reasoning" and "Tool: ... by @agent" and preserve
+    # sequential order thinking→tool→thinking per agent. Internal code still calls
+    # with single arg, wrapper forwards with agent_role for per-agent dedupe.
+    _orig_thinking = on_thinking
+    _orig_tool_call = on_tool_call
+    _orig_tool_result = on_tool_result
+
+    def _wrap_thinking(text: str, agent_name: str | None = None) -> None:
+        if _orig_thinking is None:
+            return
+        _ag = agent_name or agent_role
+        try:
+            _orig_thinking(text, _ag)  # type: ignore[call-arg]
+        except TypeError:
+            try:
+                _orig_thinking(text)  # type: ignore[call-arg]
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _wrap_tool_call(name: str, args: dict, agent_name: str | None = None) -> None:
+        if _orig_tool_call is None:
+            return
+        _ag = agent_name or agent_role
+        try:
+            _orig_tool_call(name, args, _ag)  # type: ignore[call-arg]
+        except TypeError:
+            try:
+                _orig_tool_call(name, args)  # type: ignore[call-arg]
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _wrap_tool_result(name: str, args: dict, result: str, success: bool, agent_name: str | None = None) -> None:
+        if _orig_tool_result is None:
+            return
+        _ag = agent_name or agent_role
+        try:
+            _orig_tool_result(name, args, result, success, _ag)  # type: ignore[call-arg]
+        except TypeError:
+            try:
+                _orig_tool_result(name, args, result, success)  # type: ignore[call-arg]
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    # Replace with wrapped versions for internal use
+    on_thinking = _wrap_thinking if _orig_thinking else None  # type: ignore[assignment]
+    on_tool_call = _wrap_tool_call if _orig_tool_call else None  # type: ignore[assignment]
+    on_tool_result = _wrap_tool_result if _orig_tool_result else None  # type: ignore[assignment]
+
     tools = _discover_tools()
 
     # --- Plugin: on_init hook (once per execution lifecycle) ---

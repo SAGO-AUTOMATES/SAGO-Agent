@@ -36,11 +36,13 @@ Sago is a **production-grade multi-agent orchestration system** built for real-w
 | **Hybrid BM25 & Dense Code Search** | Probabilistic BM25 + zero-dependency 128-d dense vector semantic search across 1,000+ files (`sago search`) |
 | **Continuous Background Linting** | Automatic non-blocking verification passes upon file modification with instant diagnostics |
 | **4-Tier Hierarchical Memory Pyramid** | 4-tiered context compaction (Architectural goals, deltas, semantic distillation, and working turns) with auto-triggering saving ~70% token overhead |
-| **Developer Mode (`/dev`)** | Real-time function execution tracing, LLM payload inspection, and microsecond latency diagnostics |
+| **Developer Mode (`/dev`)** | Real-time function execution tracing, LLM payload inspection, and microsecond latency diagnostics — **default ON until v1.0** (`dev_mode: true # TODO: flip to false at 1.0`), fresh install shows Inspector (`F2`) without `/dev on` |
 | **Atomic Checkpoints & Rollback** | Point-in-time workspace snapshotting and 1-click restore for large-scale refactoring safety |
 | **Smart Project & Data Graph** | Architecture box diagrams, autonomous execution process maps, data model extraction, and Mermaid visualization |
 | **Deep Recursive File Mentions (`#file`)** | Recursive workspace fuzzy indexing with Git-modified prioritization and instant context attachment |
 | **Detach Mode & Background Workers** | Detached execution for CLI tasks and TUI sessions allowing safe terminal closing with `sago attach` reconnection |
+| **Systematic Thinking → Tool Order** | Strict `thinking1 → tool1 → thinking2 → tool2 …` interleaving via `mount_sequential`, per-agent headers (`● {agent} — Technical Reasoning`, `by @agent`), DB `thinking_blocks[].seq` + `tool_usage.created_at` for reload fidelity — see `docs/TUI_CHAT_STRUCTURE.md` §20 |
+| **Summary — By Agent (Zero-Tool)** | Auto-mounted `● Summary — by agent` (`collapsed=False`) after chain/orchestrate/parallel/delegate; natural-language “so what was the summary?” reuse cached `PROJECT_ANALYSIS.md` + `ToolUsageStore` + `DevTracer` with single `tool_choice:none` LLM call — 0 wasted tools |
 | **Containerized Card TUI** | High-density terminal UI with 11 themes, collapsible turn cards, live agent dashboard, smart autocomplete, and fluid animations |
 | **Multi-LLM Support** | OpenRouter, OpenAI, Gemini, Claude, Ollama |
 | **Token Cost Tracking** | Per-model pricing with cache hit/miss analytics |
@@ -865,10 +867,13 @@ pip install -e ".[dev]"
 |----------|-------------|
 | [docs/BUILD.md](docs/BUILD.md) | Build and installation instructions |
 | [docs/COMMANDS.md](docs/COMMANDS.md) | CLI and TUI command reference |
+| [docs/TUI_CHAT_STRUCTURE.md](docs/TUI_CHAT_STRUCTURE.md) | TUI message flow — systematic `thinking→tool` order, per-agent headers, DB persistence, reload, Inspector, chain/parallel/delegate handling (caps, canonical) |
 | [docs/TOOLS.md](docs/TOOLS.md) | All 73 tools with examples |
 | [docs/ERRORS.md](docs/ERRORS.md) | Error handling and recovery |
 | [docs/MCP.md](docs/MCP.md) | MCP server integration |
 | [docs/PROJECT.md](docs/PROJECT.md) | Project structure and architecture |
+| [docs/DEVELOPER_MODE.md](docs/DEVELOPER_MODE.md) | Developer mode — now **default ON until 1.0** (`TODO: flip to false at 1.0`) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | High-level architecture + systematic order + summary by agent |
 
 ---
 

@@ -219,7 +219,7 @@ Show system and connection status.
 | `/todo [list\|done <id>]` | Task checklist and plan manager |
 | `/theme [name]` | Switch between 11 built-in TUI themes (`obsidian`, `nord`, `dracula`, etc.) |
 | `/buttons [toggle\|on\|off]` | Toggle bottom quick action buttons bar |
-| `/dev [on\|off\|logs\|traces]` | Real-time developer execution tracing and microsecond latency inspection |
+| `/dev [on\|off\|logs\|traces]` | Real-time developer execution tracing and microsecond latency inspection — **default ON until v1.0** (`dev_mode: true # TODO: flip to false at 1.0`); fresh install shows Inspector (`F2`) without `/dev on` · Turn off with `/dev off` |
 | `/yolo` | Toggle YOLO mode (auto-approve safe tool executions globally) |
 
 ### 5. Session & Utilities
@@ -234,7 +234,7 @@ Show system and connection status.
 | `/handoff` | Show current agent handoff / recursion-guard state |
 | `/dashboard` | Toggle the live agent dashboard sidebar |
 | `/cancel` | Cancel active generation or background task |
-| `/summary` | Toggle exit session summary display |
+| `/summary` | Toggle exit session summary display · Also: natural-language “so what was the summary?” / “summarize what you did” / “what was done” triggers 0-tool-call cached summary (categorized by agent, reuses `PROJECT_ANALYSIS.md` + `ToolUsageStore` + `DevTracer`, single LLM `tool_choice:none`) — see `docs/TUI_CHAT_STRUCTURE.md` §15 |
 | `/copy [code\|all]` · `/clip` | Copy last response (or code blocks) to clipboard |
 | `/clean [gc]` | Clean caches and temporary files |
 | `/approve` / `/deny` | Approve or deny a pending tool action or plan (`Y`/`N`) |

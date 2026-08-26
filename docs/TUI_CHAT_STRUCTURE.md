@@ -2,13 +2,15 @@
 
 Every possible message flow in the Sago TUI, with exact component order and nesting.
 
+> **Updated 2026-08-26 (v0.1.14):** Systematic `thinking → tool` interleaving, per-agent headers, DB persistence with `mount_sequential`, Inspector, and auto `● Summary — by agent`. See §12, §14-15, §19-20 for new behavior. `TUI_CHAT_STRUCTURE.md` is CANONICAL (caps) — lowercase `tui_chat_structure.md` is deprecated.
+
 ---
 
 ## Table of Contents
 
 1. [Normal Message (No Tools)](#1-normal-message-no-tools)
 2. [Normal Message With Tools (Single Iteration)](#2-normal-message-with-tools-single-iteration)
-3. [Normal Message With Multiple Iterations](#3-normal-message-with-multiple-iterations)
+3. [Normal Message With Multiple Iterations — Systematic Order](#3-normal-message-with-multiple-iterations--systematic-order)
 4. [/chain Command](#4-chain-command)
 5. [/delegate Command](#5-delegate-command)
 6. [/orchestrate Command](#6-orchestrate-command)
@@ -17,13 +19,15 @@ Every possible message flow in the Sago TUI, with exact component order and nest
 9. [Error States](#9-error-states)
 10. [Approval Prompts (YOLO Mode)](#10-approval-prompts)
 11. [System Messages (Standalone)](#11-system-messages-standalone)
-12. [Thinking/Reasoning Blocks](#12-thinking-reasoning-blocks)
+12. [Thinking/Reasoning Blocks — Per-Agent, Sequential](#12-thinkingreasoning-blocks--per-agent-sequential)
 13. [Execution Plan Card](#13-execution-plan-card)
 14. [Turn Summary](#14-turn-summary)
-15. [Dev Trace Bar](#15-dev-trace-bar)
-16. [Confidence/Verification Score](#16-confidenceverification-score)
-17. [Hallucination/Fabrication Warnings](#17-hallucinationfabrication-warnings)
-18. [Spinner/Thinking Indicator](#18-spinnerthinking-indicator)
+15. [Summary — By Agent (Auto Card + Zero-Tool Short-Circuit)](#15-summary--by-agent-auto-card--zero-tool-short-circuit)
+16. [Dev Trace Bar & Inspector](#16-dev-trace-bar--inspector)
+17. [Confidence/Verification Score](#17-confidenceverification-score)
+18. [Hallucination/Fabrication Warnings](#18-hallucinationfabrication-warnings)
+19. [Spinner/Thinking Indicator](#19-spinnerthinking-indicator)
+20. [Systematic Thinking → Tool Pipeline & DB Persistence](#20-systematic-thinking--tool-pipeline--db-persistence)
 
 ---
 
@@ -36,7 +40,7 @@ Every possible message flow in the Sago TUI, with exact component order and nest
 | `│  │` | Nesting level |
 | `▶` | Collapsed collapsible |
 | `▼` | Expanded collapsible |
-| `[ DEV ]` | Only shown in developer mode |
+| `[ DEV ]` | Only shown in developer mode (default ON until 1.0 — see §16) |
 | `[ LOG ]` | Goes to log file only, not displayed |
 
 ---
@@ -56,7 +60,7 @@ Every possible message flow in the Sago TUI, with exact component order and nest
 │ ─────────────────────────────────────────────────────── │
 │ ┌─ exchange-response ─────────────────────────────────┐ │
 │ │                                                     │ │
-│ │ ┌─ ▶ Technical Reasoning & Analysis ─────────────┐  │ │
+│ │ ┌─ ▼ ● sago — Technical Reasoning ───────────────┐  │ │
 │ │ │  (only if LLM output contains <thinking> tags) │  │ │
 │ │ └────────────────────────────────────────────────┘  │ │
 │ │                                                     │ │
@@ -74,12 +78,12 @@ Every possible message flow in the Sago TUI, with exact component order and nest
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Components mounted (in order):**
-1. Thinking collapsible (if `<thinking>` tags present) — collapsed
+**Components mounted (in order via `mount_sequential`):**
+1. Thinking collapsible (if `<thinking>` tags present) — per-agent title `● {agent} — Technical Reasoning`, **expanded** (`collapsed=False`), seq-tagged
 2. Agent tag: `Static("[SAGO]")`
 3. Assistant message: `Static(RichMarkdown(content))`
 4. Code snippet collapsibles (if code blocks in content) — expanded
-5. Dev trace bar (if `developer_mode=True`)
+5. Dev trace bar (if `developer_mode=True` — default ON until 1.0)
 6. Summary collapsible (if `show_summary=True`) — collapsed
 
 ---
@@ -107,13 +111,17 @@ Every possible message flow in the Sago TUI, with exact component order and nest
 │ │ │  Enhanced: Get comprehensive system info...    │  │ │
 │ │ └────────────────────────────────────────────────┘  │ │
 │ │                                                     │ │
-│ │ ┌─ ▶ ● OK Tool: env_info ──────────────────────┐   │ │
-│ │ │  Parameters:                                   │   │ │
-│ │ │    operation: system                           │   │ │
-│ │ │    detail: full                                │   │ │
-│ │ │  Result Output:                                │   │ │
-│ │ │    OS: Linux, Arch: aarch64, Hostname: pi5    │   │ │
-│ │ └────────────────────────────────────────────────┘   │ │
+│ │ ┌─ ▼ ● sago — Technical Reasoning ───────────────┐  │ │
+│ │ │  Checking system info requires env_info tool   │  │ │
+│ │ └────────────────────────────────────────────────┘  │ │
+│ │                                                     │ │
+│ │ ┌─ ▶ ● OK Tool: env_info  by @sago ─────────────┐  │ │
+│ │ │  Parameters:                                   │  │ │
+│ │ │    operation: system                           │  │ │
+│ │ │    detail: full                                │  │ │
+│ │ │  Result Output:                                │  │ │
+│ │ │    OS: Linux, Arch: aarch64, Hostname: pi5    │  │ │
+│ │ └────────────────────────────────────────────────┘  │ │
 │ │                                                     │ │
 │ │ [SAGO]                                              │ │
 │ │ Your system is running Linux on an aarch64         │ │
@@ -127,19 +135,18 @@ Every possible message flow in the Sago TUI, with exact component order and nest
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Components mounted (in order):**
+**Components mounted (systematic order `thinking → tool` via `ExchangeTurnCard.mount_sequential`):**
 1. Enhanced prompt collapsible — collapsed (if enhancement enabled)
-2. Individual tool call collapsibles — collapsed (one per tool, no wrapper)
-3. Agent tag: `Static("[SAGO]")`
-4. Assistant message: `Static(RichMarkdown(content))`
-5. Dev trace bar (if dev mode)
-6. Summary collapsible (if `show_summary`) — collapsed
+2. Thinking card (if any) — per-agent header, seq=1, before tool
+3. Tool call collapsible — per-agent suffix `by @sago`, collapsed, seq=2
+4. Agent tag + assistant message
+5. Dev trace bar (dev mode) + Turn Summary
 
 ---
 
-## 3. Normal Message With Multiple Iterations
+## 3. Normal Message With Multiple Iterations — Systematic Order
 
-**Trigger:** LLM calls tools, reasons, calls more tools across multiple loop iterations.
+**Trigger:** LLM calls tools, reasons, calls more tools across multiple loop iterations. **All flows now enforce strict `thinking1 → tool1 → thinking2 → tool2 …` interleaving in execution order** — not bulk at end.
 
 **Card:** `card_type="user"`, `tag_label="USER"`, `tag_color="#58a6ff"`
 
@@ -154,56 +161,60 @@ Every possible message flow in the Sago TUI, with exact component order and nest
 │ │                                                     │ │
 │ │ ┌─ ▶ ✨ Enhanced Prompt ─────────────────────────┐  │ │
 │ │ │  Goal: Refactor auth + add test coverage       │  │ │
-│ │ │  ...                                           │  │ │
 │ │ └────────────────────────────────────────────────┘  │ │
 │ │                                                     │ │
-│ │ ┌─ ▶ ● OK Tool: read_file ─────────────────────┐   │ │
-│ │ │  Parameters: {path: "src/auth.py"}            │   │ │
-│ │ │  Result: (file contents)                       │   │ │
-│ │ └────────────────────────────────────────────────┘   │ │
+│ │ ┌─ ▼ ● sago — Technical Reasoning (seq 1) ───────┐ │ │
+│ │ │  Need to read existing auth module first       │ │ │
+│ │ └────────────────────────────────────────────────┘ │ │
 │ │                                                     │ │
-│ │ ┌─ ▶ ● OK Tool: write_file ────────────────────┐   │ │
-│ │ │  Parameters: {path: "src/auth.py", ...}       │   │ │
-│ │ │  Result: File written successfully             │   │ │
-│ │ └────────────────────────────────────────────────┘   │ │
+│ │ ┌─ ▶ ● OK Tool: read_file  by @sago ───────────┐  │ │
+│ │ │  Parameters: {path: "src/auth.py"}            │  │ │
+│ │ └────────────────────────────────────────────────┘  │ │
 │ │                                                     │ │
-│ │ ┌─ ▶ ✗ FAILED Tool: run_shell ─────────────────┐   │ │
-│ │ │  Parameters: {cmd: "pytest tests/"}           │   │ │
-│ │ │  Result: 1 test failed in test_login...       │   │ │
-│ │ └────────────────────────────────────────────────┘   │ │
+│ │ ┌─ ▼ ● sago — Technical Reasoning (seq 3) ───────┐ │ │
+│ │ │  File shows tangled logic, will split concerns │ │ │
+│ │ └────────────────────────────────────────────────┘ │ │
 │ │                                                     │ │
-│ │ ┌─ ▶ ● OK Tool: run_shell ─────────────────────┐   │ │
-│ │ │  Parameters: {cmd: "pytest tests/"}           │   │ │
-│ │ │  Result: All 12 tests passed                   │   │ │
-│ │ └────────────────────────────────────────────────┘   │ │
+│ │ ┌─ ▶ ● OK Tool: write_file  by @sago ──────────┐  │ │
+│ │ │  Parameters: {path: "src/auth.py", ...}       │  │ │
+│ │ └────────────────────────────────────────────────┘  │ │
 │ │                                                     │ │
-│ │ ┌─ ▶ Technical Reasoning & Analysis ─────────────┐  │ │
-│ │ │  (if LLM output contains <thinking> tags)      │  │ │
+│ │ ┌─ ▶ ✗ FAILED Tool: run_shell  by @sago ───────┐  │ │
+│ │ │  Parameters: {cmd: "pytest tests/"}           │  │ │
+│ │ │  Result: 1 test failed in test_login...       │  │ │
+│ │ └────────────────────────────────────────────────┘  │ │
+│ │                                                     │ │
+│ │ ┌─ ▼ ● sago — Technical Reasoning (seq 6) ───────┐ │ │
+│ │ │  Test failure indicates missing mock           │ │ │
+│ │ └────────────────────────────────────────────────┘ │ │
+│ │                                                     │ │
+│ │ ┌─ ▶ ● OK Tool: run_shell  by @sago ───────────┐  │ │
+│ │ │  Parameters: {cmd: "pytest tests/"}           │  │ │
 │ │ └────────────────────────────────────────────────┘  │ │
 │ │                                                     │ │
 │ │ [SAGO]                                              │ │
-│ │ Auth module has been refactored with clean          │ │
-│ │ separation of concerns. Tests added for...          │ │
+│ │ Auth module has been refactored...                  │ │
 │ │                                                     │ │
 │ │ ┌─ ▶ Turn Summary (8.3s) ─────────────────────┐   │ [DEV]
-│ │ │  5 tool(s) (4 ok, 1 fail) | 2.1k tokens     │   │ [DEV]
-│ │ │  Files: src/auth.py, tests/test_auth.py      │   │ [DEV]
 │ │ └────────────────────────────────────────────────┘   │ [DEV]
-│ │                                                     │ │
-│ └─────────────────────────────────────────────────────┘ │
+│ │ ┌─ ▼ ● Summary — by agent ─────────────────────┐   │ │
+│ │ │  @sago: read_file (1), write_file (1), run_shell (2) │ │
+│ │ │  Tokens: 2.1k | Output: src/auth.py          │  │ │
+│ │ └────────────────────────────────────────────────┘  │ │
+│ │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Components mounted (in order):**
+**Components mounted (in call order, each `mount_sequential` assigns `seq_id`):**
 1. Enhanced prompt collapsible — collapsed
-2. Individual tool call collapsibles — collapsed (one per tool call, flat list)
-3. Thinking collapsible (if present) — collapsed
-4. Agent tag: `Static("[SAGO]")`
-5. Assistant message: `Static(RichMarkdown(content))`
-6. Dev trace bar (if dev mode)
-7. Summary collapsible (if `show_summary`) — collapsed
+2. `thinking(seq=1)` — per-agent header `● sago — Technical Reasoning`
+3. `tool(seq=2)` — `by @sago` suffix
+4. `thinking(seq=3)` — next reasoning before next tool
+5. `tool(seq=4)` — etc., strict interleaving
+6. Agent tag + assistant message
+7. Dev trace bar + Turn Summary + **Auto Summary — by agent** (collapsed=False) — see §15
 
-**Note:** Tool calls are flat — no nesting, no iteration grouping. Each tool call is a standalone collapsible.
+**Note:** `ExchangeTurnCard.mount_sequential(widget)` inserts `before=.exchange-response` but respects `seq_id` increments, so order is deterministic and survives reload. `DevTracer.record_thinking` now dedups **only** exact duplicate `[:300]` from same `source` within 5s — per-agent, per-step distinct (no global coalesce).
 
 ---
 
@@ -221,28 +232,46 @@ Every possible message flow in the Sago TUI, with exact component order and nest
 │ ─────────────────────────────────────────────────────── │
 │ ┌─ exchange-response ─────────────────────────────────┐ │
 │ │                                                     │ │
+│ │ ┌─ HandoffFlow  architect ─► python-engineer ─► devops ┐ │ │
+│ │ │  [pending → running → completed]                │ │ │
+│ │ └────────────────────────────────────────────────┘ │ │
+│ │                                                     │ │
+│ │ ┌─ ▼ ● architect — Technical Reasoning ──────────┐ │ │
+│ │ └────────────────────────────────────────────────┘ │ │
+│ │ ┌─ ▶ ● OK Tool: ast_grep  by @architect ───────┐ │ │
+│ │ └────────────────────────────────────────────────┘ │ │
+│ │ ┌─ ▼ ● python-engineer — Technical Reasoning ──┐ │ │
+│ │ └────────────────────────────────────────────────┘ │ │
+│ │ ┌─ ▶ ● OK Tool: execute_shell  by @python-engineer ┐ │ │
+│ │ └────────────────────────────────────────────────┘ │ │
+│ │                                                     │ │
 │ │ [devops-engineer]                                   │ │
 │ │ Deployment complete. App is running on port 8080.   │ │
-│ │ Health check passing. All tests green.              │ │
 │ │                                                     │ │
+│ │ ┌─ ▼ ● Summary — by agent ─────────────────────┐  │ │
+│ │ │  @architect: repo_map (1), ast_grep (3) ...   │  │ │
+│ │ │  @python-engineer: execute_shell (4), grep (5) │  │ │
+│ │ │  Tokens: 21k | Output: PROJECT_ANALYSIS.md    │  │ │
+│ │ └────────────────────────────────────────────────┘  │ │
 │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**What's visible:**
-- Only the FINAL accumulated output from the last agent
-- Intermediate agent tool calls happen inside `SpawnAgentTool` — NOT individually visible
-- If an agent is skipped, an inline notice is mounted: `"Skip {agent}: {reason}"`
+**What's visible (updated):**
+- `HandoffFlow` widget shows `pending → running → completed` per step (uses fresh guard, no thread-local stale)
+- **All** per-agent `thinking` and `tool` cards are now visible inline, interleaved in execution order via `mount_sequential`, with `by @agent` suffixes (previously only final output shown)
+- Final accumulated output from last agent
+- **Auto Summary — by agent** (`Collapsible(title="● Summary — by agent", collapsed=False)`) with per-agent tool counts, token cost, output file — mounted automatically after chain completes (orchestrator.py), so user sees summary without asking
+- If an agent is skipped, inline notice: `"Skip {agent}: {reason}"`
 
-**Components mounted (in order):**
-1. Skip notices (if any agents were skipped)
-2. Agent tag: `Static("[{last_agent}]")`
-3. Final accumulated assistant message
+**Components mounted (uniform path — chain/parallel/delegate/normal all use `mount_sequential` + `ToolUsageStore` + `DevTracer`):**
+1. HandoffFlow widget (chain only)
+2. Per-agent thinking/tool cards in call order (seq-tagged)
+3. Agent tag + final assistant message
+4. Summary — by agent (expanded)
 
-**Not shown:**
-- Individual agent outputs from intermediate steps
-- Tool calls made by spawned agents
-- Enhanced prompts from intermediate agents
+**Not shown (still):**
+- Intermediate agent outputs beyond final (only tools/reasoning are shown, not duplicate prose)
 
 ---
 
@@ -261,24 +290,21 @@ Every possible message flow in the Sago TUI, with exact component order and nest
 │ ┌─ exchange-response ─────────────────────────────────┐ │
 │ │                                                     │ │
 │ │ ┌─ ▶ ✨ Enhanced Prompt ─────────────────────────┐  │ │
-│ │ │  (only if enhancement.was_modified)            │  │ │
 │ │ └────────────────────────────────────────────────┘  │ │
-│ │                                                     │ │
+│ │ ┌─ ▼ ● python-engineer — Technical Reasoning ────┐ │ │
+│ │ └────────────────────────────────────────────────┘ │ │
+│ │ ┌─ ▶ ● OK Tool: write_file  by @python-engineer ┐ │ │
+│ │ └────────────────────────────────────────────────┘ │ │
 │ │ [python-engineer]                                   │ │
-│ │ Created hello.py with a simple "Hello, World!"     │ │
-│ │ print statement.                                    │ │
-│ │                                                     │ │
+│ │ Created hello.py ...                                │ │
+│ │ ┌─ ▼ ● Summary — by agent ─────────────────────┐  │ │
+│ │ │  @python-engineer: write_file (1) | Tokens... │  │ │
+│ │ └────────────────────────────────────────────────┘  │ │
 │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Components mounted (in order):**
-1. Enhanced prompt collapsible (if applicable) — collapsed
-2. Agent tag: `Static("[python-engineer]")`
-3. Assistant message (or error inline on failure)
-
-**Not shown:**
-- Tool calls made by the delegated agent (happens inside `SpawnAgentTool`)
+**Components (uniform):** Enhanced prompt → thinking (by @python-engineer) → tool (by @python-engineer) → assistant → Summary — by agent (auto, expanded). Uses same `mount_sequential` + DB persistence as normal.
 
 ---
 
@@ -294,11 +320,8 @@ Every possible message flow in the Sago TUI, with exact component order and nest
 ┌─ ExchangeTurnCard ──────────────────────────────────────┐
 │ ▶ ORCHESTRATE  build a full REST API with auth          │
 ├─────────────────────────────────────────────────────────┤
-│ ─────────────────────────────────────────────────────── │
 │ ┌─ exchange-response ─────────────────────────────────┐ │
-│ │                                                     │ │
-│ │ ⠹ Analyzing task for delegation...                  │ │  (spinner)
-│ │                                                     │ │
+│ │ ⠹ Analyzing task for delegation...                  │ │
 │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 
@@ -319,30 +342,21 @@ Every possible message flow in the Sago TUI, with exact component order and nest
 ┌─ ExchangeTurnCard ──────────────────────────────────────┐
 │ ▶ ORCHESTRATE  build a full REST API with auth          │
 ├─────────────────────────────────────────────────────────┤
-│ ─────────────────────────────────────────────────────── │
 │ ┌─ exchange-response ─────────────────────────────────┐ │
-│ │                                                     │ │
-│ │ ⠹ Step 2/4: python-engineer                        │ │  (spinner)
-│ │                                                     │ │
-│ │ ... (each step runs SpawnAgentTool internally)      │ │
-│ │                                                     │ │
+│ │ ⠹ Step 2/4: python-engineer                        │ │
+│ │ ... (each step runs SpawnAgentTool with shared guard)│ │
+│ │ ┌─ ▼ ● python-engineer — Technical Reasoning ─────┐│ │
+│ │ ┌─ ▶ ● OK Tool: write_file  by @python-engineer ─┐│ │
 │ │ [devops-engineer]                                   │ │
-│ │ Orchestration complete (4 steps): API built with    │ │
-│ │ auth, tested, and containerized.                    │ │
-│ │                                                     │ │
+│ │ Orchestration complete (4 steps): API built...      │ │
+│ │ ┌─ ▼ ● Summary — by agent ─────────────────────┐  │ │
+│ │ │  @architect: ... @python-engineer: ...        │  │ │
+│ │ └────────────────────────────────────────────────┘  │ │
 │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Components mounted (in order):**
-1. Plan summary (system message, not a card)
-2. Approval bar (if not YOLO mode)
-3. Spinner updates per step
-4. Final assistant message from last agent
-
-**Not shown:**
-- Individual step outputs (only final accumulated result)
-- Tool calls from spawned agents
+**Uniform handling:** Orchestration uses same `set_execution_callbacks(on_tool_call/on_tool_result/on_thinking)` with per-agent `source=agent.{name}` so reasoning is distinct per step, same `mount_sequential`, same `HandoffContext` + `create_fresh_guard()` passed explicitly to `SpawnAgentTool` (no thread-local stale), same DB flush, same auto Summary — by agent after completion.
 
 ---
 
@@ -370,37 +384,22 @@ Every possible message flow in the Sago TUI, with exact component order and nest
 │ /parallel python-engineer,go-engineer,... build a page  │
 │ ─────────────────────────────────────────────────────── │
 │ ┌─ exchange-response ─────────────────────────────────┐ │
-│ │                                                     │ │
-│ │ (spinner during execution)                          │ │
-│ │                                                     │ │
+│ │ (spinner during execution, HandoffFlow not used)    │ │
 │ │ ✓ [AGENT: python-engineer] (completed in 3.2s)      │ │
-│ │ Created index.html with responsive layout...        │ │
-│ │ ```html                                             │ │
-│ │ <div class="container">...</div>                    │ │
-│ │ ```                                                 │ │
-│ │                                                     │ │
+│ │   ┌─ ▼ ● python-engineer — Technical Reasoning ──┐│ │
+│ │   ┌─ ▶ ● OK Tool: read_file  by @python-engineer ┐│ │
 │ │ ✓ [AGENT: go-engineer] (completed in 2.8s)          │ │
-│ │ Built Go API server with routes for...              │ │
-│ │ ```go                                               │ │
-│ │ func main() { ... }                                 │ │
-│ │ ```                                                 │ │
-│ │                                                     │ │
-│ │ ✓ [AGENT: tailwind-engineer] (completed in 2.1s)    │ │
-│ │ Generated Tailwind config and utility classes...    │ │
-│ │                                                     │ │
-│ │ ● Parallel complete: 3 ok, 0 failed | 3.2s wall    │
-│ │                                                     │ │
+│ │   ┌─ ▼ ● go-engineer — Technical Reasoning ──────┐│ │
+│ │   ┌─ ▶ ● OK Tool: write_file  by @go-engineer ───┐│ │
+│ │ ● Parallel complete: 3 ok, 0 failed | 3.2s wall    │ │
+│ │ ┌─ ▼ ● Summary — by agent ─────────────────────┐  │ │
+│ │ │  @python-engineer: read_file (2) ...         │  │ │
+│ │ └────────────────────────────────────────────────┘  │ │
 │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Components mounted (in order):**
-1. Agent results (one per agent, mounted as they complete):
-   - Agent tag with completion time
-   - Markdown content or code collapsibles
-2. Summary system message: `"Parallel complete: X ok, Y failed | Xs wall time"`
-
-**Note:** Results appear in completion order (not input order). Each agent's output is self-contained.
+**Uniform handling:** Parallel uses `ThreadPoolExecutor` + `create_fresh_guard()` shared explicitly, same per-agent `on_thinking`/`on_tool_result` callbacks, same `mount_sequential` (tools may complete out-of-order but seq reflects actual completion), same DB persistence, auto Summary — by agent after `hide_parallel_bar`.
 
 ---
 
@@ -408,14 +407,15 @@ Every possible message flow in the Sago TUI, with exact component order and nest
 
 **Trigger:** `/load <session-id>` or `sago tui --resume <session-id>`
 
-Reconstructs the conversation from DB. Order of mounting:
+Reconstructs the conversation from DB **preserving systematic order**.
 
 ```
 ┌─ ExchangeTurnCard (user msg 1) ────────────────────────┐
 │ ▼ USER  first question                                 │
 │ ...                                                    │
 │ ┌─ exchange-response ─────────────────────────────────┐ │
-│ │ [thinking collapsible if stored]                    │ │
+│ │ ┌─ ▼ ● sago — Technical Reasoning (seq 1) ─────────┐│ │
+│ │ ┌─ ▶ ● OK Tool: env_info  by @sago  (seq 2) ──────┐│ │
 │ │ [SAGO] first answer...                              │ │
 │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
@@ -424,36 +424,37 @@ Reconstructs the conversation from DB. Order of mounting:
 │ ▼ USER  follow-up question                             │
 │ ...                                                    │
 │ ┌─ exchange-response ─────────────────────────────────┐ │
-│ │ ┌─ ▶ ● OK Tool: env_info ──────────────────────┐   │ │
-│ │ │  Parameters: {operation: "system"}            │   │ │
-│ │ │  Result: OS: Linux, Arch: aarch64...          │   │ │
-│ │ └────────────────────────────────────────────────┘   │ │
-│ │ ┌─ ▶ ● OK Tool: env_info ──────────────────────┐   │ │
-│ │ │  Parameters: {operation: "memory"}            │   │ │
-│ │ │  Result: Total: 15 GB, Available: 4 GB...     │   │ │
-│ │ └────────────────────────────────────────────────┘   │ │
+│ │ ┌─ ▼ ● python-engineer — Technical Reasoning ──────┐│ │
+│ │ ┌─ ▶ ● OK Tool: grep_content  by @python-engineer ┐│ │
 │ │ [SAGO] second answer...                             │ │
 │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Reconstruction order per turn:**
-1. ExchangeTurnCard with user prompt
-2. Enhanced prompt collapsible (if stored in metadata) — mounted in exchange-body BEFORE response container, collapsed
-3. Tool call collapsibles (matched by timestamp from `ToolUsageStore`, args parsed from DB) — mounted in exchange-body BEFORE response container, collapsed
-4. Thinking collapsible (if stored in message content) — inside response container
+**Reconstruction order per turn (systematic, deterministic):**
+1. `ExchangeTurnCard` with user prompt (seq base)
+2. Enhanced prompt collapsible (if `metadata.enhancement`) — mounted via `mount_sequential` BEFORE response container, collapsed, seq preserved
+3. **Thinking blocks** — from `messages.metadata.thinking_blocks[]` sorted by `seq` (per-agent, per-step distinct). Each is `Collapsible(title="● {agent} — Technical Reasoning", collapsed=False)` mounted via `mount_sequential` so interleaving is restored. Fallback to legacy `metadata.thinking` string if blocks absent.
+4. **Tool call collapsibles** — from `ToolUsageStore.get_all()` matched by `created_at` timestamp to nearest preceding user card, args parsed from DB, titles include `by @agent` suffix, collapsed, mounted via `mount_sequential` in `created_at` order.
 5. Agent tag — inside response container
 6. Assistant message (markdown) — inside response container
+7. Summary — by agent (if present in DB? not stored, regenerated on reload via `get_summary_by_agent`)
 
 **Reconstructed from DB:**
-- Enhanced prompt cards (stored in message metadata)
-- Tool calls with full args and results (stored in `tool_usage` table)
-- Thinking blocks (stored in assistant message content)
+- `messages.metadata.thinking_blocks` (list of `{seq, agent, text, timestamp}`) — primary; also `thinking` legacy field
+- `messages.metadata.enhancement` (PromptEnhancementResult)
+- `tool_usage` table (`tool_name, arguments, result, duration_ms, success, created_at`) — full args/results
+- `messages` content (assistant prose)
 
-**Not reconstructed:**
+**Not reconstructed (transient):**
 - Execution plan cards (not stored)
-- Turn summaries (not stored)
-- Dev trace bars (not stored)
+- Turn summaries (derived, not stored)
+- Dev trace bars (transient, but `trace.md/json` artifacts persisted on disk under `.sago/data/<sid>/` if dev mode was on)
+
+**DB persistence details (§20):**
+- `MessageStore.add()` flushes at batch 50 or on demand; `ToolUsageStore.log()` flushes at 20. Both `flush()` before `Session.get_full_export()`.
+- `messages.metadata` JSON contains `thinking_blocks`, `thinking`, `model`, `agent`, `meta_str`.
+- Reload sorts `thinking_blocks` by `seq` and mounts via `mount_sequential`; tool cards sorted by `created_at` and matched to cards by timestamp `<= tool_time`.
 
 ---
 
@@ -469,10 +470,8 @@ Reconstructs the conversation from DB. Order of mounting:
 │ do something dangerous                                  │
 │ ─────────────────────────────────────────────────────── │
 │ ┌─ exchange-response ─────────────────────────────────┐ │
-│ │                                                     │ │
 │ │ ✗ Error: Permission denied for tool "shell_exec"    │ │
 │ │   Hint: Enable YOLO mode with /yolo to auto-allow  │ │
-│ │                                                     │ │
 │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -493,12 +492,8 @@ Reconstructs the conversation from DB. Order of mounting:
 ┌─ ExchangeTurnCard ──────────────────────────────────────┐
 │ ▼ USER  something that causes an LLM error              │
 ├─────────────────────────────────────────────────────────┤
-│ ...                                                    │
 │ ┌─ exchange-response ─────────────────────────────────┐ │
-│ │                                                     │ │
-│ │ ❌ **Error:** Connection timeout. The model did not │ │
-│ │ respond within 60 seconds.                         │ │
-│ │                                                     │ │
+│ │ ❌ **Error:** Connection timeout.                    │ │
 │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -508,12 +503,8 @@ Reconstructs the conversation from DB. Order of mounting:
 ```
 ┌─ ExchangeTurnCard (chain) ─────────────────────────────┐
 │ ▶ CHAIN  deploy my app                                 │
-│ ...                                                    │
 │ ┌─ exchange-response ─────────────────────────────────┐ │
-│ │                                                     │ │
 │ │ ✗ Error: Chain error: Agent "invalid-agent" not     │ │
-│ │   found in registry                                 │ │
-│ │                                                     │ │
 │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -527,13 +518,8 @@ Reconstructs the conversation from DB. Order of mounting:
 ```
 ┌─ ExchangeTurnCard ──────────────────────────────────────┐
 │ ▼ USER  edit the config file                            │
-│ ...                                                    │
 │ ┌─ exchange-response ─────────────────────────────────┐ │
-│ │                                                     │ │
 │ │ Allow edit_file? (risk: high) -- Press [Y] or [N]  │ │
-│ │                                                     │ │
-│ │ ● edit_file({"path": "config.yaml", ...})           │ │
-│ │                                                     │ │
 │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 
@@ -583,36 +569,37 @@ These appear directly in `#messages`, NOT inside any ExchangeTurnCard.
 
 ● Parallel complete: 3 ok, 0 failed | Total wall time: 3.2s
 
-● ✅ Confidence: 92/100 -- verified (3 tool calls)
-
-● ⚠️ Low confidence (35/100): Content claims file creation without tool usage
-
 ● Loaded session abc123def456 (24 messages)
 
 ● Orchestration plan (4 steps):
     1. architect: Design API schema
     2. python-engineer: Implement endpoints
-    ...
 ```
 
 ---
 
-## 12. Thinking/Reasoning Blocks
+## 12. Thinking/Reasoning Blocks — Per-Agent, Sequential
 
-**Trigger:** LLM output contains `<thinking>...</thinking>` or `<thought>...</thought>` tags.
+**Trigger:** LLM output contains `<thinking>...</thinking>` or `<thought>...</thought>` tags, OR native Gemini `part.thought`, OR OpenRouter `delta.reasoning`/`delta.thinking` streaming. Also `on_thinking` callback from `simple_executor` per iteration.
+
+**New behavior (v0.1.14):**
+- **Per-agent distinct:** Title is `● {agent} — Technical Reasoning` (e.g., `● architect — Technical Reasoning`, `● python-engineer — Technical Reasoning`) — not generic `Technical Reasoning & Analysis`. `DevTracer.record_thinking` stores `source=agent.{name}` and dedups only exact duplicate `[:300]` from same source within 5s (previously global coalesce within 120s hid per-agent).
+- **Sequential, not bulk:** Each iteration mounts a **new** card via `ExchangeTurnCard.mount_sequential` with incrementing `seq_id` so `thinking1 → tool1 → thinking2 → tool2 …` appears in execution order, not all thinking at end. `thinking_blocks` list in `messages.metadata` preserves `{seq, agent, text, timestamp}` for reload.
+- **Expanded by default:** `collapsed=False` (visible) to avoid hidden reasoning; user can collapse per card.
 
 ```
-┌─ ▶ Technical Reasoning & Analysis ─────────────────────┐
-│  The user wants system info. I should call env_info    │
-│  to get OS, architecture, and Python version. This    │
-│  is a straightforward request that requires one tool.  │
+┌─ ▼ ● python-engineer — Technical Reasoning (seq 3) ────┐
+│  The grep didn't surface the indexer. The hybrid search │
+│  engine likely lives in sago/search/ — need to locate  │
 └────────────────────────────────────────────────────────┘
 ```
 
 **Properties:**
-- Always collapsed by default
-- Content is stripped from the assistant message before rendering
-- Mounted BEFORE the agent tag + assistant message
+- Content stripped from assistant message before rendering (`re.sub` thinking tags)
+- Mounted via `mount_sequential` BEFORE next tool card, ordered by `seq`
+- Dedupe: same `[:300]` from same agent within 5s is skipped (avoids spinner spam)
+- Persisted: `messages.metadata.thinking_blocks` JSON, plus `DevTracer` `LLM_THINKING` events per agent
+- Reload: sorted by `seq`, mounted via `mount_sequential` to preserve interleaving
 
 ---
 
@@ -623,8 +610,7 @@ These appear directly in `#messages`, NOT inside any ExchangeTurnCard.
 ```
 ┌─ ▶ Execution Plan (4 steps) ───────────────────────────┐
 │  1. Read existing auth module structure                │
-│  2. Refactor into separate concerns (auth, token,     │
-│     session)                                           │
+│  2. Refactor into separate concerns                    │
 │  3. Add comprehensive test suite                       │
 │  4. Run tests and verify coverage > 80%               │
 └────────────────────────────────────────────────────────┘
@@ -634,6 +620,7 @@ These appear directly in `#messages`, NOT inside any ExchangeTurnCard.
 - Collapsed by default
 - Only created for complex tasks (not all messages)
 - Mounted before tool calls in the response container
+- Updated in-place via `_update_plan_progress` as steps complete (`completed`/`in_progress`)
 
 ---
 
@@ -652,27 +639,88 @@ These appear directly in `#messages`, NOT inside any ExchangeTurnCard.
 
 **Properties:**
 - Collapsed by default
-- Only visible in dev mode or when explicitly enabled
+- Only visible when explicitly enabled
 - Shows tool counts, tokens, elapsed time, cache stats, files modified
+- Mounted via `mount_child` (before response) but transient (not persisted)
 
 ---
 
-## 15. Dev Trace Bar
+## 15. Summary — By Agent (Auto Card + Zero-Tool Short-Circuit)
 
-**Trigger:** Only when `developer_mode=True` AND trace events exist.
+**New in v0.1.14 — addresses token waste from re-running analysis on “so what was the summary?”**
+
+### 15a. Auto-Mounted Card After Chain/Orchestration/Delegate/Parallel
+
+After any orchestration completes (chain step 20/20, orchestrate plan done, delegate done, parallel done), `helpers._add_summary_by_agent_card()` is called automatically:
+
+```
+┌─ ▼ ● Summary — by agent ─────────────────────────────┐
+│  @architect                                          │
+│    ✓ repo_map (1), read_file (4), ast_grep (3)       │
+│    ✓ write_file (1)  — PROJECT_ANALYSIS.md           │
+│    ↳ Wrote 91-line analysis with 339 agents ...      │
+│                                                      │
+│  @python-engineer                                     │
+│    ✓ read_file (1), execute_shell (4), grep (5)       │
+│    ✓ read_file (1) — PROJECT_ANALYSIS.md (cached)    │
+│    ↳ Verified 548 Python files, 339 agents ...       │
+│                                                      │
+│  ── Total: 28 tool(s) | Tokens: 21k | Elapsed: 4.2s ──│
+│  Output: PROJECT_ANALYSIS.md (8k chars cached — 0 re-analysis) │
+└──────────────────────────────────────────────────────┘
+```
+
+**Properties:**
+- `Collapsible(title="● Summary — by agent", collapsed=False)` — **expanded** so user sees without asking
+- Per-agent sections: tools with counts + 3 recent tool details (`✓/✗ tool args`), last output preview per agent, `by @agent` distinction
+- Global footer: total tools, tokens, elapsed, output file
+- Output file inferred from `PROJECT_ANALYSIS.md` on disk or `write_file` tool args — shows `X chars cached — 0 re-analysis` when from cache
+- Mounted via `mount_child`/`mount_sequential` inside active `ExchangeTurnCard` (falls back to `#messages` if card missing)
+- No LLM call for this card itself — deterministic from `ToolUsageStore.get_all()` + `session_tool_calls` + `DevTracer` + `messages` + `PROJECT_ANALYSIS.md`
+
+### 15b. Summary Intent Short-Circuit (0 Tool Calls)
+
+When user asks `so what was the sumamry?`, `summarize what you did`, `what was done`, `what did you do` etc., the system **does NOT re-run tools** (no new `grep`, `execute_shell`).
+
+**Detection:** `processor._is_summary_intent()` via spec regex `r"\b(summar|what was done|what did you do)\b"` plus typo-tolerant fallbacks (`summar`/`sumam` substring, `\bsum\w*ry\b`, `what was the summ`). Also `context_assembler.assemble()` short-circuits heavy RAG/BM25/symbol search, and `intent_classifier` is bypassed.
+
+**Short-circuit path (`processor._handle_summary_intent`):**
+1. Gather cached data **only**: `self.messages`, `ToolUsageStore.get_all()`, `DevTracer.get_recent_traces()`, `PROJECT_ANALYSIS.md` or `Session.get_full_export()`, `total_input_tokens`/`total_output_tokens`.
+2. Build deterministic `local_md` via `_build_local_summary_markdown()` — categorized by agent, no LLM needed.
+3. **Single LLM call** with `tool_choice: none` (no tool loop) and injected Reference Context (8000 chars) — not a tool loop. If LLM fails (no key), falls back to `local_md`. This is **1 LLM, 0 tools** vs. previously 14+ tools wasted.
+4. Mount result as `assistant` message (`[SAGO]`) plus auto `● Summary — by agent` card.
+5. Spinner shows `Summarizing previous work (0 tools)…`, tracer records `summary({model})` as single `LLM_PAYLOAD`.
+
+**Validation:**
+- Summary query creates **1** new `LLM_PAYLOAD` event, **0** new `TOOL_DISPATCH` events (check `DevTracer.get_recent_traces()` delta).
+- `PROJECT_ANALYSIS.md` is reused verbatim (no `ast_grep`, `grep_content` on summary turn).
+
+---
+
+## 16. Dev Trace Bar & Inspector
+
+**Trigger:** `developer_mode=True` **AND** trace events exist. **v0.1.14: `developer_mode` defaults to `True` until 1.0** (`sago.yaml: dev_mode: true # TODO: flip to false at 1.0`, `loader.py SettingsConfig dev_mode: True`, `app.py developer_mode: True`, `settings.json dev_mode: True`). Fresh install shows Inspector without `/dev on`.
 
 ```
 [12 events · 3 LLM · 5 tools · 2 routes] [View Trace ⚡]
 ```
 
+**Inspector (`F2` or `[View Trace ⚡]`):**
+- Header: `Inspector 12 events · 3 LLM · 5 tools · 2 routes · 3 thinking`
+- Tabs: `Events`, `LLM`, `Tools`, `Thinking`, `Flow`, `Event Graph`, `Timeline`
+- **Thinking tab:** now per-agent distinct (architect vs python-engineer), deduped only same source within 5s — not globally coalesced. Each thinking shows `source=agent.{name}`, `model`, `thinking_length`, `seq`.
+- **Flow:** shows `thinking → tool` as paired lines? Actually as sequential steps: `thinking(seq1) → tool(seq2) → thinking(seq3) → tool(seq4)` with agent labels, not separate numbered reasoning.
+- **Event Graph:** Mermaid flowchart `User → agent_architect → tool_ast_grep → agent_python-engineer → tool_execute_shell → LLM` with per-agent nodes, not `agent_subagent` generic.
+- Access: `F2` or button, also per-turn `[View Trace ⚡]` badge (when dev mode).
+
 **Properties:**
-- Only visible in developer mode
-- Clicking "View Trace" opens TraceViewerScreen
-- Shows event counts by category
+- Auto-enabled on fresh install (no `/dev on` needed)
+- Trace bar mounted as `Horizontal` below assistant message, badge + button
+- Artifacts persisted to `.sago/data/<session_id>/trace.md` + `trace.json` + `chat_export.md` via `export_session_dev_artifacts()` on exit (when dev mode)
 
 ---
 
-## 16. Confidence/Verification Score
+## 17. Confidence/Verification Score
 
 **Trigger:** Tools were used in the turn.
 
@@ -682,13 +730,11 @@ These appear directly in `#messages`, NOT inside any ExchangeTurnCard.
 | Medium | 50 <= confidence < 80 | `🔍 Confidence: 65/100 — minor verification notes` |
 | Low | confidence < 50 | `⚠️ Low confidence (35/100): content claims without tools` |
 
-**Current behavior:** Always shown as system message in `#messages`.
-
-**Desired behavior:** Log to file only, show in UI only if `developer_mode=True`.
+**Current behavior:** Always shown as system message in `#messages` — but **desired** (and now implemented) is log to file only, show in UI only if `developer_mode=True` (default ON).
 
 ---
 
-## 17. Hallucination/Fabrication Warnings
+## 18. Hallucination/Fabrication Warnings
 
 **Trigger:** LLM claims to have done something without actually calling the corresponding tool.
 
@@ -703,7 +749,7 @@ These appear directly in `#messages`, NOT inside any ExchangeTurnCard.
 
 ---
 
-## 18. Spinner/Thinking Indicator
+## 19. Spinner/Thinking Indicator
 
 **Trigger:** Any processing starts (message, delegation, chain, orchestration).
 
@@ -713,6 +759,7 @@ These appear directly in `#messages`, NOT inside any ExchangeTurnCard.
 ⠹ Delegating to python-engineer...         (during delegation)
 ⠹ Step 1/4: architect                      (during chain)
 ⠹ Enhanced: Gather system information      (during enhancement)
+⠹ Summarizing previous work (0 tools)…     (during summary short-circuit)
 ```
 
 **Properties:**
@@ -720,41 +767,95 @@ These appear directly in `#messages`, NOT inside any ExchangeTurnCard.
 - Mounts inside exchange-response container
 - Text updates as processing progresses
 - Removed when processing completes
+- Summary spinner explicitly shows `0 tools` to signal no waste
 
 ---
 
-## Unused/Dead Code Widgets
+## 20. Systematic Thinking → Tool Pipeline & DB Persistence
 
-These widgets are defined but NEVER used in the TUI:
+### 20a. Systematic Order Guarantee
 
-| Widget | File | Status |
-|--------|------|--------|
-| `HandoffFlow` | `widgets/__init__.py:293` | Used in chain execution (orchestrator.py) |
-| `OrchestrationPlanWidget` | `widgets/__init__.py:355` | Used in orchestrate execution (orchestrator.py) |
+All 4 flows (`normal` via `processor.py`, `chain`/`delegate`/`parallel`/`orchestrate` via `orchestrator.py`) share the **same** callback and mounting path:
+
+```python
+# In both processor.py and orchestrator.py — per-agent distinct
+def on_tool(name, args, agent_name=""):
+    call_from_thread(_add_tool_call, name, args, result, success, agent_name)
+
+def on_thinking(text, agent_name=""):
+    # filter synthetic "Planning... step 1/30" etc.
+    call_from_thread(_add_thinking_card, text, agent_name)
+    get_dev_tracer().record_thinking(source=f"agent.{agent_name}", ...)
+
+# In helpers.py — sequential mount
+ExchangeTurnCard.mount_sequential(widget)  # inserts before .exchange-response but increments seq_id
+```
+
+- `mount_sequential` assigns `widget._seq_id = seq` and mounts `before=.exchange-response` in call order — so `thinking1(seq1) → tool1(seq2) → thinking2(seq3) → tool2(seq4)` is deterministic.
+- `DevTracer.record_thinking` dedupes only same `source` + same `[:300]` within 5s — per-agent preserved.
+- No bulk at end — previously `_add_thinking_card` appended after tools; now interleaved.
+
+### 20b. DB Persistence (Reload Fidelity)
+
+- **Thinking:** `helpers._add_thinking_card` buffers to `self._current_thinking_buffer: list[dict{seq, agent, text, timestamp}]`. On `helpers._add_assistant_message`, this buffer is merged into `messages` list and persisted to `MessageStore` as `metadata.thinking_blocks` JSON + legacy `thinking` string + `model` + `agent`. Also `thinking_blocks` sorted by `seq` on save.
+- **Tools:** `processor.on_tool_result` and `orchestrator.on_tool_result` both call `ToolUsageStore.log(tool_name, arguments, result, duration_ms, success)` which batches at 20 and `flush()` before export. Also `self.session_tool_calls` in-memory list with `agent` field.
+- **Messages:** `MessageStore.add(role, content, agent_name, metadata)` batched at 50, `flush()` before `Session.get_full_export()`.
+- **Flush points:** Before `Session.get_full_export()`, before `DevTracer.export`, before `_load_session` read.
+
+### 20c. Reload Fidelity (Same Order)
+
+`commands._load_session` and `_switch_session` reconstruct by:
+
+1. Sorting `thinking_blocks` by `seq`
+2. Matching `tool_usage.created_at` to nearest preceding `message.created_at` (timestamp correlation)
+3. Mounting both via `mount_sequential` in `created_at`/`seq` order — not bulk
+4. Result: reload of `2e6cdf4e-ea4` shows same 3 `● architect — Technical Reasoning` + `● python-engineer — Technical Reasoning` cards in same positions, not collapsed to 1.
+
+### 20d. Uniform Handling Table
+
+| Flow | Entry | Thinking → Tool Mount | DB Persist | Summary Card |
+|------|-------|----------------------|------------|--------------|
+| Normal chat | `processor._process_message_thread` | `mount_sequential`, per-agent | `thinking_blocks` + `tool_usage` | via `_handle_summary_intent` or `_add_summary_by_agent_card` if asked |
+| /chain | `orchestrator._process_chain_thread` | same, + `HandoffFlow` | same, + `handoff_ctx.files_created` | auto after completion (collapsed=False) |
+| /delegate | `orchestrator._process_delegation_thread` | same | same | auto after completion |
+| /parallel | `orchestrator._process_parallel_thread` | same (ThreadPool, shared guard) | same | auto after `hide_parallel_bar` |
+| /orchestrate | `orchestrator._process_orchestration_thread` + `_execute_orchestration_plan_thread` | same, shared `create_fresh_guard()` | same | auto after `orchestration complete` |
+
+### 20e. Inspector Alignment
+
+- **Before:** `Inspector 12 events 3 thinking` coalesced globally — chat showed 1 thinking, trace showed 1, DB had 1 — felt broken.
+- **After:** `Inspector 19 events 6 LLM 3 thinking` per 2e6cdf4e-ea4 — chat shows 3 distinct per-agent thinking cards, trace shows 3 `LLM_THINKING` events with `source=agent.architect` vs `agent.python-engineer`, DB has 3 `thinking_blocks`, reload preserves 3.
 
 ---
 
 ## Summary: What Gets Mounted Where
 
-### Inside `exchange-body` (per turn, in order):
+### Inside `exchange-body` (per turn, in order via `mount_sequential`):
 1. User Prompt header
 2. User Prompt content
 3. Divider (`───`)
-4. **Enhanced prompt collapsible** (if enhancement enabled, collapsed) — inserted BEFORE response container
-5. **Tool call collapsibles** (flat list, one per tool, smart-summarized results, collapsed) — inserted BEFORE response container
+4. **Enhanced prompt collapsible** (if enhancement enabled, collapsed) — seq N
+5. **Thinking/Tool interleaving** — each `thinking` and `tool` gets next `seq_id`, mounted `before=.exchange-response` in call order:
+   - `thinking(seq=1)` — `● {agent} — Technical Reasoning`, expanded
+   - `tool(seq=2)` — `● OK Tool: read_file by @agent`, collapsed
+   - `thinking(seq=3)` — next reasoning
+   - `tool(seq=4)` — etc.
 6. Response container (`.exchange-response`):
-   - Thinking collapsible (if present, collapsed)
+   - (Thinking fallback — legacy inline `<thinking>` tags still mounted here if not via `mount_sequential`)
    - Agent tag
    - Assistant message (markdown + code blocks)
-   - Dev trace bar (if dev mode)
-   - Turn summary collapsible (if enabled)
+   - Dev trace bar (if dev mode — default ON)
+   - Turn summary collapsible (if `show_summary`)
+   - **● Summary — by agent** (after chain/orchestrate/parallel/delegate OR after summary query — expanded, collapsed=False)
 
 ### Inside `#messages` (standalone, between turns):
 - System messages (errors, checkpoints, etc.)
 - Approval bars
-- Parallel agent results
+- Parallel agent results (progressively streamed)
 - Confidence score (only shown in developer mode, always logged)
+- HandoffFlow / OrchestrationPlanWidget (chain/orchestrate — inside exchange card, not standalone)
 
 ### NOT mounted anywhere:
 - Hallucination warnings (content silently cleaned)
-- Tool calls from spawned agents (happens inside SpawnAgentTool)
+- Tool calls from spawned agents duplicated outside their per-agent card (now correctly attributed via `by @agent`)
+

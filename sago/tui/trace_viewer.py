@@ -246,19 +246,24 @@ class TraceViewerScreen(ModalScreen[None]):
         ev = self.events
         llm_ev = [e for e in ev if e.event_type.value in ("LLM_RAW_RESPONSE", "LLM_PAYLOAD")]
         tool_ev = [e for e in ev if e.event_type.value == "TOOL_DISPATCH"]
-        # Dedupe thinking: LLM_THINKING + LLM_RAW_RESPONSE with thinking are same trace, count once
-        _seen_thinking: set[str] = set()
+        # Dedupe thinking per-agent, per-step: LLM_THINKING + LLM_RAW_RESPONSE with thinking
+        # Include source in key so architect vs python-engineer are distinct, only exact duplicate
+        # [:300] from same source is deduped (prevents spam but preserves per-agent distinction)
+        _seen_thinking: set[tuple[str, str]] = set()
         think_ev: list = []
         for e in ev:
             if e.event_type.value == "LLM_THINKING":
                 t = (e.data.get("thinking") or "").strip()
-                key = t[:200] if t else str(e.timestamp)
+                # Use source + first 300 chars as dedupe key (per-agent distinct)
+                _src = str(e.source or "")
+                key = (_src, t[:300] if t else str(e.timestamp))
                 if key not in _seen_thinking:
                     _seen_thinking.add(key)
                     think_ev.append(e)
             elif e.event_type.value == "LLM_RAW_RESPONSE" and e.data.get("thinking"):
                 t = (e.data.get("thinking") or "").strip()
-                key = t[:200] if t else str(e.timestamp)
+                _src = str(e.source or "")
+                key = (_src, t[:300] if t else str(e.timestamp))
                 if key not in _seen_thinking:
                     _seen_thinking.add(key)
                     think_ev.append(e)
@@ -683,13 +688,14 @@ class TraceViewerScreen(ModalScreen[None]):
 
     def _tab_thinking(self) -> ComposeResult:
         with VerticalScroll(classes="tv-tab-scroll"):
-            # Dedupe: LLM_THINKING and LLM_RAW_RESPONSE with same thinking are same trace
-            seen: set[str] = set()
+            # Dedupe per-agent: same thinking[:300] from same source is duplicate, but different agents are distinct
+            seen: set[tuple[str, str]] = set()
             blocks: list[tuple[str, str, object]] = []
             for e in self.events:
                 if e.event_type.value == "LLM_THINKING":
                     t = (e.data.get("thinking") or "").strip()
-                    key = t[:300] if t else str(e.timestamp)
+                    _src = str(e.source or "")
+                    key = (_src, t[:300] if t else str(e.timestamp))
                     if key not in seen:
                         seen.add(key)
                         blocks.append((e.data.get("model", ""), t, e))
@@ -697,7 +703,8 @@ class TraceViewerScreen(ModalScreen[None]):
                 if e.event_type.value == "LLM_RAW_RESPONSE":
                     t = (e.data.get("thinking") or "").strip()
                     if t:
-                        key = t[:300] if t else str(e.timestamp)
+                        _src = str(e.source or "")
+                        key = (_src, t[:300] if t else str(e.timestamp))
                         if key not in seen:
                             seen.add(key)
                             blocks.append((e.data.get("model", ""), t, e))
@@ -711,13 +718,14 @@ class TraceViewerScreen(ModalScreen[None]):
                 )
                 return
 
-            for idx, (model, thinking, e) in enumerate(blocks, 1):
-                ts = _fmt_ts(e.timestamp)
+            for idx, (model, thinking, e) in enumerate(blocks, 1):  # type: ignore[attr-defined]
+                ts = _fmt_ts(e.timestamp)  # type: ignore[attr-defined]
                 chars = len(thinking)
                 lines = thinking.count("\n") + 1
-
+                _src = escape(str(getattr(e, "source", "")))  # type: ignore[attr-defined]
+                _agent_label = f"@{_src.replace('agent.', '')}" if "agent." in _src else _src
                 with Collapsible(
-                    title=f"💭 Block {idx}  {escape(str(model))}  {chars:,} chars  {lines} lines  {ts}",
+                    title=f"💭 Block {idx}  {_agent_label}  {escape(str(model))}  {chars:,} chars  {lines} lines  {ts}",
                     collapsed=(idx > 1),
                 ):
                     yield Static(thinking, classes="tv-thinking-block", markup=False)

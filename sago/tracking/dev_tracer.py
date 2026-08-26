@@ -244,60 +244,35 @@ class DevTracer:
     def record_thinking(
         self, source: str, model: str, thinking_content: str, thinking_type: str = "reasoning"
     ) -> DevTraceEvent:
-        """Record LLM thinking/reasoning — consolidated per turn (1 block per message).
+        """Record LLM thinking/reasoning — per-agent, per-step distinct.
 
-        Previously each LLM iteration created a new Block, so a 12-step loop
-        showed 12 thinking blocks in the Inspector. User expects 1 per user
-        message/loop. Now we coalesce: if the last event is LLM_THINKING
-        from same model/source within the same turn window, we append to it
-        instead of creating a new Block. TUI card already dedupes via
-        helpers._add_thinking_card per ExchangeTurnCard.
+        Previous coalesce merged all thinking into one block within 120s
+        (source-agnostic), which hid per-agent reasoning (architect vs
+        python-engineer) and per-step order. Now we record each thinking as
+        a separate LLM_THINKING event and dedupe only on exact duplicate
+        content (same first 300 chars identical) from same source within 5s.
+        This preserves distinct reasoning per agent and per step, while
+        still filtering spam duplicates.
         """
-        # Coalesce into single block per turn — avoids 12 thinking for 12 LLM
-        # Search backwards for last thinking (not just last event) — interleaved TOOL events
+        # Dedupe only exact duplicate content from same source within 5s
         try:
             with self._lock:
-                # Find most recent LLM_THINKING within window, regardless of interleaving
-                last_thinking = None
+                # Find most recent LLM_THINKING from same source
                 for ev in reversed(self._events):
-                    if ev.event_type == TraceEventType.LLM_THINKING:
-                        last_thinking = ev
+                    if ev.event_type == TraceEventType.LLM_THINKING and ev.source == source:
+                        age = time.time() - ev.timestamp
+                        if age < 5:
+                            existing = (ev.data.get("thinking", "") or "").strip()
+                            new_part = (thinking_content or "").strip()
+                            if new_part and existing:
+                                if new_part[:300] == existing[:300]:
+                                    return ev
+                                # Also exact full duplicate within 5s
+                                if new_part == existing:
+                                    return ev
                         break
-                if last_thinking is not None:
-                    age = time.time() - last_thinking.timestamp
-                    if age < 120 and last_thinking.data.get("thinking_length", 0) < 18000:
-                        existing = last_thinking.data.get("thinking", "") or ""
-                        new_part = thinking_content.strip() if thinking_content else ""
-                        if new_part and new_part not in existing:
-                            is_synthetic = new_part.startswith("Intent:")
-                            is_existing_real = (
-                                existing.strip().startswith("**My Assessment")
-                                or len(existing) > 500
-                            )
-                            if is_synthetic and is_existing_real:
-                                return last_thinking  # ignore synthetic when real already present
-                            # Also ignore synthetic duplicates across steps (step 1 vs 2,3)
-                            if is_synthetic and existing.strip().startswith("Intent:"):
-                                # Synthetic already present — don't add another per-step
-                                return last_thinking
-                            combined = (
-                                (existing + "\n\n" + new_part).strip() if existing else new_part
-                            )
-                            last_thinking.data["thinking"] = combined[:20000]
-                            last_thinking.data["thinking_truncated"] = len(combined) > 20000
-                            last_thinking.data["thinking_length"] = len(combined)
-                            last_thinking.timestamp = time.time()
-                            listeners = list(self._listeners)
-                            if self._enabled:
-                                for cb in listeners:
-                                    try:
-                                        cb(last_thinking)
-                                    except Exception as e:
-                                        logger.debug("Trace listener error: %s", e)
-                            return last_thinking
-                        else:
-                            # Exact duplicate — don't create new block
-                            return last_thinking
+                # Also check very recent duplicate regardless of source age?
+                # No — per-agent distinction required, so only same source deduped
         except Exception:
             pass
         data = {
@@ -306,6 +281,7 @@ class DevTracer:
             "thinking_truncated": len(thinking_content) > 20000 if thinking_content else False,
             "thinking_type": thinking_type,
             "thinking_length": len(thinking_content) if thinking_content else 0,
+            "source_agent": source,
         }
         return self.record(
             TraceEventType.LLM_THINKING, source, f"THINKING ({thinking_type})", data=data
@@ -666,7 +642,7 @@ def export_session_dev_artifacts(
         _merge_tool_calls_into_messages(messages, tool_calls)
 
     # Extract distinct agents involved in session
-    agents_involved = sorted({msg.get("agent_name") for msg in messages if msg.get("agent_name")})
+    agents_involved = sorted({a for a in (msg.get("agent_name") for msg in messages) if a})  # type: ignore[arg-type]
     agents_summary = ", ".join(f"`@{a}`" for a in agents_involved) if agents_involved else "`@sago`"
 
     from sago.engine.prompt_enhancer import generate_session_title
@@ -760,8 +736,9 @@ def export_session_dev_artifacts(
             body = re.sub(
                 r"<(?:thinking|thought)>.*?</(?:thinking|thought)>", "", content, flags=re.DOTALL
             ).strip()
-        # Persisted metadata thinking (new sessions) — merged, not duplicate
+        # Persisted metadata thinking (new sessions) — supports per-agent, per-step blocks
         meta_thinking = ""
+        meta_blocks: list[dict] | None = None
         _meta_raw = msg.get("metadata")
         if isinstance(_meta_raw, str):
             try:
@@ -770,24 +747,61 @@ def export_session_dev_artifacts(
                 _meta_raw = {}
         if isinstance(_meta_raw, dict):
             meta_thinking = _meta_raw.get("thinking", "") or ""
+            _mb = _meta_raw.get("thinking_blocks")
+            if isinstance(_mb, list) and _mb:
+                meta_blocks = _mb
         # Also check direct msg["thinking"] (in-memory)
-        if not meta_thinking:
+        if not meta_thinking and not meta_blocks:
             meta_thinking = msg.get("thinking", "") or ""
-        if meta_thinking and meta_thinking.strip():
-            if thinking_text and meta_thinking.strip() not in thinking_text:
-                thinking_text = (
-                    (thinking_text + "\n\n" + meta_thinking.strip()).strip()
-                    if thinking_text
-                    else meta_thinking.strip()
+            _mb2 = msg.get("thinking_blocks")
+            if isinstance(_mb2, list) and _mb2:
+                meta_blocks = _mb2
+        # Prefer per-agent blocks if present
+        if meta_blocks:
+            # Sort by seq
+            try:
+                meta_blocks = sorted(meta_blocks, key=lambda b: int(b.get("seq", 0) or 0))
+            except Exception:
+                pass
+            for _blk in meta_blocks:
+                _blk_text = (_blk.get("text") or "").strip()
+                _blk_agent = (_blk.get("agent") or (msg.get("agent_name") if isinstance(msg, dict) else "") or "sago").strip()  # type: ignore[attr-defined]
+                if not _blk_text:
+                    continue
+                # Avoid duplicate if same as inline thinking_text
+                if thinking_text and _blk_text in thinking_text:
+                    continue
+                chat_lines.append(
+                    f"<details>\n<summary>🧠 <b>Technical Reasoning — @{_blk_agent}</b></summary>\n\n"
                 )
-            elif not thinking_text:
-                thinking_text = meta_thinking.strip()
-        if thinking_text:
-            chat_lines.append(
-                "<details>\n<summary>🧠 <b>Technical Reasoning & Architectural Analysis</b></summary>\n\n"
-            )
-            chat_lines.append(thinking_text)
-            chat_lines.append("\n\n</details>\n")
+                chat_lines.append(_blk_text)
+                chat_lines.append("\n\n</details>\n")
+            # Also handle any remaining inline thinking not in blocks
+            if thinking_text:
+                # Check if thinking_text already covered by blocks
+                _covered = any(thinking_text.strip() in (b.get("text") or "") for b in meta_blocks)  # type: ignore[union-attr]
+                if not _covered and thinking_text.strip():
+                    chat_lines.append(
+                        "<details>\n<summary>🧠 <b>Technical Reasoning & Architectural Analysis</b></summary>\n\n"
+                    )
+                    chat_lines.append(thinking_text)
+                    chat_lines.append("\n\n</details>\n")
+        else:
+            if meta_thinking and meta_thinking.strip():
+                if thinking_text and meta_thinking.strip() not in thinking_text:
+                    thinking_text = (
+                        (thinking_text + "\n\n" + meta_thinking.strip()).strip()
+                        if thinking_text
+                        else meta_thinking.strip()
+                    )
+                elif not thinking_text:
+                    thinking_text = meta_thinking.strip()
+            if thinking_text:
+                chat_lines.append(
+                    "<details>\n<summary>🧠 <b>Technical Reasoning & Architectural Analysis</b></summary>\n\n"
+                )
+                chat_lines.append(thinking_text)
+                chat_lines.append("\n\n</details>\n")
 
         # Also surface model/agent metadata if present
         _meta_for_info = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -143,6 +144,9 @@ class ExchangeTurnCard(Vertical):
         self.response_text: str = ""
         self.is_turn_collapsed = False
         self._response_container: Vertical | None = None
+        self._seq_counter: int = 0
+        self._thinking_cards: list[Any] = []
+        self._thinking_seq: list[int] = []
 
     def compose(self):
         preview = self.prompt.replace("\n", " ").strip()
@@ -211,6 +215,35 @@ class ExchangeTurnCard(Vertical):
         except Exception as e:
             log_exception(e, "fallback mount exchange turn widget")
             self.mount(widget)
+
+    def mount_sequential(self, widget: Any) -> int:
+        """Mount widget preserving caller order (thinking → tool → thinking...).
+
+        Inserts ``widget`` just before the response container so all
+        sequential cards (thinking / tool) appear interleaved in execution
+        order, not bulk at top/bottom. Returns the seq_id assigned.
+        """
+        self._seq_counter += 1
+        seq = self._seq_counter
+        try:
+            body = self.query_one(".exchange-body")
+            try:
+                resp = self.query_one(".exchange-response")
+                body.mount(widget, before=resp)
+            except Exception:
+                body.mount(widget)
+        except Exception as e:
+            log_exception(e, "mount_sequential fallback")
+            try:
+                self.mount(widget)
+            except Exception:
+                pass
+        # Tag widget for reload ordering
+        try:
+            widget._seq_id = seq  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        return seq
 
 
 class CollapsibleOutputCard(Vertical):
@@ -529,20 +562,76 @@ class UIHelpers:
         self: SagoApp, content: str, meta: str = "", agent_name: str = ""
     ) -> None:
         self._hide_welcome_screen()
+        import time as _time_mod
+
         # Extract thinking for DB persistence before stripping
         _thinking_for_db = ""
         _tm = re.search(r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>", content, re.DOTALL)
         if _tm:
             _thinking_for_db = _tm.group(1).strip()
-        # Also pull any buffered thinking from _add_thinking_card (synthesized or native)
-        _buf = getattr(self, "_current_thinking_buffer", "")
-        if _buf:
-            _thinking_for_db = (
-                (_buf + "\n\n" + _thinking_for_db).strip() if _thinking_for_db else _buf.strip()
-            )
-            # Clear after consuming
+        # Pull buffered thinking blocks from _add_thinking_card (per-agent, per-step)
+        _buf_raw = getattr(self, "_current_thinking_buffer", None)
+        _thinking_blocks: list[dict[str, Any]] = []
+        if isinstance(_buf_raw, list) and _buf_raw:
+            _thinking_blocks = list(_buf_raw)
+            # Merge inline thinking as final block if present and not duplicate
+            if _thinking_for_db:
+                _already = any(b.get("text", "").strip() == _thinking_for_db for b in _thinking_blocks)
+                if not _already:
+                    _thinking_blocks.append(
+                        {
+                            "seq": len(_thinking_blocks) + 1,
+                            "agent": agent_name or "sago",
+                            "text": _thinking_for_db,
+                            "timestamp": _time_mod.time(),
+                        }
+                    )
+            # Concatenated legacy field
+            _thinking_for_db = "\n\n".join(b.get("text", "") for b in _thinking_blocks if b.get("text"))
             try:
-                self._current_thinking_buffer = ""  # type: ignore[attr-defined]
+                self._current_thinking_buffer = []  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        elif isinstance(_buf_raw, str) and _buf_raw.strip():
+            # Legacy string buffer (pre-migration)
+            _buf_str = _buf_raw.strip()
+            if _buf_str and _thinking_for_db:
+                if _buf_str not in _thinking_for_db and _thinking_for_db not in _buf_str:
+                    _thinking_for_db = (_buf_str + "\n\n" + _thinking_for_db).strip()
+                elif not _thinking_for_db:
+                    _thinking_for_db = _buf_str
+                else:
+                    _thinking_for_db = _buf_str if len(_buf_str) > len(_thinking_for_db) else _thinking_for_db
+            elif _buf_str:
+                _thinking_for_db = _buf_str
+            try:
+                self._current_thinking_buffer = []  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            # Convert to blocks for persistence (single bulk block legacy)
+            if _thinking_for_db:
+                _thinking_blocks = [
+                    {
+                        "seq": 1,
+                        "agent": agent_name or "sago",
+                        "text": _thinking_for_db,
+                        "timestamp": _time_mod.time(),
+                    }
+                ]
+        else:
+            # No buffer, but inline thinking exists — create single block
+            if _thinking_for_db:
+                _thinking_blocks = [
+                    {
+                        "seq": 1,
+                        "agent": agent_name or "sago",
+                        "text": _thinking_for_db,
+                        "timestamp": _time_mod.time(),
+                    }
+                ]
+            try:
+                if _buf_raw is not None:
+                    self._current_thinking_buffer = []  # type: ignore[attr-defined]
             except Exception:
                 pass
         self.messages.append(
@@ -551,11 +640,13 @@ class UIHelpers:
                 "content": content,
                 "agent_name": agent_name,
                 "thinking": _thinking_for_db,
+                "thinking_blocks": _thinking_blocks,
             }
         )
         # Persist thinking + agent + model in metadata so reload and exports have it
-        _meta = {
+        _meta: dict[str, Any] = {
             "thinking": _thinking_for_db,
+            "thinking_blocks": _thinking_blocks,
             "model": getattr(self, "current_model", ""),
             "agent": agent_name,
         }
@@ -587,20 +678,27 @@ class UIHelpers:
 
         display = content
 
-        # Extract and contain thinking / reasoning blocks
+        # Extract and contain thinking / reasoning blocks (per-agent)
         thinking_match = re.search(
             r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>", display, re.DOTALL
         )
         if thinking_match:
             thinking_content = thinking_match.group(1).strip()
             if thinking_content:
-                _mount_element(
-                    Collapsible(
-                        Static(thinking_content, classes="thinking-text", markup=False),
-                        title="● Technical Reasoning & Analysis",
-                        collapsed=True,
-                    )
+                # Avoid duplicate mount if same thinking already in thinking_blocks / buffered cards
+                _already_mounted = any(
+                    b.get("text", "").strip() == thinking_content for b in _thinking_blocks
                 )
+                if not _already_mounted:
+                    _ag = (agent_name or getattr(self, "current_agent", "") or "sago").strip()
+                    _t_title = f"● {_ag} — Technical Reasoning" if _ag else "● Technical Reasoning & Analysis"
+                    _mount_element(
+                        Collapsible(
+                            Static(thinking_content, classes="thinking-text", markup=False),
+                            title=_t_title,
+                            collapsed=True,
+                        )
+                    )
             display = re.sub(
                 r"<(?:thinking|thought)>.*?</(?:thinking|thought)>", "", display, flags=re.DOTALL
             ).strip()
@@ -795,99 +893,132 @@ class UIHelpers:
         self._active_exchange_card = None
         self.query_one("#messages").scroll_end(animate=False)
 
-    def _add_thinking_card(self: SagoApp, reasoning_text: str) -> None:
-        """Add/update a single technical reasoning card inside active turn box.
+    def _add_thinking_card(
+        self: SagoApp, reasoning_text: str, agent_name: str = ""
+    ) -> None:
+        """Add a distinct technical reasoning card per-agent, per-step in order.
 
-        Spawns at TOP of exchange (between divider and response), not bottom.
-        Dedupes per-turn: appends to existing card instead of creating 3 duplicates.
-        Ignores synthetic spam like 'Step 1/30...' / 'Synthesized reasoning'.
+        Each call creates a NEW collapsible card (no coalesce to single card)
+        so the interleaving ``thinking1 → tool1 → thinking2 → tool2`` is
+        preserved. Dedupe is only exact duplicate ``[:300]`` identical from
+        same agent within 5s. Cards are mounted sequentially via
+        ``ExchangeTurnCard.mount_sequential`` (which inserts before the
+        response container but respects call order), so DB reload can
+        reconstruct the same order via ``thinking_blocks[].seq``.
+        Title is per-agent: ``● {agent} — Technical Reasoning``.
         """
+        import time as _time_mod
+
         # Filter synthetic BS - only real LLM reasoning should be visible
         low = reasoning_text.strip().lower()
         if not reasoning_text.strip():
             return
-        # Ignore our own synthetic placeholders
         if low.startswith("thinking: step ") or low.startswith("synthesized reasoning"):
             return
-        # Ignore super-short spinner text
         if len(reasoning_text.strip()) < 20:
             return
 
-        # Buffer for DB persistence / reload / exports — survives beyond in-memory tracer
+        _clean = reasoning_text.strip()
+        _agent = (agent_name or getattr(self, "current_agent", "") or "sago").strip()
+        # Normalize agent for display (keep as-is but lowercase check)
+        if not _agent:
+            _agent = "sago"
+
+        # Buffer for DB persistence / reload / exports — list of blocks, not single string
+        _is_dup = False
         try:
-            _buf = getattr(self, "_current_thinking_buffer", "") or ""
-            _clean = reasoning_text.strip()
-            if _clean not in _buf:
-                self._current_thinking_buffer = (_buf + "\n\n" + _clean).strip() if _buf else _clean  # type: ignore[attr-defined]
+            _buf = getattr(self, "_current_thinking_buffer", None)
+            if not isinstance(_buf, list):
+                # Migrate legacy string buffer
+                if isinstance(_buf, str) and _buf.strip():
+                    _buf = [
+                        {
+                            "seq": 1,
+                            "agent": _agent,
+                            "text": _buf.strip(),
+                            "timestamp": _time_mod.time(),
+                        }
+                    ]
+                else:
+                    _buf = []
+                self._current_thinking_buffer = _buf  # type: ignore[attr-defined]
+            # Per-agent dedupe: same [:300] within 5s from same agent
+            for _b in reversed(_buf):  # type: ignore[union-attr]
+                if _b.get("agent") == _agent and _time_mod.time() - float(_b.get("timestamp", 0)) < 5:
+                    if _b.get("text", "").strip()[:300] == _clean[:300]:
+                        _is_dup = True
+                        break
+                    if _b.get("text", "").strip() == _clean:
+                        _is_dup = True
+                        break
+                # Only check most recent few for same agent
+                if _b.get("agent") == _agent:
+                    break
+            if not _is_dup:
+                # seq is len+1 for DB ordering; mount_sequential will assign canonical seq on card
+                _buf.append(  # type: ignore[union-attr]
+                    {
+                        "seq": len(_buf) + 1,  # type: ignore[union-attr]
+                        "agent": _agent,
+                        "text": _clean,
+                        "timestamp": _time_mod.time(),
+                    }
+                )
+            else:
+                return
+        except Exception:
+            pass
+        # If deduped, don't create card
+        if _is_dup:
+            return
+
+        target_card = getattr(self, "_active_exchange_card", None)
+        # Build per-agent title
+        _title = f"● {_agent} — Technical Reasoning" if _agent else "● Technical Reasoning & Analysis"
+        static_widget = Static(_clean, classes="thinking-text", markup=False)
+        static_widget._sago_thinking_text = _clean  # type: ignore[attr-defined]
+        static_widget._sago_agent = _agent  # type: ignore[attr-defined]
+        card = Collapsible(
+            static_widget,
+            title=_title,
+            collapsed=False,
+        )
+        # Tag for reload ordering
+        try:
+            card._thinking_agent = _agent  # type: ignore[attr-defined]
+            card._thinking_text = _clean  # type: ignore[attr-defined]
         except Exception:
             pass
 
-        target_card = getattr(self, "_active_exchange_card", None)
         if target_card is None:
-            self.query_one("#messages").mount(
-                Collapsible(
-                    Static(reasoning_text, classes="thinking-text", markup=False),
-                    title="● Technical Reasoning & Analysis",
-                    collapsed=False,
-                )
-            )
+            self.query_one("#messages").mount(card)
             self.query_one("#messages").scroll_end(animate=False)
             return
 
-        # Try to reuse existing thinking card for this turn (append, don't duplicate)
+        # Track in card's list for reload/debug (multiple cards, not single)
         try:
-            # Check if we already have a thinking card for this exchange
-            existing = getattr(target_card, "_thinking_card", None)
-            if existing is not None:
-                try:
-                    # static inside collapsible
-                    static = existing.query_one(".thinking-text", Static)
-                    current = getattr(static, "_sago_thinking_text", "") or ""
-                    # dedupe - don't append identical block
-                    if reasoning_text.strip() in current:
-                        return
-                    new_text = (
-                        current + "\n\n" + reasoning_text.strip()
-                        if current
-                        else reasoning_text.strip()
-                    )
-                    static.update(new_text)
-                    static._sago_thinking_text = new_text  # type: ignore[attr-defined]
-                    # Expand if it was collapsed
-                    try:
-                        existing.is_collapsed = False
-                        existing.query_one(".card-body").display = True  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
-                    self.query_one("#messages").scroll_end(animate=False)
-                    return
-                except Exception:
-                    pass
+            if not hasattr(target_card, "_thinking_cards") or target_card._thinking_cards is None:
+                target_card._thinking_cards = []  # type: ignore[attr-defined]
+            target_card._thinking_cards.append(card)  # type: ignore[attr-defined]
         except Exception:
             pass
-
-        # Create new card - mount at TOP (before response container)
-        static_widget = Static(reasoning_text, classes="thinking-text", markup=False)
-        static_widget._sago_thinking_text = reasoning_text.strip()  # type: ignore[attr-defined]
-        card = Collapsible(
-            static_widget,
-            title="● Technical Reasoning & Analysis",
-            collapsed=False,
-        )
-        # Remember for dedupe/append
+        # Also keep legacy single ref for backward compat (points to last)
         try:
             target_card._thinking_card = card  # type: ignore[attr-defined]
         except Exception:
             pass
 
-        # Mount before exchange-response so it appears at top, not bottom
+        # Mount sequentially preserving execution order (before response container)
         try:
-            body_widget = target_card.query_one(".exchange-body")
-            try:
-                resp = target_card.query_one(".exchange-response")
-                body_widget.mount(card, before=resp)
-            except Exception:
-                body_widget.mount(card)
+            if hasattr(target_card, "mount_sequential"):
+                target_card.mount_sequential(card)  # type: ignore[attr-defined]
+            else:
+                body_widget = target_card.query_one(".exchange-body")
+                try:
+                    resp = target_card.query_one(".exchange-response")
+                    body_widget.mount(card, before=resp)
+                except Exception:
+                    body_widget.mount(card)
         except Exception:
             try:
                 target_card.mount(card)
@@ -1030,11 +1161,18 @@ class UIHelpers:
         self.query_one("#messages").scroll_end(animate=False)
 
     def _add_tool_call(
-        self: SagoApp, tool_name: str, args: dict, result: str, success: bool = True
+        self: SagoApp,
+        tool_name: str,
+        args: dict,
+        result: str,
+        success: bool = True,
+        agent_name: str = "",
     ) -> None:
         if not hasattr(self, "session_tool_calls"):
             self.session_tool_calls = []
-        self.session_tool_calls.append({"tool": tool_name, "success": success})
+        self.session_tool_calls.append(
+            {"tool": tool_name, "success": success, "agent": agent_name or getattr(self, "current_agent", "")}
+        )
 
         target_card = getattr(self, "_active_exchange_card", None)
         if target_card is None:
@@ -1046,7 +1184,9 @@ class UIHelpers:
             status_tag = (
                 "[bold green]● OK[/bold green]" if success else "[bold red]✗ FAILED[/bold red]"
             )
-            title = f"{status_tag} Tool: [bold cyan]{_escape(tool_name)}[/bold cyan]"
+            _agent = (agent_name or getattr(self, "current_agent", "") or "").strip()
+            _agent_suffix = f" [dim]by @{_escape(_agent)}[/dim]" if _agent else ""
+            title = f"{status_tag} Tool: [bold cyan]{_escape(tool_name)}[/bold cyan]{_agent_suffix}"
 
             param_lines = []
             for k, v in args.items():
@@ -1074,15 +1214,17 @@ class UIHelpers:
                 collapsed=True,
             )
 
-            # Insert into exchange body BEFORE response container so it appears
-            # between the user prompt divider and the assistant text
+            # Insert sequentially preserving execution order (thinking → tool → thinking)
             try:
-                body_widget = target_card.query_one(".exchange-body")
-                try:
-                    resp = target_card.query_one(".exchange-response")
-                    body_widget.mount(card, before=resp)
-                except Exception:
-                    body_widget.mount(card)
+                if hasattr(target_card, "mount_sequential"):
+                    target_card.mount_sequential(card)  # type: ignore[attr-defined]
+                else:
+                    body_widget = target_card.query_one(".exchange-body")
+                    try:
+                        resp = target_card.query_one(".exchange-response")
+                        body_widget.mount(card, before=resp)
+                    except Exception:
+                        body_widget.mount(card)
             except Exception:
                 resp = getattr(target_card, "_response_container", None)
                 if resp is not None:
@@ -1386,6 +1528,185 @@ class UIHelpers:
         else:
             self.query_one("#messages").mount(card)
         self.query_one("#messages").scroll_end(animate=False)
+
+    def _add_summary_by_agent_card(
+        self: SagoApp,
+        tool_calls: list[dict] | None = None,
+        project_analysis: str = "",
+        tokens: dict | None = None,
+    ) -> None:
+        """Auto-mount categorized Summary Card by agent (spec: Collapsible collapsed=False).
+
+        Called after chain/orchestrator completes and from summary-intent handler.
+        Shows per-agent sections with tools used, output file, and token cost — no wasted re-analysis.
+        Uses ToolUsageStore/session_tool_calls if tool_calls not supplied.
+        """
+        from collections import defaultdict
+        from pathlib import Path
+
+        # Gather tool calls if not supplied
+        if tool_calls is None:
+            tool_calls = []
+            try:
+                if getattr(self, "current_session_id", None) and self.current_session_id != "local":
+                    from sago.database import ToolUsageStore
+
+                    tus = ToolUsageStore(self.current_session_id)
+                    db_rows = tus.get_all()
+                    for r in db_rows:
+                        args_raw = r.get("arguments", "{}")
+                        try:
+                            args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
+                        except Exception:
+                            args = {}
+                        tool_calls.append(
+                            {
+                                "tool": r.get("tool_name", "tool"),
+                                "tool_name": r.get("tool_name", "tool"),
+                                "args": args,
+                                "result": r.get("result", "") or "",
+                                "success": bool(r.get("success", 1)),
+                                "agent": r.get("agent") or "",
+                            }
+                        )
+                    tus.close()
+            except Exception:
+                pass
+            if not tool_calls:
+                try:
+                    tool_calls = list(getattr(self, "session_tool_calls", []) or [])
+                except Exception:
+                    tool_calls = []
+
+        # Tokens
+        if tokens is None:
+            tokens = {
+                "input": int(getattr(self, "total_input_tokens", 0) or 0),
+                "output": int(getattr(self, "total_output_tokens", 0) or 0),
+            }
+        t_in = tokens.get("input", 0) or tokens.get("tokens_in", 0) or 0
+        t_out = tokens.get("output", 0) or tokens.get("tokens_out", 0) or 0
+
+        # Per-agent grouping
+        per_agent: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        per_agent_details: dict[str, list[dict]] = defaultdict(list)
+        for tc in tool_calls or []:
+            ag = (tc.get("agent") or tc.get("agent_name") or "sago").strip() or "sago"
+            tname = tc.get("tool") or tc.get("tool_name") or "tool"
+            per_agent[ag][tname] += 1
+            per_agent_details[ag].append(tc)
+
+        # Also consider assistant messages for agents with no tool calls (pure reasoning)
+        try:
+            for m in list(getattr(self, "messages", []) or []):
+                if m.get("role") == "assistant":
+                    ag = (m.get("agent_name") or "sago").strip() or "sago"
+                    if ag not in per_agent:
+                        per_agent[ag] = defaultdict(int)  # ensure section exists
+        except Exception:
+            pass
+
+        if not per_agent:
+            per_agent["sago"] = defaultdict(int)
+
+        # Build body markdown with Rich markup
+        from rich.markup import escape as _esc
+
+        body_lines: list[str] = []
+        for ag in sorted(per_agent.keys()):
+            counts = per_agent[ag]
+            if counts:
+                tools_str = ", ".join(f"[cyan]{_esc(k)}[/cyan] ({v})" for k, v in sorted(counts.items(), key=lambda x: -x[1]))
+                body_lines.append(f"[bold yellow]@{_esc(ag)}[/bold yellow]  —  {tools_str}")
+                # Show up to 3 tool details per agent
+                for d in per_agent_details[ag][:3]:
+                    tname = d.get("tool") or d.get("tool_name") or "tool"
+                    args = d.get("args") or d.get("arguments") or {}
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args) if args else {}
+                        except Exception:
+                            args = {}
+                    arg_preview = ", ".join(f"{_esc(str(k))}={_esc(str(v)[:25])}" for k, v in list(args.items())[:2]) if isinstance(args, dict) and args else ""
+                    succ = d.get("success", True)
+                    icon = "[green]✓[/green]" if succ else "[red]✗[/red]"
+                    if arg_preview:
+                        body_lines.append(f"  {icon} [cyan]{_esc(tname)}[/cyan] {arg_preview}")
+                    else:
+                        body_lines.append(f"  {icon} [cyan]{_esc(tname)}[/cyan]")
+            else:
+                body_lines.append(f"[bold yellow]@{_esc(ag)}[/bold yellow]  —  [dim]no tools, reasoning only[/dim]")
+            # Append last output preview for this agent if available
+            try:
+                last_out = ""
+                for m in reversed(list(getattr(self, "messages", []) or [])):
+                    if m.get("role") == "assistant" and (m.get("agent_name") or "sago") == ag:
+                        last_out = re.sub(r"<(?:thinking|thought)>.*?</(?:thinking|thought)>", "", m.get("content") or "", flags=re.DOTALL).strip()
+                        break
+                if last_out:
+                    preview = _esc(last_out.replace("\n", " ")[:180])
+                    body_lines.append(f"  [dim]↳ {preview}{'...' if len(last_out) > 180 else ''}[/dim]")
+            except Exception:
+                pass
+            body_lines.append("")
+
+        # Global footer
+        total_tools = len(tool_calls or [])
+        body_lines.append(f"[dim]── Total: {total_tools} tool(s) | Tokens: {t_in:,}+{t_out:,} ({t_in+t_out:,} total) ──[/dim]")
+
+        # Output file detection
+        out_file = ""
+        if project_analysis:
+            out_file = "PROJECT_ANALYSIS.md"
+        else:
+            # Check PROJECT_ANALYSIS.md exists on disk
+            try:
+                if (Path.cwd() / "PROJECT_ANALYSIS.md").exists():
+                    out_file = "PROJECT_ANALYSIS.md"
+                else:
+                    # Infer from write_file tools
+                    for tc in tool_calls or []:
+                        tname = tc.get("tool") or tc.get("tool_name") or ""
+                        if tname == "write_file":
+                            args = tc.get("args") or tc.get("arguments") or {}
+                            if isinstance(args, str):
+                                try:
+                                    args = json.loads(args) if args else {}
+                                except Exception:
+                                    args = {}
+                            fp = (args.get("file_path") or args.get("path") or "") if isinstance(args, dict) else ""
+                            if fp:
+                                out_file = fp
+                                break
+            except Exception:
+                pass
+        if out_file:
+            body_lines.append(f"[bold green]Output:[/bold green] [cyan]{_esc(out_file)}[/cyan]")
+            if project_analysis:
+                body_lines.append(f"[dim]{len(project_analysis)} chars cached — 0 re-analysis[/dim]")
+
+        body = "\n".join(body_lines) if body_lines else "[dim]No prior tools — summary from conversation history[/dim]"
+
+        card = Collapsible(
+            Static(body, classes="summary-box", markup=True),
+            title="● Summary — by agent",
+            collapsed=False,
+        )
+        target_card = getattr(self, "_active_exchange_card", None)
+        try:
+            if target_card is not None and hasattr(target_card, "mount_child"):
+                target_card.mount_child(card)
+            elif target_card is not None:
+                target_card.mount(card)
+            else:
+                self.query_one("#messages").mount(card)
+            self.query_one("#messages").scroll_end(animate=False)
+        except Exception as e:
+            log_exception(e, "mount summary by agent card")
+            try:
+                self.query_one("#messages").mount(card)
+            except Exception:
+                pass
 
     def _update_dashboard(self: SagoApp) -> None:
         """Update the agent dashboard safely with Rich formatted markup."""

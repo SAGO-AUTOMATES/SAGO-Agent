@@ -61,7 +61,7 @@ settings:
   markdown_output: true          # Render markdown in responses
 
   # --- Developer ---
-  dev_mode: false                # Enable developer features (extra logging, debug tools)
+  dev_mode: true                 # TODO: flip to false at 1.0 — default ON until beta (shows Inspector without /dev on)
 
 # -----------------------------------------------------------------------------
 # AGENT CONFIGURATION

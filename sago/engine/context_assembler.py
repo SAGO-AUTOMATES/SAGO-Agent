@@ -161,6 +161,31 @@ class ContextAssembler:
             # "query" is NOT short-circuited here because queries like "analyze my repo"
             # need AST symbols, project graph, and structural context.
             return ctx
+        # Summary intent short-circuit — reuse cached analysis, do NOT waste tokens on heavy search/RAG
+        # Detect via spec regex r"\b(summar|what was done|what did you do)\b" plus typo tolerance
+        # Avoid false-positive on file-specific "summarize this file" (needs heavy context)
+        _low = task.lower() if task else ""
+        _has_file_hint = bool(
+            re.search(r"\b[\w\-/\\.]+\.(?:py|js|ts|tsx|jsx|md|txt|json|yaml|yml|toml|html|css|java|go|rs|c|cpp|h|rb|php|sh|sql)\b", _low)
+            or "#file" in _low
+            or "this file" in _low
+            or "the file" in _low
+        )
+        _is_summary = False
+        if task_type == "summary":
+            _is_summary = True
+        elif re.search(r"\b(summar|what was done|what did you do)\b", _low):
+            _is_summary = True
+        elif ("summar" in _low or "sumam" in _low) and not _has_file_hint:
+            _is_summary = True
+        elif "sumam" in _low:
+            _is_summary = True
+        # File-specific summarize should NOT short-circuit unless explicitly about prior work
+        if _is_summary and _has_file_hint and not re.search(r"\b(what you did|what was done|what did you do)\b", _low):
+            _is_summary = False
+        if _is_summary:
+            logger.debug("Summary intent detected — skipping heavy context assembly (0 search/RAG)")
+            return ctx
 
         token_budget = _TokenBudget(max_tokens)
 
