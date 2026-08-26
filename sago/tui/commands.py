@@ -1657,6 +1657,30 @@ class CommandHandlers:
                                     }
                                 )
 
+                            elif role == "system":
+                                self.messages.append(
+                                    {
+                                        "role": "system",
+                                        "content": content,
+                                        "agent_name": agent_name,
+                                        "metadata": msg_metadata,
+                                    }
+                                )
+                                # If it's a compaction summary, render the compaction collapsible card
+                                if (
+                                    msg_metadata.get("type") == "compaction_summary"
+                                    or "Compacted Context Summary" in content
+                                ):
+                                    compact_card = Collapsible(
+                                        Static(
+                                            RichMarkdown(content),
+                                            classes="markdown-body msg-system",
+                                        ),
+                                        title=f"⚡ Session Compacted ({msg_metadata.get('compacted_count', 'prior')} messages condensed)",
+                                        collapsed=True,
+                                    )
+                                    container.mount(compact_card)
+
                         # Correlate tool calls into the appropriate turn
                         for tl in sorted_tools:
                             t_ts = _parse_ts(tl.get("created_at") or tl.get("timestamp"))
