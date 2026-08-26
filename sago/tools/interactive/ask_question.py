@@ -67,9 +67,10 @@ class AskQuestionTool(BaseTool):
 
     name = "ask_question"
     description = (
-        "Ask the user one or more multiple-choice questions or decision prompts "
-        "to clarify underspecified requirements, select architectural options, "
-        "or resolve ambiguous decisions."
+        "Ask the user one or more multiple-choice questions to clarify ambiguous or "
+        "underspecified requirements (e.g., 'Which DB should I use? [Postgres/Mongo]'). "
+        "Use ONLY when you cannot proceed without user input. Do NOT use for jokes, "
+        "trivia, greetings, or when you can answer directly — just answer those."
     )
     args_model = AskQuestionArgs
 
@@ -97,6 +98,17 @@ class AskQuestionTool(BaseTool):
         for idx, q_item in enumerate(parsed_questions, start=1):
             q_text = q_item.question
             options = q_item.options
+
+            # Guard: don't use ask_question for jokes/trivia/greetings — answer directly
+            low_q = q_text.lower()
+            if (
+                any(k in low_q for k in ("joke", "why don't", "why did", "knock knock"))
+                and not options
+            ):
+                return (
+                    "ask_question is NOT for jokes/trivia. Do not call this tool. "
+                    "Answer the joke/request directly in your final response text."
+                )
 
             if is_headless or not options:
                 # Default selection

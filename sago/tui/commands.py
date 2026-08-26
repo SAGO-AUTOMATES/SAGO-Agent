@@ -2120,17 +2120,9 @@ class CommandHandlers:
 
         # 1. Check if executor is paused waiting for tool permission confirmation
         if self._executor_pause_event and isinstance(self._executor_pause_event, threading.Event):
-            tool_info = getattr(self, "_pending_tool_approval", {}) or {}
-            tool_name = tool_info.get("name", "tool")
+            # Silent resume — no "Approved ..." banner (user says it breaks immersion / alignment)
             self._tool_approved = True  # Mark tool as approved
             self._executor_pause_event.set()  # Resume executor (unblock wait)
-            # Keep inside exchange card so chat flow stays immersive
-            try:
-                self._add_notice_inline(f"● Approved {tool_name} — continuing execution")
-            except Exception:
-                self._add_system_message(
-                    f"● [bold green]Approved {tool_name}[/bold green] - continuing execution"
-                )
             return
 
         # 2. Check for pending orchestration plan
@@ -2177,16 +2169,9 @@ class CommandHandlers:
 
         # 1. Check if executor is paused waiting for tool permission confirmation
         if self._executor_pause_event and isinstance(self._executor_pause_event, threading.Event):
-            tool_info = getattr(self, "_pending_tool_approval", {}) or {}
-            tool_name = tool_info.get("name", "tool")
             self._tool_approved = False  # Mark tool as denied
             self._executor_pause_event.set()  # Resume executor (unblock wait)
-            try:
-                self._add_notice_inline(f"● Denied {tool_name} — skipping execution")
-            except Exception:
-                self._add_system_message(
-                    f"● [bold red]Denied {tool_name}[/bold red] - skipping execution"
-                )
+            # Silent — no banner
             return
 
         # 2. Check for pending orchestration plan

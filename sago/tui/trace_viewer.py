@@ -102,25 +102,28 @@ TraceViewerScreen {
     layout: vertical;
 }
 .tv-header {
-    height: 3;
+    height: auto;
+    min-height: 3;
     background: #161b22;
     border-top: solid #388bfd;
     border-bottom: solid #21262d;
     padding: 0 2;
-    align-vertical: middle;
+    layout: horizontal;
 }
 .tv-title {
     color: #58a6ff;
     text-style: bold;
-    width: 1fr;
-    height: 1;
+    width: auto;
+    min-width: 12;
+    height: auto;
     content-align: left middle;
 }
 .tv-stats {
     color: #8b949e;
-    height: 1;
+    height: auto;
     content-align: left middle;
     margin-right: 2;
+    text-wrap: wrap;
 }
 .tv-btn {
     height: 1;
@@ -231,7 +234,7 @@ class TraceViewerScreen(ModalScreen[None]):
     def __init__(
         self,
         events: list[DevTraceEvent],
-        title: str = "Developer Telemetry & Execution Inspector",
+        title: str = "Inspector",
         turn_label: str = "",
     ) -> None:
         super().__init__()
@@ -243,12 +246,22 @@ class TraceViewerScreen(ModalScreen[None]):
         ev = self.events
         llm_ev = [e for e in ev if e.event_type.value in ("LLM_RAW_RESPONSE", "LLM_PAYLOAD")]
         tool_ev = [e for e in ev if e.event_type.value == "TOOL_DISPATCH"]
-        think_ev = [
-            e
-            for e in ev
-            if e.event_type.value == "LLM_THINKING"
-            or (e.event_type.value == "LLM_RAW_RESPONSE" and e.data.get("thinking"))
-        ]
+        # Dedupe thinking: LLM_THINKING + LLM_RAW_RESPONSE with thinking are same trace, count once
+        _seen_thinking: set[str] = set()
+        think_ev: list = []
+        for e in ev:
+            if e.event_type.value == "LLM_THINKING":
+                t = (e.data.get("thinking") or "").strip()
+                key = t[:200] if t else str(e.timestamp)
+                if key not in _seen_thinking:
+                    _seen_thinking.add(key)
+                    think_ev.append(e)
+            elif e.event_type.value == "LLM_RAW_RESPONSE" and e.data.get("thinking"):
+                t = (e.data.get("thinking") or "").strip()
+                key = t[:200] if t else str(e.timestamp)
+                if key not in _seen_thinking:
+                    _seen_thinking.add(key)
+                    think_ev.append(e)
         err_ev = [e for e in ev if e.event_type.value == "ERROR" or e.status in ("ERROR", "FAILED")]
         route_ev = [e for e in ev if e.event_type.value == "AGENT_ROUTING"]
 
@@ -648,15 +661,24 @@ class TraceViewerScreen(ModalScreen[None]):
 
     def _tab_thinking(self) -> ComposeResult:
         with VerticalScroll(classes="tv-tab-scroll"):
+            # Dedupe: LLM_THINKING and LLM_RAW_RESPONSE with same thinking are same trace
+            seen: set[str] = set()
             blocks: list[tuple[str, str, object]] = []
             for e in self.events:
                 if e.event_type.value == "LLM_THINKING":
-                    blocks.append((e.data.get("model", ""), e.data.get("thinking", ""), e))
+                    t = (e.data.get("thinking") or "").strip()
+                    key = t[:300] if t else str(e.timestamp)
+                    if key not in seen:
+                        seen.add(key)
+                        blocks.append((e.data.get("model", ""), t, e))
             for e in self.events:
                 if e.event_type.value == "LLM_RAW_RESPONSE":
-                    t = e.data.get("thinking", "")
+                    t = (e.data.get("thinking") or "").strip()
                     if t:
-                        blocks.append((e.data.get("model", ""), t, e))
+                        key = t[:300] if t else str(e.timestamp)
+                        if key not in seen:
+                            seen.add(key)
+                            blocks.append((e.data.get("model", ""), t, e))
 
             if not blocks:
                 yield Static(

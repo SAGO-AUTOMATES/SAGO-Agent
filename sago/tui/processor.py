@@ -1714,30 +1714,8 @@ class MessageProcessorMixin:
                             len(all_issues),
                             self.current_model,
                         )
-                        # Keep verification silent in normal mode; developer_mode confidence
-                        # is now embedded inline at bottom of the exchange card (not a
-                        # separate breaking-immersion system message outside the turn).
-                        if getattr(self, "developer_mode", False):
-                            try:
-                                if confidence < 50:
-                                    detail_parts = all_issues[:4]
-                                    detail = "; ".join(d[:80] for d in detail_parts)
-                                    msg = f"⚠️ Low confidence ({confidence}/100): {detail}"
-                                elif confidence < 80:
-                                    detail_parts = all_issues[:2]
-                                    detail = (
-                                        "; ".join(d[:80] for d in detail_parts)
-                                        if detail_parts
-                                        else "minor verification notes"
-                                    )
-                                    msg = f"🔍 Confidence: {confidence}/100 — {detail}"
-                                else:
-                                    tool_count = len(tool_history)
-                                    msg = f"✅ Confidence: {confidence}/100 — verified ({tool_count} tool calls)"
-                                # Inline inside active exchange so it doesn't break chat flow
-                                self.call_from_thread(self._add_notice_inline, msg)
-                            except Exception:
-                                pass
+                        # Silent — no Confidence banner (user says it breaks immersion, alignment off)
+                        # Logged at INFO above; UI no longer shows "Confidence: 100/100" line
                     except Exception as e:
                         logger.debug("Verification confidence check failed: %s", e)
                 elif content and content.strip():
