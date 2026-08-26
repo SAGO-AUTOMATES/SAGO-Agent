@@ -92,6 +92,8 @@ TOOL_RISK_LEVELS: dict[str, RiskLevel] = {
     # Critical - irreversible operations
     "spawn_agent": RiskLevel.CRITICAL,
     "system_format": RiskLevel.CRITICAL,
+    # Interactive - safe, just asks user
+    "ask_question": RiskLevel.SAFE,
 }
 
 

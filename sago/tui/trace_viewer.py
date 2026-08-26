@@ -579,81 +579,103 @@ class TraceViewerScreen(ModalScreen[None]):
                 )
                 return
 
+            # Simplified flow: 1 line per step, no deep nesting, deduped reasoning
             graph_lines = [
-                "╔═══════════════════════════════════════════════════════════════════════════╗",
-                "║             SAGO Execution & Interaction Flow Graph (Deep View)           ║",
-                "╚═══════════════════════════════════════════════════════════════════════════╝",
+                "SAGO Flow  •  User → LLM → Tools → Response",
                 "",
-                " ● [User Input / Conversational Turn Started]",
+                "● User turn started",
             ]
 
             step_idx = 1
+            seen_thinking: set[str] = set()
             for e in self.events:
                 et = e.event_type.value
                 dur = f" ({_fmt_ms(e.duration_ms)})" if e.duration_ms > 0 else ""
                 status_mark = "✓" if e.status == "OK" else "✗"
 
-                if et == "LLM_PAYLOAD" or et == "LLM_RAW_REQUEST":
+                if et in ("LLM_PAYLOAD", "LLM_RAW_REQUEST", "LLM_RAW_RESPONSE"):
                     model = e.data.get("model", "LLM")
-                    tokens_in = e.data.get("tokens_in", 0)
-                    tokens_out = e.data.get("tokens_out", 0)
+                    # Only show one LLM step per logical call (payload/request/response are same)
+                    # Dedupe by step_idx timing — skip near-duplicate LLM events within 1s
+                    if graph_lines and f"LLM → {model}" in graph_lines[-1]:
+                        continue
+                    tokens_in = e.data.get("tokens_in", e.data.get("usage", {}).get("tokens_in", 0))
+                    tokens_out = e.data.get(
+                        "tokens_out", e.data.get("usage", {}).get("tokens_out", 0)
+                    )
                     tok_str = (
-                        f" [In: {tokens_in} | Out: {tokens_out} tok]"
-                        if tokens_in or tokens_out
-                        else ""
+                        f"  In:{tokens_in} Out:{tokens_out}" if tokens_in or tokens_out else ""
                     )
-                    graph_lines.append(" │")
-                    graph_lines.append(
-                        f" ├──► [Step {step_idx}: LLM Query → {model}]{dur}{tok_str}"
-                    )
+                    graph_lines.append(f"{step_idx}. LLM → {model}{tok_str}{dur}")
+                    # Inline single reasoning if present (not separate step, avoids duplicate)
+                    t = (e.data.get("thinking") or "").strip()
+                    if t:
+                        key = t[:200]
+                        if key not in seen_thinking:
+                            seen_thinking.add(key)
+                            preview = t.splitlines()[0][:80].replace('"', "'")
+                            graph_lines.append(f'   ↳ reasoning: "{preview}..."')
                     step_idx += 1
                 elif et == "LLM_THINKING":
-                    model = e.data.get("model", "LLM")
-                    thinking_str = e.data.get("thinking", "").strip()
-                    chars = len(thinking_str)
-                    preview = (
-                        thinking_str.splitlines()[0][:70] if thinking_str else "Reasoning trace"
-                    )
-                    graph_lines.append(" │     │")
-                    graph_lines.append(
-                        f' │     └──► [Reasoning / CoT ({chars} chars)]: "{preview}..."'
-                    )
+                    # Show as indented sub-item, not a numbered step — avoids duplicate 2,6,8
+                    t = (e.data.get("thinking") or "").strip()
+                    key = t[:200] if t else ""
+                    if key and key in seen_thinking:
+                        continue
+                    if key:
+                        seen_thinking.add(key)
+                    preview = t.splitlines()[0][:80].replace('"', "'") if t else "thinking"
+                    graph_lines.append(f'   ↳ reasoning: "{preview}..."')
+                    # No step_idx increment — reasoning is sub-step of previous LLM
                 elif et == "TOOL_DISPATCH":
                     tname = e.data.get("tool_name", e.action)
-                    args = e.data.get("arguments", {})
-                    args_summary = (
-                        ", ".join(f"{k}={repr(v)[:30]}" for k, v in args.items())
-                        if isinstance(args, dict)
-                        else ""
-                    )
-                    args_str = f" ({args_summary[:60]})" if args_summary else ""
-                    graph_lines.append(" │")
-                    graph_lines.append(
-                        f" ├──► [Step {step_idx}: Tool Execution: {tname}{args_str}] [{status_mark}]{dur}"
-                    )
-                    res_prev = e.data.get("result_preview", "")
-                    if res_prev:
-                        first_res = res_prev.splitlines()[0][:75]
-                        graph_lines.append(f" │     └── Output: {first_res}...")
+                    # Break clearly on ask_question
+                    if tname == "ask_question":
+                        args = e.data.get("arguments", {})
+                        q_text = ""
+                        if isinstance(args, dict):
+                            # questions may be list or JSON string
+                            qs = args.get("questions", "")
+                            if isinstance(qs, list) and qs:
+                                first = qs[0]
+                                if isinstance(first, dict):
+                                    q_text = first.get("question", "") or str(first)
+                                else:
+                                    q_text = str(first)
+                            elif isinstance(qs, str):
+                                q_text = qs
+                            else:
+                                q_text = str(qs)[:60]
+                        else:
+                            q_text = str(args)[:60]
+                        # Clean
+                        q_text = q_text.replace("\n", " ").strip()[:60]
+                        graph_lines.append(
+                            f'{step_idx}. ❓ question: "{q_text}" [{status_mark}]{dur}'
+                        )
+                    else:
+                        args = e.data.get("arguments", {})
+                        args_summary = ""
+                        if isinstance(args, dict) and args:
+                            args_summary = ", ".join(
+                                f"{k}={str(v)[:20]}" for k, v in list(args.items())[:2]
+                            )
+                        args_str = f" ({args_summary})" if args_summary else ""
+                        graph_lines.append(
+                            f"{step_idx}. tool: {tname}{args_str} [{status_mark}]{dur}"
+                        )
                     step_idx += 1
                 elif et == "AGENT_ROUTING":
                     target = e.data.get("target_agent", e.action)
-                    reason = e.data.get("reason", "")
-                    graph_lines.append(" │")
-                    graph_lines.append(f" ├──► [Step {step_idx}: Sub-Agent Delegated: @{target}]")
-                    if reason:
-                        graph_lines.append(f" │     └── Intent: {reason[:70]}")
+                    graph_lines.append(f"{step_idx}. delegate → @{target}")
                     step_idx += 1
                 elif et == "ERROR":
                     err_msg = e.data.get("error", e.action)
-                    graph_lines.append(" │")
-                    graph_lines.append(
-                        f" ├──► [Step {step_idx}: ⚠️ Error Encountered: {err_msg[:80]}]"
-                    )
+                    graph_lines.append(f"{step_idx}. ⚠️ {err_msg[:60]}")
                     step_idx += 1
 
-            graph_lines.append(" │")
-            graph_lines.append(" └──► [● Response Formatted & Delivered to User]")
+            graph_lines.append("")
+            graph_lines.append("● response delivered")
 
             yield Static("\n".join(graph_lines), classes="tv-graph-block", markup=False)
 

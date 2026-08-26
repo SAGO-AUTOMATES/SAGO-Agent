@@ -111,7 +111,20 @@ class AskQuestionTool(BaseTool):
                 )
 
             if is_headless or not options:
-                # Default selection
+                # TUI/headless: don't auto-pick "Proceed..." for open-ended questions like
+                # "What is your name?" — surface the question for the UI/chat flow
+                if not options:
+                    # Open-ended (e.g., name) — let TUI/chat handle the reply
+                    selected = f"Prompted user: '{q_text}' — awaiting reply in chat"
+                    results.append(
+                        {
+                            "question": q_text,
+                            "selected": selected,
+                            "mode": "tui_prompt",
+                        }
+                    )
+                    continue
+                # Has options but headless: pick default/first
                 selected = (
                     q_item.default_option
                     if q_item.default_option

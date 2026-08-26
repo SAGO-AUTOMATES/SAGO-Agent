@@ -254,23 +254,27 @@ class DevTracer:
         helpers._add_thinking_card per ExchangeTurnCard.
         """
         # Coalesce into single block per turn — avoids 12 thinking for 12 LLM
+        # Source-agnostic: tui.llm vs agent produce same reasoning, should be 1
         try:
             with self._lock:
                 if self._events:
                     last = self._events[-1]
-                    if (
-                        last.event_type == TraceEventType.LLM_THINKING
-                        and last.source == source
-                        and last.data.get("model") == model
-                        and last.data.get("thinking_type") == thinking_type
-                    ):
-                        # Same turn window (e.g. within 90s) and not huge yet
+                    if last.event_type == TraceEventType.LLM_THINKING:
+                        # Coalesce any thinking within same turn window, regardless of source
                         age = time.time() - last.timestamp
-                        if age < 90 and last.data.get("thinking_length", 0) < 15000:
-                            # Append with separator, dedupe if already contained
+                        if age < 120 and last.data.get("thinking_length", 0) < 18000:
                             existing = last.data.get("thinking", "") or ""
                             new_part = thinking_content.strip() if thinking_content else ""
                             if new_part and new_part not in existing:
+                                # If new is synthetic fallback (Intent: ...) and existing is real
+                                # "**My Assessment...", prefer real and ignore synthetic
+                                is_synthetic = new_part.startswith("Intent:")
+                                is_existing_real = (
+                                    existing.strip().startswith("**My Assessment")
+                                    or len(existing) > 500
+                                )
+                                if is_synthetic and is_existing_real:
+                                    return last  # ignore synthetic when real already present
                                 combined = (
                                     (existing + "\n\n" + new_part).strip() if existing else new_part
                                 )
@@ -278,7 +282,7 @@ class DevTracer:
                                 last.data["thinking_truncated"] = len(combined) > 20000
                                 last.data["thinking_length"] = len(combined)
                                 last.timestamp = time.time()
-                                # Notify listeners of update (reuse same event)
+                                # Keep original source/model but update thinking
                                 listeners = list(self._listeners)
                                 if self._enabled:
                                     for cb in listeners:
@@ -286,6 +290,9 @@ class DevTracer:
                                             cb(last)
                                         except Exception as e:
                                             logger.debug("Trace listener error: %s", e)
+                                return last
+                            else:
+                                # Exact duplicate — don't create new block
                                 return last
         except Exception:
             pass
