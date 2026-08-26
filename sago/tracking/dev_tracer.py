@@ -738,22 +738,60 @@ def export_session_dev_artifacts(
                 chat_lines.append("")
             chat_lines.append("</details>\n")
 
-        # Format reasoning / thinking process
+        # Format reasoning / thinking — supports both <thinking> tags and persisted metadata
+        thinking_text = ""
         thinking_match = re.search(
             r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>", content, re.DOTALL
         )
         body = content
         if thinking_match:
             thinking_text = thinking_match.group(1).strip()
-            if thinking_text:
-                chat_lines.append(
-                    "<details>\n<summary>🧠 <b>Technical Reasoning & Architectural Analysis</b></summary>\n\n"
-                )
-                chat_lines.append(thinking_text)
-                chat_lines.append("\n\n</details>\n")
             body = re.sub(
                 r"<(?:thinking|thought)>.*?</(?:thinking|thought)>", "", content, flags=re.DOTALL
             ).strip()
+        # Persisted metadata thinking (new sessions) — merged, not duplicate
+        meta_thinking = ""
+        _meta_raw = msg.get("metadata")
+        if isinstance(_meta_raw, str):
+            try:
+                _meta_raw = json.loads(_meta_raw)
+            except Exception:
+                _meta_raw = {}
+        if isinstance(_meta_raw, dict):
+            meta_thinking = _meta_raw.get("thinking", "") or ""
+        # Also check direct msg["thinking"] (in-memory)
+        if not meta_thinking:
+            meta_thinking = msg.get("thinking", "") or ""
+        if meta_thinking and meta_thinking.strip():
+            if thinking_text and meta_thinking.strip() not in thinking_text:
+                thinking_text = (
+                    (thinking_text + "\n\n" + meta_thinking.strip()).strip()
+                    if thinking_text
+                    else meta_thinking.strip()
+                )
+            elif not thinking_text:
+                thinking_text = meta_thinking.strip()
+        if thinking_text:
+            chat_lines.append(
+                "<details>\n<summary>🧠 <b>Technical Reasoning & Architectural Analysis</b></summary>\n\n"
+            )
+            chat_lines.append(thinking_text)
+            chat_lines.append("\n\n</details>\n")
+
+        # Also surface model/agent metadata if present
+        _meta_for_info = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
+        if isinstance(msg.get("metadata"), str):
+            try:
+                _meta_for_info = json.loads(msg["metadata"])
+            except Exception:
+                _meta_for_info = {}
+        _model_info = _meta_for_info.get("model") or msg.get("model") or ""
+        if _model_info:
+            chat_lines.append(f"- **Model**: `{_model_info}`")
+        # Include token/tool counts if available in metadata
+        _tok = _meta_for_info.get("tokens") or _meta_for_info.get("token_usage") or {}
+        if _tok:
+            chat_lines.append(f"- **Tokens**: `{_tok}`")
 
         chat_lines.append(body)
         chat_lines.append("\n\n---\n")

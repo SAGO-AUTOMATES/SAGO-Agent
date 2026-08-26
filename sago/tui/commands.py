@@ -1288,7 +1288,7 @@ class CommandHandlers:
                                 self.messages.append(user_msg_dict)
 
                             elif role == "assistant":
-                                # Extract thinking blocks
+                                # Extract thinking blocks — check both content tags and persisted metadata
                                 thinking_match = re.search(
                                     r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>",
                                     content,
@@ -1306,6 +1306,20 @@ class CommandHandlers:
                                         content,
                                         flags=re.DOTALL,
                                     ).strip()
+                                # Persisted thinking from helpers metadata (new sessions)
+                                meta_thinking = msg_metadata.get("thinking", "")
+                                if meta_thinking and meta_thinking.strip():
+                                    # Merge: metadata thinking is already deduped single block per turn
+                                    if thinking_html:
+                                        if meta_thinking.strip() not in thinking_html:
+                                            thinking_html = (
+                                                thinking_html + "\n\n" + meta_thinking.strip()
+                                            ).strip()
+                                    else:
+                                        thinking_html = meta_thinking.strip()
+                                    # Ensure display_content still stripped of any tags
+                                    if not display_content:
+                                        display_content = content.strip()
 
                                 # Defer mounting until after compose() has run
                                 deferred_responses.append(
@@ -1325,6 +1339,8 @@ class CommandHandlers:
                                         "role": "assistant",
                                         "content": content,
                                         "agent_name": agent_name,
+                                        "thinking": thinking_html,
+                                        "metadata": msg_metadata,
                                     }
                                 )
 

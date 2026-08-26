@@ -529,8 +529,40 @@ class UIHelpers:
         self: SagoApp, content: str, meta: str = "", agent_name: str = ""
     ) -> None:
         self._hide_welcome_screen()
-        self.messages.append({"role": "assistant", "content": content, "agent_name": agent_name})
-        self._save_message("assistant", content)
+        # Extract thinking for DB persistence before stripping
+        _thinking_for_db = ""
+        _tm = re.search(r"<(?:thinking|thought)>(.*?)</(?:thinking|thought)>", content, re.DOTALL)
+        if _tm:
+            _thinking_for_db = _tm.group(1).strip()
+        # Also pull any buffered thinking from _add_thinking_card (synthesized or native)
+        _buf = getattr(self, "_current_thinking_buffer", "")
+        if _buf:
+            _thinking_for_db = (
+                (_buf + "\n\n" + _thinking_for_db).strip() if _thinking_for_db else _buf.strip()
+            )
+            # Clear after consuming
+            try:
+                self._current_thinking_buffer = ""  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        self.messages.append(
+            {
+                "role": "assistant",
+                "content": content,
+                "agent_name": agent_name,
+                "thinking": _thinking_for_db,
+            }
+        )
+        # Persist thinking + agent + model in metadata so reload and exports have it
+        _meta = {
+            "thinking": _thinking_for_db,
+            "model": getattr(self, "current_model", ""),
+            "agent": agent_name,
+        }
+        # Merge caller-provided meta (string) as well
+        if meta:
+            _meta["meta_str"] = meta
+        self._save_message("assistant", content, metadata=_meta)
 
         target_card = getattr(self, "_active_exchange_card", None)
 
@@ -783,6 +815,15 @@ class UIHelpers:
         # Ignore super-short spinner text
         if len(reasoning_text.strip()) < 20:
             return
+
+        # Buffer for DB persistence / reload / exports — survives beyond in-memory tracer
+        try:
+            _buf = getattr(self, "_current_thinking_buffer", "") or ""
+            _clean = reasoning_text.strip()
+            if _clean not in _buf:
+                self._current_thinking_buffer = (_buf + "\n\n" + _clean).strip() if _buf else _clean  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
         target_card = getattr(self, "_active_exchange_card", None)
         if target_card is None:
