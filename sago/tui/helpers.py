@@ -773,26 +773,23 @@ class UIHelpers:
 
                 self.call_after_refresh(_mount_trace_bar)
 
-        # If developer mode is active, continuously and automatically update session dev artifacts
+        # If developer mode is active, update session dev artifacts
+        # Use synchronous call — background daemon thread caused
+        # "_enter_buffered_busy: could not acquire lock for <stdin>" at exit (200s)
         if getattr(self, "developer_mode", False):
             try:
-                import threading
                 from pathlib import Path
 
                 from sago.tracking.dev_tracer import export_session_dev_artifacts
 
-                threading.Thread(
-                    target=export_session_dev_artifacts,
-                    args=(
-                        self.current_session_id,
-                        list(self.messages),
-                        Path.cwd(),
-                        getattr(self, "session_tool_calls", None),
-                    ),
-                    daemon=True,
-                ).start()
+                export_session_dev_artifacts(
+                    self.current_session_id,
+                    list(self.messages),
+                    Path.cwd(),
+                    getattr(self, "session_tool_calls", None),
+                )
             except Exception as e:
-                log_exception(e, "export session dev artifacts in background")
+                log_exception(e, "export session dev artifacts")
 
         # Turn finished -> clear active exchange card
         self._active_exchange_card = None
