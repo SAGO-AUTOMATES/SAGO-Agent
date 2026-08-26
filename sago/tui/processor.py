@@ -691,6 +691,7 @@ class MessageProcessorMixin:
                                 continue
                             delta = chunk.choices[0].delta
                             # Capture reasoning/thinking deltas (OpenRouter: delta.reasoning, Ollama: delta.thinking)
+                            # Break after first hit — multiple fields same value cause stutter "LetLet me me"
                             for _rfield in (
                                 "reasoning",
                                 "reasoning_content",
@@ -711,6 +712,7 @@ class MessageProcessorMixin:
                                                 for v in _rval
                                             )
                                         _stream_reasoning += str(_rval)
+                                        break
                             if delta.content:
                                 content += delta.content
                             # Accumulate streaming tool calls
