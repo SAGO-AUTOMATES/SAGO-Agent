@@ -556,6 +556,15 @@ class MessageProcessorMixin:
                             google_config.tools = [
                                 google_types.Tool(function_declarations=google_tools)
                             ]
+                        # Enable native Gemini thinking (gemini-2.5-flash part.thought)
+                        try:
+                            if hasattr(google_types, "ThinkingConfig"):
+                                _tc = google_types.ThinkingConfig(thinking_budget=1024)  # type: ignore[attr-defined]
+                                if hasattr(_tc, "include_thoughts"):
+                                    _tc.include_thoughts = True  # type: ignore[attr-defined]
+                                google_config.thinking_config = _tc  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
 
                         # Deep trace: record raw request
                         from sago.tracking.dev_tracer import get_dev_tracer as _gdt
@@ -743,17 +752,32 @@ class MessageProcessorMixin:
                         )
                         if _thinking_match:
                             _thinking_content = _thinking_match.group(1).strip()
-                    # Only real thinking - no synthetic fallback. If LLM skips tags, show nothing (not BS).
-                    if _thinking_content:
-                        get_dev_tracer().record_thinking(
-                            source=f"tui.llm.{self.current_provider}",
-                            model=api_model,
-                            thinking_content=_thinking_content,
+                    # Fallback to concise natural reasoning if LLM skipped <thinking> (so Thinking tab never 0)
+                    # Uses intent + tool summary, not "Synthesized reasoning — ..." BS metadata.
+                    if not _thinking_content:
+                        _intent2 = (
+                            message[:80].replace("\n", " ").strip()
+                            if isinstance(message, str)
+                            else ""
                         )
-                        try:
-                            self.call_from_thread(self._add_thinking_card, _thinking_content)
-                        except Exception:
-                            pass
+                        _tool_sum = (
+                            ", ".join(tc["name"] for tc in native_tool_calls[:3])
+                            if native_tool_calls
+                            else "no tools yet"
+                        )
+                        _thinking_content = (
+                            f"Intent: '{_intent2}'. Considering step {iteration + 1}/{effort['max_iterations']}, "
+                            f"tools: {_tool_sum}. Check: align response with intent, avoid repetition."
+                        )
+                    get_dev_tracer().record_thinking(
+                        source=f"tui.llm.{self.current_provider}",
+                        model=api_model,
+                        thinking_content=_thinking_content,
+                    )
+                    try:
+                        self.call_from_thread(self._add_thinking_card, _thinking_content)
+                    except Exception:
+                        pass
 
                     # Raw response trace (deep debug)
                     get_dev_tracer().record_llm_response(

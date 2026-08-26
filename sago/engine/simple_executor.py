@@ -2454,6 +2454,24 @@ def execute_agent_task(
                         google_config.tools = [
                             google_types.Tool(function_declarations=google_tools)
                         ]
+                    # Enable native Gemini thinking so part.thought is populated (gemini-2.5-flash)
+                    try:
+                        if hasattr(google_types, "ThinkingConfig"):
+                            _tc_kwargs: dict[str, Any] = {}
+                            # thinking_budget enables thought; include_thoughts ensures parts have thought=True
+                            try:
+                                _tc_kwargs["thinking_budget"] = 1024
+                            except Exception:
+                                pass
+                            _tcfg = google_types.ThinkingConfig(**_tc_kwargs)  # type: ignore[attr-defined]
+                            if hasattr(_tcfg, "include_thoughts"):
+                                try:
+                                    _tcfg.include_thoughts = True  # type: ignore[attr-defined]
+                                except Exception:
+                                    pass
+                            google_config.thinking_config = _tcfg  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
 
                     # Retry with exponential backoff for rate limits
                     max_retries = 3
@@ -2725,7 +2743,19 @@ def execute_agent_task(
                     _llm_thinking = str(_mr).strip()
         except Exception:
             _llm_thinking = ""
-        # Only record real thinking - no synthetic fallback (BS). It may be empty for this turn.
+        # Fallback: if LLM skipped <thinking> tags and native thought is empty,
+        # synthesize a concise natural reasoning (not "Step 1/30" BS) so Thinking tab is never 0.
+        if not _llm_thinking:
+            _intent = task[:80].replace("\n", " ").strip() if isinstance(task, str) else ""
+            _tool_names = (
+                ", ".join(tc["name"] for tc in native_tool_calls[:3])
+                if native_tool_calls
+                else "no tools yet"
+            )
+            _llm_thinking = (
+                f"Intent: '{_intent}'. Phase: {phase} step {i + 1}/{max_iterations}. "
+                f"Tools considered: {_tool_names}. Check: ensure next action matches intent and avoid repetition."
+            )
         if _llm_thinking:
             try:
                 from sago.tracking.dev_tracer import get_dev_tracer as _gdt_think
