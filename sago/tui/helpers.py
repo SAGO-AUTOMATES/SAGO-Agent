@@ -1833,7 +1833,7 @@ class UIHelpers:
                 body_lines.append(
                     f"[bold yellow]@{_esc(ag)}[/bold yellow]  —  [dim]no tools, reasoning only[/dim]"
                 )
-            # Append last output preview for this agent if available
+            # Append clear human-readable key takeaway for this agent
             try:
                 last_out = ""
                 for m in reversed(list(getattr(self, "messages", []) or [])):
@@ -1847,9 +1847,17 @@ class UIHelpers:
                         ).strip()
                         break
                 if last_out:
-                    preview = _esc(last_out.replace("\n", " ")[:180])
+                    clean_lines = [
+                        line.strip()
+                        for line in last_out.splitlines()
+                        if line.strip() and not line.strip().startswith("#")
+                    ]
+                    first_takeaway = (
+                        clean_lines[0] if clean_lines else last_out.replace("\n", " ").strip()
+                    )
+                    preview = _esc(first_takeaway[:220])
                     body_lines.append(
-                        f"  [dim]↳ {preview}{'...' if len(last_out) > 180 else ''}[/dim]"
+                        f"  [white]↳ {preview}{'...' if len(first_takeaway) > 220 else ''}[/white]"
                     )
             except Exception:
                 pass

@@ -161,6 +161,12 @@ class PromptEnhancer:
     # Domain-specific constraints (only injected when relevant)
     _DOMAIN_CONSTRAINTS = {
         "python": ["Use type hints", "Handle exceptions", "Verify with pytest"],
+        "javascript": [
+            "Use modern ES6+ syntax",
+            "Handle async/promises properly",
+            "Validate inputs",
+        ],
+        "typescript": ["Use strict type annotations", "Handle error cases", "Validate inputs"],
         "web": ["Validate inputs", "Handle errors gracefully", "No hardcoded secrets"],
         "database": ["Use parameterized queries", "Ensure migrations are idempotent"],
         "security": ["No hardcoded credentials", "Validate all inputs"],
@@ -168,6 +174,7 @@ class PromptEnhancer:
         "java": ["Use proper exception handling", "Follow SOLID principles"],
         "rust": ["Handle Result types", "Avoid unwrap() in production code"],
         "go": ["Handle errors explicitly", "Use context for cancellation"],
+        "general": ["Keep solutions simple and minimal", "Handle errors gracefully"],
     }
 
     # Simple query signals — skip enhancement for these
@@ -452,9 +459,28 @@ Task: {raw[:1500]}"""
         """Detect domain from agent role and text content."""
         combined = f"{agent_role} {text}".lower()
 
+        if any(
+            k in combined
+            for k in (
+                "javascript",
+                "js",
+                "node",
+                "typescript",
+                "ts",
+                "npm",
+                "yarn",
+                "pnpm",
+                "bun",
+                "express",
+                "nest",
+            )
+        ):
+            return "javascript"
         if any(k in combined for k in ("python", "pytest", "django", "flask", "fastapi")):
             return "python"
-        if any(k in combined for k in ("java", "spring", "maven", "gradle")):
+        if any(k in combined for k in ("java", "spring", "maven", "gradle")) and not any(
+            k in combined for k in ("javascript", ".js")
+        ):
             return "java"
         if any(k in combined for k in ("rust", "cargo", "clippy")):
             return "rust"
@@ -470,7 +496,7 @@ Task: {raw[:1500]}"""
             return "devops"
         if any(k in combined for k in ("security", "auth", "token", "jwt", "crypto")):
             return "security"
-        return "python"  # default
+        return "general"
 
     def _extract_file_refs(self, text: str) -> list[str]:
         """Extract file references from text using fast regex. No directory walking."""
