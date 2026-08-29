@@ -308,25 +308,27 @@ class DevTracer:
         This preserves distinct reasoning per agent and per step, while
         still filtering spam duplicates.
         """
-        # Dedupe only exact duplicate content from same source within 5s
+        # Dedupe only exact duplicate content from same source within 120s
+        # Per-agent distinction: source already includes agent_name (e.g. "agent.python-engineer")
+        # Do NOT coalesce "Intent:" synthetic blocks — each distinct reasoning step is preserved
         try:
             with self._lock:
                 # Find most recent LLM_THINKING from same source
                 for ev in reversed(self._events):
                     if ev.event_type == TraceEventType.LLM_THINKING and ev.source == source:
                         age = time.time() - ev.timestamp
-                        if age < 5:
+                        if age < 120:
                             existing = (ev.data.get("thinking", "") or "").strip()
                             new_part = (thinking_content or "").strip()
                             if new_part and existing:
                                 if new_part[:300] == existing[:300]:
                                     return ev
-                                # Also exact full duplicate within 5s
+                                # Also exact full duplicate within 120s
                                 if new_part == existing:
                                     return ev
                         break
-                # Also check very recent duplicate regardless of source age?
-                # No — per-agent distinction required, so only same source deduped
+                # Do not check very recent duplicate regardless of source age
+                # — per-agent distinction required, so only same source deduped
         except Exception:
             pass
         data = {

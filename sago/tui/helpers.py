@@ -684,9 +684,12 @@ class UIHelpers:
                 pass
             # Convert to blocks for persistence (single bulk block legacy)
             if _thinking_for_db:
+                # Use seq from buffer if available, otherwise default to 1
+                _buf = getattr(self, "_current_thinking_buffer", None)
+                _seq = _buf[0].get("seq", 1) if isinstance(_buf, list) and _buf else 1
                 _thinking_blocks = [
                     {
-                        "seq": 1,
+                        "seq": _seq,
                         "agent": agent_name or "sago",
                         "text": _thinking_for_db,
                         "timestamp": _time_mod.time(),
@@ -695,9 +698,12 @@ class UIHelpers:
         else:
             # No buffer, but inline thinking exists — create single block
             if _thinking_for_db:
+                # Use seq from buffer if available, otherwise default to 1
+                _buf = getattr(self, "_current_thinking_buffer", None)
+                _seq = _buf[0].get("seq", 1) if isinstance(_buf, list) and _buf else 1
                 _thinking_blocks = [
                     {
-                        "seq": 1,
+                        "seq": _seq,
                         "agent": agent_name or "sago",
                         "text": _thinking_for_db,
                         "timestamp": _time_mod.time(),
@@ -1036,10 +1042,12 @@ class UIHelpers:
                 if _b.get("agent") == _agent:
                     break
             if not _is_dup:
-                # seq is len+1 for DB ordering; mount_sequential will assign canonical seq on card
+                # Use mount_sequential seq_id for DB ordering consistency
+                # Get current seq counter value before appending
+                _seq_id = self._seq_counter + 1 if hasattr(self, "_seq_counter") else 1
                 _buf.append(  # type: ignore[union-attr]
                     {
-                        "seq": len(_buf) + 1,  # type: ignore[union-attr]
+                        "seq": _seq_id,
                         "agent": _agent,
                         "text": _clean,
                         "timestamp": _time_mod.time(),
