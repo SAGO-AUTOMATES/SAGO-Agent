@@ -118,24 +118,33 @@ addopts = "-v --tb=short"
 [tool.coverage.run]
 source = ["sago"]
 omit = [
-    "sago/agents/profiles/**",
+    "*/sago/agents/profiles/*",
+    "*/sago/agents/profiles/**",
     "sago/agents/profiles/*",
+    "sago/agents/profiles/**",
     "*/profiles/*",
     "*/profiles/**",
     "sago/workflow/templates.py",
+    "*/sago/workflow/templates.py",
     "sago/webserver/html_template.py",
+    "*/sago/webserver/html_template.py",
     "tests/*",
     "tests/**",
 ]
 
 [tool.coverage.report]
+fail_under = 48
 omit = [
-    "sago/agents/profiles/**",
+    "*/sago/agents/profiles/*",
+    "*/sago/agents/profiles/**",
     "sago/agents/profiles/*",
+    "sago/agents/profiles/**",
     "*/profiles/*",
     "*/profiles/**",
     "sago/workflow/templates.py",
+    "*/sago/workflow/templates.py",
     "sago/webserver/html_template.py",
+    "*/sago/webserver/html_template.py",
     "tests/*",
     "tests/**",
 ]
