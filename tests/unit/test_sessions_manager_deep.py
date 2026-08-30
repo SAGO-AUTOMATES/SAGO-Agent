@@ -73,8 +73,20 @@ class TestSessionManagerUnit:
         assert len(sess.messages) == 1
 
         # Add threads
-        t1 = Thread(id="th1", session_id=sess.id, agent_name="architect", task="Task 1", status=ThreadStatus.RUNNING)
-        t2 = Thread(id="th2", session_id=sess.id, agent_name="python-engineer", task="Task 2", status=ThreadStatus.COMPLETED)
+        t1 = Thread(
+            id="th1",
+            session_id=sess.id,
+            agent_name="architect",
+            task="Task 1",
+            status=ThreadStatus.RUNNING,
+        )
+        t2 = Thread(
+            id="th2",
+            session_id=sess.id,
+            agent_name="python-engineer",
+            task="Task 2",
+            status=ThreadStatus.COMPLETED,
+        )
         sess.threads.extend([t1, t2])
 
         assert len(sess.active_threads()) == 1
