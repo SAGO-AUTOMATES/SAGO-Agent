@@ -175,7 +175,12 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for full CLI and TUI command reference.
 | Command | Shortcut | Description |
 |---------|----------|-------------|
 | `sago tui` | — | Launch interactive terminal UI |
-| `/help` | — | Show all commands |
+| `/help` | `F1` | Show shortcuts and cheatsheet modal |
+| `/dev` | `F2` | Open Deep Trace & Dev Telemetry viewer |
+| `/diff` | `F3` | Interactive workspace diff and git changes inspector |
+| `/files` | `F4` | Interactive workspace file tree explorer & previewer |
+| `/sessions` | `F5` | Interactive session switcher & history manager |
+| `/reload` | `Ctrl+R` | Hot-reload configuration & switch execution modes |
 | `/graph [view] [path]` | — | Show project topology, diagrams, or AI architectural analysis |
 | `/copy [code\|all]` | — | Copy the last response, code block, or chat history to the clipboard |
 | `/clip [code\|all]` | — | Alias for `/copy` |
@@ -213,16 +218,20 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for full CLI and TUI command reference.
 | `sago workflow-add-step <id>` | Add step to workflow |
 | `sago workflow-run <id>` | Execute workflow |
 
-### System
+### System & Daemon Services
 
 | Command | Description |
 |---------|-------------|
-| `sago status` | System status |
+| `sago status` | Show current system, model, and engine status |
+| `sago serve` | Start SAGO background TCP daemon server (`0.0.0.0:7654`) |
+| `sago serve --web` | Start FastAPI REST API + modern Apple-grade Web Dashboard |
+| `sago web [--port 7654]` | Launch Web Control Center & REST/WebSocket server |
+| `sago remote "task"` | Execute a task remotely on a running daemon server |
+| `sago daemon_status` | Check if background daemon server is running |
+| `sago stop` | Stop running background daemon server |
 | `sago agents [category]` | List all categories or drill down into a category |
-| `sago info <agent>` | Agent details |
-| `sago init` | Initialize project |
-| `sago daemon start` | Start background server |
-| `sago daemon stop` | Stop server |
+| `sago info <agent>` | Inspect agent profile details and capabilities |
+| `sago init` | Initialize workspace configuration |
 
 ---
 
@@ -695,11 +704,61 @@ sago/
 
 ---
 
-## Quality
+## API Mode (Opt-In)
 
-Sago includes comprehensive coverage across unit, integration, and security categories.
+Sago can operate in API mode via FastAPI + WebSocket, allowing thin client interfaces
+(TUI, Web frontend) to delegate task execution to the server-side intelligence.
 
-**645 tests passed**, 1 skipped. See [docs/ERRORS.md](docs/ERRORS.md) for error handling and [docs/FLOWS.md](docs/FLOWS.md) for system flowcharts.
+### API Mode is Opt-In Only
+
+By default, Sago operates in **native mode** — the TUI/CLI executes tasks directly
+using local agents and tools. API mode requires an explicit config change:
+
+```bash
+# Change execution mode to API
+cat > ~/.sago/config/sago.yaml << 'EOF'
+execution:
+  mode: "api"           # Opt-in: switch to API/WebSocket mode
+  ws_url: "ws://localhost:8000"
+  api_base_url: "http://localhost:8000"
+  hot_reload: true      # Watch config for changes
+EOF
+```
+
+Then restart or send SIGHUP:
+
+```bash
+# TUI: press /reload or send SIGHUP
+# API server will reread config instantly
+```
+
+### API Mode Features
+
+When in API mode, the following endpoints are available:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Service health check |
+| `POST /execute` | Execute a task via API (same execution flow as TUI) |
+| `WS /ws/{task_id}` | WebSocket streaming of task execution |
+| `POST /reload` | Reread config.yaml without restart |
+| `GET /status/{task_id}` | Check task status |
+
+### Backward Compatibility
+
+- Default mode: `native` — existing TUI/CLI workflows work unchanged
+- Change config to `mode: "api"` to opt-in — no breaking changes
+- Hot-reload supported — switch modes without server restart
+- All 150+ features preserved across both paths
+
+### When to Use API Mode
+
+- When you want a thin client (Web, mobile) to interface with Sago
+- When you need WebSocket real-time streaming without local agent overhead
+- When integrating Sago into existing CI/CD pipelines
+- For multi-user environments where centralized execution is preferred
+
+Default: `execution.mode: "native"` in `config.yaml`. API mode is purely opt-in.
 
 ### Quality Areas
 

@@ -78,12 +78,11 @@ class ShortcutsScreen(ModalScreen[None]):
     #close-btn {
         min-width: 12;
         background: #21262d;
-        color: #8b949e;
-        border: solid #30363d;
-    }
-    #close-btn:focus, #close-btn:hover {
-        background: #30363d;
         color: #c9d1d9;
+    }
+    #close-btn:hover {
+        background: #30363d;
+        color: #ffffff;
     }
     """
 
@@ -105,6 +104,31 @@ class ShortcutsScreen(ModalScreen[None]):
                 )
                 yield Static(
                     "  [bold cyan]F1[/bold cyan] or [bold cyan]?[/bold cyan]         : Show this Shortcuts Reference Modal",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold cyan]F2[/bold cyan]              : Open Deep Trace & Dev Telemetry Viewer",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold cyan]F3[/bold cyan]              : Open Workspace Diff & Git Inspector",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold cyan]F4[/bold cyan]              : Open Workspace File Tree Explorer",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold cyan]F5[/bold cyan]              : Open Session Switcher & History Manager",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold cyan]Ctrl + R[/bold cyan]       : Hot-reload configuration and execution mode",
                     classes="shortcut-row",
                     markup=True,
                 )

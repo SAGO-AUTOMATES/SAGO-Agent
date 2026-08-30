@@ -46,6 +46,18 @@ HARDLINE_COMMAND_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         ),
         "rm -rf /home (home directory deletion)",
     ),
+    (
+        re.compile(
+            r"\bcd\s+/\s*(&&|;)\s*rm\s+(?:[^\n;|&]*\s+)?-(?:[a-zA-Z]*r[a-zA-Z]*f|[a-zA-Z]*f[a-zA-Z]*r)\s+\*"
+        ),
+        "cd / && rm -rf * (root directory wipe)",
+    ),
+    (
+        re.compile(
+            r"\bcd\s+(?:~|\$HOME|/home/[a-zA-Z0-9_-]+)\s*(&&|;)\s*rm\s+(?:[^\n;|&]*\s+)?-(?:[a-zA-Z]*r[a-zA-Z]*f|[a-zA-Z]*f[a-zA-Z]*r)\s+\*"
+        ),
+        "cd ~ && rm -rf * (home directory wipe)",
+    ),
     (re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"), "fork bomb"),
     (re.compile(r"\bmkfs(?:\.[a-zA-Z0-9_-]+)?\s+"), "filesystem format"),
     (

@@ -68,6 +68,7 @@ COMMANDS = {
     "/dev": "Developer telemetry & live traces (/dev [on|off|logs|traces])",
     "/developer": "Developer telemetry (alias of /dev)",
     "/yolo": "Toggle auto-approval for safe tool execution",
+    "/reload": "Hot-reload configuration from disk and apply updates",
     # Utilities
     "/retry": "Retry last failed request",
     "/continue": "Continue last assistant response",

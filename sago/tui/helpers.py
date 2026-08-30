@@ -1335,9 +1335,41 @@ class UIHelpers:
 
             preview_res = _summarize_tool_result(result)
 
+            # If tool modifies files (write_file, edit_file, multi_replace_file), generate inline diff view
+            diff_section = ""
+            if tool_name in ("write_file", "edit_file", "multi_replace_file", "patch_file"):
+                target_f = args.get("target_file") or args.get("file_path") or args.get("path")
+                old_str = args.get("old_string") or args.get("target_content") or ""
+                new_str = (
+                    args.get("new_string")
+                    or args.get("replacement_content")
+                    or args.get("content")
+                    or args.get("code_content")
+                    or ""
+                )
+                if old_str and new_str:
+                    diff_lines = ["[bold magenta]⚡ Inline Diff View:[/bold magenta]"]
+                    for line in old_str.splitlines()[:15]:
+                        diff_lines.append(f"  [red]- {_escape(line)}[/red]")
+                    for line in new_str.splitlines()[:15]:
+                        diff_lines.append(f"  [green]+ {_escape(line)}[/green]")
+                    diff_section = "\n\n" + "\n".join(diff_lines)
+                elif new_str and tool_name == "write_file":
+                    diff_lines = [
+                        f"[bold magenta]⚡ File Created ({_escape(str(target_f))}):[/bold magenta]"
+                    ]
+                    for line in new_str.splitlines()[:20]:
+                        diff_lines.append(f"  [green]+ {_escape(line)}[/green]")
+                    if len(new_str.splitlines()) > 20:
+                        diff_lines.append(
+                            f"  [dim]... (+{len(new_str.splitlines()) - 20} more lines)[/dim]"
+                        )
+                    diff_section = "\n\n" + "\n".join(diff_lines)
+
             body = (
                 f"[bold yellow]Parameters:[/bold yellow]\n{args_str}\n\n"
                 f"[bold green]Result Output:[/bold green]\n{preview_res}"
+                f"{diff_section}"
             )
 
             # Use safe static that pre-validates markup; body contains escaped

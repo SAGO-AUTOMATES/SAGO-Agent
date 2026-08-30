@@ -190,6 +190,9 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         Binding("ctrl+l", "clear_chat", "Clear"),
         Binding("f1", "show_shortcuts", "Help / ?"),
         Binding("f2", "open_trace_viewer", "Traces"),
+        Binding("f3", "open_diff_viewer", "Diff"),
+        Binding("f4", "open_file_explorer", "Files"),
+        Binding("f5", "open_session_manager", "Sessions"),
         Binding("escape", "dismiss_suggestions", "Dismiss"),
         Binding("y", "approve_action", "Approve", show=True, priority=True),
         Binding("n", "deny_action", "Deny", show=True, priority=True),
@@ -207,6 +210,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         Binding("ctrl+home", "scroll_home", "Top", show=False),
         Binding("ctrl+end", "scroll_end", "Bottom", show=False),
         Binding("end", "scroll_end", "Bottom", show=False),
+        Binding("ctrl+r", "reload_config", "Reload Config", show=True, priority=True),
     ]
 
     TITLE = "Sago"
@@ -300,6 +304,21 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                             "⚡ Dev Traces [F2]",
                             id="btn-input-traces",
                             classes="btn-input-action btn-action-traces dev-only-btn",
+                        )
+                        yield Button(
+                            "🔍 Diff [F3]",
+                            id="btn-input-diff",
+                            classes="btn-input-action",
+                        )
+                        yield Button(
+                            "📁 Files [F4]",
+                            id="btn-input-files",
+                            classes="btn-input-action",
+                        )
+                        yield Button(
+                            "🔄 Sessions [F5]",
+                            id="btn-input-sessions",
+                            classes="btn-input-action",
                         )
                         yield Button("🧹 Clear", id="btn-input-clear", classes="btn-input-action")
                         yield Button(
@@ -529,6 +548,17 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         messages = list(getattr(self, "messages", []))
         user_queries = sum(1 for m in messages if m.get("role") == "user")
         if user_queries == 0:
+            # Auto-clean current unused session from DB so ghost sessions don't pollute list
+            try:
+                from sago.database import Session
+
+                cur_sid = getattr(self, "current_session_id", None)
+                if cur_sid:
+                    s_clean = Session(cur_sid)
+                    s_clean.delete()
+                    s_clean.close()
+            except Exception:
+                pass
             return
 
         sid = getattr(self, "current_session_id", "default")[:8]
@@ -775,41 +805,29 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             logging.getLogger("sago.tui").debug(f"DB init failed: {e}")
 
     def _init_session(self) -> None:
+        """Initialize database and clean up ghost sessions without creating an empty session row."""
         try:
             from sago.database import Session, init_db
 
             init_db()
-            # Skip creating a new session if we're about to resume an existing one
+            # Clean up any lingering ghost sessions with 0 messages (older than 30 mins)
+            try:
+                with Session() as s_cleanup:
+                    s_cleanup.cleanup_useless_sessions(min_age_hours=0.5)
+            except Exception:
+                pass
+
+            # If resuming an existing session, do not override
             if self._pending_resume:
                 return
-            session = Session()
-            result = session.create(title="TUI Session")
-            self.current_session_id = result["id"]
-            session.close()
+
+            # Pure lazy session creation: starts as 'local', DB row is created only on 1st real message
+            self.current_session_id = "local"
         except Exception as e:
             import logging
-            import time as _time
 
-            # Retry once — transient DB lock/migration can fail at first boot
-            logging.getLogger("sago.tui").warning(f"Session init failed, retrying: {e}")
-            try:
-                _time.sleep(0.5)
-                from sago.database import Session, init_db
-
-                init_db()
-                if self._pending_resume:
-                    return
-                session = Session()
-                result = session.create(title="TUI Session")
-                self.current_session_id = result["id"]
-                session.close()
-                logging.getLogger("sago.tui").info(
-                    f"Session created on retry: {self.current_session_id}"
-                )
-                return
-            except Exception as e2:
-                logging.getLogger("sago.tui").error(f"Session init failed twice: {e2}")
-                self.current_session_id = "local"
+            logging.getLogger("sago.tui").warning(f"DB init during session setup failed: {e}")
+            self.current_session_id = "local"
 
     def _ensure_real_session(self) -> str:
         """Lazily create a real session if current id is 'local'.
@@ -1416,11 +1434,53 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         except Exception as e:
             self._add_system_message(f"⚡ Trace viewer error: {e}")
 
+    def action_open_diff_viewer(self) -> None:
+        """Open the interactive diff inspector modal (F3)."""
+        try:
+            from sago.tui.modals import DiffViewerScreen
+
+            self.push_screen(DiffViewerScreen())
+        except Exception as e:
+            self._add_system_message(f"🔍 Diff viewer error: {e}")
+
+    def action_open_file_explorer(self) -> None:
+        """Open the workspace file tree explorer modal (F4)."""
+        try:
+            from sago.tui.modals import FileExplorerScreen
+
+            self.push_screen(FileExplorerScreen())
+        except Exception as e:
+            self._add_system_message(f"📁 File explorer error: {e}")
+
+    def action_open_session_manager(self) -> None:
+        """Open the session switcher & manager modal (F5)."""
+        try:
+            from sago.tui.modals import SessionManagerScreen
+
+            self.push_screen(SessionManagerScreen())
+        except Exception as e:
+            self._add_system_message(f"🔄 Session manager error: {e}")
+
     @on(Button.Pressed, "#btn-top-traces")
     @on(Button.Pressed, "#btn-input-traces")
     def on_traces_button_clicked(self) -> None:
         """Open trace viewer from top bar or input action bar button."""
         self.action_open_trace_viewer()
+
+    @on(Button.Pressed, "#btn-input-diff")
+    def on_diff_button_clicked(self) -> None:
+        """Open diff viewer from input action bar button."""
+        self.action_open_diff_viewer()
+
+    @on(Button.Pressed, "#btn-input-files")
+    def on_files_button_clicked(self) -> None:
+        """Open file explorer from input action bar button."""
+        self.action_open_file_explorer()
+
+    @on(Button.Pressed, "#btn-input-sessions")
+    def on_sessions_button_clicked(self) -> None:
+        """Open session switcher from input action bar button."""
+        self.action_open_session_manager()
 
     @on(Button.Pressed, ".btn-view-trace")
     def on_view_trace_button(self, event: Button.Pressed) -> None:
@@ -1850,7 +1910,6 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/clear": lambda: self.action_clear_chat(),
             "/status": lambda: self._show_status(),
             "/export": lambda: self._export_session(args),
-            "/sessions": lambda: self._show_sessions(),
             "/session": lambda: self._switch_session(args),
             "/history": lambda: self._show_history(),
             "/model": lambda: self._change_model(args),
@@ -1864,7 +1923,6 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/save": lambda: self._save_session(args),
             "/load": lambda: self._load_session(args),
             "/git": lambda: self._handle_git_command(args),
-            "/diff": lambda: self._git_diff(args),
             "/commit": lambda: self._git_commit(args),
             "/approve": lambda: self._approve_action(),
             "/deny": lambda: self._deny_action(),
@@ -1916,14 +1974,52 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             "/buttons": lambda: self._handle_buttons_command(args),
             "/bar": lambda: self._handle_buttons_command(args),
             "/show": lambda: self._handle_buttons_command("show " + args),
-            "/hide": lambda: self._handle_buttons_command("hide " + args),
+            "/diff": lambda: (
+                self.action_open_diff_viewer() if not args.strip() else self._git_diff(args)
+            ),
+            "/files": lambda: self.action_open_file_explorer(),
+            "/explorer": lambda: self.action_open_file_explorer(),
+            "/tree": lambda: self.action_open_file_explorer(),
+            "/sessions": lambda: (
+                self.action_open_session_manager() if not args.strip() else self._show_sessions()
+            ),
+            "/session_manager": lambda: self.action_open_session_manager(),
             "/pr": lambda: self._handle_pr_command(args),
+            "/reload": lambda: self._reload_config(),
         }
 
         if cmd in handlers:
             handlers[cmd]()
         else:
             self._add_system_message(f"Unknown: {cmd}\nType /help for commands")
+
+    def _reload_config(self) -> None:
+        """Reload config from disk and switch execution mode if changed."""
+        from sago.config.loader import (
+            get_config,
+            invalidate_config_cache,
+            start_config_watching,
+            stop_config_watching,
+        )
+
+        invalidate_config_cache()
+        stop_config_watching()
+        start_config_watching()
+        config = get_config()
+        mode = getattr(config.execution, "mode", "native")
+        self._add_system_message(f"Config reloaded: execution mode is now [{mode}]")
+        self._update_execution_mode(mode)
+
+    def _update_execution_mode(self, mode: str) -> None:
+        """Update TUI state based on new execution mode."""
+        if mode == "api":
+            self._add_system_message("Switching to API mode...")
+        elif mode == "native":
+            self._add_system_message("Switching to native mode...")
+
+    def action_reload_config(self) -> None:
+        """Textual binding action for /reload command (Ctrl+R)."""
+        self._reload_config()
 
     def action_quit(self) -> None:  # type: ignore[override]
         """Save session and exit."""

@@ -42,7 +42,11 @@ class UnifiedExecutor:
         max_iterations: int = 30,
         backend: str = "simple",
         on_tool_call: Callable | None = None,
+        on_tool_result: Callable | None = None,
         on_thinking: Callable | None = None,
+        auto_verify: bool = False,
+        cwd: str | None = None,
+        session_id: str = "default",
     ) -> dict[str, Any]:
         """Execute a task using the specified backend.
 
@@ -54,7 +58,11 @@ class UnifiedExecutor:
             max_iterations: Maximum tool-calling iterations.
             backend: Execution backend ("simple", "crewai", "langgraph").
             on_tool_call: Callback for tool calls.
+            on_tool_result: Callback for tool results.
             on_thinking: Callback for thinking updates.
+            auto_verify: Whether to run post-execution continuous verification.
+            cwd: Working directory for execution.
+            session_id: Current active session identifier.
 
         Returns:
             Execution result with output, tool_calls, tokens, etc.
@@ -62,18 +70,25 @@ class UnifiedExecutor:
         from sago.tracking.dev_tracer import get_dev_tracer
 
         logger.info(
-            "Task execution started: agent=%s, backend=%s, model=%s, max_iterations=%d",
+            "Task execution started: agent=%s, backend=%s, model=%s, max_iterations=%d, session_id=%s",
             agent_name,
             backend,
             self.model,
             max_iterations,
+            session_id,
         )
         logger.debug("Task preview: %.200s", task)
         tracer = get_dev_tracer()
         with tracer.trace_block(
             source=f"sago.engine.{backend}",
             action=f"execute({agent_name})",
-            data={"task": task[:120], "agent": agent_name, "model": self.model, "backend": backend},
+            data={
+                "task": task[:120],
+                "agent": agent_name,
+                "model": self.model,
+                "backend": backend,
+                "session_id": session_id,
+            },
         ) as trace_data:
             logger.info("Dispatching to backend: %s", backend)
             if backend == "crewai":
@@ -84,14 +99,35 @@ class UnifiedExecutor:
                 res = self._execute_langgraph(task, agent_name, max_iterations)
             else:
                 res = self._execute_simple(
-                    task,
-                    agent_name,
-                    system_prompt,
-                    max_tokens,
-                    max_iterations,
-                    on_tool_call,
-                    on_thinking,
+                    task=task,
+                    agent_name=agent_name,
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens,
+                    max_iterations=max_iterations,
+                    on_tool_call=on_tool_call,
+                    on_tool_result=on_tool_result,
+                    on_thinking=on_thinking,
+                    cwd=cwd,
+                    session_id=session_id,
                 )
+
+            # Self-healing verification check
+            if auto_verify and res.get("success", False):
+                try:
+                    from sago.engine.verifier import get_project_verifier
+
+                    verifier = get_project_verifier()
+                    report = verifier.verify_all()
+                    res["verification"] = {
+                        "passed": report.passed,
+                        "linter_passed": report.linter_passed,
+                        "typecheck_passed": report.typecheck_passed,
+                        "tests_passed": report.tests_passed,
+                        "issues_count": len(report.issues),
+                    }
+                except Exception as e:
+                    logger.debug("Auto-verify skipped: %s", e)
+
             trace_data["tool_calls"] = len(res.get("tool_calls", []))
             trace_data["iterations"] = res.get("iterations", 1)
             logger.info(
@@ -111,7 +147,10 @@ class UnifiedExecutor:
         max_tokens: int,
         max_iterations: int,
         on_tool_call: Callable | None,
-        on_thinking: Callable | None,
+        on_tool_result: Callable | None = None,
+        on_thinking: Callable | None = None,
+        cwd: str | None = None,
+        session_id: str = "default",
     ) -> dict[str, Any]:
         """Execute using simple_executor (all 50 tools)."""
         from sago.engine.simple_executor import execute_agent_task
@@ -125,7 +164,10 @@ class UnifiedExecutor:
             base_url=self.base_url,
             max_tokens=max_tokens,
             max_iterations=max_iterations,
+            cwd=cwd,
+            session_id=session_id,
             on_tool_call=on_tool_call,
+            on_tool_result=on_tool_result,
             on_thinking=on_thinking,
         )
 

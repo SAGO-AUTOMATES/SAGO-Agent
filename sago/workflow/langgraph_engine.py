@@ -18,9 +18,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import END, StateGraph
-from langgraph.graph.message import add_messages
+try:
+    from langgraph.checkpoint.memory import MemorySaver
+    from langgraph.graph import END, StateGraph
+    from langgraph.graph.message import add_messages
+
+    HAS_LANGGRAPH = True
+except ImportError:
+    MemorySaver = Any  # type: ignore
+    END = "__end__"  # type: ignore
+    StateGraph = Any  # type: ignore
+
+    def add_messages(x: Any, y: Any) -> Any:  # type: ignore
+        return (x or []) + (y or [])
+
+    HAS_LANGGRAPH = False
 
 logger = logging.getLogger("sago.workflow.langgraph")
 
@@ -213,7 +225,7 @@ class SagoWorkflowEngine:
             "OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")
         )
         self.model = model
-        self.checkpointer = MemorySaver()
+        self.checkpointer = MemorySaver() if HAS_LANGGRAPH else None
         self._tools: dict[str, Any] | None = None
 
     def _get_tools(self) -> dict[str, Any]:
@@ -411,7 +423,7 @@ class SagoWorkflowEngine:
             "result": result,
         }
 
-    def build_graph(self) -> StateGraph:
+    def build_graph(self) -> Any:
         """Build the workflow graph.
 
         Graph structure:
@@ -419,6 +431,10 @@ class SagoWorkflowEngine:
                             ↑         |
                             └─────────┘
         """
+        if not HAS_LANGGRAPH:
+            raise RuntimeError(
+                "LangGraph is not installed. Install with `pip install langgraph` or use the 'simple' execution backend."
+            )
         graph = StateGraph(WorkflowState)
 
         # Add nodes

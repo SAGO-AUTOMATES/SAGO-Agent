@@ -1427,15 +1427,35 @@ class CommandHandlers:
                     # CRITICAL: Reset stale _message_store so new messages go to this session
                     self._message_store = None
 
-                    # Restore session title from database
+                    # Restore session title and workspace path from database
                     try:
                         s2 = Session(actual_sid)
                         session_data = s2.get()
                         s2.close()
-                        if session_data and session_data.get("title"):
-                            self.current_session_title = session_data["title"]
+                        if session_data:
+                            if session_data.get("title"):
+                                self.current_session_title = session_data["title"]
+                            # Restore workspace directory if stored in metadata
+                            raw_meta = session_data.get("metadata")
+                            if raw_meta:
+                                try:
+                                    s_meta = (
+                                        json.loads(raw_meta)
+                                        if isinstance(raw_meta, str)
+                                        else raw_meta
+                                    )
+                                    saved_cwd = s_meta.get("workspace_cwd") or s_meta.get("cwd")
+                                    if saved_cwd and os.path.exists(saved_cwd):
+                                        os.chdir(saved_cwd)
+                                        logger.info(
+                                            "Restored workspace directory to: %s", saved_cwd
+                                        )
+                                except Exception as c_err:
+                                    logger.debug(
+                                        "Failed to restore session workspace path: %s", c_err
+                                    )
                     except Exception as e:
-                        log_exception(e, "restore session title from database")
+                        log_exception(e, "restore session title and path from database")
 
                     # Load tool usage data for this session
                     tool_logs = []
