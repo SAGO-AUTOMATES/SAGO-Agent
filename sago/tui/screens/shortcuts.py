@@ -281,3 +281,24 @@ class ShortcutsScreen(ModalScreen[None]):
                     classes="shortcuts-hint",
                     markup=True,
                 )
+
+    def on_mount(self) -> None:
+        try:
+            theme = getattr(self.app, "sago_theme", "obsidian")
+            for t in [
+                "obsidian",
+                "nord",
+                "dracula",
+                "monokai",
+                "tokyo-night",
+                "solarized-dark",
+                "cyberpunk",
+                "catppuccin-mocha",
+                "gruvbox-dark",
+                "rose-pine",
+            ]:
+                self.remove_class(f"theme-{t}")
+            if theme and theme != "obsidian":
+                self.add_class(f"theme-{theme}")
+        except Exception:
+            pass

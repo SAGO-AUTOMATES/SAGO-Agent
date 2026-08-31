@@ -3156,14 +3156,14 @@ class CommandHandlers:
         from rich.markdown import Markdown
 
         from sago.memory.symbol_graph import SymbolGraph
-        from sago.tui.helpers import create_collapsible
+        from sago.tui.helpers import _get_syntax_theme, create_collapsible
 
         try:
             graph = SymbolGraph()
             clean_map = graph.generate_clean_tui_map(filter_query=query.strip() or None)
 
             container = self.query_one("#messages")
-            md_widget = Markdown(clean_map, code_theme="monokai")
+            md_widget = Markdown(clean_map, code_theme=_get_syntax_theme(self.app))
             title = (
                 f"Symbol Repo Map ({graph.root_dir.name})"
                 if not query
@@ -3289,10 +3289,10 @@ class CommandHandlers:
                     def _mount_result() -> None:
                         from rich.markdown import Markdown
 
-                        from sago.tui.helpers import create_collapsible
+                        from sago.tui.helpers import _get_syntax_theme, create_collapsible
 
                         container = self.query_one("#messages")
-                        md_widget = Markdown(render_text, code_theme="monokai")
+                        md_widget = Markdown(render_text, code_theme=_get_syntax_theme(self.app))
                         c = create_collapsible(
                             Static(md_widget),
                             title=title,
@@ -3535,6 +3535,7 @@ class CommandHandlers:
             self.sago_theme = name
             self.screen.add_class(f"theme-{name}")
             self._add_system_message(f"Switched theme to {themes[name]}")
+            self._save_settings()
         except Exception as e:
             self._add_system_message(f"Failed to switch theme: {e}")
 

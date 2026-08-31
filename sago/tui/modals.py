@@ -23,7 +23,34 @@ from textual.screen import ModalScreen
 from textual.widgets import DirectoryTree, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
+from sago.tui.helpers import _get_syntax_theme
+
 logger = logging.getLogger("sago.tui.modals")
+
+_THEMES = [
+    "obsidian",
+    "nord",
+    "dracula",
+    "monokai",
+    "tokyo-night",
+    "solarized-dark",
+    "cyberpunk",
+    "catppuccin-mocha",
+    "gruvbox-dark",
+    "rose-pine",
+]
+
+
+def _apply_theme(screen: ModalScreen) -> None:
+    """Apply the current app theme class to a modal screen."""
+    try:
+        theme = getattr(screen.app, "sago_theme", "obsidian")
+        for t in _THEMES:
+            screen.remove_class(f"theme-{t}")
+        if theme and theme != "obsidian":
+            screen.add_class(f"theme-{theme}")
+    except Exception:
+        pass
 
 
 # ─── F3: Interactive Diff Inspector ───────────────────────────────────────────
@@ -121,6 +148,7 @@ class DiffViewerScreen(ModalScreen):
                     yield Static("[dim]Select a file to view its diff...[/dim]", id="diff-content")
 
     def on_mount(self) -> None:
+        _apply_theme(self)
         self.action_refresh_diff()
 
     def action_refresh_diff(self) -> None:
@@ -271,6 +299,7 @@ class FileExplorerScreen(ModalScreen):
         border: none;
         scrollbar-size: 1 1;
         scrollbar-color: #388bfd #161b22;
+        scrollbar-color-hover: #79c0ff #161b22;
     }
     #preview-container {
         width: 68%;
@@ -278,6 +307,7 @@ class FileExplorerScreen(ModalScreen):
         padding-left: 1;
         scrollbar-size: 1 1;
         scrollbar-color: #388bfd #161b22;
+        scrollbar-color-hover: #79c0ff #161b22;
     }
     #file-preview {
         color: #c9d1d9;
@@ -376,6 +406,9 @@ class FileExplorerScreen(ModalScreen):
                         id="file-preview",
                     )
 
+    def on_mount(self) -> None:
+        _apply_theme(self)
+
     @on(DirectoryTree.FileSelected, "#dir-tree")
     def on_file_selected(self, event: DirectoryTree.FileSelected) -> None:
         path = event.path
@@ -415,9 +448,10 @@ class FileExplorerScreen(ModalScreen):
             syntax = Syntax(
                 text[:30000],
                 lexer,
-                theme="monokai",
+                theme=_get_syntax_theme(self.app),
                 line_numbers=True,
                 word_wrap=True,
+                padding=1,
             )
             self.query_one("#file-preview", Static).update(syntax)
         except Exception as e:
@@ -522,6 +556,7 @@ class SessionManagerScreen(ModalScreen):
                     )
 
     def on_mount(self) -> None:
+        _apply_theme(self)
         self._load_sessions()
 
     def _load_sessions(self) -> None:

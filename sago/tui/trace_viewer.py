@@ -115,6 +115,8 @@ TraceViewerScreen {
     padding: 0 1;
     layout: horizontal;
 }
+.tv-header-stats { display: none; }
+.tv-spacer { width: 1fr; }
 .tv-title {
     color: #58a6ff;
     text-style: bold;
@@ -130,6 +132,15 @@ TraceViewerScreen {
     content-align: left middle;
     margin-right: 2;
     text-wrap: wrap;
+}
+.tv-stat-item {
+    color: #8b949e;
+    height: auto;
+    content-align: left middle;
+}
+.tv-stat-sep {
+    width: 2;
+    height: auto;
 }
 .tv-btn {
     height: 1;
@@ -241,7 +252,6 @@ class TraceViewerScreen(ModalScreen[None]):
         Binding("escape", "close_viewer", "Close"),
         Binding("q", "close_viewer", "Close"),
         Binding("e", "export_trace", "Export"),
-        Binding("c", "copy_trace", "Copy"),
     ]
 
     def __init__(
@@ -292,20 +302,36 @@ class TraceViewerScreen(ModalScreen[None]):
                     classes="tv-title",
                     markup=True,
                 )
+                yield Static(" ", classes="tv-stat-sep tv-header-stats")
                 yield Label(
-                    f"[bold cyan]{len(llm_ev)}[/] LLM  "
-                    f"[bold green]{len(tool_ev)}[/] tools  "
-                    f"[bold yellow]{len(think_ev)}[/] thinking  "
-                    f"[bold red]{len(err_ev)}[/] errors",
-                    classes="tv-stats",
+                    f"[bold cyan]{len(llm_ev)}[/] LLM",
+                    classes="tv-stat-item tv-header-stats",
                     markup=True,
                 )
+                yield Static(" ", classes="tv-stat-sep tv-header-stats")
+                yield Label(
+                    f"[bold green]{len(tool_ev)}[/] tools",
+                    classes="tv-stat-item tv-header-stats",
+                    markup=True,
+                )
+                yield Static(" ", classes="tv-stat-sep tv-header-stats")
+                yield Label(
+                    f"[bold yellow]{len(think_ev)}[/] thinking",
+                    classes="tv-stat-item tv-header-stats",
+                    markup=True,
+                )
+                yield Static(" ", classes="tv-stat-sep tv-header-stats")
+                yield Label(
+                    f"[bold red]{len(err_ev)}[/] errors",
+                    classes="tv-stat-item tv-header-stats",
+                    markup=True,
+                )
+                yield Static("", classes="tv-spacer")
                 yield Button("⬆ Export", id="btn-tv-export", classes="tv-btn tv-btn-export")
-                yield Button("⎘ Copy", id="btn-tv-copy", classes="tv-btn")
                 yield Button("✕ Close", id="btn-tv-close", classes="tv-btn tv-btn-close")
 
             yield Static(
-                "[dim]Esc / q[/] close  [dim]e[/] export  [dim]c[/] copy  [dim]Tab[/] switch tabs",
+                "[dim]Esc / q[/] close  [dim]e[/] export  [dim]Tab[/] switch tabs",
                 classes="tv-shortcuts",
                 markup=True,
             )
@@ -327,6 +353,41 @@ class TraceViewerScreen(ModalScreen[None]):
                     yield from self._tab_events()
 
             yield Static("", id="tv-export-note", classes="tv-export-note")
+
+    def on_mount(self) -> None:
+        try:
+            theme = getattr(self.app, "sago_theme", "obsidian")
+            for t in [
+                "obsidian",
+                "nord",
+                "dracula",
+                "monokai",
+                "tokyo-night",
+                "solarized-dark",
+                "cyberpunk",
+                "catppuccin-mocha",
+                "gruvbox-dark",
+                "rose-pine",
+            ]:
+                self.remove_class(f"theme-{t}")
+            if theme and theme != "obsidian":
+                self.add_class(f"theme-{theme}")
+        except Exception:
+            pass
+        # Hide header stats on mount (default is Overview tab)
+        self.call_later(self._hide_header_stats)
+        # Focus tabs instead of the Export button
+        try:
+            # Disable focus on all buttons so they don't steal focus on mount
+            for btn in self.query("Button"):
+                btn.can_focus = False
+            tab_labels = self.query("TabbedContent > TabPane")
+            if tab_labels:
+                tab_labels.first().focus()
+            else:
+                self.screen.set_focus(None)
+        except Exception:
+            pass
 
     # ── Overview ─────────────────────────────────────────────────────────────
 
@@ -543,27 +604,30 @@ class TraceViewerScreen(ModalScreen[None]):
 
     # ── Flow tab ─────────────────────────────────────────────────────────────
 
+    # Rich markup colors for event types (hex, not CSS classes)
+    _FLOW_COLORS = {
+        "LLM_RAW_REQUEST": "#79c0ff",
+        "LLM_RAW_RESPONSE": "#79c0ff",
+        "LLM_PAYLOAD": "#79c0ff",
+        "LLM_THINKING": "#d2a8ff",
+        "TOOL_DISPATCH": "#56d364",
+        "AGENT_ROUTING": "#f0883e",
+        "ERROR": "#f85149",
+        "RETRY": "#d29922",
+        "PERMISSION_CHECK": "#d29922",
+    }
+    _FLOW_COLOR_DEFAULT = "#8b949e"
+
     def _tab_flow(self) -> ComposeResult:
         with VerticalScroll(classes="tv-tab-scroll"):
             if not self.events:
                 yield Static("  [dim]No events.[/]", classes="tv-empty", markup=True)
                 return
 
-            COLOR_MAP = {
-                "LLM_RAW_REQUEST": "tv-llm",
-                "LLM_RAW_RESPONSE": "tv-llm",
-                "LLM_PAYLOAD": "tv-llm",
-                "LLM_THINKING": "tv-think",
-                "TOOL_DISPATCH": "tv-tool",
-                "AGENT_ROUTING": "tv-route",
-                "ERROR": "tv-err",
-                "RETRY": "tv-warn",
-                "PERMISSION_CHECK": "tv-warn",
-            }
             prev = self.events[0].timestamp
             for e in self.events:
                 icon, _ = TYPE_ICONS.get(e.event_type.value, ("·", ""))
-                color = COLOR_MAP.get(e.event_type.value, "tv-event-dimval")
+                color = self._FLOW_COLORS.get(e.event_type.value, self._FLOW_COLOR_DEFAULT)
                 ts = _fmt_ts(e.timestamp)
                 dur = _fmt_ms(e.duration_ms)
                 gap = _fmt_ms((e.timestamp - prev) * 1000)
@@ -760,11 +824,13 @@ class TraceViewerScreen(ModalScreen[None]):
                 ts = _fmt_ts(e.timestamp)
                 dur = _fmt_ms(e.duration_ms)
                 is_ok = e.status in ("OK", "")
-                scls = "tv-ok" if is_ok else "tv-err"
+                scls = "#3fb950" if is_ok else "#f85149"
                 sicon = "✓" if is_ok else "✗"
+                ecolor = self._FLOW_COLORS.get(e.event_type.value, self._FLOW_COLOR_DEFAULT)
 
                 with Collapsible(
-                    title=f"{icon} [{idx}] {escape(e.event_type.value)}  {escape(str(e.source))}  {dur}  {ts}  {sicon}",
+                    title=f"{icon} [{idx}] [{ecolor}]{escape(e.event_type.value)}[/]  "
+                    f"[dim]{escape(str(e.source))}[/]  {dur}  {ts}  [{scls}]{sicon}[/]",
                     collapsed=True,
                 ):
                     yield Static(f"  [dim]source:[/] {escape(str(e.source))}", markup=True)
@@ -797,9 +863,19 @@ class TraceViewerScreen(ModalScreen[None]):
     def _on_export_btn(self) -> None:
         self.action_export_trace()
 
-    @on(Button.Pressed, "#btn-tv-copy")
-    def _on_copy_btn(self) -> None:
-        self.action_copy_trace()
+    def _set_header_stats(self, show: bool) -> None:
+        for widget in self.query(".tv-header-stats"):
+            widget.display = show
+
+    def _hide_header_stats(self) -> None:
+        self._set_header_stats(False)
+
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        """Show header stats only when NOT on Overview tab."""
+        try:
+            self._set_header_stats(event.tabbed_content.active != "tab-overview")
+        except Exception:
+            pass
 
     # ── Actions ───────────────────────────────────────────────────────────────
 
@@ -877,25 +953,3 @@ class TraceViewerScreen(ModalScreen[None]):
             self._show_note(f"Exported → {json_path}  +  {md_path}", ok=True)
         except Exception as exc:
             self._show_note(f"Export failed: {exc}", ok=False)
-
-    def action_copy_trace(self) -> None:
-        """Copy trace summary to clipboard."""
-        try:
-            lines = [f"SAGO Trace — {len(self.events)} events  {datetime.now().isoformat()}"]
-            for i, e in enumerate(self.events, 1):
-                icon, _ = TYPE_ICONS.get(e.event_type.value, ("·", ""))
-                lines.append(
-                    f"[{i}] {icon} {e.event_type.value}  "
-                    f"{e.source}  {e.action}  {e.status}  {_fmt_ms(e.duration_ms)}"
-                )
-            text = "\n".join(lines)
-
-            from sago.tools.session.clipboard import ClipboardTool
-
-            result = ClipboardTool()._write_clipboard(text)
-            if result.startswith("Error"):
-                self._show_note(f"{result}", ok=False)
-            else:
-                self._show_note(f"Copied {len(lines)} lines to clipboard", ok=True)
-        except Exception as exc:
-            self._show_note(f"Copy failed: {exc}", ok=False)

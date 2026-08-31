@@ -688,6 +688,12 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             if not self.show_action_bar:
                 self.add_class("hide-action-bar")
 
+            # Load theme
+            saved_theme = load_setting("theme", "obsidian")
+            self.sago_theme = saved_theme
+            if saved_theme and saved_theme != "obsidian":
+                self.screen.add_class(f"theme-{saved_theme}")
+
             # Load dev_mode from ~/.sago config or settings
             # v0.1.14: default ON until 1.0 — need to respect explicit False in settings.json
             # but also allow env var SAGO_DEV_MODE to override persisted False (test expects env true → enabled)
@@ -737,6 +743,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             save_setting("show_summary", self.show_summary)
             save_setting("show_action_bar", self.show_action_bar)
             save_setting("dev_mode", self.developer_mode)
+            save_setting("theme", getattr(self, "sago_theme", "obsidian"))
         except Exception as e:
             logger.warning("Failed to save settings: %s", e)
 

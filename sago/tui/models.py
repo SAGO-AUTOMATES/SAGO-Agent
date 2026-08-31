@@ -99,7 +99,6 @@ THEMES = {
     "catppuccin-mocha": "Catppuccin Mocha Pastel",
     "gruvbox-dark": "Gruvbox Dark Warm Retro",
     "rose-pine": "Rosé Pine Minimal Muted",
-    "light": "Clean Minimalist Light",
 }
 
 BUILTIN_MODELS = [
