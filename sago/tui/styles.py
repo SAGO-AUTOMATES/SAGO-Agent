@@ -23,7 +23,7 @@ Screen { background: #0a0d12; }
     padding: 0 1;
     overflow-y: auto;
     scrollbar-size: 1 1;
-    scrollbar-color: #30363d #111418;
+    scrollbar-color: #388bfd #161b22;
 }
 #agent-dashboard.hidden { display: none; }
 
@@ -57,8 +57,8 @@ Screen { background: #0a0d12; }
     overflow-y: scroll;
     overflow-x: hidden;
     scrollbar-size: 1 1;
-    scrollbar-color: #388bfd #161b22;
-    scrollbar-color-hover: #388bfd #161b22;
+scrollbar-color: #388bfd #161b22;
+scrollbar-color-hover: #79c0ff #161b22;
     scrollbar-gutter: stable;
     /* Always visible like dev page's VerticalScroll — not hover-only */
 }
@@ -249,13 +249,18 @@ Screen { background: #0a0d12; }
     height: 1;
     min-width: 12;
     border: none;
-    background: #1a2433;
+    background: #161b22;
     color: #388bfd;
     padding: 0 1;
 }
 .btn-view-trace:hover {
-    background: #1f3148;
+    background: #1c2a3d;
     color: #58a6ff;
+}
+.btn-view-trace:focus {
+    background: #1c2a3d;
+    color: #58a6ff;
+    border: none;
 }
 
 .plan-text {
@@ -312,16 +317,16 @@ CollapsibleTitle {
 }
 CollapsibleTitle:hover {
     background: transparent;
-    color: #ffffff;
+    color: #e6edf3;
 }
 CollapsibleTitle:focus {
     background: transparent;
-    color: #ffffff;
+    color: #e6edf3;
     text-style: none;
 }
 CollapsibleTitle:focus > .collapsible-title--text {
     background: transparent;
-    color: #ffffff;
+    color: #e6edf3;
 }
 CollapsibleTitle:focus > .collapsible-title--symbol {
     background: transparent;
@@ -360,15 +365,14 @@ Collapsible > Contents Static {
 .btn-copy-code {
     min-width: 12;
     height: 1;
-    background: #21262d;
+    background: #161b22;
     color: #8b949e;
-    border: solid #30363d;
+    border: none;
     padding: 0 1;
 }
 .btn-copy-code:focus, .btn-copy-code:hover {
-    background: #30363d;
+    background: #1c2a3d;
     color: #58a6ff;
-    border: solid #58a6ff;
 }
 
 /* Nord Theme */
@@ -551,7 +555,7 @@ Collapsible .collapsible-body {
     padding: 1 1;
     overflow-y: auto;
     scrollbar-size: 1 1;
-    scrollbar-color: #30363d #111418;
+    scrollbar-color: #388bfd #161b22;
 }
 
 #input-area {
@@ -594,20 +598,30 @@ Collapsible .collapsible-body {
     border: none;
     background: #161b22;
     color: #8b949e;
-    margin-right: 1;
-    padding: 0 1;
+    margin-right: 0;
+    padding: 0 0 0 1;
 }
 .btn-input-action:hover {
-    background: #21262d;
+    background: #1c2333;
     color: #e6edf3;
+}
+.btn-input-action:focus {
+    background: #1c2333;
+    color: #e6edf3;
+    border: none;
 }
 .btn-action-traces {
     color: #58a6ff;
     text-style: bold;
 }
 .btn-action-traces:hover {
-    background: #1f6feb;
-    color: #ffffff;
+    background: #1c2a3d;
+    color: #79c0ff;
+}
+.btn-action-traces:focus {
+    background: #1c2a3d;
+    color: #79c0ff;
+    border: none;
 }
 .dev-only-btn {
     display: none;
@@ -624,16 +638,26 @@ Collapsible .collapsible-body {
     display: block;
 }
 .btn-action-cancel:hover {
-    background: #da3633;
-    color: #ffffff;
+    background: #2d1520;
+    color: #f85149;
+}
+.btn-action-cancel:focus {
+    background: #2d1520;
+    color: #f85149;
+    border: none;
 }
 
 .btn-action-exit {
     color: #8b949e;
 }
 .btn-action-exit:hover {
-    background: #da3633;
-    color: #ffffff;
+    background: #2d1520;
+    color: #f85149;
+}
+.btn-action-exit:focus {
+    background: #2d1520;
+    color: #f85149;
+    border: none;
 }
 
 #suggestions {
@@ -806,11 +830,11 @@ Collapsible .collapsible-body {
 
 .approve-btn { background: transparent; color: #3fb950; border: none; text-style: bold; }
 .approve-btn:hover { background: #1a3a2a; }
-.approve-btn:focus { border: none; }
+.approve-btn:focus { border: none; background: #1a3a2a; }
 
 .deny-btn { background: transparent; color: #f85149; border: none; text-style: bold; }
-.deny-btn:hover { background: #3a1a1a; }
-.deny-btn:focus { border: none; }
+.deny-btn:hover { background: #2d1520; }
+.deny-btn:focus { border: none; background: #2d1520; }
 
 #parallel-bar {
     display: none;

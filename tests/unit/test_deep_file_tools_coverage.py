@@ -29,6 +29,7 @@ class TestArchive:
 
     def test_list_zip(self, tmp_path):
         import zipfile
+
         zf = tmp_path / "test.zip"
         with zipfile.ZipFile(zf, "w") as z:
             z.writestr("a.txt", "hello")
@@ -38,6 +39,7 @@ class TestArchive:
 
     def test_extract_zip(self, tmp_path):
         import zipfile
+
         zf = tmp_path / "test.zip"
         with zipfile.ZipFile(zf, "w") as z:
             z.writestr("a.txt", "hello")
@@ -60,6 +62,7 @@ class TestDatabaseQuery:
 
     def test_list_tables(self, tmp_path):
         import sqlite3
+
         db = tmp_path / "test.db"
         conn = sqlite3.connect(str(db))
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
@@ -71,6 +74,7 @@ class TestDatabaseQuery:
 
     def test_select_query(self, tmp_path):
         import sqlite3
+
         db = tmp_path / "test.db"
         conn = sqlite3.connect(str(db))
         conn.execute("CREATE TABLE items (id INTEGER, val TEXT)")
@@ -131,7 +135,9 @@ class TestPDFReader:
     def test_read_with_pdftotext(self, mock_run, tmp_path):
         pdf = tmp_path / "test.pdf"
         pdf.write_bytes(b"%PDF-1.4 fake")
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="Page 1 content\n", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="Page 1 content\n", stderr=""
+        )
         tool = PDFReader()
         result = tool._run(operation="read", path=str(pdf))
         assert isinstance(result, str)
@@ -287,7 +293,12 @@ class TestHashChecksum:
         f = tmp_path / "test.txt"
         f.write_text("hello")
         tool = HashChecksum()
-        result = tool._run(operation="verify", target=str(f), algorithm="md5", expected_hash="d41d8cd98f00b204e9800998ecf8427e")
+        result = tool._run(
+            operation="verify",
+            target=str(f),
+            algorithm="md5",
+            expected_hash="d41d8cd98f00b204e9800998ecf8427e",
+        )
         assert isinstance(result, str)
 
 

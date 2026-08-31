@@ -95,23 +95,24 @@ TYPE_ICONS: dict[str, tuple[str, str]] = {
 
 _TV_CSS = """
 TraceViewerScreen {
-    background: rgba(0,0,0,0.85);
+    background: rgba(1, 4, 9, 0.88);
     align: center middle;
 }
 .tv-box {
     width: 96%;
     height: 94%;
     background: #0d1117;
-    border: none;
+    border: solid #1c2128;
+    border-top: solid #388bfd;
     layout: vertical;
+    padding: 0 1 1 1;
 }
 .tv-header {
     height: auto;
     min-height: 3;
-    background: #161b22;
-    border-top: solid #388bfd;
-    border-bottom: solid #21262d;
-    padding: 0 2;
+    background: #0d1117;
+    border-bottom: solid #1c2128;
+    padding: 0 1;
     layout: horizontal;
 }
 .tv-title {
@@ -121,6 +122,7 @@ TraceViewerScreen {
     min-width: 12;
     height: auto;
     content-align: left middle;
+    padding: 0 0 0 1;
 }
 .tv-stats {
     color: #8b949e;
@@ -134,28 +136,35 @@ TraceViewerScreen {
     min-width: 12;
     margin-left: 1;
     border: none;
-    background: #21262d;
+    background: #0d1117;
     color: #8b949e;
 }
 .tv-btn:hover {
-    background: #30363d;
+    background: #1c2a3d;
     color: #e6edf3;
+}
+.tv-btn:focus {
+    background: #1c2a3d;
+    color: #e6edf3;
+    border: none;
 }
 .tv-btn-export { color: #f0883e; }
 .tv-btn-export:hover { background: #2d1f0e; color: #f0883e; }
+.tv-btn-export:focus { background: #2d1f0e; color: #f0883e; border: none; }
 .tv-btn-close  { color: #f85149; }
-.tv-btn-close:hover  { background: #1f0e0e; color: #f85149; }
+.tv-btn-close:hover  { background: #2d1520; color: #f85149; }
+.tv-btn-close:focus  { background: #2d1520; color: #f85149; border: none; }
 .tv-shortcuts {
     height: 1;
     background: #0d1117;
-    border-bottom: solid #21262d;
+    border-bottom: solid #1c2128;
     padding: 0 2;
     align-vertical: middle;
     color: #484f58;
 }
 TabbedContent { height: 1fr; background: #0d1117; }
 TabPane       { background: #0d1117; padding: 0; }
-.tv-tab-scroll { height: 1fr; padding: 1 2; }
+.tv-tab-scroll { height: 1fr; padding: 1 2; scrollbar-size: 1 1; scrollbar-color: #388bfd #161b22; }
 .tv-section-head {
     color: #388bfd;
     text-style: bold;
@@ -165,7 +174,7 @@ TabPane       { background: #0d1117; padding: 0; }
 }
 .tv-empty { color: #484f58; padding: 2 2; }
 .tv-event {
-    border-left: solid #30363d;
+    border-left: solid #21262d;
     background: #0d1117;
     margin: 0 0 1 0;
     padding: 0 0 0 1;
@@ -881,22 +890,12 @@ class TraceViewerScreen(ModalScreen[None]):
                 )
             text = "\n".join(lines)
 
-            import subprocess
+            from sago.tools.session.clipboard import ClipboardTool
 
-            for cmd in (
-                ["xclip", "-selection", "clipboard"],
-                ["xsel", "--clipboard", "--input"],
-                ["pbcopy"],
-                ["wl-copy"],
-            ):
-                try:
-                    subprocess.run(
-                        cmd, input=text.encode(), timeout=2, check=True, capture_output=True
-                    )
-                    self._show_note(f"Copied {len(lines)} lines to clipboard", ok=True)
-                    return
-                except Exception:
-                    continue
-            raise RuntimeError("No clipboard utility found (xclip/xsel/pbcopy/wl-copy)")
+            result = ClipboardTool()._write_clipboard(text)
+            if result.startswith("Error"):
+                self._show_note(f"{result}", ok=False)
+            else:
+                self._show_note(f"Copied {len(lines)} lines to clipboard", ok=True)
         except Exception as exc:
             self._show_note(f"Copy failed: {exc}", ok=False)

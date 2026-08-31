@@ -8,7 +8,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Static
+from textual.widgets import Static
 
 logger = logging.getLogger("sago.tui.screens.shortcuts")
 
@@ -19,7 +19,7 @@ class ShortcutsScreen(ModalScreen[None]):
     DEFAULT_CSS = """
     ShortcutsScreen {
         align: center middle;
-        background: rgba(10, 13, 18, 0.85);
+        background: rgba(1, 4, 9, 0.88);
     }
 
     #shortcuts-dialog {
@@ -27,17 +27,17 @@ class ShortcutsScreen(ModalScreen[None]):
         max-width: 95%;
         height: auto;
         max-height: 85%;
-        background: #111418;
-        border: solid #30363d;
+        background: #0d1117;
+        border: solid #1c2128;
         border-top: solid #58a6ff;
-        padding: 1 2;
+        padding: 0 1 1 1;
     }
 
     .shortcuts-header {
         color: #58a6ff;
         text-style: bold;
         padding: 0 0 1 0;
-        border-bottom: solid #21262d;
+        border-bottom: solid #1c2128;
         content-align: center middle;
     }
 
@@ -46,7 +46,7 @@ class ShortcutsScreen(ModalScreen[None]):
         max-height: 24;
         overflow-y: auto;
         scrollbar-size: 1 1;
-        scrollbar-color: #30363d #111418;
+        scrollbar-color: #388bfd #161b22;
         padding: 1 0;
     }
 
@@ -62,27 +62,17 @@ class ShortcutsScreen(ModalScreen[None]):
     }
 
     .shortcuts-footer {
-        height: 3;
+        height: 1;
         margin-top: 1;
-        border-top: solid #21262d;
+        border-top: solid #1c2128;
         content-align: right middle;
         layout: horizontal;
     }
 
     .shortcuts-hint {
-        color: #8b949e;
+        color: #484f58;
         width: 1fr;
         content-align: left middle;
-    }
-
-    #close-btn {
-        min-width: 12;
-        background: #21262d;
-        color: #c9d1d9;
-    }
-    #close-btn:hover {
-        background: #30363d;
-        color: #ffffff;
     }
     """
 
@@ -287,12 +277,7 @@ class ShortcutsScreen(ModalScreen[None]):
 
             with Horizontal(classes="shortcuts-footer"):
                 yield Static(
-                    "[dim]Press ESC or Enter to close[/dim]",
+                    "[dim]Press Esc or Enter to close[/dim]",
                     classes="shortcuts-hint",
                     markup=True,
                 )
-                yield Button("Close (Esc)", id="close-btn", variant="primary")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "close-btn":
-            self.dismiss()

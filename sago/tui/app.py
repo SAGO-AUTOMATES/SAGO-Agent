@@ -167,6 +167,22 @@ class SagoTextAreaInput(TextArea):
             self.insert("\n")
             self._update_height()
             self.post_message(self.Changed(input=self, value=self.text))
+        elif event.key in ("up", "down", "tab", "escape"):
+            app = self.app
+            if getattr(app, "show_suggestions", False):
+                event.prevent_default()
+                if event.key == "down":
+                    app._move_sel(1)
+                elif event.key == "up":
+                    app._move_sel(-1)
+                elif event.key == "tab":
+                    app._select_current()
+                elif event.key == "escape":
+                    app._hide_suggestions()
+                return
+            await super()._on_key(event)
+            self._update_height()
+            self.post_message(self.Changed(input=self, value=self.text))
         else:
             await super()._on_key(event)
             self._update_height()
@@ -1135,21 +1151,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         threading.Thread(target=_worker, daemon=True).start()
 
     def on_key(self, event) -> None:
-        if self.show_suggestions:
-            if event.key == "down":
-                event.prevent_default()
-                self._move_sel(1)
-            elif event.key == "up":
-                event.prevent_default()
-                self._move_sel(-1)
-            elif event.key == "tab":
-                event.prevent_default()
-                self._select_current()
-            elif event.key == "escape":
-                event.prevent_default()
-                self._hide_suggestions()
-        else:
-            # Dedicated keyboard scrolling for messages pane
+        # Dedicated keyboard scrolling for messages pane
+        if not self.show_suggestions:
             if event.key in ("pageup", "shift+up"):
                 event.prevent_default()
                 try:

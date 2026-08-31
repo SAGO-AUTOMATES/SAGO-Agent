@@ -27,21 +27,27 @@ class TestTestRunner:
 
     @patch("subprocess.run")
     def test_run_pytest(self, mock_run, tmp_path):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="2 passed", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="2 passed", stderr=""
+        )
         tool = TestRunnerTool()
         result = tool._run(path=str(tmp_path), framework="pytest")
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_run_npm(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="all tests passed", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="all tests passed", stderr=""
+        )
         tool = TestRunnerTool()
         result = tool._run(path="/tmp", framework="npm")
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_run_failure(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="error occurred")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="error occurred"
+        )
         tool = TestRunnerTool()
         result = tool._run(path="/tmp", framework="pytest")
         assert isinstance(result, str)
@@ -98,7 +104,9 @@ class TestTypeCheckTool:
 
     @patch("subprocess.run")
     def test_run_check(self, mock_run, tmp_path):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="Success: no issues found", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="Success: no issues found", stderr=""
+        )
         tool = TypeCheckTool()
         result = tool._run(file_path=str(tmp_path))
         assert isinstance(result, str)
@@ -111,7 +119,9 @@ class TestTypeCheckTool:
 
     @patch("subprocess.run")
     def test_run_with_errors(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1, stdout="error: Incompatible types", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="error: Incompatible types", stderr=""
+        )
         tool = TypeCheckTool()
         result = tool._run(file_path="/tmp")
         assert isinstance(result, str)
@@ -123,7 +133,9 @@ class TestTextSummarizer:
 
     def test_summarize_text(self):
         tool = TextSummarizer()
-        result = tool._run(operation="summarize", text="Hello world. This is a test. Another sentence.")
+        result = tool._run(
+            operation="summarize", text="Hello world. This is a test. Another sentence."
+        )
         assert isinstance(result, str)
 
     def test_summarize_empty(self):
@@ -133,17 +145,23 @@ class TestTextSummarizer:
 
     def test_extract_keywords(self):
         tool = TextSummarizer()
-        result = tool._run(operation="keywords", text="Python programming language is great for coding")
+        result = tool._run(
+            operation="keywords", text="Python programming language is great for coding"
+        )
         assert isinstance(result, str)
 
     def test_extract_entities(self):
         tool = TextSummarizer()
-        result = tool._run(operation="entities", text="Apple is based in Cupertino and Google in Mountain View")
+        result = tool._run(
+            operation="entities", text="Apple is based in Cupertino and Google in Mountain View"
+        )
         assert isinstance(result, str)
 
     def test_with_max_sentences(self):
         tool = TextSummarizer()
-        result = tool._run(operation="summarize", text="One. Two. Three. Four. Five.", max_sentences=2)
+        result = tool._run(
+            operation="summarize", text="One. Two. Three. Four. Five.", max_sentences=2
+        )
         assert isinstance(result, str)
 
 
@@ -155,7 +173,9 @@ class TestDebugger:
     def test_debug_python(self, mock_run, tmp_path):
         src = tmp_path / "buggy.py"
         src.write_text("x = 1/0\n")
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="ZeroDivisionError", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="ZeroDivisionError", stderr=""
+        )
         tool = DebuggerTool()
         result = tool._run(file_path=str(src))
         assert isinstance(result, str)
@@ -167,21 +187,27 @@ class TestDebugger:
 
     @patch("subprocess.run")
     def test_debug_with_code_snippet(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="output", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="output", stderr=""
+        )
         tool = DebuggerTool()
         result = tool._run(code_snippet="x = 1/0")
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_debug_with_error_message(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="analysis", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="analysis", stderr=""
+        )
         tool = DebuggerTool()
         result = tool._run(error_message="ValueError: bad value")
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_debug_with_command(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="output", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="output", stderr=""
+        )
         tool = DebuggerTool()
         result = tool._run(command="python script.py")
         assert isinstance(result, str)
@@ -221,7 +247,9 @@ class TestAstGrep:
         src = tmp_path / "code.py"
         src.write_text("@decorator\ndef func(): pass\n")
         tool = AstGrepTool()
-        result = tool._run(pattern_type="decorator", name_pattern="decorator", directory=str(tmp_path))
+        result = tool._run(
+            pattern_type="decorator", name_pattern="decorator", directory=str(tmp_path)
+        )
         assert isinstance(result, str)
 
     def test_search_nonexistent_path(self):
@@ -247,7 +275,16 @@ class TestCodeSearchTool:
     def test_search_action(self, mock_get_indexer):
         mock_indexer = MagicMock()
         result_obj = MagicMock()
-        result_obj.to_dict.return_value = {"file": "a.py", "start": 1, "end": 5, "score": 0.9, "line": 1, "type": "function", "name": "foo", "preview": "def foo(): pass"}
+        result_obj.to_dict.return_value = {
+            "file": "a.py",
+            "start": 1,
+            "end": 5,
+            "score": 0.9,
+            "line": 1,
+            "type": "function",
+            "name": "foo",
+            "preview": "def foo(): pass",
+        }
         mock_indexer.search.return_value = [result_obj]
         mock_get_indexer.return_value = mock_indexer
         tool = CodeSearchTool()
@@ -257,7 +294,11 @@ class TestCodeSearchTool:
     @patch("sago.memory.codebase_indexer.get_indexer")
     def test_stats_action(self, mock_get_indexer):
         mock_indexer = MagicMock()
-        mock_indexer.get_stats.return_value = {"total_chunks": 100, "languages": {"python": 80}, "indexed_at": "2024-01-01"}
+        mock_indexer.get_stats.return_value = {
+            "total_chunks": 100,
+            "languages": {"python": 80},
+            "indexed_at": "2024-01-01",
+        }
         mock_get_indexer.return_value = mock_indexer
         tool = CodeSearchTool()
         result = tool._run(action="stats")
@@ -279,7 +320,9 @@ class TestFormatter:
     def test_format_python(self, mock_run, tmp_path):
         src = tmp_path / "code.py"
         src.write_text("x=1\n")
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="reformatted", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="reformatted", stderr=""
+        )
         tool = FormatterTool()
         result = tool._run(file_path=str(src))
         assert isinstance(result, str)
@@ -293,7 +336,9 @@ class TestFormatter:
     def test_format_with_formatter(self, mock_run, tmp_path):
         src = tmp_path / "code.py"
         src.write_text("x = 1\n")
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="reformatted", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="reformatted", stderr=""
+        )
         tool = FormatterTool()
         result = tool._run(file_path=str(src), formatter="ruff")
         assert isinstance(result, str)
@@ -321,7 +366,9 @@ class TestGitBlame:
     @patch("subprocess.run")
     def test_blame_not_git(self, mock_run, tmp_path):
         (tmp_path / "file.py").write_text("line1\n")
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=128, stdout="", stderr="not a git repository")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=128, stdout="", stderr="not a git repository"
+        )
         tool = GitBlameTool()
         result = tool._run(path=str(tmp_path / "file.py"))
         assert isinstance(result, str)
@@ -358,7 +405,9 @@ class TestLinter:
     def test_lint_python(self, mock_run, tmp_path):
         src = tmp_path / "code.py"
         src.write_text("import os\n")
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="All checks passed", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="All checks passed", stderr=""
+        )
         tool = LinterTool()
         result = tool._run(file_path=str(src))
         assert isinstance(result, str)
@@ -372,7 +421,9 @@ class TestLinter:
     def test_lint_with_fix(self, mock_run, tmp_path):
         src = tmp_path / "code.py"
         src.write_text("x=1\n")
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="Fixed 1 issue", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="Fixed 1 issue", stderr=""
+        )
         tool = LinterTool()
         result = tool._run(file_path=str(src), fix=True)
         assert isinstance(result, str)
@@ -381,7 +432,9 @@ class TestLinter:
     def test_lint_with_linter(self, mock_run, tmp_path):
         src = tmp_path / "code.py"
         src.write_text("x = 1\n")
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="passed", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="passed", stderr=""
+        )
         tool = LinterTool()
         result = tool._run(file_path=str(src), linter="ruff")
         assert isinstance(result, str)
@@ -419,7 +472,9 @@ class TestSearchSymbols:
     @patch("sago.tools.coding.search_symbol_tool.PersistentSymbolIndex")
     def test_search(self, MockIndex):
         mock_idx = MagicMock()
-        mock_idx.search_symbols.return_value = [{"file_path": "a.py", "type": "function", "name": "foo"}]
+        mock_idx.search_symbols.return_value = [
+            {"file_path": "a.py", "type": "function", "name": "foo"}
+        ]
         MockIndex.return_value = mock_idx
         tool = SearchSymbolsTool()
         result = tool._run(query="foo")

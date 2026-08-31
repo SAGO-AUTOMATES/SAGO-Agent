@@ -11,15 +11,17 @@ from sago.memory.symbol_index import PersistentSymbolIndex
 
 # ── symbol_index ─────────────────────────────────────────────────────────────
 
+
 class TestPersistentSymbolIndex:
     def test_init_creates_db(self, tmp_path):
         db_path = tmp_path / "test_symbols.db"
         PersistentSymbolIndex(workspace_root=tmp_path, db_path=db_path)
         assert db_path.exists()
         conn = sqlite3.connect(db_path)
-        tables = [row[0] for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()]
+        tables = [
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        ]
         assert "files" in tables
         conn.close()
 
@@ -105,19 +107,28 @@ class TestPersistentSymbolIndex:
 
 # ── codebase_indexer ─────────────────────────────────────────────────────────
 
+
 class TestCodeChunk:
     def test_auto_hash(self):
         chunk = CodeChunk(
-            file_path="test.py", start_line=1, end_line=5,
-            content="hello", language="python", chunk_type="function",
+            file_path="test.py",
+            start_line=1,
+            end_line=5,
+            content="hello",
+            language="python",
+            chunk_type="function",
         )
         assert chunk.hash
         assert len(chunk.hash) == 12
 
     def test_to_dict(self):
         chunk = CodeChunk(
-            file_path="test.py", start_line=1, end_line=5,
-            content="x = 1\ny = 2", language="python", chunk_type="block",
+            file_path="test.py",
+            start_line=1,
+            end_line=5,
+            content="x = 1\ny = 2",
+            language="python",
+            chunk_type="block",
         )
         d = chunk.to_dict()
         assert d["file"] == "test.py"
@@ -128,9 +139,13 @@ class TestCodeChunk:
 
     def test_to_dict_with_name(self):
         chunk = CodeChunk(
-            file_path="test.py", start_line=1, end_line=3,
-            content="def foo(): pass", language="python",
-            chunk_type="function", name="foo",
+            file_path="test.py",
+            start_line=1,
+            end_line=3,
+            content="def foo(): pass",
+            language="python",
+            chunk_type="function",
+            name="foo",
         )
         d = chunk.to_dict()
         assert d["name"] == "foo"

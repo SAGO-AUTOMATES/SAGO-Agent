@@ -16,9 +16,11 @@ import pytest
 # SSH Command
 # ---------------------------------------------------------------------------
 
+
 class TestSSHCommandTool:
     def _make(self):
         from sago.tools.ssh.ssh_command import SSHCommandTool
+
         return SSHCommandTool()
 
     def test_name_and_description(self):
@@ -85,9 +87,11 @@ class TestSSHCommandTool:
 # SSH Connect
 # ---------------------------------------------------------------------------
 
+
 class TestSSHConnectTool:
     def _make(self):
         from sago.tools.ssh.ssh_connect import SSHConnectTool
+
         return SSHConnectTool()
 
     def test_name(self):
@@ -146,9 +150,11 @@ class TestSSHConnectTool:
 # SSH Transfer
 # ---------------------------------------------------------------------------
 
+
 class TestSSHTransferTool:
     def _make(self):
         from sago.tools.ssh.ssh_transfer import SSHTransferTool
+
         return SSHTransferTool()
 
     def test_name(self):
@@ -167,8 +173,11 @@ class TestSSHTransferTool:
         with patch.dict("sys.modules", {"paramiko": mock_paramiko}):
             t = self._make()
             result = t._run(
-                operation="upload", source="/tmp/f.txt", destination="/remote/f.txt",
-                hostname="h", username="u"
+                operation="upload",
+                source="/tmp/f.txt",
+                destination="/remote/f.txt",
+                hostname="h",
+                username="u",
             )
             assert "Uploaded" in result
             sftp.put.assert_called_once()
@@ -186,8 +195,11 @@ class TestSSHTransferTool:
         with patch.dict("sys.modules", {"paramiko": mock_paramiko}):
             t = self._make()
             result = t._run(
-                operation="download", source="/remote/f.txt", destination="/tmp/f.txt",
-                hostname="h", username="u"
+                operation="download",
+                source="/remote/f.txt",
+                destination="/tmp/f.txt",
+                hostname="h",
+                username="u",
             )
             assert "Downloaded" in result
             sftp.get.assert_called_once()
@@ -203,8 +215,11 @@ class TestSSHTransferTool:
         with patch.dict("sys.modules", {"paramiko": mock_paramiko}):
             t = self._make()
             result = t._run(
-                operation="upload", source="/tmp/f.txt", destination="/r/f.txt",
-                hostname="h", username="u"
+                operation="upload",
+                source="/tmp/f.txt",
+                destination="/r/f.txt",
+                hostname="h",
+                username="u",
             )
             assert "Error" in result
 
@@ -213,9 +228,11 @@ class TestSSHTransferTool:
 # Clipboard
 # ---------------------------------------------------------------------------
 
+
 class TestClipboardTool:
     def _make(self):
         from sago.tools.session.clipboard import ClipboardTool
+
         return ClipboardTool()
 
     def test_name(self):
@@ -278,9 +295,11 @@ class TestClipboardTool:
 # Session Manager
 # ---------------------------------------------------------------------------
 
+
 class TestSessionManagerTool:
     def _make(self, tmp_path):
         from sago.tools.session.session_manager import SessionManagerTool
+
         with patch("sago.paths.get_sago_home", return_value=tmp_path):
             t = SessionManagerTool()
         t._session_dir = tmp_path
@@ -349,9 +368,11 @@ class TestSessionManagerTool:
 # Browser
 # ---------------------------------------------------------------------------
 
+
 class TestBrowserTool:
     def _make(self):
         from sago.tools.web.browser import BrowserTool
+
         return BrowserTool()
 
     def test_name(self):
@@ -370,9 +391,11 @@ class TestBrowserTool:
 # Web Fetch
 # ---------------------------------------------------------------------------
 
+
 class TestWebFetchTool:
     def _make(self):
         from sago.tools.web.web_fetch import WebFetchTool
+
         return WebFetchTool()
 
     def test_name(self):
@@ -399,8 +422,15 @@ class TestWebFetchTool:
         mock_resp.url = "https://example.com"
         mock_resp.status = 200
         mock_headers = MagicMock()
-        mock_headers.__getitem__ = Mock(side_effect=lambda k: {"Content-Type": "text/plain", "Content-Length": "11"}[k])
-        mock_headers.get = Mock(side_effect=lambda k, d=None: {"Content-Type": "text/plain", "Content-Length": "11"}.get(k, d))
+        mock_headers.__getitem__ = Mock(
+            side_effect=lambda k: {"Content-Type": "text/plain", "Content-Length": "11"}[k]
+        )
+        mock_headers.get = Mock(
+            side_effect=lambda k, d=None: {
+                "Content-Type": "text/plain",
+                "Content-Length": "11",
+            }.get(k, d)
+        )
         mock_headers.get_content_charset.return_value = "utf-8"
         mock_resp.headers = mock_headers
         mock_resp.read.return_value = b"hello world"
@@ -421,6 +451,7 @@ class TestWebFetchTool:
     @patch("sago.tools.web.web_fetch.urllib.request.urlopen")
     def test_execute_http_404(self, mock_urlopen):
         import urllib.error
+
         mock_urlopen.side_effect = urllib.error.URLError("HTTP Error 404")
         t = self._make()
         result = t.execute(url="https://example.com/missing", max_retries=1)
@@ -432,9 +463,11 @@ class TestWebFetchTool:
 # Review Changes
 # ---------------------------------------------------------------------------
 
+
 class TestReviewChangesTool:
     def _make(self):
         from sago.tools.vcs.review import ReviewChangesTool
+
         return ReviewChangesTool()
 
     def test_name(self):
@@ -468,7 +501,10 @@ class TestReviewChangesTool:
         t = self._make()
         with patch.object(t, "execute") as mock_exec:
             from sago.tools.base import ToolResult
-            mock_exec.return_value = ToolResult(output="Unknown target", success=False, error="invalid target")
+
+            mock_exec.return_value = ToolResult(
+                output="Unknown target", success=False, error="invalid target"
+            )
             result = t.execute(target="invalid", repo_path=".")
             assert not result.success
 
@@ -477,9 +513,11 @@ class TestReviewChangesTool:
 # Docker Ops
 # ---------------------------------------------------------------------------
 
+
 class TestDockerOps:
     def _make(self):
         from sago.tools.system.docker_ops import DockerOps
+
         return DockerOps()
 
     def test_name(self):
@@ -497,9 +535,7 @@ class TestDockerOps:
     @patch("sago.tools.system.docker_ops.subprocess.run")
     @patch("sago.tools.system.docker_ops.is_available", return_value=True)
     def test_ps_success(self, mock_avail, mock_run):
-        mock_run.return_value = Mock(
-            returncode=0, stdout="container1", stderr=""
-        )
+        mock_run.return_value = Mock(returncode=0, stdout="container1", stderr="")
         t = self._make()
         result = t.execute(operation="ps")
         assert result.success
@@ -513,6 +549,7 @@ class TestDockerOps:
 
     def test_build_cmd_unknown(self):
         from sago.tools.base import ToolResult
+
         t = self._make()
         result = t._build_cmd("nonexistent", [], "", "", "", "", "", "", False)
         assert isinstance(result, ToolResult)
@@ -529,9 +566,11 @@ class TestDockerOps:
 # K8s Ops
 # ---------------------------------------------------------------------------
 
+
 class TestK8sOpsTool:
     def _make(self):
         from sago.tools.system.k8s_ops import K8sOpsTool
+
         return K8sOpsTool()
 
     def test_name(self):
@@ -584,9 +623,11 @@ class TestK8sOpsTool:
 # OS Detector
 # ---------------------------------------------------------------------------
 
+
 class TestOSDetectorTool:
     def _make(self):
         from sago.tools.system.os_detector import OSDetectorTool
+
         return OSDetectorTool()
 
     def test_name(self):
@@ -609,9 +650,11 @@ class TestOSDetectorTool:
 # Edit File
 # ---------------------------------------------------------------------------
 
+
 class TestEditFileTool:
     def _make(self):
         from sago.tools.file.edit_file import EditFileTool
+
         return EditFileTool()
 
     def test_name(self):
@@ -661,9 +704,11 @@ class TestEditFileTool:
 # File Operations
 # ---------------------------------------------------------------------------
 
+
 class TestFileOperationsTool:
     def _make(self):
         from sago.tools.file.file_ops import FileOperationsTool
+
         return FileOperationsTool()
 
     def test_name(self):
@@ -782,9 +827,11 @@ class TestFileOperationsTool:
 # Diff Tool
 # ---------------------------------------------------------------------------
 
+
 class TestDiffTool:
     def _make(self):
         from sago.tools.file.diff_tool import DiffTool
+
         return DiffTool()
 
     def test_name(self):
@@ -829,9 +876,11 @@ class TestDiffTool:
 # Regex Tester
 # ---------------------------------------------------------------------------
 
+
 class TestRegexTester:
     def _make(self):
         from sago.tools.file.regex_tester import RegexTester
+
         return RegexTester()
 
     def test_name(self):
@@ -894,13 +943,16 @@ class TestRegexTester:
 # Resilient Editor
 # ---------------------------------------------------------------------------
 
+
 class TestResilientEditor:
     def test_normalize_newlines(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         assert ResilientEditor.normalize_newlines("a\r\nb\rc") == "a\nb\nc"
 
     def test_find_best_match_exact(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         result = ResilientEditor.find_best_match("hello world", "world")
         assert result.found
         assert result.match_tier == "exact"
@@ -908,6 +960,7 @@ class TestResilientEditor:
 
     def test_find_best_match_normalized(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         content = "def foo():\n    pass\n"
         target = "def foo():\n        pass\n"
         result = ResilientEditor.find_best_match(content, target)
@@ -916,6 +969,7 @@ class TestResilientEditor:
 
     def test_find_best_match_fuzzy(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         content = "def foo():\n    return 42\n"
         target = "def foo():\n    retun 42\n"
         result = ResilientEditor.find_best_match(content, target)
@@ -924,20 +978,21 @@ class TestResilientEditor:
 
     def test_find_best_match_not_found(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         result = ResilientEditor.find_best_match("hello", "xyz")
         assert not result.found
 
     def test_apply_replacement_exact(self):
         from sago.tools.file.resilient_editor import ResilientEditor
-        ok, content, msg = ResilientEditor.apply_replacement(
-            "hello world", "world", "python"
-        )
+
+        ok, content, msg = ResilientEditor.apply_replacement("hello world", "world", "python")
         assert ok
         assert "python" in content
         assert "exact" in msg.lower()
 
     def test_apply_replacement_replace_all(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         ok, content, msg = ResilientEditor.apply_replacement(
             "a b a b a", "a", "x", replace_all=True
         )
@@ -946,12 +1001,14 @@ class TestResilientEditor:
 
     def test_apply_replacement_not_found(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         ok, content, msg = ResilientEditor.apply_replacement("hello", "xyz", "abc")
         assert not ok
         assert "not found" in msg.lower()
 
     def test_syntax_guard_python_valid(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         original = "x = 1\n"
         modified = "x = 2\n"
         ok, msg = ResilientEditor.syntax_guard(original, modified, "test.py")
@@ -959,6 +1016,7 @@ class TestResilientEditor:
 
     def test_syntax_guard_python_reject(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         original = "def foo():\n    return 1\n"
         modified = "def foo():\n    return 1\n    :\n"  # colon after return = syntax error
         ok, msg = ResilientEditor.syntax_guard(original, modified, "test.py")
@@ -967,28 +1025,30 @@ class TestResilientEditor:
 
     def test_syntax_guard_no_path(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         ok, msg = ResilientEditor.syntax_guard("a", "b", None)
         assert ok
 
     def test_syntax_guard_same_content(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         ok, msg = ResilientEditor.syntax_guard("x", "x", "test.py")
         assert ok
 
     def test_syntax_guard_non_python(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         ok, msg = ResilientEditor.syntax_guard("<html>", "<div>", "test.html")
         assert ok
 
     def test_apply_multi_replace(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         chunks = [
             {"old": "hello", "new": "bye"},
             {"old": "world", "new": "earth"},
         ]
-        ok, content, logs, count = ResilientEditor.apply_multi_replace(
-            "hello world", chunks
-        )
+        ok, content, logs, count = ResilientEditor.apply_multi_replace("hello world", chunks)
         assert ok
         assert "bye" in content
         assert "earth" in content
@@ -996,17 +1056,17 @@ class TestResilientEditor:
 
     def test_apply_multi_replace_chunk_fails(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         chunks = [
             {"old": "hello", "new": "bye"},
             {"old": "nonexistent_xyz", "new": "x"},
         ]
-        ok, content, logs, count = ResilientEditor.apply_multi_replace(
-            "hello world", chunks
-        )
+        ok, content, logs, count = ResilientEditor.apply_multi_replace("hello world", chunks)
         assert not ok
 
     def test_apply_multi_replace_empty_chunk(self):
         from sago.tools.file.resilient_editor import ResilientEditor
+
         chunks = [{"old": "", "new": "x"}]
         ok, content, logs, count = ResilientEditor.apply_multi_replace("abc", chunks)
         assert ok
@@ -1017,9 +1077,11 @@ class TestResilientEditor:
 # MatchResult dataclass
 # ---------------------------------------------------------------------------
 
+
 class TestMatchResult:
     def test_defaults(self):
         from sago.tools.file.resilient_editor import MatchResult
+
         m = MatchResult(found=False)
         assert not m.found
         assert m.start_idx == -1

@@ -243,7 +243,7 @@ CLIENT                        SERVER
     "task": "Fix the authentication bug in sago/database.py",
     "agent": "python-engineer",
     "effort": "high",
-    "session_id": "session_abc123"
+    "session_id": "session_abc123",
 }
 ```
 
@@ -263,10 +263,7 @@ async def execute_task(task, agent_name, effort, session_id):
 
     # 4. Build prompt with project context (server-side only)
     prompt = build_prompt(
-        task=task,
-        agent_role=agent.role,
-        project_ctx=project_ctx,
-        profile=profile
+        task=task, agent_role=agent.role, project_ctx=project_ctx, profile=profile
     )
 
     # 5. Execute with tool calling (server-side)
@@ -293,7 +290,7 @@ async def execute_task(task, agent_name, effort, session_id):
         "files_created": [f.name for f in result.files_created],
         "tokens": result.tokens,
         "iterations": result.iterations,
-        "confidence": verified.confidence
+        "confidence": verified.confidence,
     }
 ```
 
@@ -627,10 +624,7 @@ async def test_task_execution_parity(async_client):
     native_result = await execute_natively(task)
 
     # API execution
-    resp = await async_client.post(
-        "/execute",
-        json={"task": task, "agent": "python-engineer"}
-    )
+    resp = await async_client.post("/execute", json={"task": task, "agent": "python-engineer"})
     api_result = resp.json()
 
     # Compare key fields

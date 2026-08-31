@@ -64,12 +64,13 @@ class TestHttpClient:
 
     def test_with_headers(self):
         tool = HTTPClientTool()
-        result = tool._run(url="https://example.com", method="GET", headers={"Authorization": "Bearer token"})
+        result = tool._run(
+            url="https://example.com", method="GET", headers={"Authorization": "Bearer token"}
+        )
         assert isinstance(result, str)
 
 
 # ── port_scan ────────────────────────────────────────────────────────────────
-
 
 
 class TestPortScan:
@@ -133,7 +134,6 @@ class TestPortScan:
 # ── web_crawler ──────────────────────────────────────────────────────────────
 
 
-
 class TestWebCrawler:
     def test_name(self):
         assert WebCrawler().name == "web_crawler"
@@ -152,35 +152,42 @@ class TestWebCrawler:
 # ── config_manager ───────────────────────────────────────────────────────────
 
 
-
 class TestConfigManager:
     def test_name(self):
         assert NetworkConfigTool().name == "network_config"
 
     @patch("subprocess.run")
     def test_interfaces(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="eth0: inet 192.168.1.1\n", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="eth0: inet 192.168.1.1\n", stderr=""
+        )
         tool = NetworkConfigTool()
         result = tool._run(operation="interfaces")
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_dns(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="nameserver 8.8.8.8\n", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="nameserver 8.8.8.8\n", stderr=""
+        )
         tool = NetworkConfigTool()
         result = tool._run(operation="dns")
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_routes(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="default via 192.168.1.1\n", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="default via 192.168.1.1\n", stderr=""
+        )
         tool = NetworkConfigTool()
         result = tool._run(operation="routes")
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_connections(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="tcp 0.0.0.0:80\n", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="tcp 0.0.0.0:80\n", stderr=""
+        )
         tool = NetworkConfigTool()
         result = tool._run(operation="connections")
         assert isinstance(result, str)
@@ -196,7 +203,6 @@ class TestConfigManager:
 # ── ssh_command ──────────────────────────────────────────────────────────────
 
 
-
 class TestSSHCommand:
     def test_name(self):
         assert SSHCommandTool().name == "ssh_command"
@@ -208,7 +214,6 @@ class TestSSHCommand:
 
 
 # ── ssh_connect ──────────────────────────────────────────────────────────────
-
 
 
 class TestSSHConnect:
@@ -224,19 +229,23 @@ class TestSSHConnect:
 # ── ssh_transfer ─────────────────────────────────────────────────────────────
 
 
-
 class TestSSHTransfer:
     def test_name(self):
         assert SSHTransferTool().name == "ssh_transfer"
 
     def test_no_paramiko(self):
         tool = SSHTransferTool()
-        result = tool._run(operation="upload", source="/tmp/a", destination="/tmp/b", hostname="example.com", username="user")
+        result = tool._run(
+            operation="upload",
+            source="/tmp/a",
+            destination="/tmp/b",
+            hostname="example.com",
+            username="user",
+        )
         assert isinstance(result, str)
 
 
 # ── session clipboard ───────────────────────────────────────────────────────
-
 
 
 class TestClipboard:
@@ -273,7 +282,6 @@ class TestClipboard:
 
 
 # ── session_manager ──────────────────────────────────────────────────────────
-
 
 
 class TestSessionManager:
@@ -319,7 +327,6 @@ class TestSessionManager:
 # ── review ───────────────────────────────────────────────────────────────────
 
 
-
 class TestReview:
     def test_name(self):
         assert ReviewChangesTool().name == "review_changes"
@@ -361,7 +368,6 @@ class TestReview:
 # ── secret_scanner ───────────────────────────────────────────────────────────
 
 
-
 class TestSecretScanner:
     def test_name(self):
         assert SecretScannerTool().name == "secret_scanner"
@@ -393,7 +399,6 @@ class TestSecretScanner:
 
 
 # ── pr_workflow ──────────────────────────────────────────────────────────────
-
 
 
 class TestPRWorkflow:
@@ -432,7 +437,6 @@ class TestPRWorkflow:
 
 
 # ── ask_question ─────────────────────────────────────────────────────────────
-
 
 
 class TestAskQuestion:
@@ -476,7 +480,6 @@ class TestAskQuestion:
 # ── web_search ───────────────────────────────────────────────────────────────
 
 
-
 class TestWebSearch:
     def test_name(self):
         assert WebSearchTool().name == "web_search"
@@ -495,7 +498,6 @@ class TestWebSearch:
 # ── web_fetch ────────────────────────────────────────────────────────────────
 
 
-
 class TestWebFetch:
     def test_name(self):
         assert WebFetchTool().name == "web_fetch"
@@ -508,7 +510,11 @@ class TestWebFetch:
     def test_bad_scheme(self):
         tool = WebFetchTool()
         result = tool._run(url="ftp://example.com/file")
-        assert "error" in result.lower() or "unsupported" in result.lower() or "scheme" in result.lower()
+        assert (
+            "error" in result.lower()
+            or "unsupported" in result.lower()
+            or "scheme" in result.lower()
+        )
 
     def test_no_netloc(self):
         tool = WebFetchTool()
@@ -517,7 +523,6 @@ class TestWebFetch:
 
 
 # ── browser ──────────────────────────────────────────────────────────────────
-
 
 
 class TestBrowser:
@@ -535,7 +540,6 @@ class TestBrowser:
 
 
 # ── sql_migration ────────────────────────────────────────────────────────────
-
 
 
 class TestSqlMigration:
@@ -576,13 +580,13 @@ class TestSqlMigration:
 # ── sql_schema ───────────────────────────────────────────────────────────────
 
 
-
 class TestSqlSchema:
     def test_name(self):
         assert SqlSchemaTool().name == "sql_schema"
 
     def test_schema_all_tables(self, tmp_path):
         import sqlite3
+
         db = tmp_path / "test.db"
         conn = sqlite3.connect(str(db))
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
@@ -595,6 +599,7 @@ class TestSqlSchema:
 
     def test_schema_specific_table(self, tmp_path):
         import sqlite3
+
         db = tmp_path / "test.db"
         conn = sqlite3.connect(str(db))
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
@@ -606,6 +611,7 @@ class TestSqlSchema:
 
     def test_schema_with_indexes(self, tmp_path):
         import sqlite3
+
         db = tmp_path / "test.db"
         conn = sqlite3.connect(str(db))
         conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
@@ -625,7 +631,6 @@ class TestSqlSchema:
 # ── parallel_executor ────────────────────────────────────────────────────────
 
 
-
 class TestParallelExecutor:
     def test_read_only_tool(self):
         assert is_read_only_tool("read_file") is True
@@ -636,6 +641,7 @@ class TestParallelExecutor:
 
     def test_execute_all_readonly_parallel(self):
         calls = []
+
         def fake_exec(tool_name, **kwargs):
             calls.append(tool_name)
             return f"result_{tool_name}"
@@ -650,6 +656,7 @@ class TestParallelExecutor:
 
     def test_execute_mixed_sequential(self):
         calls = []
+
         def fake_exec(tool_name, **kwargs):
             calls.append(tool_name)
             return f"result_{tool_name}"

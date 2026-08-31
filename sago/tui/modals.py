@@ -14,12 +14,13 @@ from typing import Any
 
 from rich.markup import escape
 from rich.syntax import Syntax
+from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, DirectoryTree, Label, OptionList, Static
+from textual.widgets import DirectoryTree, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
 logger = logging.getLogger("sago.tui.modals")
@@ -34,30 +35,33 @@ class DiffViewerScreen(ModalScreen):
     DEFAULT_CSS = """
     DiffViewerScreen {
         align: center middle;
-        background: rgba(5, 7, 10, 0.85);
+        background: rgba(1, 4, 9, 0.88);
     }
     #diff-dialog {
-        width: 92%;
-        height: 88%;
+        width: 94%;
+        height: 90%;
         background: #0d1117;
-        border: solid #30363d;
+        border: solid #1c2128;
         border-top: solid #58a6ff;
-        padding: 1 2;
+        padding: 0 1 1 1;
     }
     #diff-header {
         height: 3;
         dock: top;
-        border-bottom: solid #21262d;
-        layout: horizontal;
+        padding: 0 1;
+        border-bottom: solid #1c2128;
     }
     #diff-title {
-        color: #58a6ff;
         text-style: bold;
         width: 1fr;
+        padding: 0 0 0 1;
+        color: #58a6ff;
     }
-    #diff-actions {
+    #diff-hints {
+        color: #484f58;
         width: auto;
-        layout: horizontal;
+        padding: 0 1 0 0;
+        content-align: right middle;
     }
     #diff-body {
         height: 1fr;
@@ -66,35 +70,30 @@ class DiffViewerScreen(ModalScreen):
     #diff-file-list {
         width: 32%;
         height: 100%;
-        border-right: solid #21262d;
-        padding-right: 1;
+        border-right: solid #1c2128;
+        padding: 1 1 0 0;
+    }
+    #diff-file-label {
+        color: #8b949e;
+        text-style: bold;
+        padding: 0 0 1 0;
+    }
+    #diff-options {
+        background: #0d1117;
+        border: none;
+        scrollbar-size: 1 1;
+        scrollbar-color: #388bfd #161b22;
     }
     #diff-content-scroll {
         width: 68%;
         height: 100%;
-        padding-left: 1;
+        padding: 0 0 0 1;
+        scrollbar-size: 1 1;
+        scrollbar-color: #388bfd #161b22;
     }
     #diff-content {
-        color: #e6edf3;
-    }
-    .modal-btn {
-        margin-left: 1;
-        min-width: 12;
-        height: 3;
-        background: #21262d;
         color: #c9d1d9;
-    }
-    .modal-btn:hover {
-        background: #30363d;
-        color: #ffffff;
-    }
-    .modal-btn-primary {
-        background: #1f6feb;
-        color: #ffffff;
-        text-style: bold;
-    }
-    .modal-btn-primary:hover {
-        background: #388bfd;
+        padding: 1 0 0 0;
     }
     """
 
@@ -112,16 +111,14 @@ class DiffViewerScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical(id="diff-dialog"):
             with Horizontal(id="diff-header"):
-                yield Label("🔍 Workspace Diff Inspector (F3)", id="diff-title")
-                with Horizontal(id="diff-actions"):
-                    yield Button("↻ Refresh (r)", id="btn-diff-refresh", classes="modal-btn")
-                    yield Button("✕ Close (Esc)", id="btn-diff-close", classes="modal-btn")
+                yield Label("Workspace Diff", id="diff-title")
+                yield Static("[dim]R Refresh · Esc Close[/dim]", id="diff-hints")
             with Horizontal(id="diff-body"):
                 with Vertical(id="diff-file-list"):
-                    yield Label("[bold cyan]Changed Files:[/bold cyan]")
+                    yield Label("CHANGED FILES", id="diff-file-label")
                     yield OptionList(id="diff-options")
                 with VerticalScroll(id="diff-content-scroll"):
-                    yield Static("[dim]Loading workspace diff...[/dim]", id="diff-content")
+                    yield Static("[dim]Select a file to view its diff...[/dim]", id="diff-content")
 
     def on_mount(self) -> None:
         self.action_refresh_diff()
@@ -152,8 +149,8 @@ class DiffViewerScreen(ModalScreen):
             if not files:
                 option_list.add_option(Option("No modified files"))
                 self.query_one("#diff-content", Static).update(
-                    "[bold green]✨ Clean Working Tree[/bold green]\n\n"
-                    "No unstaged or staged changes detected in workspace."
+                    "[bold green]Clean Working Tree[/bold green]\n\n"
+                    "No unstaged or staged changes detected."
                 )
                 return
 
@@ -166,11 +163,11 @@ class DiffViewerScreen(ModalScreen):
                 )
                 raw_diff = diff_proc.stdout if diff_proc.returncode == 0 else ""
                 if not raw_diff:
-                    raw_diff = f"[Untracked / New file: {fpath}]"
+                    raw_diff = f"[Untracked: {fpath}]"
                 self._diff_map[fpath] = raw_diff
                 tag_col = "green" if status == "A" else ("yellow" if status == "M" else "red")
                 option_list.add_option(
-                    Option(f"[{tag_col}]{status:<2}[/{tag_col}] {fpath}", id=fpath)
+                    Option(f"[{tag_col}]{status:<2}[/{tag_col}] {escape(fpath)}", id=fpath)
                 )
 
             initial_file = self.target_file if self.target_file in self._diff_map else files[0][1]
@@ -181,7 +178,7 @@ class DiffViewerScreen(ModalScreen):
 
     def _display_file_diff(self, file_path: str) -> None:
         diff_text = self._diff_map.get(file_path, "No diff available")
-        formatted = []
+
         adds = sum(
             1
             for line in diff_text.splitlines()
@@ -193,40 +190,33 @@ class DiffViewerScreen(ModalScreen):
             if line.startswith("-") and not line.startswith("---")
         )
 
-        header = (
-            f"[bold cyan]File:[/] [bold white]{escape(file_path)}[/]  "
-            f"[bold green]+{adds}[/] [bold red]-{dels}[/]\n"
-            f"[dim]{'─' * 60}[/dim]\n"
-        )
-        formatted.append(header)
+        styled = Text()
+        styled.append(f"  {file_path}\n", style="bold white")
+        styled.append(f"  +{adds} ", style="bold green")
+        styled.append(f"-{dels}\n\n", style="bold red")
 
         for line in diff_text.splitlines():
             if line.startswith("diff --git") or line.startswith("index "):
-                formatted.append(f"[bold yellow]{escape(line)}[/bold yellow]")
+                styled.append(line + "\n", style="bold yellow")
             elif line.startswith("--- ") or line.startswith("+++ "):
-                formatted.append(f"[bold dim]{escape(line)}[/bold dim]")
+                styled.append(line + "\n", style="dim")
             elif line.startswith("+"):
-                formatted.append(f"[bold green]+ {escape(line[1:])}[/bold green]")
+                styled.append("+ " + line[1:] + "\n", style="green")
             elif line.startswith("-"):
-                formatted.append(f"[bold red]- {escape(line[1:])}[/bold red]")
+                styled.append("- " + line[1:] + "\n", style="red")
             elif line.startswith("@@"):
-                formatted.append(f"[bold magenta]{escape(line)}[/bold magenta]")
+                styled.append(line + "\n", style="bold magenta")
+            elif line.startswith("Binary"):
+                styled.append(line + "\n", style="dim italic")
             else:
-                formatted.append(f"  {escape(line)}")
-        self.query_one("#diff-content", Static).update("\n".join(formatted))
+                styled.append(line + "\n")
+
+        self.query_one("#diff-content", Static).update(styled)
 
     @on(OptionList.OptionSelected, "#diff-options")
     def on_file_selected(self, event: OptionList.OptionSelected) -> None:
         if event.option.id:
             self._display_file_diff(str(event.option.id))
-
-    @on(Button.Pressed, "#btn-diff-refresh")
-    def on_refresh_pressed(self) -> None:
-        self.action_refresh_diff()
-
-    @on(Button.Pressed, "#btn-diff-close")
-    def on_close_pressed(self) -> None:
-        self.dismiss()
 
 
 # ─── F4: Workspace File Tree Explorer with Rich Syntax Highlighting ───────────
@@ -238,26 +228,33 @@ class FileExplorerScreen(ModalScreen):
     DEFAULT_CSS = """
     FileExplorerScreen {
         align: center middle;
-        background: rgba(5, 7, 10, 0.85);
+        background: rgba(1, 4, 9, 0.88);
     }
     #file-dialog {
-        width: 92%;
-        height: 88%;
+        width: 94%;
+        height: 90%;
         background: #0d1117;
-        border: solid #30363d;
+        border: solid #1c2128;
         border-top: solid #3fb950;
-        padding: 1 2;
+        padding: 0 1 1 1;
     }
     #file-header {
         height: 3;
         dock: top;
-        border-bottom: solid #21262d;
-        layout: horizontal;
+        padding: 0 1;
+        border-bottom: solid #1c2128;
     }
     #file-title {
-        color: #3fb950;
         text-style: bold;
         width: 1fr;
+        padding: 0 0 0 1;
+        color: #3fb950;
+    }
+    #file-hints {
+        color: #484f58;
+        width: auto;
+        padding: 0 1 0 0;
+        content-align: right middle;
     }
     #file-body {
         height: 1fr;
@@ -266,27 +263,24 @@ class FileExplorerScreen(ModalScreen):
     #tree-container {
         width: 32%;
         height: 100%;
-        border-right: solid #21262d;
+        border-right: solid #1c2128;
         padding-right: 1;
+    }
+    DirectoryTree {
+        background: #0d1117;
+        border: none;
+        scrollbar-size: 1 1;
+        scrollbar-color: #388bfd #161b22;
     }
     #preview-container {
         width: 68%;
         height: 100%;
         padding-left: 1;
+        scrollbar-size: 1 1;
+        scrollbar-color: #388bfd #161b22;
     }
     #file-preview {
-        color: #e6edf3;
-    }
-    .modal-btn {
-        margin-left: 1;
-        min-width: 12;
-        height: 3;
-        background: #21262d;
         color: #c9d1d9;
-    }
-    .modal-btn:hover {
-        background: #30363d;
-        color: #ffffff;
     }
     """
 
@@ -322,12 +316,57 @@ class FileExplorerScreen(ModalScreen):
         ".php": "php",
     }
 
+    _BINARY_EXTS = frozenset(
+        {
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".bmp",
+            ".ico",
+            ".svg",
+            ".webp",
+            ".mp3",
+            ".mp4",
+            ".wav",
+            ".ogg",
+            ".flac",
+            ".m4a",
+            ".wma",
+            ".zip",
+            ".tar",
+            ".gz",
+            ".bz2",
+            ".xz",
+            ".7z",
+            ".rar",
+            ".pdf",
+            ".doc",
+            ".docx",
+            ".xls",
+            ".xlsx",
+            ".ppt",
+            ".pptx",
+            ".exe",
+            ".dll",
+            ".so",
+            ".dylib",
+            ".bin",
+            ".dat",
+            ".pyc",
+            ".pyo",
+            ".class",
+            ".o",
+            ".a",
+        }
+    )
+
     def compose(self) -> ComposeResult:
         cwd = Path.cwd()
         with Vertical(id="file-dialog"):
             with Horizontal(id="file-header"):
-                yield Label(f"📁 Workspace Explorer (F4) — {cwd.name}", id="file-title")
-                yield Button("✕ Close (Esc)", id="btn-file-close", classes="modal-btn")
+                yield Label(f"Workspace Explorer — {cwd.name}", id="file-title")
+                yield Static("[dim]Esc Close[/dim]", id="file-hints")
             with Horizontal(id="file-body"):
                 with Vertical(id="tree-container"):
                     yield DirectoryTree(str(cwd), id="dir-tree")
@@ -341,16 +380,38 @@ class FileExplorerScreen(ModalScreen):
     def on_file_selected(self, event: DirectoryTree.FileSelected) -> None:
         path = event.path
         try:
-            if path.stat().st_size > 500_000:
+            if path.is_dir():
+                return
+
+            ext = path.suffix.lower()
+            size = path.stat().st_size
+
+            if size > 500_000:
                 self.query_one("#file-preview", Static).update(
-                    f"[yellow]File is too large ({path.stat().st_size / 1024:.1f} KB) to preview inline.[/yellow]"
+                    f"[yellow]File too large ({size / 1024:.1f} KB) to preview inline.[/yellow]"
                 )
                 return
 
-            text = path.read_text(encoding="utf-8", errors="replace")
-            lexer = self._LEXER_MAP.get(path.suffix.lower(), "text")
+            if ext in self._BINARY_EXTS or size == 0:
+                kind = ext.lstrip(".").upper() if ext else "UNKNOWN"
+                self.query_one("#file-preview", Static).update(
+                    f"[dim]{kind} binary file[/dim]\n\n"
+                    f"  Size: {size:,} bytes ({size / 1024:.1f} KB)\n"
+                    f"  Path: {path}"
+                )
+                return
 
-            # Use Rich Syntax highlighting
+            raw = path.read_bytes()
+            if b"\x00" in raw[:8192]:
+                self.query_one("#file-preview", Static).update(
+                    f"[dim]Binary file detected[/dim]\n\n"
+                    f"  Size: {size:,} bytes ({size / 1024:.1f} KB)\n"
+                    f"  Path: {path}"
+                )
+                return
+
+            text = raw.decode("utf-8", errors="replace")
+            lexer = self._LEXER_MAP.get(ext, "text")
             syntax = Syntax(
                 text[:30000],
                 lexer,
@@ -362,10 +423,6 @@ class FileExplorerScreen(ModalScreen):
         except Exception as e:
             self.query_one("#file-preview", Static).update(f"[red]Could not read file: {e}[/red]")
 
-    @on(Button.Pressed, "#btn-file-close")
-    def on_close_pressed(self) -> None:
-        self.dismiss()
-
 
 # ─── F5: Session Manager & Instant Switcher ───────────────────────────────────
 
@@ -376,67 +433,72 @@ class SessionManagerScreen(ModalScreen):
     DEFAULT_CSS = """
     SessionManagerScreen {
         align: center middle;
-        background: rgba(5, 7, 10, 0.85);
+        background: rgba(1, 4, 9, 0.88);
     }
     #session-dialog {
-        width: 88%;
-        height: 82%;
+        width: 90%;
+        height: 86%;
         background: #0d1117;
-        border: solid #30363d;
+        border: solid #1c2128;
         border-top: solid #d2a8ff;
-        padding: 1 2;
+        padding: 0 1 1 1;
     }
     #session-header {
         height: 3;
         dock: top;
-        border-bottom: solid #21262d;
-        layout: horizontal;
+        padding: 0 1;
+        border-bottom: solid #1c2128;
     }
     #session-title {
-        color: #d2a8ff;
         text-style: bold;
         width: 1fr;
+        padding: 0 0 0 1;
+        color: #d2a8ff;
+    }
+    #session-hints {
+        color: #484f58;
+        width: auto;
+        padding: 0 1 0 0;
+        content-align: right middle;
     }
     #session-body {
         height: 1fr;
         layout: horizontal;
     }
     #session-list-col {
-        width: 42%;
+        width: 40%;
         height: 100%;
-        border-right: solid #21262d;
-        padding-right: 1;
+        border-right: solid #1c2128;
+        padding: 1 1 0 0;
+    }
+    #session-list-label {
+        color: #8b949e;
+        text-style: bold;
+        padding: 0 0 1 0;
+    }
+    #session-options {
+        background: #0d1117;
+        border: none;
+        scrollbar-size: 1 1;
+        scrollbar-color: #388bfd #161b22;
     }
     #session-detail-col {
-        width: 58%;
+        width: 60%;
         height: 100%;
-        padding-left: 1;
+        padding: 1 0 0 1;
+        scrollbar-size: 1 1;
+        scrollbar-color: #388bfd #161b22;
     }
-    .modal-btn {
-        margin-left: 1;
-        min-width: 12;
-        height: 3;
-        background: #21262d;
+    #session-details {
         color: #c9d1d9;
-    }
-    .modal-btn:hover {
-        background: #30363d;
-        color: #ffffff;
-    }
-    .modal-btn-primary {
-        background: #8957e5;
-        color: #ffffff;
-        text-style: bold;
-    }
-    .modal-btn-primary:hover {
-        background: #ab7df8;
     }
     """
 
     BINDINGS = [
         Binding("escape", "dismiss", "Close"),
         Binding("q", "dismiss", "Close"),
-        Binding("enter", "switch_selected_session", "Switch"),
+        Binding("enter", "switch_selected_session", "Switch", priority=True),
+        Binding("r", "refresh_sessions", "Refresh"),
     ]
 
     def __init__(self) -> None:
@@ -447,21 +509,15 @@ class SessionManagerScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical(id="session-dialog"):
             with Horizontal(id="session-header"):
-                yield Label("🔄 Session History & Switcher (F5)", id="session-title")
-                with Horizontal(id="session-actions"):
-                    yield Button(
-                        "▶ Switch (Enter)",
-                        id="btn-session-switch",
-                        classes="modal-btn modal-btn-primary",
-                    )
-                    yield Button("✕ Close (Esc)", id="btn-session-close", classes="modal-btn")
+                yield Label("Session History & Switcher", id="session-title")
+                yield Static("[dim]Enter Switch · R Refresh · Esc Close[/dim]", id="session-hints")
             with Horizontal(id="session-body"):
                 with Vertical(id="session-list-col"):
-                    yield Label("[bold cyan]Saved Sessions:[/bold cyan]")
+                    yield Label("SAVED SESSIONS", id="session-list-label")
                     yield OptionList(id="session-options")
                 with VerticalScroll(id="session-detail-col"):
                     yield Static(
-                        "[dim]Select a session from the list to view chat preview...[/dim]",
+                        "[dim]Select a session to view details...[/dim]",
                         id="session-details",
                     )
 
@@ -507,7 +563,6 @@ class SessionManagerScreen(ModalScreen):
         created = entry.get("created_at", "")[:19].replace("T", " ")
         status = entry.get("status", "active")
 
-        # Parse workspace path
         workspace_cwd = ""
         raw_meta = entry.get("metadata")
         if raw_meta:
@@ -519,8 +574,20 @@ class SessionManagerScreen(ModalScreen):
             except Exception:
                 pass
 
-        # Load recent messages preview for this session
-        msg_preview_lines = []
+        styled = Text()
+        styled.append(f"  {title}\n", style="bold white")
+        styled.append(f"  {sid}\n\n", style="dim")
+
+        styled.append("  Status  ", style="bold")
+        styled.append(f"{status}\n", style="cyan" if status == "active" else "yellow")
+
+        styled.append("  Created ", style="bold")
+        styled.append(f"{created}\n", style="cyan")
+
+        if workspace_cwd:
+            styled.append("  Root    ", style="bold")
+            styled.append(f"{workspace_cwd}\n", style="cyan")
+
         try:
             from sago.database import MessageStore
 
@@ -528,38 +595,27 @@ class SessionManagerScreen(ModalScreen):
             history = ms.get_history(limit=6)
             ms.close()
             if history:
-                msg_preview_lines.append(
-                    "\n[bold yellow]Recent Conversation Highlights:[/bold yellow]"
-                )
+                styled.append("\n  Recent Messages\n", style="bold yellow")
                 for m in history:
                     r = m.get("role", "user")
                     c = (m.get("content") or "").strip()
-                    c_short = c[:100] + ("..." if len(c) > 100 else "")
+                    c_short = c[:120] + ("..." if len(c) > 120 else "")
                     if r == "user":
-                        msg_preview_lines.append(f"  [cyan]User:[/] {escape(c_short)}")
+                        styled.append("    User ", style="bold cyan")
+                        styled.append(f"{c_short}\n")
                     else:
-                        msg_preview_lines.append(f"  [green]Assistant:[/] {escape(c_short)}")
+                        styled.append("    Assistant ", style="bold green")
+                        styled.append(f"{c_short}\n")
         except Exception:
             pass
 
-        lines = [
-            f"[bold magenta]Session Title:[/] [bold white]{escape(title)}[/bold white]",
-            f"[bold cyan]Session ID:[/] `{sid}`",
-            f"[bold cyan]Status:[/] {status}    [bold cyan]Created:[/] {created}",
-        ]
-        if workspace_cwd:
-            lines.append(f"[bold cyan]Workspace Root:[/] `{escape(workspace_cwd)}`")
+        styled.append("\n  Press Enter to switch to this session.\n", style="dim")
 
-        if msg_preview_lines:
-            lines.extend(msg_preview_lines)
+        self.query_one("#session-details", Static).update(styled)
 
-        lines.extend(
-            [
-                "",
-                "[bold green]▶ Click 'Switch' or press Enter to resume this conversation.[/bold green]",
-            ]
-        )
-        self.query_one("#session-details", Static).update("\n".join(lines))
+    def action_refresh_sessions(self) -> None:
+        """Reload session list from database."""
+        self._load_sessions()
 
     def action_switch_selected_session(self) -> None:
         """Switch to currently selected session."""
@@ -575,12 +631,5 @@ class SessionManagerScreen(ModalScreen):
         for s in self._sessions:
             if s.get("id") == sid:
                 self._show_details(s)
+                self._selected_sid = sid
                 break
-
-    @on(Button.Pressed, "#btn-session-switch")
-    def on_switch_pressed(self) -> None:
-        self.action_switch_selected_session()
-
-    @on(Button.Pressed, "#btn-session-close")
-    def on_close_pressed(self) -> None:
-        self.dismiss()

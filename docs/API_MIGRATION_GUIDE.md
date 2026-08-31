@@ -290,12 +290,14 @@ curl -X POST http://localhost:8000/execute \
 import asyncio
 import websockets
 
+
 async def watch_task():
     async with websockets.connect("ws://localhost:8000/ws/task_123") as ws:
         async for msg in ws:
             data = json.loads(msg)
             # data.type: "tool_call", "thinking", "token", "complete", "error"
             print(data)
+
 
 asyncio.run(watch_task())
 ```

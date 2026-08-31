@@ -10,6 +10,7 @@ from sago.utils.markitdown_converter import convert_file_to_markdown, is_documen
 
 # ── grep_content ─────────────────────────────────────────────────────────────
 
+
 class TestGrepContent:
     def test_grep_single_file(self, tmp_path):
         f = tmp_path / "test.py"
@@ -81,6 +82,7 @@ class TestGrepContent:
 
 # ── glob_files ───────────────────────────────────────────────────────────────
 
+
 class TestGlobFiles:
     def test_glob_basic(self, tmp_path):
         (tmp_path / "a.py").write_text("x")
@@ -135,6 +137,7 @@ class TestGlobFiles:
 
 # ── diff_tool ────────────────────────────────────────────────────────────────
 
+
 class TestDiffTool:
     def test_unified_diff_text(self):
         tool = DiffTool()
@@ -148,7 +151,9 @@ class TestDiffTool:
     def test_unified_diff_identical(self):
         tool = DiffTool()
         result = tool._run(operation="unified", source="same\n", target="same\n")
-        assert "No differences" in result or "identical" in result.lower() or isinstance(result, str)
+        assert (
+            "No differences" in result or "identical" in result.lower() or isinstance(result, str)
+        )
 
     def test_context_diff_text(self):
         tool = DiffTool()
@@ -188,6 +193,7 @@ class TestDiffTool:
 
 
 # ── markitdown_converter ────────────────────────────────────────────────────
+
 
 class TestIsDocumentFile:
     def test_pdf(self):
@@ -282,6 +288,7 @@ class TestConvertFileToMarkdown:
 
 
 # ── config/loader ────────────────────────────────────────────────────────────
+
 
 class TestDeepMerge:
     def test_simple_merge(self):

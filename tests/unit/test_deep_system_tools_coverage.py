@@ -52,28 +52,36 @@ class TestCronSchedule:
 
     @patch("subprocess.run")
     def test_list_crontab(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="0 * * * * /usr/bin/cmd\n", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="0 * * * * /usr/bin/cmd\n", stderr=""
+        )
         tool = CronSchedule()
         result = tool._run(operation="list")
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_add_entry(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
         tool = CronSchedule()
         result = tool._run(operation="add", schedule="0 * * * *", command="/usr/bin/cmd")
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_remove_entry(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
         tool = CronSchedule()
         result = tool._run(operation="remove", schedule="0 * * * *", command="/usr/bin/cmd")
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_validate(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
         tool = CronSchedule()
         result = tool._run(operation="validate", schedule="0 * * * *")
         assert isinstance(result, str)
@@ -90,14 +98,18 @@ class TestScreenshot:
 
     @patch("subprocess.run")
     def test_capture(self, mock_run, tmp_path):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout=str(tmp_path / "shot.png"), stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=str(tmp_path / "shot.png"), stderr=""
+        )
         tool = Screenshot()
         result = tool._run(operation="capture", output_path=str(tmp_path / "shot.png"))
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_capture_failure(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="display not found")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="display not found"
+        )
         tool = Screenshot()
         result = tool._run(operation="capture", output_path="/tmp/shot.png")
         assert isinstance(result, str)
@@ -115,28 +127,36 @@ class TestEnvManager:
 
     @patch("subprocess.run")
     def test_list_env(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="PATH=/usr/bin\nHOME=/root\n", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="PATH=/usr/bin\nHOME=/root\n", stderr=""
+        )
         tool = EnvManagerTool()
         result = tool._run(operation="list")
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_set_env(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
         tool = EnvManagerTool()
         result = tool._run(operation="set", key="MY_VAR", value="hello")
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_get_env(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="MY_VAR=hello\n", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="MY_VAR=hello\n", stderr=""
+        )
         tool = EnvManagerTool()
         result = tool._run(operation="get", key="MY_VAR")
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_unset_env(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
         tool = EnvManagerTool()
         result = tool._run(operation="unset", key="MY_VAR")
         assert isinstance(result, str)
@@ -156,7 +176,9 @@ class TestEnvInfo:
     @patch("subprocess.run")
     def test_basic_info(self, mock_run, mock_shutil):
         mock_shutil.return_value = MagicMock(total=100, used=50, free=50)
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="Linux", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="Linux", stderr=""
+        )
         tool = EnvInfo()
         result = tool._run(operation="system")
         assert isinstance(result, str)
@@ -200,7 +222,9 @@ class TestCodeSandbox:
 
     @patch("subprocess.run")
     def test_run_python(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="hello\n", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="hello\n", stderr=""
+        )
         tool = CodeSandboxTool()
         result = tool._run(language="python", code="print('hello')")
         assert isinstance(result, str)
@@ -217,7 +241,9 @@ class TestDockerOps:
 
     @patch("subprocess.run")
     def test_ps(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="CONTAINER ID\nabc123\n", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="CONTAINER ID\nabc123\n", stderr=""
+        )
         tool = DockerOps()
         result = tool._run(operation="list")
         assert isinstance(result, str)
@@ -235,14 +261,18 @@ class TestK8sOps:
 
     @patch("subprocess.run")
     def test_get_pods(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="NAME\npod-1\n", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="NAME\npod-1\n", stderr=""
+        )
         tool = K8sOpsTool()
         result = tool._run(operation="get", resource="pods")
         assert isinstance(result, str)
 
     @patch("subprocess.run")
     def test_logs(self, mock_run):
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="log line\n", stderr="")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="log line\n", stderr=""
+        )
         tool = K8sOpsTool()
         result = tool._run(operation="logs", name="pod-1")
         assert isinstance(result, str)

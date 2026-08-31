@@ -143,7 +143,9 @@ class TestComputeConfidenceScore:
             "A detailed response with sufficient length " * 5,
             [{"tool": "read_file", "success": True}],
             ["file.py"],
-            [], [], [],
+            [],
+            [],
+            [],
         )
         assert 80 <= score <= 100
 
@@ -157,7 +159,8 @@ class TestComputeConfidenceScore:
             [],
             [],
             ["Fabrication: a", "Fabrication: b", "Fabrication: c", "Fabrication: d"],
-            [], [],
+            [],
+            [],
         )
         assert score < 50
 
@@ -166,7 +169,9 @@ class TestComputeConfidenceScore:
             "A detailed response " * 20,
             [{"success": True}] * 5,
             ["f1.py", "f2.py", "f3.py", "f4.py"],
-            [], [], [],
+            [],
+            [],
+            [],
         )
         assert score <= 100
 
