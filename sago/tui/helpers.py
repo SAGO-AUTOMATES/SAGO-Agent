@@ -16,10 +16,232 @@ from textual.widgets import Button, Collapsible, Static
 from sago.tui.widgets import AgentStatus, get_agent_color
 from sago.utils.safe import log_exception
 
+_THEME_BG = {
+    "obsidian": "#0d1117",
+    "nord": "#2e3440",
+    "dracula": "#282a36",
+    "monokai": "#272822",
+    "tokyo-night": "#1a1b26",
+    "solarized-dark": "#002b36",
+    "cyberpunk": "#10121d",
+    "catppuccin-mocha": "#181825",
+    "gruvbox-dark": "#282828",
+    "rose-pine": "#1f1d2e",
+}
+
+_SYNTAX_THEME_MAP = {name: f"sago-{name}" for name in _THEME_BG}
+
+
+def _get_theme_bg(app: Any = None) -> str:
+    """Get the current theme's background color for Syntax renderables."""
+    if app is None:
+        return _THEME_BG["obsidian"]
+    theme = getattr(app, "sago_theme", "obsidian")
+    return _THEME_BG.get(theme, _THEME_BG["obsidian"])
+
+
+def _get_syntax_theme(app: Any = None) -> str:
+    """Get the current theme's pygments Syntax theme name."""
+    if app is None:
+        return "sago-obsidian"
+    theme = getattr(app, "sago_theme", "obsidian")
+    return _SYNTAX_THEME_MAP.get(theme, "sago-obsidian")
+
+
+def _register_sago_syntax_themes() -> None:
+    """Register custom pygments Syntax themes with correct per-theme backgrounds."""
+    import pygments.styles
+    from pygments.style import Style as PygmentsStyle
+    from pygments.token import Token
+
+    _SAGO_THEME_DEFS = {
+        "sago-obsidian": {
+            "bg": "#0d1117",
+            "fg": "#c9d1d9",
+            "kw": "#ff7b72",
+            "fn": "#d2a8ff",
+            "cls": "#f0883e",
+            "bi": "#79c0ff",
+            "dec": "#ffa657",
+            "str": "#a5d6ff",
+            "num": "#79c0ff",
+            "cmt": "#8b949e",
+            "op": "#ff7b72",
+            "punc": "#c9d1d9",
+        },
+        "sago-nord": {
+            "bg": "#2e3440",
+            "fg": "#d8dee9",
+            "kw": "#81a1c1",
+            "fn": "#88c0d0",
+            "cls": "#8fbcbb",
+            "bi": "#88c0d0",
+            "dec": "#d08770",
+            "str": "#a3be8c",
+            "num": "#d08770",
+            "cmt": "#616e88",
+            "op": "#81a1c1",
+            "punc": "#eceff4",
+        },
+        "sago-dracula": {
+            "bg": "#282a36",
+            "fg": "#f8f8f2",
+            "kw": "#ff79c6",
+            "fn": "#50fa7b",
+            "cls": "#8be9fd",
+            "bi": "#8be9fd",
+            "dec": "#ffb86c",
+            "str": "#f1fa8c",
+            "num": "#bd93f9",
+            "cmt": "#6272a4",
+            "op": "#ff79c6",
+            "punc": "#f8f8f2",
+        },
+        "sago-monokai": {
+            "bg": "#272822",
+            "fg": "#f8f8f2",
+            "kw": "#f92672",
+            "fn": "#a6e22e",
+            "cls": "#a6e22e",
+            "bi": "#66d9ef",
+            "dec": "#a6e22e",
+            "str": "#e6db74",
+            "num": "#ae81ff",
+            "cmt": "#75715e",
+            "op": "#f92672",
+            "punc": "#f8f8f2",
+        },
+        "sago-tokyo-night": {
+            "bg": "#1a1b26",
+            "fg": "#a9b1d6",
+            "kw": "#bb9af7",
+            "fn": "#7aa2f7",
+            "cls": "#7aa2f7",
+            "bi": "#7dcfff",
+            "dec": "#ff9e64",
+            "str": "#9ece6a",
+            "num": "#ff9e64",
+            "cmt": "#565f89",
+            "op": "#bb9af7",
+            "punc": "#a9b1d6",
+        },
+        "sago-solarized-dark": {
+            "bg": "#002b36",
+            "fg": "#93a1a1",
+            "kw": "#859900",
+            "fn": "#268bd2",
+            "cls": "#b58900",
+            "bi": "#2aa198",
+            "dec": "#cb4b16",
+            "str": "#2aa198",
+            "num": "#d33682",
+            "cmt": "#586e75",
+            "op": "#859900",
+            "punc": "#93a1a1",
+        },
+        "sago-cyberpunk": {
+            "bg": "#10121d",
+            "fg": "#00d4e6",
+            "kw": "#ff007f",
+            "fn": "#00ff9f",
+            "cls": "#ffcc00",
+            "bi": "#00d4e6",
+            "dec": "#ff6600",
+            "str": "#00ff9f",
+            "num": "#ffcc00",
+            "cmt": "#545478",
+            "op": "#ff007f",
+            "punc": "#00d4e6",
+        },
+        "sago-catppuccin-mocha": {
+            "bg": "#181825",
+            "fg": "#bac2de",
+            "kw": "#cba6f7",
+            "fn": "#89b4fa",
+            "cls": "#f9e2af",
+            "bi": "#94e2d5",
+            "dec": "#fab387",
+            "str": "#a6e3a1",
+            "num": "#fab387",
+            "cmt": "#6c7086",
+            "op": "#cba6f7",
+            "punc": "#bac2de",
+        },
+        "sago-gruvbox-dark": {
+            "bg": "#282828",
+            "fg": "#d5c4a1",
+            "kw": "#fb4934",
+            "fn": "#b8bb26",
+            "cls": "#fabd2f",
+            "bi": "#83a598",
+            "dec": "#fe8019",
+            "str": "#b8bb26",
+            "num": "#d3869b",
+            "cmt": "#928374",
+            "op": "#fb4934",
+            "punc": "#d5c4a1",
+        },
+        "sago-rose-pine": {
+            "bg": "#1f1d2e",
+            "fg": "#c4c0e4",
+            "kw": "#eb6f92",
+            "fn": "#9ccfd8",
+            "cls": "#f6c177",
+            "bi": "#31748f",
+            "dec": "#ebbcba",
+            "str": "#31748f",
+            "num": "#ebbcba",
+            "cmt": "#6e6a86",
+            "op": "#eb6f92",
+            "punc": "#e0def4",
+        },
+    }
+
+    for name, t in _SAGO_THEME_DEFS.items():
+        cls = type(
+            name.replace("-", "_").title(),
+            (PygmentsStyle,),
+            {
+                "background_color": t["bg"],
+                "styles": {
+                    Token: t["fg"],
+                    Token.Keyword: f"{t['kw']} bold",
+                    Token.Name.Function: t["fn"],
+                    Token.Name.Class: t["cls"],
+                    Token.Name.Builtin: t["bi"],
+                    Token.Name.Decorator: t["dec"],
+                    Token.Literal.String: t["str"],
+                    Token.Literal.Number: t["num"],
+                    Token.Comment: f"{t['cmt']} italic",
+                    Token.Operator: t["op"],
+                    Token.Punctuation: t["punc"],
+                },
+            },
+        )
+        _SAGO_THEME_CLASSES[name] = cls
+
+    _original = pygments.styles.get_style_by_name
+
+    def _patched_get_style_by_name(name: str):
+        if name in _SAGO_THEME_CLASSES:
+            return _SAGO_THEME_CLASSES[name]
+        return _original(name)
+
+    pygments.styles.get_style_by_name = _patched_get_style_by_name
+    # Also patch Rich's own reference so it uses our themes
+    import rich.syntax as _rich_syntax
+
+    _rich_syntax.get_style_by_name = _patched_get_style_by_name
+
+
+_SAGO_THEME_CLASSES: dict = {}
+
 if TYPE_CHECKING:
     from sago.tui.app import SagoApp
 
 logger = logging.getLogger("sago.tui.helpers")
+
+_register_sago_syntax_themes()
 
 
 def _safe_static(text: str, classes: str = "", markup: bool = True) -> Static:
@@ -684,9 +906,12 @@ class UIHelpers:
                 pass
             # Convert to blocks for persistence (single bulk block legacy)
             if _thinking_for_db:
+                # Use seq from buffer if available, otherwise default to 1
+                _buf = getattr(self, "_current_thinking_buffer", None)
+                _seq = _buf[0].get("seq", 1) if isinstance(_buf, list) and _buf else 1
                 _thinking_blocks = [
                     {
-                        "seq": 1,
+                        "seq": _seq,
                         "agent": agent_name or "sago",
                         "text": _thinking_for_db,
                         "timestamp": _time_mod.time(),
@@ -695,9 +920,12 @@ class UIHelpers:
         else:
             # No buffer, but inline thinking exists — create single block
             if _thinking_for_db:
+                # Use seq from buffer if available, otherwise default to 1
+                _buf = getattr(self, "_current_thinking_buffer", None)
+                _seq = _buf[0].get("seq", 1) if isinstance(_buf, list) and _buf else 1
                 _thinking_blocks = [
                     {
-                        "seq": 1,
+                        "seq": _seq,
                         "agent": agent_name or "sago",
                         "text": _thinking_for_db,
                         "timestamp": _time_mod.time(),
@@ -836,7 +1064,7 @@ class UIHelpers:
                             syntax = Syntax(
                                 code,
                                 lang or "text",
-                                theme="monokai",
+                                theme=_get_syntax_theme(self.app),
                                 line_numbers=True,
                                 word_wrap=True,
                             )
@@ -1036,10 +1264,12 @@ class UIHelpers:
                 if _b.get("agent") == _agent:
                     break
             if not _is_dup:
-                # seq is len+1 for DB ordering; mount_sequential will assign canonical seq on card
+                # Use mount_sequential seq_id for DB ordering consistency
+                # Get current seq counter value before appending
+                _seq_id = self._seq_counter + 1 if hasattr(self, "_seq_counter") else 1
                 _buf.append(  # type: ignore[union-attr]
                     {
-                        "seq": len(_buf) + 1,  # type: ignore[union-attr]
+                        "seq": _seq_id,
                         "agent": _agent,
                         "text": _clean,
                         "timestamp": _time_mod.time(),
@@ -1327,9 +1557,41 @@ class UIHelpers:
 
             preview_res = _summarize_tool_result(result)
 
+            # If tool modifies files (write_file, edit_file, multi_replace_file), generate inline diff view
+            diff_section = ""
+            if tool_name in ("write_file", "edit_file", "multi_replace_file", "patch_file"):
+                target_f = args.get("target_file") or args.get("file_path") or args.get("path")
+                old_str = args.get("old_string") or args.get("target_content") or ""
+                new_str = (
+                    args.get("new_string")
+                    or args.get("replacement_content")
+                    or args.get("content")
+                    or args.get("code_content")
+                    or ""
+                )
+                if old_str and new_str:
+                    diff_lines = ["[bold magenta]⚡ Inline Diff View:[/bold magenta]"]
+                    for line in old_str.splitlines()[:15]:
+                        diff_lines.append(f"  [red]- {_escape(line)}[/red]")
+                    for line in new_str.splitlines()[:15]:
+                        diff_lines.append(f"  [green]+ {_escape(line)}[/green]")
+                    diff_section = "\n\n" + "\n".join(diff_lines)
+                elif new_str and tool_name == "write_file":
+                    diff_lines = [
+                        f"[bold magenta]⚡ File Created ({_escape(str(target_f))}):[/bold magenta]"
+                    ]
+                    for line in new_str.splitlines()[:20]:
+                        diff_lines.append(f"  [green]+ {_escape(line)}[/green]")
+                    if len(new_str.splitlines()) > 20:
+                        diff_lines.append(
+                            f"  [dim]... (+{len(new_str.splitlines()) - 20} more lines)[/dim]"
+                        )
+                    diff_section = "\n\n" + "\n".join(diff_lines)
+
             body = (
                 f"[bold yellow]Parameters:[/bold yellow]\n{args_str}\n\n"
                 f"[bold green]Result Output:[/bold green]\n{preview_res}"
+                f"{diff_section}"
             )
 
             # Use safe static that pre-validates markup; body contains escaped
@@ -1419,7 +1681,7 @@ class UIHelpers:
                                 syntax = Syntax(
                                     code,
                                     lang or "text",
-                                    theme="monokai",
+                                    theme=_get_syntax_theme(self.app),
                                     line_numbers=True,
                                     word_wrap=True,
                                 )
@@ -1595,7 +1857,7 @@ class UIHelpers:
                                 syntax = Syntax(
                                     code,
                                     lang or "text",
-                                    theme="monokai",
+                                    theme=_get_syntax_theme(self.app),
                                     line_numbers=True,
                                     word_wrap=True,
                                 )

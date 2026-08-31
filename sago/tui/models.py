@@ -68,6 +68,7 @@ COMMANDS = {
     "/dev": "Developer telemetry & live traces (/dev [on|off|logs|traces])",
     "/developer": "Developer telemetry (alias of /dev)",
     "/yolo": "Toggle auto-approval for safe tool execution",
+    "/reload": "Hot-reload configuration from disk and apply updates",
     # Utilities
     "/retry": "Retry last failed request",
     "/continue": "Continue last assistant response",
@@ -98,7 +99,6 @@ THEMES = {
     "catppuccin-mocha": "Catppuccin Mocha Pastel",
     "gruvbox-dark": "Gruvbox Dark Warm Retro",
     "rose-pine": "Rosé Pine Minimal Muted",
-    "light": "Clean Minimalist Light",
 }
 
 BUILTIN_MODELS = [

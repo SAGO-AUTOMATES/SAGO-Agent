@@ -1,7 +1,8 @@
 """Configuration loader for Sago.
 
 Loads and validates YAML configuration files from the config directory.
-Supports environment variable overrides and user-level customization.
+Supports environment variable overrides, user-level customization,
+and filesystem watching for hot-reload.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ import logging
 import os
 import shutil
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +21,30 @@ from pydantic import BaseModel, Field
 from sago.utils.safe import log_exception
 from sago.version import __version__
 
+WATCHDOG_AVAILABLE = False
+try:
+    from watchdog.events import FileSystemEventHandler
+    from watchdog.observers import Observer
+
+    WATCHDOG_AVAILABLE = True
+except ImportError:
+
+    class FileSystemEventHandler:  # type: ignore[no-redef]
+        """Fallback dummy handler when watchdog is not installed."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def on_modified(self, event: Any) -> None:
+            pass
+
+
 logger = logging.getLogger("sago.config")
+
+# Global watcher state
+_watcher: type[FileSystemEventHandler] | None = None
+_watch_thread: threading.Thread | None = None
+_watch_stop_event: threading.Event | None = None
 
 
 def init_user_config(force: bool = False) -> None:
@@ -225,6 +250,23 @@ class ExecutorConfig(BaseModel):
     auto_complete_min_iterations: int = 4
 
 
+class ExecutionConfig(BaseModel):
+    """Execution mode configuration."""
+
+    mode: str = "native"  # "native" (default) or "api"
+    auto_fallback: bool = True  # Fallback to native if API fails
+    hot_reload: bool = True  # Watch config for changes
+    ws_url: str = "ws://localhost:8000"  # WebSocket URL for API mode
+    api_base_url: str = "http://localhost:8000"  # API base URL for API mode
+    api_key: str = ""  # Optional API key for auth
+
+    # Feature flags
+    enable_websocket: bool = True
+    enable_rest_api: bool = True
+    enable_native_tui: bool = True
+    config_watch_interval: int = 5000  # Config watch interval in ms
+
+
 class SagoConfig(BaseModel):
     """Root configuration model for Sago."""
 
@@ -239,6 +281,7 @@ class SagoConfig(BaseModel):
     daemon: DaemonConfig = Field(default_factory=DaemonConfig)
     mesh: MeshConfig = Field(default_factory=MeshConfig)
     executor: ExecutorConfig = Field(default_factory=ExecutorConfig)
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
 
 
 def _expand_path(path_str: str) -> Path:
@@ -454,6 +497,21 @@ def invalidate_config_cache() -> None:
         _config_cache_key = None
 
 
+def reload_config() -> None:
+    """Reload the configuration from all config files.
+
+    Invalidates the cache and re-reads all YAML configuration files,
+    applying any environment variable overrides and user customizations.
+    """
+    invalidate_config_cache()
+    # Force re-initialization by clearing module-level caches
+    import sago.config.loader as _loader_mod
+
+    _loader_mod._config_cache = None
+    _loader_mod._config_cache_key = None
+    logger.info("Configuration reloaded from disk")
+
+
 def is_dev_mode_enabled() -> bool:
     """Check if developer mode is enabled via ~/.sago/ config or environment.
 
@@ -539,3 +597,125 @@ def set_dev_mode(enabled: bool, persist: bool = True) -> None:
         data["dev_mode"] = enabled
         settings_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
         invalidate_config_cache()
+
+
+class _ConfigChangeHandler(FileSystemEventHandler):
+    """Handler for config.yaml filesystem changes."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._last_change: float = 0
+
+    def on_modified(self, event: Any) -> None:
+        """Called when config.yaml is modified."""
+        if event.src_path and not event.src_path.endswith("config.yaml"):
+            return
+
+        # Debounce: ignore changes within 500ms of last change
+        now = time.time()
+        if now - self._last_change < 0.5:
+            return
+        self._last_change = now
+
+        logger.info("config.yaml modified, invalidating config cache")
+        invalidate_config_cache()
+
+
+def start_config_watching() -> None:
+    """Start filesystem watcher on config.yaml for hot-reload.
+
+    Uses watchdog if available, otherwise falls back to polling.
+    """
+    global _watch_thread, _watch_stop_event, _watcher
+
+    if WATCHDOG_AVAILABLE:
+        _start_watching_watchdog()
+    else:
+        _start_polling()
+
+    logger.info("Config watching started")
+
+
+def _start_watching_watchdog() -> None:
+    """Start watchdog-based filesystem watcher."""
+    global _watch_thread, _watch_stop_event, _watcher
+
+    if _watch_thread and _watch_thread.is_alive():
+        # Already watching
+        return
+
+    _watch_stop_event = threading.Event()
+    event_handler = _ConfigChangeHandler()
+    observer = Observer()
+    config_path = Path.home() / ".sago" / "config" / "sago.yaml"
+
+    # Also watch the default config dir
+    default_dir = Path(__file__).parent
+    try:
+        observer.schedule(event_handler, str(default_dir), recursive=False)
+    except Exception as e:
+        logger.warning("Failed to schedule default dir: %s", e)
+        _start_polling()
+        return
+
+    # Watch the user config path if it exists (skip _observed_paths check)
+    # InotifyObserver doesn't expose _observed_paths, so we just try to schedule
+    if config_path.exists():
+        try:
+            observer.schedule(event_handler, str(config_path.parent), recursive=False)
+        except Exception as e:
+            logger.warning("Failed to schedule config path: %s", e)
+
+    try:
+        observer.start()
+    except Exception as e:
+        logger.warning("Observer start failed: %s", e)
+        _start_polling()
+        return
+
+    _watch_thread = threading.Thread(target=observer.run, daemon=True)
+    _watch_thread.start()
+    logger.info("Watchdog config watching started")
+
+
+def _start_polling() -> None:
+    """Start polling-based config watcher (fallback when watchdog not available)."""
+
+    global _watch_thread, _watch_stop_event
+
+    if _watch_thread and _watch_thread.is_alive():
+        return
+
+    _watch_stop_event = threading.Event()
+
+    def _poll_loop() -> None:
+        last_mtime: float | None = None
+        while not _watch_stop_event.is_set():
+            try:
+                config_path = Path.home() / ".sago" / "config" / "sago.yaml"
+                if config_path.exists():
+                    mtime = config_path.stat().st_mtime
+                    if last_mtime is None or mtime != last_mtime:
+                        logger.info("config.yaml modified (polling), invalidating config cache")
+                        invalidate_config_cache()
+                        last_mtime = mtime
+            except Exception as e:
+                logger.debug("Config polling error: %s", e)
+            _watch_stop_event.wait(2.0)  # Check every 2 seconds
+
+    _watch_thread = threading.Thread(target=_poll_loop, daemon=True)
+    _watch_thread.start()
+    logger.info("Polling-based config watching started")
+
+
+def stop_config_watching() -> None:
+    """Stop the config filesystem watcher."""
+    global _watch_thread, _watch_stop_event
+
+    if _watch_stop_event:
+        _watch_stop_event.set()
+    if _watch_thread and _watch_thread.is_alive():
+        _watch_thread.join(timeout=5)
+    _watch_thread = None
+    _watch_stop_event = None
+    logger.info("Config watching stopped")

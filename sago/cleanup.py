@@ -427,37 +427,19 @@ def clean_database(
         total_sessions = cur.fetchone()[0]
         res.items_scanned = total_sessions
 
-        # 2. Empty / ghost sessions (no valid messages and no tasks) - only old ones
-        if min_age_cutoff:
-            cur.execute(
-                """
-                SELECT s.id FROM sessions s
-                WHERE (
-                    SELECT COUNT(*) FROM messages m
-                    WHERE m.session_id = s.id
-                    AND TRIM(m.content, ' ' || CHAR(9) || CHAR(10) || CHAR(13)) != ''
-                ) = 0
-                AND (
-                    SELECT COUNT(*) FROM tasks t
-                    WHERE t.session_id = s.id
-                ) = 0
-                AND s.created_at < ?
-            """,
-                (min_age_cutoff,),
-            )
-        else:
-            cur.execute("""
-                SELECT s.id FROM sessions s
-                WHERE (
-                    SELECT COUNT(*) FROM messages m
-                    WHERE m.session_id = s.id
-                    AND TRIM(m.content, ' ' || CHAR(9) || CHAR(10) || CHAR(13)) != ''
-                ) = 0
-                AND (
-                    SELECT COUNT(*) FROM tasks t
-                    WHERE t.session_id = s.id
-                ) = 0
-            """)
+        # 2. Empty / noise sessions (0 messages, or only blank/whitespace messages, and no tasks)
+        cur.execute("""
+            SELECT s.id FROM sessions s
+            WHERE (
+                SELECT COUNT(*) FROM messages m
+                WHERE m.session_id = s.id
+                AND TRIM(m.content, ' ' || char(9) || char(10) || char(13)) != ''
+            ) = 0
+            AND (
+                SELECT COUNT(*) FROM tasks t
+                WHERE t.session_id = s.id
+            ) = 0
+        """)
         empty_session_ids = [row[0] for row in cur.fetchall()]
 
         # 3. Abandoned / test sessions and stale sessions beyond retention

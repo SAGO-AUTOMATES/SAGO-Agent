@@ -24,6 +24,8 @@ classifiers = [
 dependencies = [
     "aiohttp>=3.14.3",
     "click>=8.4.2",
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
     "crewai[google-genai]>=1.15.13",
     "crewai-tools>=1.15.13",
     "httpx>=0.28.1",
@@ -112,3 +114,45 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["sago"]
+omit = [
+    "*/sago/agents/profiles/*",
+    "*/sago/agents/profiles/**",
+    "sago/agents/profiles/*",
+    "sago/agents/profiles/**",
+    "*/profiles/*",
+    "*/profiles/**",
+    "sago/workflow/templates.py",
+    "*/sago/workflow/templates.py",
+    "sago/webserver/html_template.py",
+    "*/sago/webserver/html_template.py",
+    "tests/*",
+    "tests/**",
+]
+
+[tool.coverage.report]
+fail_under = 48
+omit = [
+    "*/sago/agents/profiles/*",
+    "*/sago/agents/profiles/**",
+    "sago/agents/profiles/*",
+    "sago/agents/profiles/**",
+    "*/profiles/*",
+    "*/profiles/**",
+    "sago/workflow/templates.py",
+    "*/sago/workflow/templates.py",
+    "sago/webserver/html_template.py",
+    "*/sago/webserver/html_template.py",
+    "tests/*",
+    "tests/**",
+]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "raise AssertionError",
+]

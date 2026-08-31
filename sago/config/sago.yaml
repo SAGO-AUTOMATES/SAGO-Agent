@@ -246,13 +246,39 @@ mesh:
   task_timeout_seconds: 120      # Timeout for delegated tasks
 
 # -----------------------------------------------------------------------------
+# EXECUTION MODE CONFIGURATION
+# -----------------------------------------------------------------------------
+execution:
+  mode: "native"                # "native" (default) or "api"
+  auto_fallback: true           # Fallback to native if API fails
+  hot_reload: true              # Watch config for changes
+  ws_url: "ws://localhost:8000" # WebSocket URL for API mode
+  api_base_url: "http://localhost:8000" # API base URL for API mode
+  api_key: ""                   # Optional API key for auth
+
+  # Feature flags
+  enable_websocket: true
+  enable_rest_api: true
+  enable_native_tui: true
+  config_watch_interval: 5000   # Config watch interval in ms
+
+  # --- Native execution ---
+  max_iterations: 25            # Max loops before forcing completion
+  verbose: true                 # Show detailed execution logs
+  memory: true                  # Enable conversation memory
+  planning: true                # Enable task planning before execution
+
+  # --- API execution ---
+  # (API-specific settings are loaded from config when mode: "api")
+
+# -----------------------------------------------------------------------------
 # EXECUTION ENGINE CONFIGURATION
 # Fine-tune task execution behavior.
 # -----------------------------------------------------------------------------
 executor:
   project_context_ttl: 300       # Seconds to cache project context
   max_tokens: 32000              # Max tokens per execution
-  circular_detection_threshold: 5  # Detect circular agent calls — was 3 (too strict, killed legit multi-file reads)
+  circular_detection_threshold: 5  # Detect circular agent calls — was 3 (too strict, killed legit legit multi-file reads)
   auto_complete_min_tools: 5     # Min tools used for auto-completion
   auto_complete_min_success: 3   # Min successful tools for auto-completion
   auto_complete_min_iterations: 4  # Min iterations for auto-completion

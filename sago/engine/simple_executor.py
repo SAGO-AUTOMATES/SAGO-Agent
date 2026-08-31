@@ -1982,18 +1982,19 @@ def execute_agent_task(
 
     # Always resolve active model, key, base_url, and provider from config
     try:
+        from sago.llm.registry import infer_provider_for_model
         from sago.llm.tui_providers import resolve_active_llm_config
 
-        # Pass through caller's values if provided; resolve_active_llm_config
-        # merges them with saved settings/env vars and applies fallback logic.
+        inferred = infer_provider_for_model(model)
         active_cfg = resolve_active_llm_config(
-            model=None if model in ("openrouter/free", "") else model,
+            provider=inferred,
+            model=model if model else None,
             api_key=api_key or None,
             base_url=base_url,
         )
         if not api_key:
             api_key = active_cfg["api_key"]
-        if model in ("openrouter/free", "") and active_cfg["model"]:
+        if active_cfg.get("model"):
             model = active_cfg["model"]
         if base_url is None:
             base_url = active_cfg["base_url"]
