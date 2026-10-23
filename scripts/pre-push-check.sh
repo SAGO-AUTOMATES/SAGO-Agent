@@ -42,10 +42,18 @@ if [ $? -ne 0 ]; then
 fi
 
 # 4. Security Tests
-echo "  [4/4] Running security regression suite..."
+echo "  [4/5] Running security regression suite..."
 $RUNNER pytest tests/security -q --tb=short
 if [ $? -ne 0 ]; then
     echo "❌ [SAGO Hook] Security tests failed. Push aborted."
+    exit 1
+fi
+
+# 5. End-to-End TUI & Feature Validation
+echo "  [5/5] Running End-to-End TUI & Feature Validation..."
+$RUNNER python ./scripts/validate_features.py
+if [ $? -ne 0 ]; then
+    echo "❌ [SAGO Hook] End-to-End TUI & Feature Validation failed. Push aborted."
     exit 1
 fi
 
