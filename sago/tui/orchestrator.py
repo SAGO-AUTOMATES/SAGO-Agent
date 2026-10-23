@@ -370,7 +370,12 @@ class AgentOrchestrationMixin:
                     "Try running the task directly or check your API key.",
                 )
             else:
-                self.call_from_thread(self._add_assistant_message, result, agent_name=agent_name)
+                # Summarize agent result via LLM for a clean final answer
+                summarized = self._summarize_agent_result(result, task, agent_name)
+                final_output = summarized if summarized else result
+                self.call_from_thread(
+                    self._add_assistant_message, final_output, agent_name=agent_name
+                )
                 # Auto summary card by agent for delegation
                 try:
                     _pa = ""
@@ -762,9 +767,14 @@ class AgentOrchestrationMixin:
 
             logger.info("chain completed: %d steps", len(chain_steps))
             self.call_from_thread(self._hide_spinner)
+
+            # Summarize chain results via LLM for a clean final answer
+            summarized = self._summarize_chain_results(handoff_ctx, task, flat_agents)
+            final_output = summarized if summarized else current_input
+
             self.call_from_thread(
                 self._add_assistant_message,
-                current_input,
+                final_output,
                 agent_name=flat_agents[-1] if flat_agents else "chain",
             )
             # Auto-mount Summary Card by agent (spec: collapsed=False, per-agent sections)
@@ -802,6 +812,132 @@ class AgentOrchestrationMixin:
                 self.call_from_thread(self._try_process_queue)
             except Exception:
                 pass
+
+    def _summarize_agent_result(
+        self: SagoApp,
+        raw_result: str,
+        original_task: str,
+        agent_name: str,
+    ) -> str:
+        """Summarize a single agent's result into a clean final answer via LLM."""
+        try:
+            from sago.llm.tui_providers import get_tui_client
+
+            client, api_model = get_tui_client(self.current_provider, self.current_model)
+            use_native_gemini = self.current_provider == "google"
+
+            # Truncate if very long
+            truncated = raw_result[:3000] if len(raw_result) > 3000 else raw_result
+
+            summary_prompt = (
+                "You are an orchestrator summarizing the output of a specialist agent.\n"
+                "The user's original request is shown below, followed by the agent's raw output.\n"
+                "Produce a single, clean, concise final answer that directly addresses the user's request.\n"
+                "Remove internal agent metadata (like '[Agent: ...]', 'Depth:', 'Tools used:', "
+                "'Handoff Notes:', '## CRITICAL:', response format instructions). Focus on what was "
+                "actually done and the results. If files were created, list them. If tests ran, "
+                "show the outcome. Be specific but concise. Do not fabricate anything — only report "
+                "what the agent's output actually shows.\n\n"
+                f"## Original Request\n{original_task}\n\n"
+                f"## Agent Output ({agent_name})\n{truncated}"
+            )
+
+            logger.info(
+                "agent result summarization LLM call: model=%s prompt_len=%d",
+                api_model,
+                len(summary_prompt),
+            )
+
+            if use_native_gemini:
+                from google.genai import types as google_types
+
+                contents = [
+                    google_types.Content(
+                        role="user",
+                        parts=[google_types.Part(text=summary_prompt)],
+                    )
+                ]
+                response = client.models.generate_content(
+                    model=api_model,
+                    contents=contents,
+                    config=google_types.GenerateContentConfig(max_output_tokens=2048),
+                )
+                return response.text or ""
+            else:
+                response = client.chat.completions.create(
+                    model=api_model,
+                    messages=[{"role": "user", "content": summary_prompt}],
+                    max_tokens=2048,
+                )
+                return response.choices[0].message.content or ""
+        except Exception as e:
+            logger.debug("Agent result summarization failed (falling back to raw output): %s", e)
+            return ""
+
+    def _summarize_chain_results(
+        self: SagoApp,
+        handoff_ctx: Any,
+        original_task: str,
+        flat_agents: list[str],
+    ) -> str:
+        """Summarize multi-agent chain results into a clean final answer via LLM."""
+        try:
+            from sago.llm.tui_providers import get_tui_client
+
+            client, api_model = get_tui_client(self.current_provider, self.current_model)
+            use_native_gemini = self.current_provider == "google"
+
+            # Build a compact view of all agent results
+            agent_outputs = []
+            for agent_name, result in handoff_ctx.agent_results.items():
+                # Truncate each agent's output to keep summary prompt manageable
+                truncated = result[:1500] if len(result) > 1500 else result
+                agent_outputs.append(f"[{agent_name}]:\n{truncated}")
+            all_results = "\n\n---\n\n".join(agent_outputs)
+
+            summary_prompt = (
+                "You are an orchestrator summarizing the results of a multi-agent chain.\n"
+                "The user's original request is shown below, followed by each agent's output.\n"
+                "Produce a single, clean, concise final answer that directly addresses the user's request.\n"
+                "Combine the agents' work into one coherent response. Remove internal agent metadata "
+                "(like '[Agent: ...]', 'Depth:', 'Tools used:', handoff notes). Focus on what was "
+                "actually done and the results. If files were created, list them. If tests ran, "
+                "show the outcome. Be specific but concise.\n\n"
+                f"## Original Request\n{original_task}\n\n"
+                f"## Agent Results\n{all_results}"
+            )
+
+            logger.info(
+                "chain summarization LLM call: model=%s prompt_len=%d",
+                api_model,
+                len(summary_prompt),
+            )
+
+            if use_native_gemini:
+                from google.genai import types as google_types
+
+                contents = [
+                    google_types.Content(
+                        role="user",
+                        parts=[google_types.Part(text=summary_prompt)],
+                    )
+                ]
+                response = client.models.generate_content(
+                    model=api_model,
+                    contents=contents,
+                    config=google_types.GenerateContentConfig(max_output_tokens=2048),
+                )
+                return response.text or ""
+            else:
+                response = client.chat.completions.create(
+                    model=api_model,
+                    messages=[{"role": "user", "content": summary_prompt}],
+                    max_tokens=2048,
+                )
+                return response.choices[0].message.content or ""
+        except Exception as e:
+            logger.debug("Chain summarization failed (falling back to raw output): %s", e)
+            return ""
 
     def _process_orchestration(self: SagoApp, task: str) -> None:
         logger.info("orchestration requested: task_len=%d", len(task))
@@ -1325,6 +1461,12 @@ class AgentOrchestrationMixin:
             logger.info("plan execution completed: %d steps", len(plan))
             self.call_from_thread(self._hide_spinner)
 
+            # Summarize orchestration results via LLM for a clean final answer
+            all_agent_names = [s.get("agent", "python-engineer") for s in plan]
+            summarized = self._summarize_chain_results(
+                handoff_ctx, plan[0].get("task", "") if plan else "", all_agent_names
+            )
+
             # Mount final summary into exchange card
             ok_count = sum(1 for _, ok in step_results if ok)
             fail_count = len(step_results) - ok_count
@@ -1341,9 +1483,16 @@ class AgentOrchestrationMixin:
                 container = getattr(target_card, "_response_container", None)
             from textual.widgets import Static as TextualStatic
 
+            # Build final display: status summary + LLM-summarized content
+            display_parts = [summary]
+            if summarized:
+                display_parts.append("")
+                display_parts.append(summarized)
+            final_display = "\n".join(display_parts)
+
             if container is not None:
                 container.display = True
-                self.call_from_thread(container.mount, TextualStatic(summary, markup=True))
+                self.call_from_thread(container.mount, TextualStatic(final_display, markup=True))
                 self.call_from_thread(container.scroll_end)
             else:
                 # No active turn card (cleared mid-run / card creation failed):
@@ -1353,7 +1502,7 @@ class AgentOrchestrationMixin:
                 )
                 self.call_from_thread(
                     self.query_one("#messages").mount,
-                    TextualStatic(summary, markup=True, classes="msg-assistant"),
+                    TextualStatic(final_display, markup=True, classes="msg-assistant"),
                 )
             # Auto summary card by agent after orchestration
             try:

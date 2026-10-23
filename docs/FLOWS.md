@@ -88,7 +88,7 @@ SAGO employs a 6-layer defensive safety matrix to ensure autonomous execution ne
 | **3. Recursion & Loop Guards** | [`sago/orchestrator/delegator.py`](file:///mnt/ramdisk/sago/sago/orchestrator/delegator.py) | Enforces maximum delegation depth (`max_depth = 5`) and tracks a `visited_agents` set to block circular ping-pong loops between agents. |
 | **4. Persistent Learning Store** | [`sago/learning.py`](file:///mnt/ramdisk/sago/sago/learning.py) | Persists proven error fixes and successful strategies across sessions. When an error recurs, `get_known_fixes()` instantly suggests the verified fix. |
 | **5. Risk-Gated Permissions** | [`sago/permissions.py`](file:///mnt/ramdisk/sago/sago/permissions.py) | Enforces granular risk policies (`SAFE`, `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) with path traversal guards, secret leak detection, and shell sanitization. |
-| **6. Hallucination Detection** | [`sago/engine/hallucination_verifier.py`](file:///mnt/ramdisk/sago/sago/engine/hallucination_verifier.py) | 9-stage verification pipeline detects fabricated claims, hedging phrases, code block errors, and unverifiable assertions. Sanitizes responses and strips hallucinated sentences. Cross-references claims against actual tool usage. |
+| **6. Hallucination Detection** | [`sago/engine/hallucination_verifier.py`](file:///mnt/ramdisk/sago/sago/engine/hallucination_verifier.py) | 9-stage verification pipeline detects fabricated claims, hedging phrases, code block errors, XML-style tool calls written as plain text, and unverifiable assertions. Sanitizes responses and strips hallucinated sentences and fake tool call blocks. Cross-references claims against actual tool usage. |
 
 ---
 

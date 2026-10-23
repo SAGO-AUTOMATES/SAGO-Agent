@@ -42,9 +42,9 @@ class TestWebserverModels:
         assert req.max_iterations == 5
 
     def test_health_check_model(self) -> None:
-        h = HealthCheck(status="ok", version="0.1.13")
+        h = HealthCheck(status="ok", version="0.1.14")
         assert h.status == "ok"
-        assert h.version == "0.1.13"
+        assert h.version == "0.1.14"
 
     def test_execute_response_defaults(self) -> None:
         r = ExecuteResponse(task_id="123", status="completed", message="done")

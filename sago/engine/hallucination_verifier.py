@@ -127,6 +127,13 @@ _FABRICATION_PHRASES = [
     r"\bi\s+(?:recommend|suggest|advise)\s+(?:that\s+)?(?:you|we)\s+(?:should|could|can)\b",
     r"\bthe\s+(?:best|optimal|recommended)\s+(?:approach|solution|way)\s+(?:is|would\s+be)\b",
     r"\bthis\s+(?:is|will\s+be)\s+(?:more|less|better|worse|faster|slower)\s+efficient\b",
+    # XML-style tool calls written as plain text (strong hallucination signal)
+    r"<(?:execute_browse_code|execute_shell|write_file|edit_file|read_file|"
+    r"grep_content|glob_files|spawn_agent|code_analyzer|search_symbol|"
+    r"hybrid_search|list_directory|http_client|search_files|count_lines)"
+    r"\b[^>]*>.*?</(?:execute_browse_code|execute_shell|write_file|edit_file|read_file|"
+    r"grep_content|glob_files|spawn_agent|code_analyzer|search_symbol|"
+    r"hybrid_search|list_directory|http_client|search_files|count_lines)>",
 ]
 
 # Inline fabrication phrases (for no-tool-call detection)

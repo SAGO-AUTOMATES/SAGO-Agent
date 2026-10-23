@@ -679,6 +679,7 @@ ABSOLUTE RULES - VIOLATION = FAILURE:
 5. NEVER make structural or architectural claims without reading the relevant files.
 6. If uncertain about something, say "I'm not sure" rather than guessing.
 7. Keep responses concise and appropriate to the question complexity.
+8. TOOL CALLING FORMAT: You have tools available via the function calling API. You MUST invoke them by emitting function calls in your tool_calls response. NEVER write tool calls as text, XML tags (<execute_browse_code>), or markdown code blocks — the system cannot parse those. If you write tool calls as text instead of using the function calling mechanism, the tools will NOT execute and you will be accused of fabrication.
 
 COMPLEXITY CALIBRATION:
 - Simple questions ("hi", "what is 2+2", "what time is it") → answer in 1-2 sentences. Do NOT overthink.
@@ -699,6 +700,7 @@ ABSOLUTE RULES - VIOLATION = FAILURE:
 5. Report ONLY what you actually see in the tool results.
 6. If the user asks "what's in this file", read that ONE file and summarize briefly.
 7. If the user asks "where is X defined", search for X and report the location.
+8. TOOL CALLING FORMAT: You have tools available via the function calling API. You MUST invoke them by emitting function calls in your tool_calls response. NEVER write tool calls as text, XML tags (<execute_browse_code>), or markdown code blocks — the system cannot parse those. If you write tool calls as text instead of using the function calling mechanism, the tools will NOT execute and you will be accused of fabrication.
 
 STRICT LIMITS:
 - Maximum 1 tool call for simple questions ("what's in this file").
@@ -724,6 +726,7 @@ ABSOLUTE RULES - VIOLATION = FAILURE:
 8. ALWAYS verify code syntax before claiming it works. Use execute_shell to run syntax checks.
 9. NEVER claim "tests pass" or "all tests pass" without actually running the tests via execute_shell.
 10. NEVER claim code is "production-ready", "fully tested", or "complete" unless you have verified it with tools.
+11. TOOL CALLING FORMAT: You have tools available via the function calling API. You MUST invoke them by emitting function calls in your tool_calls response. NEVER write tool calls as text, XML tags (<execute_browse_code>), or markdown code blocks — the system cannot parse those. If you write tool calls as text instead of using the function calling mechanism, the tools will NOT execute and you will be accused of fabrication.
 
 SMART TOOL USAGE (not dumb):
 - Discovery FIRST: glob_files, file_search, grep_content, hybrid_search, search_symbol BEFORE read_file. Don't guess file names.
@@ -768,6 +771,7 @@ ABSOLUTE RULES - VIOLATION = FAILURE:
 7. NEVER claim "tests pass" without actually running them via execute_shell.
 8. NEVER claim "the issue is fixed" without verifying the fix actually works.
 9. NEVER claim code is "correct" or "working" without running it or its tests.
+10. TOOL CALLING FORMAT: You have tools available via the function calling API. You MUST invoke them by emitting function calls in your tool_calls response. NEVER write tool calls as text, XML tags (<execute_browse_code>), or markdown code blocks — the system cannot parse those. If you write tool calls as text instead of using the function calling mechanism, the tools will NOT execute and you will be accused of fabrication.
 
 WORKFLOW:
 - Use read_file to inspect ALL relevant files before making changes.
@@ -802,6 +806,7 @@ ABSOLUTE RULES - VIOLATION = FAILURE:
 6. NEVER claim code is "well-structured", "clean", or "production-ready" without evidence from tools.
 7. NEVER claim the user mentioned specific files unless they literally said the file names. If unsure what files exist, use glob_files or grep_content to search.
 8. NEVER list files as "available" or "related" without first discovering them via glob_files, file_search, or grep_content tools.
+9. TOOL CALLING FORMAT: You have tools available via the function calling API. You MUST invoke them by emitting function calls in your tool_calls response. NEVER write tool calls as text, XML tags (<execute_browse_code>), or markdown code blocks — the system cannot parse those. If you write tool calls as text instead of using the function calling mechanism, the tools will NOT execute and you will be accused of fabrication.
 
 SMART ANALYSIS STACK (use it, don't just read_file):
 - Discovery: hybrid_search (semantic) + grep_content (lexical) + glob_files for file lists — run BEFORE any read.
@@ -844,6 +849,7 @@ ABSOLUTE RULES - VIOLATION = FAILURE:
 6. Report tool results EXACTLY as the tool returns them.
 7. NEVER claim tests are "comprehensive" or "complete" without evidence.
 8. NEVER claim code is "well-tested" without actually running the test suite.
+9. TOOL CALLING FORMAT: You have tools available via the function calling API. You MUST invoke them by emitting function calls in your tool_calls response. NEVER write tool calls as text, XML tags (<execute_browse_code>), or markdown code blocks — the system cannot parse those. If you write tool calls as text instead of using the function calling mechanism, the tools will NOT execute and you will be accused of fabrication.
 
 WORKFLOW:
 - Use read_file to understand the code you're testing.
@@ -880,6 +886,7 @@ REASONING PROTOCOL (always enabled, calibrated):
 - If you notice you are repeating the same tool/args or same reasoning as the last 2 turns, trigger SELF-REALIZATION: pause, wrap a summary in <thinking> tags, and either answer concisely or try a *different* approach. Do NOT loop. This is your anti-overthinking brake.
 - Prefer concise, tool-verified answers over long speculation. If uncertain, say so and show what you *did* verify.
 - Always produce a <thinking> block before any tool call or final answer — this is how your reasoning is displayed in the UI. Example: <thinking>Intent is X, next step is Y, risk is Z</thinking>
+- CRITICAL: Tools are invoked via the function calling API (tool_calls in your response). NEVER write tool calls as text, XML tags, or markdown. Writing `<execute_browse_code>write_file(...)</execute_browse_code>` as text does NOT call the tool — it must go through the function calling mechanism.
 """
 
 
@@ -1309,6 +1316,22 @@ def _detect_code_hallucinations(content: str, tool_history: list) -> list[str]:
                 if depth > 0:
                     issues.append(f"{lang.title()} code block has {depth} unclosed brace(s)")
 
+    # 1b. Detect XML-style tool calls written as plain text (strong hallucination signal)
+    _XML_TOOL_TAGS = (
+        "execute_browse_code|execute_shell|write_file|edit_file|read_file|"
+        "grep_content|glob_files|spawn_agent|code_analyzer|search_symbol|"
+        "hybrid_search|list_directory|http_client|search_files|count_lines"
+    )
+    xml_tool_pattern = re.compile(
+        rf"<({_XML_TOOL_TAGS})\b[^>]*>.*?</\1>", re.DOTALL | re.IGNORECASE
+    )
+    for match in xml_tool_pattern.finditer(content):
+        tag_name = match.group(1)
+        issues.append(
+            f"Fake tool call in text: '<{tag_name}...' written as plain text "
+            f"— must use function calling API, not XML tags"
+        )
+
     # 2. Check for hallucinated file paths
     # Broad patterns: backtick-quoted, plain text with extensions, and dotted names
     _FILE_EXTS = (
@@ -1646,6 +1669,19 @@ def _strip_hallucinated_sentences(content: str, issues: list[str]) -> str:
     """Remove sentences from content that contain hallucinated claims."""
     if not content or not issues:
         return content
+
+    # First, strip any XML-style tool call blocks (fake tool invocations as text)
+    _XML_TOOL_TAGS = (
+        "execute_browse_code|execute_shell|write_file|edit_file|read_file|"
+        "grep_content|glob_files|spawn_agent|code_analyzer|search_symbol|"
+        "hybrid_search|list_directory|http_client|search_files|count_lines|tool_code_output"
+    )
+    content = re.sub(
+        rf"<({_XML_TOOL_TAGS})\b[^>]*>.*?</\1>",
+        "",
+        content,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
 
     # Extract file names mentioned in issues
     hallucinated_files = set()
@@ -3185,8 +3221,24 @@ def execute_agent_task(
             # Detect fabrication:
             # 1. No tool calls at all + claims to have done things
             # 2. Tool calls exist but response claims MORE than was actually done
+            # 3. XML-style tool calls written as text (strong hallucination signal)
             is_fabrication = False
-            if not tool_history:
+            _XML_TOOL_TAGS = (
+                "execute_browse_code|execute_shell|write_file|edit_file|read_file|"
+                "grep_content|glob_files|spawn_agent|code_analyzer|search_symbol|"
+                "hybrid_search|list_directory|http_client|search_files|count_lines"
+            )
+            has_xml_tool_calls = bool(
+                re.search(
+                    rf"<({_XML_TOOL_TAGS})\b[^>]*>",
+                    content or "",
+                    re.IGNORECASE,
+                )
+            )
+            if has_xml_tool_calls and not tool_history:
+                # Strong signal: XML tool call text with no actual tool calls
+                is_fabrication = True
+            elif not tool_history:
                 # No tools called at all - any fabrication phrase is suspicious
                 is_fabrication = any(phrase in content_lower for phrase in fabrication_phrases)
             else:
@@ -3268,8 +3320,12 @@ def execute_agent_task(
                         "content": (
                             "STOP. You are fabricating results without actually using tools. "
                             f"{guidance_text} "
+                            "You have tools available via the function calling API — invoke them by emitting "
+                            "function calls in tool_calls, NOT by writing tool names as text or XML tags "
+                            "(<execute_browse_code>, <execute_shell>, etc.). Writing tool calls as plain text "
+                            "does NOT execute them. Use the function calling mechanism in your response. "
                             "Do NOT claim file contents, file creation, or test results "
-                            "without actually calling the corresponding tool. Do it NOW."
+                            "without actually calling the corresponding tool via function calling. Do it NOW."
                         ),
                     }
                 )

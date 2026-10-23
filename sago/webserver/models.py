@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 class HealthCheck(BaseModel):
     status: str = "ok"
-    version: str = "0.1.13"
+    version: str = "0.1.14"
 
 
 class ConfigUpdate(BaseModel):

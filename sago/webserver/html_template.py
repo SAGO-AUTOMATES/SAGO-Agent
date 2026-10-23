@@ -82,7 +82,7 @@ HTML_CONTENT = """<!DOCTYPE html>
           </div>
           <div>
             <h1 class="text-base font-semibold tracking-tight text-white flex items-center gap-2">
-              SAGO Platform <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-mono border border-emerald-500/20">v0.1.13</span>
+              SAGO Platform <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-mono border border-emerald-500/20">v0.1.14</span>
             </h1>
             <p class="text-[11px] text-gray-400">Multi-Agent Control Center & Interactive Chat</p>
           </div>

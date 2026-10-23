@@ -296,6 +296,11 @@ class UnifiedExecutor:
         if profile and profile.get("system_prompt"):
             system_prompt = profile["system_prompt"]
 
+        # Always append REASONING_PROTOCOL (includes tool calling format instruction)
+        from sago.engine.simple_executor import REASONING_PROTOCOL
+
+        system_prompt += REASONING_PROTOCOL
+
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": task},

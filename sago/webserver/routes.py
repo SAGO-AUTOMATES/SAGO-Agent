@@ -30,7 +30,7 @@ async def get_ui() -> HTMLResponse:
 
 @router.get("/api/health", response_model=HealthCheck)
 async def api_health() -> HealthCheck:
-    return HealthCheck(status="ok", version="0.1.13")
+    return HealthCheck(status="ok", version="0.1.14")
 
 
 @router.post("/api/execute", response_model=ExecuteResponse)

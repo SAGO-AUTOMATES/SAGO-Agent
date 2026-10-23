@@ -35,6 +35,6 @@ __all__ = [
 ]
 
 # FastAPI application
-app = FastAPI(title="SAGO-Agent Webserver", version="0.1.13")
+app = FastAPI(title="SAGO-Agent Webserver", version="0.1.14")
 ws_manager = WebSocketManager()
 app.include_router(router)
