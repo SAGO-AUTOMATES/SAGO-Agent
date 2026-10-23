@@ -1,0 +1,7 @@
+# All changes require review from the repository owner.
+* @CrimsonDevil333333
+
+# Release/CI changes require owner review.
+/.github/ @CrimsonDevil333333
+/pyproject.toml @CrimsonDevil333333
+/sago/version.py @CrimsonDevil333333
