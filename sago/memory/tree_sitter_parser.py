@@ -41,7 +41,15 @@ def _language_for(lang: str) -> Any:
     if mod is None:
         return None
     try:
-        return tree_sitter.Language(mod.language())  # type: ignore[attr-defined]
+        fn = getattr(mod, "language", None)
+        if fn is None:
+            if lang.lower() == "typescript":
+                fn = getattr(mod, "language_typescript", None)
+            elif lang.lower() == "tsx":
+                fn = getattr(mod, "language_tsx", None)
+        if fn is None:
+            return None
+        return tree_sitter.Language(fn())  # type: ignore[attr-defined]
     except Exception as e:
         logger.debug("Failed to load %s grammar: %s", lang, e)
         return None

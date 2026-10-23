@@ -54,6 +54,18 @@ class MessageBus:
     def subscribe(self, agent: str, handler: Callable[[AgentMessage], Any]) -> None:
         self._handlers.setdefault(agent, []).append(handler)
 
+    def publish_sync(self, sender: str, recipient: str, content: Any, **metadata: Any) -> None:
+        """Synchronously notify registered handlers without queuing."""
+        msg = AgentMessage(
+            sender=sender, recipient=recipient, content=content, metadata=dict(metadata)
+        )
+        for handler in self._handlers.get(recipient, []):
+            try:
+                if not asyncio.iscoroutinefunction(handler):
+                    handler(msg)
+            except Exception as e:
+                logger.debug("Message handler error: %s", e)
+
     def pending(self, agent: str) -> int:
         q = self._queues.get(agent)
         return q.qsize() if q else 0
