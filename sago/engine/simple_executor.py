@@ -178,18 +178,36 @@ def _build_openai_tools(tool_classes: dict[str, type[BaseTool]]) -> list[dict[st
         }
 
         if cls.args_model:
-            fields = cls.args_model.model_fields
-            for field_name, field_info in fields.items():
-                prop = _pydantic_field_to_schema(field_info)
-                # Keep fuller param descriptions so old_string/new_string guidance survives
-                if "description" in prop and isinstance(prop["description"], str):
-                    pdesc = prop["description"].split("\n", 1)[0].strip()
-                    if len(pdesc) > 200:
-                        pdesc = pdesc[:197] + "..."
-                    prop["description"] = pdesc
-                parameters["properties"][field_name] = prop
-                if field_info.is_required():
-                    parameters["required"].append(field_name)
+            # Prefer Pydantic's native JSON schema (robust for nested/typed args).
+            # Fall back to the legacy hand-rolled converter on any failure.
+            try:
+                native = cls.args_model.model_json_schema()
+                props = native.get("properties", {}) or {}
+                for field_name, prop in props.items():
+                    if isinstance(prop, dict):
+                        if "description" in prop and isinstance(prop["description"], str):
+                            pdesc = prop["description"].split("\n", 1)[0].strip()
+                            if len(pdesc) > 200:
+                                pdesc = pdesc[:197] + "..."
+                            prop["description"] = pdesc
+                        parameters["properties"][field_name] = prop
+                req = native.get("required", []) or []
+                parameters["required"] = [r for r in req if r in parameters["properties"]]
+                if "$defs" in native:
+                    parameters["$defs"] = native["$defs"]
+            except Exception as exc:
+                logger.debug("Native schema conversion failed for %s: %s", cls.name, exc)
+                fields = cls.args_model.model_fields
+                for field_name, field_info in fields.items():
+                    prop = _pydantic_field_to_schema(field_info)
+                    if "description" in prop and isinstance(prop["description"], str):
+                        pdesc = prop["description"].split("\n", 1)[0].strip()
+                        if len(pdesc) > 200:
+                            pdesc = pdesc[:197] + "..."
+                        prop["description"] = pdesc
+                    parameters["properties"][field_name] = prop
+                    if field_info.is_required():
+                        parameters["required"].append(field_name)
 
         openai_tools.append(
             {

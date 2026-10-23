@@ -92,6 +92,21 @@ class BaseTool(ABC):
         """
         logger.debug("Tool run start: %s kwargs=%s", self.name, list(kwargs.keys()))
         _start = time.monotonic()
+
+        # Optional hardline permission gate (opt-in via env or instance flag).
+        if os.environ.get("SAGO_STRICT_PERMISSIONS") == "1" or getattr(
+            self, "_enforce_permissions", False
+        ):
+            try:
+                cmd = kwargs.get("command")
+                if isinstance(cmd, str):
+                    from sago.security.approval import check_hardline_command
+
+                    reason = check_hardline_command(cmd)
+                    if reason:
+                        return reason
+            except Exception as e:
+                logger.debug("Permission gate check failed: %s", e)
         try:
             from sago.observability.tracing import end_span, record_tool_call, start_span
 
@@ -99,7 +114,13 @@ class BaseTool(ABC):
             logger.debug("Tracing span start: %s", _span_name)
             _span = start_span(_span_name, tool=self.name)
             try:
-                result = self._run(**kwargs)
+                # Enforce a uniform timeout so a hanging tool cannot block the loop/UI.
+                import concurrent.futures
+
+                _timeout = int(getattr(self, "_run_timeout", 120) or 120)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ex:
+                    _fut = _ex.submit(self._run, **kwargs)
+                    result = _fut.result(timeout=_timeout)
                 _elapsed = time.monotonic() - _start
                 logger.debug(
                     "Tool run success: %s result_len=%d elapsed=%.3fs",
@@ -119,6 +140,14 @@ class BaseTool(ABC):
                     result = wrap_if_untrusted(self.name, result)
                 except Exception as e:
                     logger.debug("Untrusted wrapper check failed: %s", e)
+
+                # Standard output truncation/spill to protect the context window.
+                _max_out = int(getattr(self, "_max_output", 20000) or 20000)
+                if isinstance(result, str) and len(result) > _max_out:
+                    result = (
+                        result[:_max_out]
+                        + f"\n... [truncated: {len(result)} chars total, showing first {_max_out}]"
+                    )
 
                 return result
             except Exception:

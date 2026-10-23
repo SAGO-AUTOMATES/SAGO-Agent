@@ -34,6 +34,10 @@ logger = logging.getLogger("sago.engine.hallucination_verifier")
 
 # ---- Constants ----
 _MIN_CODE_LENGTH = 20
+
+# In-memory cache for external syntax checks (keyed by content hash) to avoid
+# re-running compilers on identical content.
+_EXTERNAL_SYNTAX_CACHE: dict[str, list[str]] = {}
 _SYNTAX_CHECK_TIMEOUT = 30
 _ERROR_MESSAGE_MAX_LEN = 200
 _CONFIDENCE_THRESHOLD = 50
@@ -1437,7 +1441,14 @@ class ResponseVerifier:
         # 6. External syntax checking
         external_issues = []
         if self.enable_external_checks:
-            external_issues = _external_syntax_check(content)
+            import hashlib
+
+            _cache_key = hashlib.md5(content.encode("utf-8", errors="replace")).hexdigest()
+            if _cache_key in _EXTERNAL_SYNTAX_CACHE:
+                external_issues = _EXTERNAL_SYNTAX_CACHE[_cache_key]
+            else:
+                external_issues = _external_syntax_check(content)
+                _EXTERNAL_SYNTAX_CACHE[_cache_key] = external_issues
             logger.debug("Stage 6 - External syntax check: %d issues", len(external_issues))
 
         # 7. Tool result integrity (plugin tamper detection)

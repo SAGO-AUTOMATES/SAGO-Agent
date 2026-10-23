@@ -267,11 +267,14 @@ class CodebaseIndexer:
                     )
             return chunks
 
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                start = node.lineno - 1
-                end = getattr(node, "end_lineno", node.lineno) or node.lineno
-                chunk_content = "\n".join(lines[start:end])
+        # Traverse only top-level and direct class members to avoid
+        # duplicating nested functions/methods (ast.walk descends into all
+        # nested scopes, which previously emitted the same method twice).
+        def _add_function(node: Any, chunk_type: str = "function") -> None:
+            start = node.lineno - 1
+            end = getattr(node, "end_lineno", node.lineno) or node.lineno
+            chunk_content = "\n".join(lines[start:end])
+            if chunk_content.strip():
                 chunks.append(
                     CodeChunk(
                         file_path=file_path,
@@ -279,14 +282,16 @@ class CodebaseIndexer:
                         end_line=end,
                         content=chunk_content,
                         language="python",
-                        chunk_type="function",
+                        chunk_type=chunk_type,
                         name=node.name,
                     )
                 )
-            elif isinstance(node, ast.ClassDef):
-                start = node.lineno - 1
-                end = getattr(node, "end_lineno", node.lineno) or node.lineno
-                chunk_content = "\n".join(lines[start:end])
+
+        def _add_class(node: ast.ClassDef) -> None:
+            start = node.lineno - 1
+            end = getattr(node, "end_lineno", node.lineno) or node.lineno
+            chunk_content = "\n".join(lines[start:end])
+            if chunk_content.strip():
                 chunks.append(
                     CodeChunk(
                         file_path=file_path,
@@ -298,6 +303,17 @@ class CodebaseIndexer:
                         name=node.name,
                     )
                 )
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    _add_function(item, chunk_type="method")
+                elif isinstance(item, ast.ClassDef):
+                    _add_class(item)
+
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                _add_function(node)
+            elif isinstance(node, ast.ClassDef):
+                _add_class(node)
 
         # Add imports as a chunk
         import_lines = []
