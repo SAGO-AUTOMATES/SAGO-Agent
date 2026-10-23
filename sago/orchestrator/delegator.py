@@ -345,7 +345,7 @@ class TaskDelegator:
         logger.info("Selected agents: primary=%s, supporting=%s", primary, supporting)
 
         # Build execution chain
-        chain = self._build_chain(task_type, complexity)
+        chain = self._build_chain(task_type, complexity, primary)
         logger.info("Built execution chain: %s", chain)
 
         # Build parallel groups
@@ -435,9 +435,24 @@ class TaskDelegator:
         candidates = self.AGENT_MAP.get(task_type, self.AGENT_MAP[TaskType.GENERAL])
         logger.debug("Agent candidates for %s: %s", task_type.value, candidates)
 
-        # Simple matching based on task content
-        primary = candidates[0] if candidates else "developer"
-        supporting = candidates[1:3] if len(candidates) > 1 else []
+        # Semantic-ish scoring: prefer candidates whose name overlaps task tokens
+        # or explicitly mentioned languages/tools.
+        task_tokens = set(task.split())
+        scored: list[tuple[int, str]] = []
+        for cand in candidates:
+            score = 0
+            cand_tokens = set(cand.replace("-", " ").replace("_", " ").split())
+            score += len(task_tokens & cand_tokens)
+            # Boost language-specific engineers when the task names a language
+            for lang in ("python", "typescript", "javascript", "go", "rust", "java", "sql"):
+                if lang in task and lang in cand:
+                    score += 2
+            scored.append((score, cand))
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        ordered = [c for _, c in scored] if scored else candidates
+
+        primary = ordered[0] if ordered else "developer"
+        supporting = ordered[1:3] if len(ordered) > 1 else []
 
         logger.debug(
             "Agent selection result: primary=%s, supporting=%s",
@@ -446,7 +461,9 @@ class TaskDelegator:
         )
         return primary, supporting
 
-    def _build_chain(self, task_type: TaskType, complexity: TaskComplexity) -> list[str]:
+    def _build_chain(
+        self, task_type: TaskType, complexity: TaskComplexity, primary: str = ""
+    ) -> list[str]:
         """Build execution chain based on task type and complexity."""
         chains: dict[TaskType, list[str]] = {
             TaskType.CODE_WRITE: ["developer", "code-reviewer"],
@@ -463,8 +480,13 @@ class TaskDelegator:
             TaskType.GENERAL: ["developer"],
         }
 
-        chain = chains.get(task_type, ["developer"])
+        chain = list(chains.get(task_type, ["developer"]))
         logger.debug("Base chain for %s: %s", task_type.value, chain)
+
+        # Dynamic adaptation: prefer the actually selected primary agent at the
+        # head of the chain instead of a hard-coded default.
+        if primary and primary not in chain:
+            chain.insert(0, primary)
 
         # For complex tasks, add more steps
         if complexity in (TaskComplexity.COMPLEX, TaskComplexity.EXPERT):

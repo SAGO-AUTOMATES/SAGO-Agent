@@ -27,7 +27,7 @@ class RepoMapTool(BaseTool):
     """Tool for inspecting the high-level architecture and symbols of the codebase."""
 
     name = "repo_map"
-    description = "Generate a compact symbol map (classes, methods, functions, line counts) across the repository."
+    description = "PREFER FIRST for codebase overview: generate a compact symbol map (classes, methods, functions, line counts) across the repository before reading files."
     args_model = RepoMapArgs
 
     def _run(

@@ -383,11 +383,24 @@ class HybridCodeIndexer:
 
         if chunk_starts:
             for idx, (start, name, c_type) in enumerate(chunk_starts):
-                end = (
-                    chunk_starts[idx + 1][0]
-                    if idx + 1 < len(chunk_starts)
-                    else min(start + 60, len(lines))
-                )
+                # Prefer brace-aware boundaries for C-style languages.
+                if start < len(lines) and "{" in lines[start]:
+                    try:
+                        from sago.utils.code_blocks import brace_block_spans
+
+                        _, end = brace_block_spans(lines, start)
+                    except Exception:
+                        end = (
+                            chunk_starts[idx + 1][0]
+                            if idx + 1 < len(chunk_starts)
+                            else min(start + 60, len(lines))
+                        )
+                else:
+                    end = (
+                        chunk_starts[idx + 1][0]
+                        if idx + 1 < len(chunk_starts)
+                        else min(start + 60, len(lines))
+                    )
                 chunk_lines = lines[start:end]
                 chunk_content = "\n".join(chunk_lines)
                 if len(chunk_content.strip()) > 20:

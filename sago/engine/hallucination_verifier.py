@@ -20,6 +20,7 @@ Architecture:
 from __future__ import annotations
 
 import ast
+import asyncio
 import hashlib
 import logging
 import os
@@ -1492,7 +1493,9 @@ class ResponseVerifier:
         # 9. Sanitize content if needed
         cleaned_content = content
         sanitized = False
-        if self.auto_sanitize and all_issues and confidence < self.confidence_threshold:
+        # Require at least 2 issues before sanitizing to reduce false-positive
+        # stripping of legitimate content.
+        if self.auto_sanitize and len(all_issues) >= 2 and confidence < self.confidence_threshold:
             logger.info(
                 "Sanitizing content: confidence=%d < threshold=%d",
                 confidence,
@@ -1520,6 +1523,18 @@ class ResponseVerifier:
             sanitized=sanitized,
         )
 
+    async def verify_async(
+        self,
+        content: str,
+        tool_history: list[dict] | None = None,
+        task_type: str = "create",
+        integrity_result: list[str] | None = None,
+    ) -> VerificationResult:
+        """Non-blocking wrapper around verify() for TUI/async callers."""
+        return await asyncio.to_thread(
+            self.verify, content, tool_history, task_type, integrity_result
+        )
+
     def verify_and_warn(
         self,
         content: str,
@@ -1541,6 +1556,19 @@ class ResponseVerifier:
         warning_lines.append("Treat these claims with skepticism. Verify independently.")
 
         return result.cleaned_content, "\n".join(warning_lines)
+
+    def suggest_correction(self, result: VerificationResult) -> str:
+        """Build a correction prompt fragment from verification issues."""
+        if not result or not result.all_issues:
+            return ""
+        lines = [
+            "Your previous response had the following verification issues. "
+            "Please correct them using tools where needed:",
+        ]
+        for issue in result.all_issues[:10]:
+            lines.append(f"- {issue}")
+        lines.append("Do not repeat unverified claims. Use tools to verify before stating facts.")
+        return "\n".join(lines)
 
 
 # Singleton for convenience

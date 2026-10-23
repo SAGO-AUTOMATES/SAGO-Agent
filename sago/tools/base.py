@@ -93,6 +93,20 @@ class BaseTool(ABC):
         logger.debug("Tool run start: %s kwargs=%s", self.name, list(kwargs.keys()))
         _start = time.monotonic()
 
+        # Pre-execution argument validation against args_model (additive).
+        # Only validate when arguments are supplied so tools can keep their own
+        # friendly "X is required" messages for missing-arg cases.
+        if getattr(self, "args_model", None) and kwargs:
+            try:
+                self.args_model(**kwargs)
+            except Exception as e:
+                # Let tools keep friendly "X is required" messages for missing args.
+                err_text = str(e)
+                if "Field required" in err_text or "required" in err_text.lower():
+                    pass
+                else:
+                    return f"Error in {self.name}: invalid arguments: {e}"
+
         # Optional hardline permission gate (opt-in via env or instance flag).
         if os.environ.get("SAGO_STRICT_PERMISSIONS") == "1" or getattr(
             self, "_enforce_permissions", False

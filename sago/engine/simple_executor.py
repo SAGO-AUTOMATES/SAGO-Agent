@@ -596,6 +596,14 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
 
         logger.info("Starting tool discovery from registry")
         discovered = discover_tools()
+
+        # Optional task-aware tool subset (additive, env-driven). When set, only
+        # the listed tool names are exposed to the LLM.
+        subset_env = os.environ.get("SAGO_TOOL_SUBSET", "").strip()
+        if subset_env:
+            allowed = {x.strip() for x in subset_env.split(",") if x.strip()}
+            discovered = {k: v for k, v in discovered.items() if k in allowed}
+
         _TOOL_CLASSES = {name: tdef.tool_class for name, tdef in discovered.items()}
         logger.info(
             "Discovered %d tools: %s",
@@ -697,6 +705,7 @@ ABSOLUTE RULES - VIOLATION = FAILURE:
 5. NEVER make structural or architectural claims without reading the relevant files.
 6. If uncertain about something, say "I'm not sure" rather than guessing.
 7. Keep responses concise and appropriate to the question complexity.
+8. CODEBASE QUESTIONS: If the user asks "what is this code/project about", "summarize the repo", or "architecture", you MUST call repo_map and/or project_graph FIRST to get a structural overview. Do NOT read whole files or README first. Use read_file only for specific files identified by the map.
 8. TOOL CALLING FORMAT: You have tools available via the function calling API. You MUST invoke them by emitting function calls in your tool_calls response. NEVER write tool calls as text, XML tags (<execute_browse_code>), or markdown code blocks — the system cannot parse those. If you write tool calls as text instead of using the function calling mechanism, the tools will NOT execute and you will be accused of fabrication.
 
 COMPLEXITY CALIBRATION:
@@ -718,6 +727,7 @@ ABSOLUTE RULES - VIOLATION = FAILURE:
 5. Report ONLY what you actually see in the tool results.
 6. If the user asks "what's in this file", read that ONE file and summarize briefly.
 7. If the user asks "where is X defined", search for X and report the location.
+8. CODEBASE OVERVIEW: If the user asks what the project/code does, call repo_map or project_graph FIRST, then read at most 2-3 specific files. Never dump whole files for an overview.
 8. TOOL CALLING FORMAT: You have tools available via the function calling API. You MUST invoke them by emitting function calls in your tool_calls response. NEVER write tool calls as text, XML tags (<execute_browse_code>), or markdown code blocks — the system cannot parse those. If you write tool calls as text instead of using the function calling mechanism, the tools will NOT execute and you will be accused of fabrication.
 
 STRICT LIMITS:
@@ -748,7 +758,9 @@ ABSOLUTE RULES - VIOLATION = FAILURE:
 
 SMART TOOL USAGE (not dumb):
 - Discovery FIRST: glob_files, file_search, grep_content, hybrid_search, search_symbol BEFORE read_file. Don't guess file names.
+- Targeted reads: use read_function (extract one function/class) instead of read_file for code. Use read_file with offset/limit only when needed.
 - Structure: use ast_grep, search_symbol, hybrid_search to understand architecture, not just raw read_file dumps.
+- Edits: PREFER ast_edit (replace_function/insert_function/rename/add_import) over edit_file/write_file for code changes.
 - Use read_file only after you know *which* file matters (via search). For 2+ files, use batch reads.
 - For changes: write_file/edit_file with resilient matching, then verify with execute_shell (pytest, ruff, tsc, go vet, etc.).
 - For large tasks, plan via todo list and execute stepwise — do not read one file and hallucinate the rest.
@@ -844,6 +856,8 @@ COMPLEXITY CALIBRATION:
 - For simple questions ("what does X do"): hybrid_search X, read the ONE file that defines X, give a 1-2 sentence answer.
 - For moderate analysis ("review this function"): search_symbol for the function + read its file, give focused findings.
 - For complex analysis ("review the architecture"): project_graph + hybrid_search + read key files systematically, give comprehensive report.
+- For "what changed"/diff questions: use git_operations with diff-stat FIRST, then targeted diff for specific files; summarize results. Do not attempt to read every changed file.
+- For large files: always use read_file with offset/limit; never read a >500-line file in one call.
 - DO NOT read files the user didn't ask about unless you need them for context.
 
 QUALITY STANDARDS:
@@ -1000,7 +1014,7 @@ def _is_simple_analyze(task_type: str, file_count: int | None) -> bool:
     return task_type == "analyze" and file_count is not None and file_count <= 5
 
 
-_SIMPLE_ANALYZE_CAPS = {"max_tool_calls": 15, "max_iterations": 8, "max_tokens": 8000}
+_SIMPLE_ANALYZE_CAPS = {"max_tool_calls": 30, "max_iterations": 12, "max_tokens": 12000}
 
 
 def _load_agent_profile(agent_name: str) -> dict[str, Any] | None:
