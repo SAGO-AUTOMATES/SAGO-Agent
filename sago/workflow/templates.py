@@ -397,3 +397,54 @@ class WorkflowTemplates:
             workflow.state.set("recipients", recipients or [])
 
         return workflow  # type: ignore
+
+    def planner_coder_verifier_pipeline(
+        self,
+        task: str,
+        name: str = "Planner-Coder-Verifier Loop",
+    ) -> Workflow:
+        """Create a 3-stage planner -> coder -> verifier role loop workflow (additive).
+
+        Stage 1: Planner breaks down requirements and files to touch.
+        Stage 2: Coder implements changes and edits.
+        Stage 3: Verifier checks AST, syntax, tests, and symbol grounding.
+        """
+        builder = WorkflowBuilder(self.engine)
+        workflow = (
+            builder.create(
+                name=name,
+                description=f"Planner-Coder-Verifier loop: {task[:50]}...",
+                trigger=TriggerType.MANUAL,
+            )
+            .step(
+                name="Plan Architecture",
+                step_type="agent_call",
+                config={
+                    "agent": "architect",
+                    "task": f"Analyze requirements and create an architectural execution plan:\n\n{task}",
+                    "effort": "high",
+                },
+            )
+            .step(
+                name="Implement Code",
+                step_type="agent_call",
+                config={
+                    "agent": "developer",
+                    "task": f"Implement the required changes following the plan:\n\n{task}",
+                    "input_from": "previous",
+                    "effort": "high",
+                },
+            )
+            .step(
+                name="Verify Implementation",
+                step_type="agent_call",
+                config={
+                    "agent": "qa-engineer",
+                    "task": f"Verify code syntax, check tests, and validate symbol grounding:\n\n{task}",
+                    "input_from": "previous",
+                    "effort": "medium",
+                },
+            )
+            .build()
+        )
+        return workflow  # type: ignore

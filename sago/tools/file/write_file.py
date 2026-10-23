@@ -91,6 +91,11 @@ class WriteFileTool(BaseTool):
                 yaml.safe_load(content)
             except Exception as e:
                 return f"Error: Pre-write validation failed for YAML file: {e}"
+        elif ext == ".py":
+            try:
+                ast.parse(content)
+            except SyntaxError as e:
+                return f"Error: Pre-write validation failed for Python file (syntax: ERROR): {e.msg} at line {e.lineno}"
 
         # Backup existing file
         if backup and path.exists():

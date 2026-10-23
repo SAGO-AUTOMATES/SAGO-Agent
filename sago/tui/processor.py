@@ -1995,7 +1995,10 @@ class MessageProcessorMixin:
 
                             verifier = get_verifier()
                             verification = verifier.verify(
-                                content, tool_history=tool_history, task_type=task_type
+                                content,
+                                tool_history=tool_history,
+                                task_type=task_type,
+                                root_dir=os.getcwd(),
                             )
                             if verification.has_hallucinations:
                                 content = verification.cleaned_content
@@ -2014,6 +2017,7 @@ class MessageProcessorMixin:
                             content or "",
                             tool_history=tool_history,
                             task_type=task_type,
+                            root_dir=os.getcwd(),
                         )
                         confidence = verification.confidence
                         all_issues = verification.all_issues
@@ -2034,7 +2038,10 @@ class MessageProcessorMixin:
 
                         verifier = get_verifier()
                         verification = verifier.verify(
-                            content, tool_history=[], task_type=task_type
+                            content,
+                            tool_history=[],
+                            task_type=task_type,
+                            root_dir=os.getcwd(),
                         )
                         if verification.has_hallucinations:
                             content = verification.cleaned_content

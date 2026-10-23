@@ -19,6 +19,19 @@ from sago.utils.safe import log_exception
 
 logger = logging.getLogger(__name__)
 
+
+def _bus_event(sender: str, event: str, **data: Any) -> None:
+    """Publish a lifecycle event to the message bus (opt-in via SAGO_BUS_EVENTS=1)."""
+    if os.environ.get("SAGO_BUS_EVENTS", "").strip() != "1":
+        return
+    try:
+        from sago.orchestrator.message_bus import publish
+
+        publish(sender, "executor", {"event": event, **data})
+    except Exception as e:  # pragma: no cover - defensive, never break execution
+        logger.debug("Message bus event %s failed: %s", event, e)
+
+
 # ---------------------------------------------------------------------------
 # Unified callback propagation — contextvars so callbacks flow from
 # the outer processor into spawned agents automatically.
@@ -41,6 +54,9 @@ _current_todo_created: contextvars.ContextVar[Callable | None] = contextvars.Con
 _current_request_input: contextvars.ContextVar[Callable | None] = contextvars.ContextVar(
     "current_request_input", default=None
 )
+_current_token: contextvars.ContextVar[Callable | None] = contextvars.ContextVar(
+    "current_token", default=None
+)
 
 
 def set_execution_callbacks(
@@ -50,6 +66,7 @@ def set_execution_callbacks(
     on_todo_update: Callable | None = None,
     on_todo_created: Callable | None = None,
     on_request_input: Callable | None = None,
+    on_token: Callable | None = None,
 ) -> None:
     """Set callbacks in the current context. Call this before executing tools or agent tasks."""
     _current_tool_call.set(on_tool_call)
@@ -58,6 +75,7 @@ def set_execution_callbacks(
     _current_todo_update.set(on_todo_update)
     _current_todo_created.set(on_todo_created)
     _current_request_input.set(on_request_input)
+    _current_token.set(on_token)
 
 
 def get_execution_callbacks() -> dict[str, Callable | None]:
@@ -69,6 +87,7 @@ def get_execution_callbacks() -> dict[str, Callable | None]:
         "on_todo_update": _current_todo_update.get(),
         "on_todo_created": _current_todo_created.get(),
         "on_request_input": _current_request_input.get(),
+        "on_token": _current_token.get(),
     }
 
 
@@ -595,7 +614,8 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
         from sago.tools.registry import discover_tools
 
         logger.info("Starting tool discovery from registry")
-        discovered = discover_tools()
+        safe_mode = os.environ.get("SAGO_SAFE_DISCOVERY") == "1"
+        discovered = discover_tools(safe_mode=safe_mode)
 
         # Optional task-aware tool subset (additive, env-driven). When set, only
         # the listed tool names are exposed to the LLM.
@@ -1907,6 +1927,8 @@ def execute_agent_task(
     pause_event: Any = None,
     session_id: str = "default",
     wall_timeout: float = 300.0,
+    cancellation_token: Any = None,
+    on_token: Callable | None = None,
 ) -> dict[str, Any]:
     """Execute a task with LLM, tools, and todo tracking.
 
@@ -1918,6 +1940,41 @@ def execute_agent_task(
         "execute_agent_task start: agent=%s, model=%s, task=%r", agent_role, model, task[:200]
     )
 
+    # Early check before expensive context / prompt setup
+    _early_cancel = False
+    if cancellation_token:
+        if callable(cancellation_token):
+            _early_cancel = cancellation_token()
+        elif hasattr(cancellation_token, "is_set"):
+            _early_cancel = cancellation_token.is_set()
+        elif hasattr(cancellation_token, "is_cancelled"):
+            _early_cancel = bool(cancellation_token.is_cancelled)
+    if not _early_cancel and os.environ.get("SAGO_CANCEL_REQUESTED", "0") == "1":
+        _early_cancel = True
+    if _early_cancel:
+        logger.info("execute_agent_task: cancelled before start")
+        return {
+            "success": False,
+            "output": "Task cancelled.",
+            "tool_calls": [],
+            "iterations": 0,
+            "tokens": {"input": 0, "output": 0},
+            "cancelled": True,
+        }
+
+    # Budget-aware effort scaling (opt-in via SAGO_BUDGET_AWARE=1): complex tasks
+    # get a larger token budget, simple tasks a smaller one. Default behavior
+    # (fixed max_tokens) is preserved unless the flag is set.
+    if os.environ.get("SAGO_BUDGET_AWARE", "").strip() == "1" and max_tokens >= 50000:
+        try:
+            if _is_complex_task(task):
+                max_tokens = 80000
+            else:
+                max_tokens = 20000
+            logger.info("Budget-aware effort: max_tokens=%d", max_tokens)
+        except Exception as e:
+            logger.debug("Budget-aware scaling failed: %s", e)
+
     # Resolve callbacks: explicit args > contextvars > None
     ctx = get_execution_callbacks()
     on_tool_call = on_tool_call or ctx["on_tool_call"]
@@ -1926,6 +1983,7 @@ def execute_agent_task(
     on_todo_created = on_todo_created or ctx["on_todo_created"]
     on_todo_update = on_todo_update or ctx["on_todo_update"]
     on_request_input = on_request_input or ctx["on_request_input"]
+    on_token = on_token or ctx.get("on_token")
 
     # Wrap callbacks to inject per-agent distinction so TUI can show
     # "● {agent} — Technical Reasoning" and "Tool: ... by @agent" and preserve
@@ -1986,6 +2044,37 @@ def execute_agent_task(
 
     tools = _discover_tools()
 
+    # Budget-aware tool filtering: small token budgets use a core subset.
+    try:
+        if max_tokens and max_tokens < 4000 and len(tools) > 20:
+            keep = {
+                "read_file",
+                "write_file",
+                "edit_file",
+                "execute_shell",
+                "ast_edit",
+                "grep_content",
+                "glob_files",
+                "git_operations",
+                "repo_map",
+                "project_graph",
+            }
+            tools = {k: v for k, v in tools.items() if k in keep}
+            logger.info("Budget-aware tool filter: %d tools", len(tools))
+    except Exception:
+        pass
+
+    # Task-aware tool subset (on by default; disable with SAGO_TOOL_SELECTION=0).
+    if os.environ.get("SAGO_TOOL_SELECTION", "1").strip() != "0":
+        try:
+            from sago.tools.registry import select_tools_for_task
+
+            selected = set(select_tools_for_task(task, tools, max_tools=25))
+            if selected:
+                tools = {k: v for k, v in tools.items() if k in selected}
+                logger.info("Task-aware tool selection: %d tools", len(tools))
+        except Exception as e:
+            logger.debug("Task-aware tool selection failed: %s", e)
     # --- Plugin: on_init hook (once per execution lifecycle) ---
     try:
         from sago.plugins.base import get_plugin_manager
@@ -2076,6 +2165,8 @@ def execute_agent_task(
 
     client, api_model = get_tui_client(provider, model)
     start_time = time.time()
+
+    _bus_event("executor", "task_started", task=task[:300], agent_role=agent_role, model=api_model)
 
     # 1. Automatically enhance prompt with intent, clarity, constraints, and criteria
     from sago.engine.prompt_enhancer import enhance_prompt
@@ -2529,6 +2620,29 @@ def execute_agent_task(
         return None
 
     for i in range(max_iterations):
+        # --- Early cancellation check ---
+        _is_cancelled = False
+        if cancellation_token:
+            if callable(cancellation_token):
+                _is_cancelled = cancellation_token()
+            elif hasattr(cancellation_token, "is_set"):
+                _is_cancelled = cancellation_token.is_set()
+            elif hasattr(cancellation_token, "is_cancelled"):
+                _is_cancelled = bool(cancellation_token.is_cancelled)
+        if not _is_cancelled and os.environ.get("SAGO_CANCEL_REQUESTED", "0") == "1":
+            _is_cancelled = True
+        if _is_cancelled:
+            logger.info("Agent '%s' cancelled at iteration %d", agent_role, i)
+            _bus_event("executor", "task_cancelled", agent_role=agent_role)
+            return {
+                "success": False,
+                "output": content if "content" in locals() and content else "Task cancelled.",
+                "tool_calls": tool_history,
+                "iterations": i,
+                "tokens": {"input": total_tokens_in, "output": total_tokens_out},
+                "cancelled": True,
+            }
+
         # --- Wall-clock timeout check ---
         if wall_timeout > 0 and (time.time() - start_time) > wall_timeout:
             logger.warning(
@@ -2938,6 +3052,12 @@ def execute_agent_task(
             content = message_obj.content or ""
             if not content and hasattr(message_obj, "reasoning") and message_obj.reasoning:
                 content = message_obj.reasoning
+
+            if on_token and content:
+                try:
+                    on_token(content)
+                except Exception:
+                    pass
 
             # Extract native tool_calls from OpenAI response
             if message_obj.tool_calls:
@@ -3726,6 +3846,13 @@ def execute_agent_task(
                 {"tool": name, "args": args, "result": result_str[:2000], "success": not is_error}
             )
             tools_used_in_iteration.append(name)
+            _bus_event(
+                "executor",
+                "tool_executed",
+                tool=name,
+                success=not is_error,
+                agent_role=agent_role,
+            )
 
             # Record TOOL_DISPATCH event for dev tracer (event graph visibility)
             try:
@@ -4321,6 +4448,79 @@ def execute_agent_task(
         total_tokens_out,
         len(files_created),
         time.time() - start_time,
+    )
+
+    # Early cancellation check (env-gated token).
+    if os.environ.get("SAGO_CANCEL_REQUESTED", "0") == "1":
+        logger.info("Execution cancelled via SAGO_CANCEL_REQUESTED")
+        _bus_event("executor", "task_cancelled", agent_role=agent_role)
+        return {
+            "success": False,
+            "output": content if "content" in locals() else "",
+            "tool_calls": tool_history if "tool_history" in locals() else [],
+            "iterations": 0,
+            "tokens": {"input": 0, "output": 0},
+            "cancelled": True,
+        }
+
+    # Optional multi-pass self-correction (env-gated).
+    max_passes = int(
+        os.environ.get(
+            "SAGO_MAX_CORRECTION_PASSES",
+            "1" if os.environ.get("SAGO_MULTI_PASS", "0") == "1" else "0",
+        )
+    )
+    if max_passes > 0:
+        try:
+            from sago.engine.hallucination_verifier import get_verifier
+
+            verifier = get_verifier()
+            eff_root = cwd or os.getcwd()
+            for pass_idx in range(max_passes):
+                verification = verifier.verify(
+                    content,
+                    tool_history=tool_history or [],
+                    task_type=task_type if "task_type" in locals() else "create",
+                    root_dir=eff_root,
+                )
+                if not (verification.has_hallucinations and verification.all_issues):
+                    break
+                correction_prompt = verifier.suggest_correction(verification)
+                if not correction_prompt:
+                    break
+                try:
+                    corr_resp = client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "You are correcting a previous response.",
+                            },
+                            {"role": "user", "content": correction_prompt},
+                        ],
+                        max_tokens=min(1200, max_tokens or 1200),
+                        temperature=0.2,
+                    )
+                    corrected = (
+                        (corr_resp.choices[0].message.content or "").strip()
+                        if corr_resp.choices
+                        else ""
+                    )
+                    if corrected:
+                        content = corrected
+                except Exception as e:
+                    logger.debug("Multi-pass correction failed on pass %d: %s", pass_idx, e)
+                    break
+        except Exception as e:
+            logger.debug("Multi-pass correction setup failed: %s", e)
+
+    _bus_event(
+        "executor",
+        "task_completed",
+        agent_role=agent_role,
+        n_tools=len(tool_history),
+        tokens_out=total_tokens_out,
+        elapsed=time.time() - start_time,
     )
 
     return {

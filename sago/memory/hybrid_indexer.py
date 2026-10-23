@@ -126,6 +126,49 @@ def _tokenize_code(text: str) -> list[str]:
     return tokens
 
 
+_EMBEDDING_PROVIDER = None  # resolved lazily
+
+
+def _resolve_embedding_provider() -> str:
+    global _EMBEDDING_PROVIDER
+    if _EMBEDDING_PROVIDER is not None:
+        return _EMBEDDING_PROVIDER
+    import os
+
+    provider = os.environ.get("SAGO_EMBEDDING_PROVIDER", "hash").strip().lower()
+    if provider == "openai" and os.environ.get("OPENAI_API_KEY"):
+        _EMBEDDING_PROVIDER = "openai"
+    else:
+        _EMBEDDING_PROVIDER = "hash"
+    return _EMBEDDING_PROVIDER
+
+
+def _compute_embedding(text: str, dim: int = 128) -> list[float]:
+    """Compute an embedding vector, using a real provider when configured.
+
+    Falls back to the local hash vector on any failure so behavior stays
+    non-breaking.
+    """
+    provider = _resolve_embedding_provider()
+    if provider == "openai":
+        try:
+            import openai
+
+            client = openai.OpenAI()
+            resp = client.embeddings.create(model="text-embedding-3-small", input=text)
+            vec = resp.data[0].embedding
+            # Normalize
+            import math
+
+            norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+            return [x / norm for x in vec]
+        except Exception:
+            # Disable provider for the rest of the process on failure.
+            global _EMBEDDING_PROVIDER
+            _EMBEDDING_PROVIDER = "hash"
+    return _compute_dense_vector(text.split(), dim=dim)
+
+
 def _compute_dense_vector(tokens: list[str], dim: int = 128) -> list[float]:
     """Compute normalized dense semantic hash vector for zero-dependency local search."""
     if not tokens:
@@ -255,7 +298,7 @@ class HybridCodeIndexer:
                         if content.strip():
                             parsed = self._chunk_file(p, content)
                             for chunk in parsed:
-                                chunk.vector = _compute_dense_vector(chunk.tokens)
+                                chunk.vector = _compute_embedding(" ".join(chunk.tokens))
                             new_chunks.extend(parsed)
                     except Exception as e:
                         log_exception(e, "Failed to parse file for cache update")
@@ -324,13 +367,22 @@ class HybridCodeIndexer:
         self.doc_freqs.clear()
         self.inverted_index.clear()
 
+        # Resolve embedding provider once; fall back to hash on failure.
+        try:
+            _resolve_embedding_provider()
+            if _resolve_embedding_provider() == "openai":
+                _compute_embedding("warmup")
+        except Exception:
+            global _EMBEDDING_PROVIDER
+            _EMBEDDING_PROVIDER = "hash"
+
         total_length = 0
         for file_path in files_to_index:
             try:
                 content = file_path.read_text(encoding="utf-8", errors="replace")
                 chunks = self._chunk_file(file_path, content)
                 for chunk in chunks:
-                    chunk.vector = _compute_dense_vector(chunk.tokens)
+                    chunk.vector = _compute_embedding(" ".join(chunk.tokens))
                     chunk_idx = len(self.chunks)
                     self.chunks.append(chunk)
                     total_length += len(chunk.tokens)
@@ -456,7 +508,7 @@ class HybridCodeIndexer:
         if not q_tokens:
             return []
 
-        q_vec = _compute_dense_vector(q_tokens)
+        q_vec = _compute_embedding(" ".join(q_tokens))
 
         # Collect candidate chunk indices from inverted index
         candidate_indices: set[int] = set()

@@ -67,3 +67,30 @@ def get_message_bus() -> MessageBus:
     if _GLOBAL_BUS is None:
         _GLOBAL_BUS = MessageBus()
     return _GLOBAL_BUS
+
+
+def publish(sender: str, recipient: str, content: Any, **metadata: Any) -> None:
+    """Fire-and-forget publish usable from sync contexts (executors, tools).
+
+    Semantics:
+    - Inside a running event loop: full async path (queues + handlers) via task.
+    - From sync code: registered handlers are invoked directly; plain queues are
+      skipped because their consumers require an event loop. This avoids per-call
+      event-loop creation while keeping subscribers notified.
+    """
+    msg = AgentMessage(sender=sender, recipient=recipient, content=content, metadata=dict(metadata))
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # Sync context: notify subscribers directly (best-effort).
+        for handler in get_message_bus()._handlers.get(recipient, []):
+            try:
+                if asyncio.iscoroutinefunction(handler):
+                    logger.debug("Skipping async handler %r without running loop", handler)
+                    continue
+                handler(msg)
+            except Exception as e:
+                logger.debug("Message handler error: %s", e)
+        return
+    # Async context: full path (queues + handlers) as a background task.
+    asyncio.get_running_loop().create_task(get_message_bus().send(msg))

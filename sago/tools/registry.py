@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -117,9 +118,16 @@ def discover_tools(
     force_reload: bool = False,
     include_plugins: bool = True,
     include_mcp: bool = True,
+    safe_mode: bool = False,
 ) -> dict[str, ToolDefinition]:
     """Discover all tools dynamically across built-in modules, plugins, and MCP."""
     global _TOOLS_CACHE
+
+    if os.environ.get("SAGO_SAFE_DISCOVERY") == "1":
+        safe_mode = True
+    if safe_mode:
+        include_plugins = False
+        include_mcp = False
 
     if _TOOLS_CACHE and not force_reload:
         return _TOOLS_CACHE

@@ -376,7 +376,39 @@ class SymbolGraph:
             if suffix == ".py":
                 fs = self.extract_python_symbols(file_path, content)
             elif suffix in (".ts", ".tsx", ".js", ".jsx"):
-                fs = self.extract_generic_symbols(file_path, content, "typescript")
+                try:
+                    from sago.memory.tree_sitter_parser import is_available, parse_symbols
+
+                    lang = "typescript" if suffix in (".ts", ".tsx") else "javascript"
+                    if is_available(lang):
+                        ts_syms = parse_symbols(lang, content)
+                        if ts_syms:
+                            rel = (
+                                file_path.relative_to(self.root_dir)
+                                if file_path.is_relative_to(self.root_dir)
+                                else file_path
+                            )
+                            fs = FileSymbols(
+                                file_path=str(rel),
+                                language=lang,
+                                symbols=[
+                                    SymbolInfo(
+                                        name=s["name"],
+                                        symbol_type=s["kind"],
+                                        line_number=s["line"],
+                                    )
+                                    for s in ts_syms
+                                ],
+                                line_count=len(content.splitlines()),
+                                size_bytes=len(content),
+                                mtime=mtime,
+                            )
+                        else:
+                            fs = self.extract_generic_symbols(file_path, content, "typescript")
+                    else:
+                        fs = self.extract_generic_symbols(file_path, content, "typescript")
+                except Exception:
+                    fs = self.extract_generic_symbols(file_path, content, "typescript")
             elif suffix == ".rs":
                 fs = self.extract_generic_symbols(file_path, content, "rust")
             elif suffix == ".go":
@@ -476,9 +508,22 @@ class SymbolGraph:
                 break
 
         full_map = "\n\n".join(all_outlines)
-        # Token estimation & trimming
-        if len(full_map) > max_tokens * 4:
-            full_map = full_map[: max_tokens * 4] + "\n\n... [Repo map truncated for brevity]"
+        # Token estimation & trimming (tiktoken if available, else char heuristic)
+        try:
+            import tiktoken
+
+            enc = tiktoken.get_encoding("cl100k_base")
+            token_count = len(enc.encode(full_map))
+            if token_count > max_tokens:
+                # Trim by characters proportionally
+                ratio = max_tokens / max(token_count, 1)
+                full_map = (
+                    full_map[: int(len(full_map) * ratio)]
+                    + "\n\n... [Repo map truncated for brevity]"
+                )
+        except Exception:
+            if len(full_map) > max_tokens * 4:
+                full_map = full_map[: max_tokens * 4] + "\n\n... [Repo map truncated for brevity]"
         return full_map
 
     def get_symbol_outline(self, max_files: int = 100) -> dict[str, list[dict[str, object]]]:
