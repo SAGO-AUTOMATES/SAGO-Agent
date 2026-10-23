@@ -77,3 +77,4 @@ htmlcov/
 # pytype
 .pytype/
 crash.txt
+coverage*

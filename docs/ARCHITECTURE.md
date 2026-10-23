@@ -42,7 +42,8 @@ All references below point to real modules in the `sago/` package and the
 │  hallucination_verifier.py (9-stage response verification pipeline)        │
 │  - Builds OpenAI-style tool schemas from BaseTool.args_model              │
 │  - Runs the LLM loop, calls tools, handles permission/timeout/errors      │
-│  - Detects and sanitizes hallucinated content in responses                │
+│  - Detects XML tool calls written as text, fabricated claims, hedging      │
+│  - Strips fake tool call blocks and hallucinated sentences from output     │
 └───────┬───────────────────────────┬───────────────────────────┬──────────┘
         │ tool call                  │ profile/skills           │ errors
         ▼                            ▼                           ▼
@@ -121,7 +122,7 @@ All references below point to real modules in the `sago/` package and the
 7. **Response render**.
    The final assistant message (and any tool outputs) are streamed back to the
    TUI widgets (`AgentDashboard`, message log, `BackgroundTaskManager`).
-   After chain/orchestration/parallel/delegate completion, `helpers._add_summary_by_agent_card()` auto-mounts `Collapsible(title="● Summary — by agent", collapsed=False)` categorized by agent (tools, cost, output file) so user sees summary without asking.
+   After chain/orchestration/parallel/delegate completion, the orchestrator calls `_summarize_chain_results()` or `_summarize_agent_result()` to produce a clean LLM-summarized final answer (removing internal metadata like [Agent:], Depth:, Tools used:, Handoff Notes:). `helpers._add_summary_by_agent_card()` also auto-mounts `Collapsible(title="● Summary — by agent", collapsed=False)` categorized by agent (tools, cost, output file) so user sees summary without asking.
 
 ## Tool auto-discovery
 

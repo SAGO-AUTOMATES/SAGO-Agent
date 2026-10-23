@@ -525,6 +525,9 @@ class SpawnAgentTool(BaseTool):
 ## Your Task
 {task}
 
+## CRITICAL: How to Use Tools
+You have tools available via the function calling API. Invoke them by emitting function calls in your tool_calls response. NEVER write tool invocations as text, XML tags (<execute_browse_code>, <execute_shell>), or markdown code blocks. The system only recognizes tool calls made through the function calling mechanism. Writing tool calls as plain text does NOT execute them — you will be accused of fabrication.
+
 ## CRITICAL: Response Format
 You MUST structure your response as follows:
 

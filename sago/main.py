@@ -2256,31 +2256,98 @@ def attach_cmd(target: str | None) -> None:
 
 
 @cli.command()
-@click.option("--host", "-h", default="0.0.0.0", help="Bind host (0.0.0.0 for all interfaces)")
-@click.option("--port", "-p", default=7654, help="Port number")
-@click.option("--foreground", "-f", is_flag=True, help="Run in foreground")
-def serve(host: str, port: int, foreground: bool) -> None:
-    """Start Sago daemon server.
+@click.option(
+    "--host",
+    "-h",
+    default="0.0.0.0",
+    help="Bind host (default: 0.0.0.0 for all interfaces, 127.0.0.1 for local only)",
+)
+@click.option("--port", "-p", default=7654, help="Port number (default: 7654)")
+@click.option(
+    "--reload", "-r", is_flag=True, help="Enable auto-reload on code change (development)"
+)
+@click.option(
+    "--daemon",
+    "-d",
+    is_flag=True,
+    help="Run as low-level background TCP daemon service instead of Web UI / API",
+)
+@click.option("--foreground", "-f", is_flag=True, help="Run TCP daemon in foreground")
+def serve(host: str, port: int, reload: bool, daemon: bool, foreground: bool) -> None:
+    """Start Sago Server (FastAPI Web Control Center, REST API, and WebSocket streaming).
 
-    Runs Sago as a background service for remote task execution
-    and peer communication.
+    By default, launches the modern Apple-grade Web UI and full REST/WebSocket API server.
 
     Examples:
-        sago serve                          # Default 0.0.0.0:7654
+        sago serve                          # Start Web UI & REST API on http://0.0.0.0:7654
+        sago serve --port 8080              # Start on custom port 8080
         sago serve --host 127.0.0.1         # Localhost only
-        sago serve --port 9000              # Custom port
-        sago serve --foreground             # Run in foreground
+        sago serve --daemon                 # Start background TCP daemon service
     """
-    from sago.server.daemon import get_daemon
+    if daemon:
+        from sago.server.daemon import get_daemon
 
-    daemon = get_daemon(host=host, port=port)
+        d = get_daemon(host=host, port=port)
+        if d.is_running():
+            console.print(f"[yellow]TCP Daemon already running (PID: {d.get_pid()})[/]")
+            return
 
-    if daemon.is_running():
-        console.print(f"[yellow]Daemon already running (PID: {daemon.get_pid()})[/]")
+        console.print(f"[green]Starting Sago background TCP daemon on {host}:{port}...[/]")
+        d.start(foreground=foreground)
         return
 
-    console.print(f"[green]Starting Sago daemon on {host}:{port}...[/]")
-    daemon.start(foreground=foreground)
+    import uvicorn
+
+    display_host = "localhost" if host in ("0.0.0.0", "127.0.0.1") else host
+
+    console.print(
+        Panel(
+            f"[bold #58a6ff]🚀 SAGO UNIFIED SERVER ACTIVE[/bold #58a6ff]\n\n"
+            f"  [bold]• Web Dashboard   :[/] [bold #3fb950]http://{display_host}:{port}[/bold #3fb950]\n"
+            f"  [bold]• REST Endpoints  :[/] [cyan]http://{display_host}:{port}/api/execute[/cyan]\n"
+            f"  [bold]• Health Status   :[/] [cyan]http://{display_host}:{port}/api/health[/cyan]\n"
+            f"  [bold]• WebSocket Stream:[/] [cyan]ws://{display_host}:{port}/ws/{{task_id}}[/cyan]\n\n"
+            f"[dim]Binding on: {host}:{port}[/dim]\n"
+            f"[dim]To change port or host: [bold]sago serve --port 8080 --host 127.0.0.1[/bold][/dim]\n"
+            f"[dim]Press [bold red]Ctrl+C[/bold red] to stop server[/dim]",
+            title="[bold white]SAGO Agent Platform[/bold white]",
+            border_style="#58a6ff",
+            padding=(1, 2),
+        )
+    )
+
+    uvicorn.run("sago.api.server:app", host=host, port=port, reload=reload, log_level="info")
+
+
+@cli.command("web")
+@click.option("--host", "-h", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
+@click.option("--port", "-p", default=7654, help="Port number (default: 7654)")
+@click.option("--reload", "-r", is_flag=True, help="Enable auto-reload on code change")
+def web_serve(host: str, port: int, reload: bool) -> None:
+    """Launch the modern Apple-grade Web Control Center and REST API server.
+
+    Alias for `sago serve`.
+    """
+    import uvicorn
+
+    display_host = "localhost" if host in ("0.0.0.0", "127.0.0.1") else host
+
+    console.print(
+        Panel(
+            f"[bold #58a6ff]🚀 SAGO WEB CONTROL CENTER[/bold #58a6ff]\n\n"
+            f"  [bold]• Web Console     :[/] [bold #3fb950]http://{display_host}:{port}[/bold #3fb950]\n"
+            f"  [bold]• REST Endpoints  :[/] [cyan]http://{display_host}:{port}/api/execute[/cyan]\n"
+            f"  [bold]• Health Status   :[/] [cyan]http://{display_host}:{port}/api/health[/cyan]\n\n"
+            f"[dim]Binding on: {host}:{port}[/dim]\n"
+            f"[dim]To change port or host: [bold]sago web --port 8080 --host 127.0.0.1[/bold][/dim]\n"
+            f"[dim]Press [bold red]Ctrl+C[/bold red] to stop server[/dim]",
+            title="[bold white]SAGO Web Server[/bold white]",
+            border_style="#3fb950",
+            padding=(1, 2),
+        )
+    )
+
+    uvicorn.run("sago.api.server:app", host=host, port=port, reload=reload, log_level="info")
 
 
 @cli.command()

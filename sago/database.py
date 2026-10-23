@@ -18,6 +18,7 @@ import json
 import logging
 import sqlite3
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -122,6 +123,23 @@ def init_db() -> None:
                 agent_chain TEXT,
                 status TEXT DEFAULT 'active',
                 metadata TEXT DEFAULT '{}'
+            );
+
+            CREATE TABLE IF NOT EXISTS task_executions (
+                id TEXT PRIMARY KEY,
+                task_id TEXT,
+                session_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                result TEXT,
+                error TEXT,
+                tokens_in INTEGER DEFAULT 0,
+                tokens_out INTEGER DEFAULT 0,
+                iterations INTEGER DEFAULT 1,
+                backend TEXT DEFAULT 'simple',
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
             );
 
             CREATE TABLE IF NOT EXISTS tasks (
@@ -240,17 +258,31 @@ class Session:
     def __exit__(self, *args: Any) -> None:
         pass  # connection stays in pool
 
-    def create(self, title: str = "", agent_chain: list[str] | None = None) -> dict[str, Any]:
-        """Create a new session."""
+    def create(
+        self,
+        title: str = "",
+        agent_chain: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Create a new session with workspace context."""
+        import os
+
         now = datetime.now(UTC).isoformat()
         chain = json.dumps(agent_chain or ["sago"])
-        logger.debug("INSERT session id=%s title=%r", self.id, title)
+        meta = metadata or {}
+        if "workspace_cwd" not in meta:
+            try:
+                meta["workspace_cwd"] = str(os.getcwd())
+            except Exception:
+                pass
+        meta_json = json.dumps(meta)
+        logger.debug("INSERT session id=%s title=%r meta=%s", self.id, title, meta_json)
         self.conn.execute(
-            "INSERT INTO sessions (id, created_at, updated_at, title, agent_chain) VALUES (?, ?, ?, ?, ?)",
-            (self.id, now, now, title, chain),
+            "INSERT INTO sessions (id, created_at, updated_at, title, agent_chain, metadata) VALUES (?, ?, ?, ?, ?, ?)",
+            (self.id, now, now, title, chain, meta_json),
         )
         self.conn.commit()
-        return {"id": self.id, "title": title, "created_at": now}
+        return {"id": self.id, "title": title, "created_at": now, "metadata": meta}
 
     def get(self) -> dict[str, Any] | None:
         """Get session by ID."""
@@ -307,27 +339,56 @@ class Session:
         ).fetchone()
         return bool(row)
 
-    def cleanup_useless_sessions(self) -> int:
-        """Delete sessions that contain no real user messages (only commands, system messages, or empty)."""
+    def cleanup_useless_sessions(self, min_age_hours: float = 0.0) -> int:
+        """Delete sessions that are empty, command-only, or system-only (no human conversation prompts and no tasks)."""
         cursor = self.conn.cursor()
-        cursor.execute("""
-            DELETE FROM sessions
-            WHERE id NOT IN (
-                SELECT DISTINCT session_id
-                FROM messages
-                WHERE role = 'user'
-                  AND content NOT LIKE '/%'
-                  AND TRIM(content) != ''
+        if min_age_hours > 0:
+            cutoff = datetime.fromtimestamp(time.time() - min_age_hours * 3600, tz=UTC).isoformat()
+            cursor.execute(
+                """
+                DELETE FROM sessions
+                WHERE created_at < ?
+                AND (
+                    SELECT COUNT(*) FROM messages m
+                    WHERE m.session_id = sessions.id
+                    AND m.role = 'user'
+                    AND m.content NOT LIKE '/%'
+                    AND TRIM(m.content, ' ' || char(9) || char(10) || char(13)) != ''
+                ) = 0
+                AND (
+                    SELECT COUNT(*) FROM tasks t
+                    WHERE t.session_id = sessions.id
+                ) = 0
+            """,
+                (cutoff,),
             )
-        """)
+        else:
+            cursor.execute("""
+                DELETE FROM sessions
+                WHERE (
+                    SELECT COUNT(*) FROM messages m
+                    WHERE m.session_id = sessions.id
+                    AND m.role = 'user'
+                    AND m.content NOT LIKE '/%'
+                    AND TRIM(m.content, ' ' || char(9) || char(10) || char(13)) != ''
+                ) = 0
+                AND (
+                    SELECT COUNT(*) FROM tasks t
+                    WHERE t.session_id = sessions.id
+                ) = 0
+            """)
         deleted = cursor.rowcount
         logger.info("Cleaned up %d useless sessions", deleted)
         self.conn.commit()
         return deleted
 
     def delete(self) -> None:
-        """Delete session and all cascaded data."""
+        """Delete session and all related data (messages, tool_usage, tasks, agent_state)."""
         logger.debug("DELETE session id=%s (cascade)", self.id)
+        self.conn.execute("DELETE FROM messages WHERE session_id = ?", (self.id,))
+        self.conn.execute("DELETE FROM tool_usage WHERE session_id = ?", (self.id,))
+        self.conn.execute("DELETE FROM agent_state WHERE session_id = ?", (self.id,))
+        self.conn.execute("DELETE FROM tasks WHERE session_id = ?", (self.id,))
         self.conn.execute("DELETE FROM sessions WHERE id = ?", (self.id,))
         self.conn.commit()
 
@@ -514,14 +575,12 @@ class MessageStore:
             )
         )
         logger.debug(
-            "Queued message id=%s role=%s agent=%s pending=%d",
+            "Queued message id=%s role=%s agent=%s",
             msg_id,
             role,
             agent_name,
-            len(self._pending),
         )
-        if len(self._pending) >= self._batch_size:
-            self.flush()
+        self.flush()
         return {"id": msg_id, "role": role, "content": content}
 
     def flush(self) -> None:
@@ -645,12 +704,11 @@ class ToolUsageStore:
             )
         )
         logger.debug(
-            "Queued tool_usage tool=%s agent=%s success=%s duration_ms=%d pending=%d",
+            "Queued tool_usage tool=%s agent=%s success=%s duration_ms=%d",
             tool_name,
             norm_agent,
             success,
             duration_ms,
-            len(self._pending),
         )
         if len(self._pending) >= self._batch_size:
             self.flush()

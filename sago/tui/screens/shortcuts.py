@@ -8,7 +8,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Static
+from textual.widgets import Static
 
 logger = logging.getLogger("sago.tui.screens.shortcuts")
 
@@ -19,7 +19,7 @@ class ShortcutsScreen(ModalScreen[None]):
     DEFAULT_CSS = """
     ShortcutsScreen {
         align: center middle;
-        background: rgba(10, 13, 18, 0.85);
+        background: rgba(1, 4, 9, 0.88);
     }
 
     #shortcuts-dialog {
@@ -27,17 +27,17 @@ class ShortcutsScreen(ModalScreen[None]):
         max-width: 95%;
         height: auto;
         max-height: 85%;
-        background: #111418;
-        border: solid #30363d;
+        background: #0d1117;
+        border: solid #1c2128;
         border-top: solid #58a6ff;
-        padding: 1 2;
+        padding: 0 1 1 1;
     }
 
     .shortcuts-header {
         color: #58a6ff;
         text-style: bold;
         padding: 0 0 1 0;
-        border-bottom: solid #21262d;
+        border-bottom: solid #1c2128;
         content-align: center middle;
     }
 
@@ -46,7 +46,7 @@ class ShortcutsScreen(ModalScreen[None]):
         max-height: 24;
         overflow-y: auto;
         scrollbar-size: 1 1;
-        scrollbar-color: #30363d #111418;
+        scrollbar-color: #388bfd #161b22;
         padding: 1 0;
     }
 
@@ -62,28 +62,17 @@ class ShortcutsScreen(ModalScreen[None]):
     }
 
     .shortcuts-footer {
-        height: 3;
+        height: 1;
         margin-top: 1;
-        border-top: solid #21262d;
+        border-top: solid #1c2128;
         content-align: right middle;
         layout: horizontal;
     }
 
     .shortcuts-hint {
-        color: #8b949e;
+        color: #484f58;
         width: 1fr;
         content-align: left middle;
-    }
-
-    #close-btn {
-        min-width: 12;
-        background: #21262d;
-        color: #8b949e;
-        border: solid #30363d;
-    }
-    #close-btn:focus, #close-btn:hover {
-        background: #30363d;
-        color: #c9d1d9;
     }
     """
 
@@ -105,6 +94,31 @@ class ShortcutsScreen(ModalScreen[None]):
                 )
                 yield Static(
                     "  [bold cyan]F1[/bold cyan] or [bold cyan]?[/bold cyan]         : Show this Shortcuts Reference Modal",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold cyan]F2[/bold cyan]              : Open Deep Trace & Dev Telemetry Viewer",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold cyan]F3[/bold cyan]              : Open Workspace Diff & Git Inspector",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold cyan]F4[/bold cyan]              : Open Workspace File Tree Explorer",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold cyan]F5[/bold cyan]              : Open Session Switcher & History Manager",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold cyan]Ctrl + R[/bold cyan]       : Hot-reload configuration and execution mode",
                     classes="shortcut-row",
                     markup=True,
                 )
@@ -263,12 +277,28 @@ class ShortcutsScreen(ModalScreen[None]):
 
             with Horizontal(classes="shortcuts-footer"):
                 yield Static(
-                    "[dim]Press ESC or Enter to close[/dim]",
+                    "[dim]Press Esc or Enter to close[/dim]",
                     classes="shortcuts-hint",
                     markup=True,
                 )
-                yield Button("Close (Esc)", id="close-btn", variant="primary")
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "close-btn":
-            self.dismiss()
+    def on_mount(self) -> None:
+        try:
+            theme = getattr(self.app, "sago_theme", "obsidian")
+            for t in [
+                "obsidian",
+                "nord",
+                "dracula",
+                "monokai",
+                "tokyo-night",
+                "solarized-dark",
+                "cyberpunk",
+                "catppuccin-mocha",
+                "gruvbox-dark",
+                "rose-pine",
+            ]:
+                self.remove_class(f"theme-{t}")
+            if theme and theme != "obsidian":
+                self.add_class(f"theme-{theme}")
+        except Exception:
+            pass

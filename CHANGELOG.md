@@ -5,9 +5,21 @@ All notable changes to the SAGO project are documented in this file.
 ## [0.1.14] - 2026-08-27 (Unreleased — security gates, tool guardrails, persistent memory, subagents, summary waste, dev default, multi-line workspace TUI)
 
 ### Added
-- **Hardline Security & Approval Gates (`sago/security/approval.py`):**
-  - Non-bypassable kernel-level command filtering blocking catastrophic commands (`rm -rf /`, `rm -rf ~`, `rm -rf /home/*`, fork bombs, raw disk writes via `dd`, filesystem formatting, system shutdowns).
-  - Protected filesystem write security denying write/edit access to sensitive system configuration paths (`/etc/passwd`, `/etc/shadow`, `/etc/sudoers`, `~/.ssh/`, `~/.aws/`, `~/.gnupg/`).
+- **Anti-Hallucination: Tool Calling Format Enforcement (`sago/engine/simple_executor.py`, `sago/tools/file/spawn_agent.py`, `sago/engine/unified.py`):**
+  - Added explicit "TOOL CALLING FORMAT" rule to all 6 system prompt templates (chat, query, create, fix, analyze, test) instructing LLMs to invoke tools via function calling API, not as text/XML/markdown.
+  - Added "CRITICAL: How to Use Tools" section to `spawn_agent.py` prompt for sub-agents.
+  - `REASONING_PROTOCOL` (always appended to every prompt) now includes explicit tool calling mechanism reminder.
+  - `unified.py` now appends `REASONING_PROTOCOL` after profile override (was missing).
+- **Anti-Hallucination: XML Tool Call Detection & Stripping (`sago/engine/simple_executor.py`, `sago/engine/hallucination_verifier.py`):**
+  - Added XML-style tool call pattern detection to `_detect_code_hallucinations()` — flags `<execute_browse_code>write_file(...)</execute_browse_code>` written as plain text as "Fake tool call in text".
+  - Added XML tool call block stripping to `_strip_hallucinated_sentences()` — removes entire `<tag>...</tag>` blocks from output.
+  - Added XML tool call detection to mid-loop fabrication check — triggers retry when response has XML tool tags but no actual tool calls.
+  - Added XML tool call regex pattern to `_FABRICATION_PHRASES` in `hallucination_verifier.py`.
+- **Chain/Orchestration Summarization (`sago/tui/orchestrator.py`):**
+  - Added `_summarize_chain_results()` — LLM-based summarization of multi-agent chain results into a clean final answer. Removes internal metadata ([Agent: ...], Depth:, Tools used:, Handoff Notes:). Called after `/chain` completion.
+  - Added `_summarize_agent_result()` — LLM-based cleanup of single agent output. Called after `/agent` delegation.
+  - `/orch` (orchestration) flow now calls `_summarize_chain_results()` after plan execution (was only showing success/fail counts).
+
 - **Threat Pattern Scanner (`sago/security/threat_scanner.py`):**
   - High-sensitivity regex detection for prompt injection, role hijacking (DAN mode, unrestricted persona switches, fake template headers), and data exfiltration patterns.
 - **Untrusted Content Wrapper (`sago/security/untrusted_wrapper.py`):**
@@ -28,6 +40,9 @@ All notable changes to the SAGO project are documented in this file.
   - Added `-w` / `--workspace` / `-p` / `--path` flags to `sago tui` with automated directory creation and workspace routing.
 
 ### Fixed
+- **Sub-agents fabricating tool calls as text:** Previously, sub-agents (e.g., python-engineer) could write `<execute_browse_code>write_file(...)</execute_browse_code>` as plain text instead of using the function calling API, resulting in no actual tool execution. The system now: (1) explicitly instructs LLMs on correct tool calling format, (2) detects XML tool call text as fabrication, (3) strips fake tool call blocks from output, (4) triggers retry with mechanism guidance.
+- **Fabrication retry message too vague:** Changed from "STOP. You are fabricating results without actually using tools" to include explicit mechanism guidance: "invoke them by emitting function calls in tool_calls, NOT by writing tool names as text or XML tags".
+- **Orchestration flow missing LLM summarization:** `/orch` plan execution now summarizes all step results via LLM (was only showing "X succeeded / Y failed" counts).
 - **Autocomplete & History Navigation Type Crash:** Removed strict `Input` type assertions across autocomplete, history, and queue depth handlers to support multi-line `SagoTextAreaInput`.
 - **Session Resume Tool Argument Decoding:** Implemented multi-pass recursive JSON decoding in `_build_tool_widget` to safely render complex and double-encoded historical tool arguments.
 

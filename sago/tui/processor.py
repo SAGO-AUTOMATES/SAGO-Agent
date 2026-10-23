@@ -424,23 +424,27 @@ class MessageProcessorMixin:
 
                 # Assemble rich tri-partite context (AST symbols, hybrid search, learning patterns, previous sessions)
                 task_type = _detect_task_type(message)
-                try:
-                    from sago.engine.context_assembler import get_context_assembler
+                assembled = None
+                if task_type != "chat":
+                    try:
+                        from sago.engine.context_assembler import get_context_assembler
 
-                    assembler = get_context_assembler(cwd=str(Path.cwd()))
-                    agent_slug = (
-                        self.current_agent.lower().replace(" ", "-") if self.current_agent else None
-                    )
-                    assembled = assembler.assemble(
-                        task=message,
-                        task_type=task_type,
-                        agent_name=agent_slug,
-                        available_tools=list(tools.keys()),
-                        session_id=self.current_session_id or "default",
-                    )
-                except Exception as ctx_err:
-                    logger.debug("Context assembler failed: %s", ctx_err)
-                    assembled = None
+                        assembler = get_context_assembler(cwd=str(Path.cwd()))
+                        agent_slug = (
+                            self.current_agent.lower().replace(" ", "-")
+                            if self.current_agent
+                            else None
+                        )
+                        assembled = assembler.assemble(
+                            task=message,
+                            task_type=task_type,
+                            agent_name=agent_slug,
+                            available_tools=list(tools.keys()),
+                            session_id=self.current_session_id or "default",
+                        )
+                    except Exception as ctx_err:
+                        logger.debug("Context assembler failed: %s", ctx_err)
+                        assembled = None
 
                 # Detect project context
                 project_context = _detect_project_context()
@@ -637,8 +641,11 @@ class MessageProcessorMixin:
                     + [{"role": "user", "content": user_msg_content}]
                 )
 
-                # Build OpenAI function calling tool definitions
-                openai_tools = _build_openai_tools(tools)
+                # Build OpenAI function calling tool definitions (skip for chat/conversational to prevent 10k token prompt blowup)
+                if _is_lightweight:
+                    openai_tools = []
+                else:
+                    openai_tools = _build_openai_tools(tools)
 
                 tool_history = []
                 files_created = []
