@@ -73,7 +73,10 @@ def test_cli_help_command(runner: CliRunner) -> None:
     assert res3.exit_code == 0
 
 
-def test_cli_run_command_variants(runner: CliRunner, tmp_path: Path) -> None:
+def test_cli_run_command_variants(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-key")
     # 1. Basic run
     with patch("sago.engine.simple_executor.execute_agent_task") as mock_exec:
         mock_exec.return_value = {

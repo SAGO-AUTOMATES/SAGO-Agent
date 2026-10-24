@@ -44,6 +44,9 @@ def test_api_agents_fallback():
 
 
 def test_api_sessions(tmp_path):
+    from sago.database import init_db
+
+    init_db()
     client = TestClient(app)
     # Create a session
     res = client.post(

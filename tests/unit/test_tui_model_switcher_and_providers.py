@@ -232,6 +232,10 @@ async def test_tui_model_and_provider_commands():
         await pilot.press("escape")
         await pilot.pause()
 
+        # Cleanup: restore default settings so subsequent tests are not affected
+        save_setting("provider", "openrouter")
+        save_setting("model", "openrouter/free")
+
 
 def test_cli_configure_command():
     """Verify sago configure CLI command invokes setup wizard."""

@@ -219,11 +219,23 @@ def run(task: str, agent: str | None, chain: str | None, interactive: bool, deta
         )
     )
 
-    # Get API key from environment
-    api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
-    if not api_key:
-        logger.error("No API key found in environment (OPENROUTER_API_KEY or OPENAI_API_KEY)")
-        console.print("[red]Error: No API key found. Set OPENROUTER_API_KEY or OPENAI_API_KEY[/]")
+    # Get API key from environment or active LLM config
+    from sago.llm.registry import get_provider_spec, resolve_api_key
+    from sago.llm.tui_providers import resolve_active_llm_config
+
+    active_cfg = resolve_active_llm_config()
+    provider = active_cfg.get("provider", "openrouter")
+    fspec = get_provider_spec(provider)
+    api_key = active_cfg.get("api_key") or resolve_api_key(provider)
+
+    if not api_key and (not fspec or not fspec.local):
+        api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+
+    is_local = fspec and fspec.local
+    if not api_key and not is_local:
+        env_var = fspec.api_key_env if fspec else "OPENROUTER_API_KEY or OPENAI_API_KEY"
+        logger.error("No API key found in environment (%s)", env_var)
+        console.print(f"[red]Error: No API key found. Set {env_var}[/]")
         return
 
     logger.debug(
@@ -1657,9 +1669,21 @@ def smart(task: str, effort: str, thinking: bool) -> None:
 
     logger.info("CLI 'smart' invoked: task_len=%d, effort=%s", len(task), effort)
 
-    api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
-    if not api_key:
-        console.print("[red]Error: No API key found. Set OPENROUTER_API_KEY or OPENAI_API_KEY[/]")
+    from sago.llm.registry import get_provider_spec, resolve_api_key
+    from sago.llm.tui_providers import resolve_active_llm_config
+
+    active_cfg = resolve_active_llm_config()
+    provider = active_cfg.get("provider", "openrouter")
+    fspec = get_provider_spec(provider)
+    api_key = active_cfg.get("api_key") or resolve_api_key(provider)
+
+    if not api_key and (not fspec or not fspec.local):
+        api_key = os.environ.get("OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+
+    is_local = fspec and fspec.local
+    if not api_key and not is_local:
+        env_var = fspec.api_key_env if fspec else "OPENROUTER_API_KEY or OPENAI_API_KEY"
+        console.print(f"[red]Error: No API key found. Set {env_var}[/]")
         return
 
     # First: Ask the AI which agent to use

@@ -50,6 +50,9 @@ def test_spawner_spawn_with_dict_context():
 
 
 def test_spawner_execute_with_agent(tmp_path):
+    from sago.database import init_db
+
+    init_db()
     spawner = AgentSpawner()
     mock_crewai = MagicMock()
     mock_crew = MagicMock()
@@ -60,8 +63,8 @@ def test_spawner_execute_with_agent(tmp_path):
     with (
         patch.dict(sys.modules, {"crewai": mock_crewai}),
         patch.object(spawner, "spawn") as mock_spawn,
-        patch("sago.database.Session") as mock_session_cls,
-        patch("sago.database.MessageStore"),
+        patch("sago.agents.spawner.Session") as mock_session_cls,
+        patch("sago.agents.spawner.MessageStore"),
     ):
         mock_spawn.return_value = MagicMock()
         mock_sess = MagicMock()
@@ -78,6 +81,9 @@ def test_spawner_execute_with_agent(tmp_path):
 
 
 def test_spawner_orchestrate():
+    from sago.database import init_db
+
+    init_db()
     spawner = AgentSpawner()
     with (
         patch.object(
@@ -85,7 +91,7 @@ def test_spawner_orchestrate():
             "execute_with_agent",
             side_effect=["Step 1 output", "Step 2 output"],
         ),
-        patch("sago.database.Session") as mock_session_cls,
+        patch("sago.agents.spawner.Session") as mock_session_cls,
     ):
         mock_sess = MagicMock()
         mock_sess.id = "orch_sess"
@@ -100,6 +106,9 @@ def test_spawner_orchestrate():
 
 
 def test_spawner_orchestrate_error_break():
+    from sago.database import init_db
+
+    init_db()
     spawner = AgentSpawner()
     with (
         patch.object(
@@ -107,7 +116,7 @@ def test_spawner_orchestrate_error_break():
             "execute_with_agent",
             return_value="Error: execution failed",
         ),
-        patch("sago.database.Session") as mock_session_cls,
+        patch("sago.agents.spawner.Session") as mock_session_cls,
     ):
         mock_sess = MagicMock()
         mock_sess.id = "orch_sess"
@@ -145,9 +154,12 @@ def test_spawner_plan_chain():
 
 
 def test_spawner_orchestrate_parallel():
+    from sago.database import init_db
+
+    init_db()
     spawner = AgentSpawner()
     with (
-        patch("sago.database.Session"),
+        patch("sago.agents.spawner.Session"),
         patch("sago.engine.simple_executor.execute_agent_task") as mock_exec_task,
     ):
         mock_exec_task.return_value = {

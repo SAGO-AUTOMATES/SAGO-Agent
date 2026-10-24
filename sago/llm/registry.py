@@ -178,10 +178,19 @@ def strip_model_prefix(provider: str | None, model: str) -> str:
     return model
 
 
-def infer_provider_for_model(model: str) -> str | None:
-    """Extract explicit provider prefix from model string if present, or None."""
-    prov, _ = split_provider_and_model(model)
-    return prov
+def infer_provider_for_model(model: str | None) -> str | None:
+    """Extract explicit provider prefix from model string if present, or infer from canonical model name prefix."""
+    if not model:
+        return None
+    prov, clean = split_provider_and_model(model)
+    if prov:
+        return prov
+    m = clean.lower()
+    if m.startswith("gemini"):
+        return "google"
+    if m.startswith("claude"):
+        return "anthropic"
+    return None
 
 
 # --- Built-in providers -----------------------------------------------------
