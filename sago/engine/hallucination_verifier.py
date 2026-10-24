@@ -1449,14 +1449,84 @@ class ResponseVerifier:
                 except Exception:
                     pass
                 if known:
+                    # Common non-symbol identifiers (built-ins, standard types, common tools)
+                    _excluded_terms = {
+                        "self",
+                        "cls",
+                        "true",
+                        "false",
+                        "none",
+                        "null",
+                        "undefined",
+                        "args",
+                        "kwargs",
+                        "main",
+                        "init",
+                        "test",
+                        "tests",
+                        "list",
+                        "dict",
+                        "tuple",
+                        "set",
+                        "frozenset",
+                        "str",
+                        "int",
+                        "float",
+                        "bool",
+                        "bytes",
+                        "object",
+                        "json",
+                        "yaml",
+                        "toml",
+                        "html",
+                        "css",
+                        "sql",
+                        "bash",
+                        "sh",
+                        "zsh",
+                        "path",
+                        "file",
+                        "error",
+                        "exception",
+                        "result",
+                        "output",
+                        "input",
+                        "pytest",
+                        "unittest",
+                        "ruff",
+                        "mypy",
+                        "pip",
+                        "uv",
+                        "git",
+                        "diff",
+                        "string",
+                        "number",
+                        "boolean",
+                        "array",
+                        "any",
+                        "void",
+                        "promise",
+                        "docker",
+                        "curl",
+                        "node",
+                        "npm",
+                        "pnpm",
+                        "yarn",
+                        "async",
+                        "await",
+                        "import",
+                        "export",
+                        "return",
+                        "class",
+                        "function",
+                        "const",
+                        "let",
+                        "var",
+                    }
                     # Find backtick-quoted identifiers that look like symbols
                     for m in re.finditer(r"`([A-Za-z_][A-Za-z0-9_]*)`", content):
                         ident = m.group(1).lower()
-                        if (
-                            len(ident) >= 4
-                            and ident not in known
-                            and ident not in {"self", "true", "false", "none"}
-                        ):
+                        if len(ident) >= 4 and ident not in known and ident not in _excluded_terms:
                             symbol_issues.append(
                                 f"Symbol '{m.group(1)}' not found in repository symbol index"
                             )

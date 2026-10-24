@@ -132,9 +132,12 @@ class BaseTool(ABC):
                 import concurrent.futures
 
                 _timeout = int(getattr(self, "_run_timeout", 120) or 120)
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ex:
+                _ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                try:
                     _fut = _ex.submit(self._run, **kwargs)
                     result = _fut.result(timeout=_timeout)
+                finally:
+                    _ex.shutdown(wait=False, cancel_futures=True)
                 _elapsed = time.monotonic() - _start
                 logger.debug(
                     "Tool run success: %s result_len=%d elapsed=%.3fs",

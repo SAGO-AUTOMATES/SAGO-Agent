@@ -123,31 +123,31 @@ class TestSessionLoadingAndImports:
     def test_cli_session_commands(self):
         """Test sago session, load, and resume CLI commands."""
         runner = CliRunner()
+        with runner.isolated_filesystem():
+            # sago sessions list
+            res_list = runner.invoke(cli, ["session", "list"])
+            assert res_list.exit_code == 0
 
-        # sago sessions list
-        res_list = runner.invoke(cli, ["session", "list"])
-        assert res_list.exit_code == 0
+            # sago session export
+            res_export = runner.invoke(cli, ["session", "export", self.sid[:8]])
+            assert res_export.exit_code == 0
+            assert "Session exported" in res_export.output
 
-        # sago session export
-        res_export = runner.invoke(cli, ["session", "export", self.sid[:8]])
-        assert res_export.exit_code == 0
-        assert "Session exported" in res_export.output
+            # sago session export missing target
+            res_exp_err = runner.invoke(cli, ["session", "export"])
+            assert "Usage" in res_exp_err.output
 
-        # sago session export missing target
-        res_exp_err = runner.invoke(cli, ["session", "export"])
-        assert "Usage" in res_exp_err.output
+            # sago session load missing target
+            res_load_err = runner.invoke(cli, ["session", "load"])
+            assert "Usage" in res_load_err.output
 
-        # sago session load missing target
-        res_load_err = runner.invoke(cli, ["session", "load"])
-        assert "Usage" in res_load_err.output
+            # sago load without args lists sessions
+            res_load_none = runner.invoke(cli, ["load"])
+            assert res_load_none.exit_code == 0
 
-        # sago load without args lists sessions
-        res_load_none = runner.invoke(cli, ["load"])
-        assert res_load_none.exit_code == 0
-
-        # sago resume without args lists sessions
-        res_res_none = runner.invoke(cli, ["resume"])
-        assert res_res_none.exit_code == 0
+            # sago resume without args lists sessions
+            res_res_none = runner.invoke(cli, ["resume"])
+            assert res_res_none.exit_code == 0
 
     def test_load_session_edge_cases(self):
         """Test load_session with dict, raw JSON string, and invalid sources."""

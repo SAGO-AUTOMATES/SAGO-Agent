@@ -182,6 +182,16 @@ class TestWriteFilePythonValidation:
             out = tool._run(str(tmp_path / "g.py"), "def ok():\n    return 1\n")
         assert "Successfully" in out or (tmp_path / "g.py").exists()
 
+    def test_invalid_python_allowed_with_skip_syntax_check(self, tmp_path) -> None:
+        from unittest.mock import patch
+
+        from sago.tools.file.write_file import WriteFileTool
+
+        tool = WriteFileTool()
+        with patch("sago.security.approval.check_write_safety", return_value=None):
+            out = tool._run(str(tmp_path / "fixture.py"), "def broken(\n", skip_syntax_check=True)
+        assert "Successfully" in out or (tmp_path / "fixture.py").exists()
+
 
 class TestExecutorCancellationAndCorrection:
     def test_cancellation_token_stops_execution(self) -> None:

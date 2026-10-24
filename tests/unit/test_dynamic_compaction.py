@@ -151,10 +151,10 @@ def test_session_compactor_dynamic_initialization():
 
 def test_dynamic_context_window_suffix_and_custom_budget():
     """Verify context size is dynamically parsed from model suffixes without static model mapping."""
-    # Suffix :32k
+    # Suffix :32k (scales down below 50k for sub-64k models)
     th_32k = get_dynamic_compaction_thresholds(provider="custom_runtime", model="any-model:32k")
     assert th_32k.tier == "local"
-    assert th_32k.trigger_tokens == 50_000 or th_32k.trigger_tokens <= 50_000
+    assert th_32k.trigger_tokens == 24_000
 
     # Suffix -128k
     th_128k = get_dynamic_compaction_thresholds(provider="custom_runtime", model="my-model-128k")

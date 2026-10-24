@@ -28,6 +28,7 @@ class LearningStore:
         self._project_path: Path | None = (
             (self.project_root / ".sago" / "learning.json") if self.project_root else None
         )
+        self._project_data: dict[str, Any] = {}
         self._lock = threading.Lock()
         self._data: dict[str, Any] = self._load()
 
@@ -54,10 +55,10 @@ class LearningStore:
         if self._project_path and self._project_path.exists():
             try:
                 logger.debug("Merging project-scoped learning store from %s", self._project_path)
-                proj_data = json.loads(self._project_path.read_text())
+                self._project_data = json.loads(self._project_path.read_text())
                 for k in ("error_fixes", "successful_patterns", "language_patterns"):
-                    if k in proj_data:
-                        data.setdefault(k, {}).update(proj_data[k])
+                    if k in self._project_data:
+                        data.setdefault(k, {}).update(self._project_data[k])
             except Exception as e:
                 logger.debug("Failed to merge project-scoped learning: %s", e)
         # Merge repo-level memory/learning.json defaults (read_file→glob_files pattern)
@@ -105,9 +106,9 @@ class LearningStore:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(json.dumps(self._data, indent=2, default=str))
             logger.debug("Saved learning store to %s", self._path)
-            if self._project_path:
+            if self._project_path and self._project_data:
                 self._project_path.parent.mkdir(parents=True, exist_ok=True)
-                self._project_path.write_text(json.dumps(self._data, indent=2, default=str))
+                self._project_path.write_text(json.dumps(self._project_data, indent=2, default=str))
                 logger.debug("Saved project learning store to %s", self._project_path)
         except Exception as e:
             log_error("Failed to save learning store", e)
@@ -117,37 +118,52 @@ class LearningStore:
         """Record a successful approach for a task type."""
         with self._lock:
             logger.info("Recording success: task_type=%s, tools=%s", task_type, tools_used)
+            entry = {
+                "tools": tools_used,
+                "approach": approach,
+                "timestamp": time.time(),
+            }
             if task_type not in self._data["successful_patterns"]:
                 self._data["successful_patterns"][task_type] = []
-            self._data["successful_patterns"][task_type].append(
-                {
-                    "tools": tools_used,
-                    "approach": approach,
-                    "timestamp": time.time(),
-                }
-            )
-            # Keep only last 10 successes per type
+            self._data["successful_patterns"][task_type].append(entry)
             self._data["successful_patterns"][task_type] = self._data["successful_patterns"][
                 task_type
             ][-10:]
+
+            if self._project_path:
+                self._project_data.setdefault("successful_patterns", {}).setdefault(
+                    task_type, []
+                ).append(entry)
+                self._project_data["successful_patterns"][task_type] = self._project_data[
+                    "successful_patterns"
+                ][task_type][-10:]
+
             self._save()
 
     def record_failure(self, task_type: str, error: str, context: str = "") -> None:
         """Record a failure to learn from."""
         with self._lock:
             logger.info("Recording failure: task_type=%s, error=%s", task_type, error[:100])
+            entry = {
+                "error": error[:500],
+                "context": context[:500],
+                "timestamp": time.time(),
+            }
             if task_type not in self._data["failed_patterns"]:
                 self._data["failed_patterns"][task_type] = []
-            self._data["failed_patterns"][task_type].append(
-                {
-                    "error": error[:500],
-                    "context": context[:500],
-                    "timestamp": time.time(),
-                }
-            )
+            self._data["failed_patterns"][task_type].append(entry)
             self._data["failed_patterns"][task_type] = self._data["failed_patterns"][task_type][
                 -10:
             ]
+
+            if self._project_path:
+                self._project_data.setdefault("failed_patterns", {}).setdefault(
+                    task_type, []
+                ).append(entry)
+                self._project_data["failed_patterns"][task_type] = self._project_data[
+                    "failed_patterns"
+                ][task_type][-10:]
+
             self._save()
 
     def record_error_fix(self, error_pattern: str, fix_approach: str) -> None:
@@ -155,10 +171,11 @@ class LearningStore:
         with self._lock:
             key = error_pattern[:100]
             logger.info("Recording error fix: pattern=%s", key)
-            self._data["error_fixes"][key] = {
+            val = {
                 "fix": fix_approach[:500],
                 "timestamp": time.time(),
             }
+            self._data["error_fixes"][key] = val
             # Keep only last 50 error fixes
             if len(self._data["error_fixes"]) > 50:
                 oldest = sorted(
@@ -166,6 +183,10 @@ class LearningStore:
                 )[:10]
                 for k, _ in oldest:
                     del self._data["error_fixes"][k]
+
+            if self._project_path:
+                self._project_data.setdefault("error_fixes", {})[key] = val
+
             self._save()
 
     def record_tool_effectiveness(self, tool_name: str, success: bool) -> None:
@@ -181,18 +202,26 @@ class LearningStore:
     def record_language_pattern(self, language: str, pattern: str, details: str) -> None:
         """Record discovered language/project patterns."""
         with self._lock:
+            entry = {
+                "pattern": pattern,
+                "details": details[:500],
+                "timestamp": time.time(),
+            }
             if language not in self._data["language_patterns"]:
                 self._data["language_patterns"][language] = []
-            self._data["language_patterns"][language].append(
-                {
-                    "pattern": pattern,
-                    "details": details[:500],
-                    "timestamp": time.time(),
-                }
-            )
+            self._data["language_patterns"][language].append(entry)
             self._data["language_patterns"][language] = self._data["language_patterns"][language][
                 -5:
             ]
+
+            if self._project_path:
+                self._project_data.setdefault("language_patterns", {}).setdefault(
+                    language, []
+                ).append(entry)
+                self._project_data["language_patterns"][language] = self._project_data[
+                    "language_patterns"
+                ][language][-5:]
+
             self._save()
 
     def get_successful_approaches(self, task_type: str) -> list[dict]:

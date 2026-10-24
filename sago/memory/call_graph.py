@@ -161,6 +161,8 @@ class MultiLanguageCallGraphExtractor:
         str_fp = str(file_path)
         lines = content.splitlines()
         current_func: str | None = None
+        func_brace_depth = 0
+        func_has_opened = False
 
         for idx, line in enumerate(lines, start=1):
             stripped = line.strip()
@@ -174,9 +176,15 @@ class MultiLanguageCallGraphExtractor:
 
             if matched_fn and matched_fn not in ("if", "for", "while", "switch", "catch"):
                 current_func = matched_fn
+                func_brace_depth = line.count("{") - line.count("}")
+                func_has_opened = "{" in line
                 continue
 
             if current_func:
+                if not func_has_opened and "{" in line:
+                    func_has_opened = True
+                func_brace_depth += line.count("{") - line.count("}")
+
                 # Find calls inside current function
                 for m in self.CALL_PATTERNS[0].finditer(stripped):
                     callee = m.group(1)
@@ -191,6 +199,11 @@ class MultiLanguageCallGraphExtractor:
                         "typeof",
                     ):
                         graph.add(current_func, callee, idx, str_fp)
+
+                if func_has_opened and func_brace_depth <= 0:
+                    current_func = None
+                    func_has_opened = False
+                    func_brace_depth = 0
 
         return graph
 

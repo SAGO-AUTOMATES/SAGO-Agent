@@ -168,12 +168,15 @@ def get_dynamic_compaction_thresholds(
         context_window=context_window,
     )
 
-    # 1. Local Tier: 50k to 100k
+    # 1. Local Tier: 50k to 100k (scaled down gracefully for sub-64k context windows)
     if tier == "local":
         env_val = os.environ.get("SAGO_COMPACTION_THRESHOLD_LOCAL")
-        default_trig = min(100_000, max(50_000, int(cw * 0.75))) if cw else 75_000
+        if cw and cw < 64_000:
+            default_trig = max(2_000, int(cw * 0.75))
+        else:
+            default_trig = min(100_000, max(50_000, int(cw * 0.75))) if cw else 75_000
         trigger = int(env_val) if env_val and env_val.isdigit() else (global_tokens or default_trig)
-        target = min(35_000, int(trigger * 0.45))
+        target = min(35_000, max(1_000, int(trigger * 0.45)))
         return CompactionThresholds(
             tier="local",
             trigger_tokens=trigger,

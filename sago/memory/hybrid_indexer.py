@@ -144,30 +144,54 @@ def _resolve_embedding_provider() -> str:
     return _EMBEDDING_PROVIDER
 
 
+def _compute_embeddings_batch(
+    texts: list[str], dim: int = 128, batch_size: int = 100
+) -> list[list[float]]:
+    """Compute embeddings for a batch of texts with fallback to dense hash vector.
+
+    Maintains uniform vector dimension (default 128) across providers to ensure
+    cosine similarity compatibility.
+    """
+    if not texts:
+        return []
+    provider = _resolve_embedding_provider()
+    if provider == "openai":
+        try:
+            import math
+
+            import openai
+
+            client = openai.OpenAI()
+            results: list[list[float]] = []
+            for i in range(0, len(texts), batch_size):
+                batch = texts[i : i + batch_size]
+                batch_input = [t[:4000] if len(t) > 4000 else (t or "empty") for t in batch]
+                try:
+                    resp = client.embeddings.create(
+                        model="text-embedding-3-small", input=batch_input, dimensions=dim
+                    )
+                    for item in resp.data:
+                        vec = item.embedding
+                        norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+                        results.append([x / norm for x in vec])
+                except Exception:
+                    for t in batch:
+                        results.append(_compute_dense_vector(t.split(), dim=dim))
+            return results
+        except Exception:
+            global _EMBEDDING_PROVIDER
+            _EMBEDDING_PROVIDER = "hash"
+    return [_compute_dense_vector(t.split(), dim=dim) for t in texts]
+
+
 def _compute_embedding(text: str, dim: int = 128) -> list[float]:
     """Compute an embedding vector, using a real provider when configured.
 
     Falls back to the local hash vector on any failure so behavior stays
     non-breaking.
     """
-    provider = _resolve_embedding_provider()
-    if provider == "openai":
-        try:
-            import openai
-
-            client = openai.OpenAI()
-            resp = client.embeddings.create(model="text-embedding-3-small", input=text)
-            vec = resp.data[0].embedding
-            # Normalize
-            import math
-
-            norm = math.sqrt(sum(x * x for x in vec)) or 1.0
-            return [x / norm for x in vec]
-        except Exception:
-            # Disable provider for the rest of the process on failure.
-            global _EMBEDDING_PROVIDER
-            _EMBEDDING_PROVIDER = "hash"
-    return _compute_dense_vector(text.split(), dim=dim)
+    batch_res = _compute_embeddings_batch([text], dim=dim)
+    return batch_res[0] if batch_res else _compute_dense_vector(text.split(), dim=dim)
 
 
 def _compute_dense_vector(tokens: list[str], dim: int = 128) -> list[float]:
@@ -443,9 +467,12 @@ class HybridCodeIndexer:
                         content = p.read_text(encoding="utf-8", errors="ignore")
                         if content.strip():
                             parsed = self._chunk_file(p, content)
-                            for chunk in parsed:
-                                chunk.vector = _compute_embedding(" ".join(chunk.tokens))
-                            new_chunks.extend(parsed)
+                            if parsed:
+                                chunk_texts = [" ".join(c.tokens) for c in parsed]
+                                vecs = _compute_embeddings_batch(chunk_texts, dim=128)
+                                for chunk, vec in zip(parsed, vecs):
+                                    chunk.vector = vec
+                                new_chunks.extend(parsed)
                     except Exception as e:
                         log_exception(e, "Failed to parse file for cache update")
 
@@ -536,16 +563,19 @@ class HybridCodeIndexer:
             try:
                 content = file_path.read_text(encoding="utf-8", errors="replace")
                 chunks = self._chunk_file(file_path, content)
-                for chunk in chunks:
-                    chunk.vector = _compute_embedding(" ".join(chunk.tokens))
-                    chunk_idx = len(self.chunks)
-                    self.chunks.append(chunk)
-                    total_length += len(chunk.tokens)
+                if chunks:
+                    chunk_texts = [" ".join(c.tokens) for c in chunks]
+                    vecs = _compute_embeddings_batch(chunk_texts, dim=128)
+                    for chunk, vec in zip(chunks, vecs):
+                        chunk.vector = vec
+                        chunk_idx = len(self.chunks)
+                        self.chunks.append(chunk)
+                        total_length += len(chunk.tokens)
 
-                    # Update inverted index and document frequencies
-                    for term in chunk.term_freqs:
-                        self.doc_freqs[term] = self.doc_freqs.get(term, 0) + 1
-                        self.inverted_index.setdefault(term, []).append(chunk_idx)
+                        # Update inverted index and document frequencies
+                        for term in chunk.term_freqs:
+                            self.doc_freqs[term] = self.doc_freqs.get(term, 0) + 1
+                            self.inverted_index.setdefault(term, []).append(chunk_idx)
             except Exception as e:
                 logger.debug("Failed to index %s: %s", file_path, e)
 
@@ -581,9 +611,12 @@ class HybridCodeIndexer:
                 if not content.strip():
                     continue
                 new_chunks = self._chunk_file(p, content)
-                for chunk in new_chunks:
-                    chunk.vector = _compute_embedding(" ".join(chunk.tokens))
-                    self.chunks.append(chunk)
+                if new_chunks:
+                    chunk_texts = [" ".join(c.tokens) for c in new_chunks]
+                    vecs = _compute_embeddings_batch(chunk_texts, dim=128)
+                    for chunk, vec in zip(new_chunks, vecs):
+                        chunk.vector = vec
+                        self.chunks.append(chunk)
             except Exception as e:
                 logger.debug("Failed incremental index for %s: %s", p, e)
 

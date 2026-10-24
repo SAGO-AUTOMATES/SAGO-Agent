@@ -96,14 +96,6 @@ def resolve_active_llm_config(
         resolved_key = api_key
     else:
         resolved_key = resolve_api_key(resolved_provider, resolved_model)
-        if not resolved_key:
-            # Last resort: any configured cloud key
-            for fallback in fallback_order():
-                fspec = get_provider_spec(fallback)
-                if fspec and fspec.api_key_env:
-                    resolved_key = os.environ.get(fspec.api_key_env, "")
-                    if resolved_key:
-                        break
 
     # 4. Resolve Base URL
     if base_url is not None:
