@@ -35,10 +35,100 @@ class CompactionThresholds:
         }
 
 
+def resolve_dynamic_context_window(
+    provider: str | None = None,
+    model: str | None = None,
+    base_url: str | None = None,
+    context_window: int | None = None,
+) -> tuple[int, str]:
+    """Dynamically determine model context window and tier without rigid model binding.
+
+    Returns:
+        (context_window_tokens, tier_name)
+    """
+    import os
+    import re
+
+    if context_window and context_window > 0:
+        if context_window >= 500_000:
+            return context_window, "massive"
+        if context_window <= 128_000:
+            return context_window, "local"
+        return context_window, "standard"
+
+    # Environment override
+    env_cw = os.environ.get("SAGO_CONTEXT_WINDOW")
+    if env_cw and env_cw.isdigit():
+        val = int(env_cw)
+        tier = "massive" if val >= 500_000 else ("local" if val <= 128_000 else "standard")
+        return val, tier
+
+    prov_str = (provider or "").lower().strip()
+    model_str = (model or "").lower().strip()
+    base_str = (base_url or "").lower().strip()
+
+    if not prov_str or not model_str:
+        try:
+            from sago.llm.tui_providers import resolve_active_llm_config
+
+            active_cfg = resolve_active_llm_config(
+                provider=provider, model=model, base_url=base_url
+            )
+            if not prov_str:
+                prov_str = (active_cfg.get("provider") or "").lower().strip()
+            if not model_str:
+                model_str = (active_cfg.get("model") or "").lower().strip()
+            if not base_str:
+                base_str = (active_cfg.get("base_url") or "").lower().strip()
+        except Exception:
+            pass
+
+    # Dynamic extraction of context size suffix (e.g., -128k, :200k, -1m, :32k, etc.)
+    ctx_match = re.search(r"(?:^|[-_:/])(\d+)(k|m)(?:$|[-_:/])", model_str)
+    if ctx_match:
+        val = int(ctx_match.group(1))
+        unit = ctx_match.group(2)
+        extracted = val * 1_000_000 if unit == "m" else val * 1_000
+        tier = (
+            "massive" if extracted >= 500_000 else ("local" if extracted <= 128_000 else "standard")
+        )
+        return extracted, tier
+
+    # Dynamic local runtime check
+    is_local = (
+        prov_str in ("ollama", "lmstudio", "local", "mock")
+        or "localhost" in base_str
+        or "127.0.0.1" in base_str
+        or "local" in model_str
+        or "gguf" in model_str
+        or "ollama" in model_str
+    )
+    if not is_local:
+        try:
+            from sago.llm.registry import get_provider_spec
+
+            spec = get_provider_spec(prov_str)
+            if spec and spec.local:
+                is_local = True
+        except Exception:
+            pass
+
+    if is_local:
+        return 100_000, "local"
+
+    # Massive context check
+    if prov_str in ("google", "gemini") or "gemini" in model_str or "massive" in model_str:
+        return 1_000_000, "massive"
+
+    # Default cloud standard
+    return 200_000, "standard"
+
+
 def get_dynamic_compaction_thresholds(
     provider: str | None = None,
     model: str | None = None,
     base_url: str | None = None,
+    context_window: int | None = None,
 ) -> CompactionThresholds:
     """Determine dynamic compaction thresholds based on provider/model capabilities.
 
@@ -71,97 +161,52 @@ def get_dynamic_compaction_thresholds(
     )
     global_tokens = int(global_override) if global_override and global_override.isdigit() else None
 
-    # Resolve provider and model if not provided
-    prov_str = (provider or "").lower().strip()
-    model_str = (model or "").lower().strip()
-    base_str = (base_url or "").lower().strip()
-
-    if not prov_str or not model_str:
-        try:
-            from sago.llm.tui_providers import resolve_active_llm_config
-
-            active_cfg = resolve_active_llm_config(
-                provider=provider, model=model, base_url=base_url
-            )
-            if not prov_str:
-                prov_str = (active_cfg.get("provider") or "").lower().strip()
-            if not model_str:
-                model_str = (active_cfg.get("model") or "").lower().strip()
-            if not base_str:
-                base_str = (active_cfg.get("base_url") or "").lower().strip()
-        except Exception:
-            pass
-
-    # Check local providers / endpoints
-    is_local = (
-        prov_str in ("ollama", "lmstudio", "local", "mock")
-        or "localhost" in base_str
-        or "127.0.0.1" in base_str
-        or "local" in model_str
-        or "gguf" in model_str
-        or "ollama" in model_str
+    cw, tier = resolve_dynamic_context_window(
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        context_window=context_window,
     )
 
-    if not is_local:
-        try:
-            from sago.llm.registry import get_provider_spec
-
-            spec = get_provider_spec(prov_str)
-            if spec and spec.local:
-                is_local = True
-        except Exception:
-            pass
-
     # 1. Local Tier: 50k to 100k
-    if is_local:
+    if tier == "local":
         env_val = os.environ.get("SAGO_COMPACTION_THRESHOLD_LOCAL")
-        trigger = int(env_val) if env_val and env_val.isdigit() else (global_tokens or 75_000)
+        default_trig = min(100_000, max(50_000, int(cw * 0.75))) if cw else 75_000
+        trigger = int(env_val) if env_val and env_val.isdigit() else (global_tokens or default_trig)
         target = min(35_000, int(trigger * 0.45))
         return CompactionThresholds(
             tier="local",
             trigger_tokens=trigger,
             target_tokens=target,
             trigger_messages=20,
-            description="Local model tier (50k-100k guard: 75k tokens)",
+            description=f"Local model tier ({cw // 1000}k window: {trigger // 1000}k trigger)",
         )
 
     # 2. Massive Context Tier (1M+ context window): 750k to 1M
-    is_massive = prov_str in ("google", "gemini") or any(
-        marker in model_str
-        for marker in (
-            "gemini-1.5",
-            "gemini-2.",
-            "gemini-exp",
-            "gemini",
-            "1m",
-            "2m",
-            "1000k",
-            "massive",
-        )
-    )
-
-    if is_massive:
+    if tier == "massive":
         env_val = os.environ.get("SAGO_COMPACTION_THRESHOLD_MASSIVE")
-        trigger = int(env_val) if env_val and env_val.isdigit() else (global_tokens or 750_000)
+        default_trig = min(1_000_000, max(750_000, int(cw * 0.75))) if cw else 750_000
+        trigger = int(env_val) if env_val and env_val.isdigit() else (global_tokens or default_trig)
         target = min(250_000, int(trigger * 0.35))
         return CompactionThresholds(
             tier="massive",
             trigger_tokens=trigger,
             target_tokens=target,
             trigger_messages=120,
-            description="Massive context tier (750k-1M guard: 750k tokens)",
+            description=f"Massive context tier ({cw // 1000}k window: {trigger // 1000}k trigger)",
         )
 
     # 3. Standard Cloud Tier: 150k to 200k
     env_val = os.environ.get("SAGO_COMPACTION_THRESHOLD_STANDARD")
-    trigger = int(env_val) if env_val and env_val.isdigit() else (global_tokens or 175_000)
+    default_trig = min(200_000, max(150_000, int(cw * 0.875))) if cw else 175_000
+    trigger = int(env_val) if env_val and env_val.isdigit() else (global_tokens or default_trig)
     target = min(80_000, int(trigger * 0.45))
     return CompactionThresholds(
         tier="standard",
         trigger_tokens=trigger,
         target_tokens=target,
         trigger_messages=45,
-        description="Standard cloud tier (150k-200k guard: 175k tokens)",
+        description=f"Standard cloud tier ({cw // 1000}k window: {trigger // 1000}k trigger)",
     )
 
 
@@ -363,12 +408,15 @@ class SessionCompactor:
         max_context_tokens: int | None = None,
         provider: str | None = None,
         model: str | None = None,
+        context_window: int | None = None,
     ) -> None:
         if max_context_tokens is not None:
             self.max_context_tokens = max_context_tokens
             self.thresholds: CompactionThresholds | None = None
         else:
-            self.thresholds = get_dynamic_compaction_thresholds(provider=provider, model=model)
+            self.thresholds = get_dynamic_compaction_thresholds(
+                provider=provider, model=model, context_window=context_window
+            )
             self.max_context_tokens = self.thresholds.trigger_tokens
         self.summarizer = InputSummarizer()
 

@@ -4178,13 +4178,6 @@ def execute_agent_task(
                     )
                     if on_thinking:
                         on_thinking(compact_info)
-                    # Also add as system message so it's visible in chat
-                    messages.append(
-                        {
-                            "role": "system",
-                            "content": f"[COMPACTED] {compact_info}. Recent working context preserved, older history compacted.",
-                        }
-                    )
                 except Exception:
                     pass
 

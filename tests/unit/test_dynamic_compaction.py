@@ -147,3 +147,40 @@ def test_session_compactor_dynamic_initialization():
     compactor_explicit = SessionCompactor(max_context_tokens=1234)
     assert compactor_explicit.max_context_tokens == 1234
     assert compactor_explicit.thresholds is None
+
+
+def test_dynamic_context_window_suffix_and_custom_budget():
+    """Verify context size is dynamically parsed from model suffixes without static model mapping."""
+    # Suffix :32k
+    th_32k = get_dynamic_compaction_thresholds(provider="custom_runtime", model="any-model:32k")
+    assert th_32k.tier == "local"
+    assert th_32k.trigger_tokens == 50_000 or th_32k.trigger_tokens <= 50_000
+
+    # Suffix -128k
+    th_128k = get_dynamic_compaction_thresholds(provider="custom_runtime", model="my-model-128k")
+    assert th_128k.tier == "local"
+    assert th_128k.trigger_tokens == 96_000
+
+    # Explicit context_window argument
+    th_custom = get_dynamic_compaction_thresholds(
+        context_window=64_000, provider="custom", model="unknown"
+    )
+    assert th_custom.tier == "local"
+    assert th_custom.trigger_tokens == 50_000  # min bounded for local tier
+
+    # Explicit 2M context window
+    th_2m = get_dynamic_compaction_thresholds(
+        context_window=2_000_000, provider="custom", model="unknown"
+    )
+    assert th_2m.tier == "massive"
+    assert th_2m.trigger_tokens == 1_000_000  # max bounded for massive tier
+
+
+def test_executor_does_not_pollute_model_messages_with_compaction():
+    """Verify that auto-compaction does not append [COMPACTED] messages to the model payload."""
+    import inspect
+
+    from sago.engine.simple_executor import execute_agent_task
+
+    src = inspect.getsource(execute_agent_task)
+    assert "[COMPACTED]" not in src
