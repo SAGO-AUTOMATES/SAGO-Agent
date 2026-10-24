@@ -156,7 +156,37 @@ class SagoTextAreaInput(TextArea):
         self.styles.height = min(5, max(3, line_count + 2))
 
     async def _on_key(self, event) -> None:
-        if event.key == "enter":
+        if event.key in ("f6", "ctrl+m"):
+            event.prevent_default()
+            event.stop()
+            self.app.action_open_model_switcher()
+            return
+        elif event.key == "f1":
+            event.prevent_default()
+            event.stop()
+            self.app.action_show_shortcuts()
+            return
+        elif event.key == "f2":
+            event.prevent_default()
+            event.stop()
+            self.app.action_open_trace_viewer()
+            return
+        elif event.key == "f3":
+            event.prevent_default()
+            event.stop()
+            self.app.action_open_diff_viewer()
+            return
+        elif event.key == "f4":
+            event.prevent_default()
+            event.stop()
+            self.app.action_open_file_explorer()
+            return
+        elif event.key == "f5":
+            event.prevent_default()
+            event.stop()
+            self.app.action_open_session_manager()
+            return
+        elif event.key == "enter":
             event.prevent_default()
             event.stop()
             val = self.text
@@ -202,15 +232,15 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     CSS = TUI_CSS
 
     BINDINGS = [
-        Binding("ctrl+q", "quit", "Quit"),
-        Binding("ctrl+l", "clear_chat", "Clear"),
-        Binding("f1", "show_shortcuts", "Help / ?"),
-        Binding("f2", "open_trace_viewer", "Traces"),
-        Binding("f3", "open_diff_viewer", "Diff"),
-        Binding("f4", "open_file_explorer", "Files"),
-        Binding("f5", "open_session_manager", "Sessions"),
-        Binding("f6", "open_model_switcher", "Model"),
-        Binding("ctrl+m", "open_model_switcher", "Model Switcher", show=False),
+        Binding("ctrl+q", "quit", "Quit", priority=True),
+        Binding("ctrl+l", "clear_chat", "Clear", priority=True),
+        Binding("f1", "show_shortcuts", "Help / ?", priority=True),
+        Binding("f2", "open_trace_viewer", "Traces", priority=True),
+        Binding("f3", "open_diff_viewer", "Diff", priority=True),
+        Binding("f4", "open_file_explorer", "Files", priority=True),
+        Binding("f5", "open_session_manager", "Sessions", priority=True),
+        Binding("f6", "open_model_switcher", "Model", priority=True),
+        Binding("ctrl+m", "open_model_switcher", "Model Switcher", show=False, priority=True),
         Binding("escape", "dismiss_suggestions", "Dismiss"),
         Binding("y", "approve_action", "Approve", show=True, priority=True),
         Binding("n", "deny_action", "Deny", show=True, priority=True),

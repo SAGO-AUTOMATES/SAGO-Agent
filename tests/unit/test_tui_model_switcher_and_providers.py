@@ -214,7 +214,22 @@ async def test_tui_model_and_provider_commands():
         # 6. Action button click
         btn = app.query_one("#btn-input-model")
         assert btn is not None
-        app.on_model_button_clicked()
+
+        # 7. Press F6 while input is focused
+        input_widget = app.query_one("#msg-input")
+        input_widget.focus()
+        await pilot.press("f6")
+        await pilot.pause()
+        assert isinstance(app.screen, ModelSwitcherScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+
+        # 8. Press Ctrl+M while input is focused
+        input_widget.focus()
+        await pilot.press("ctrl+m")
+        await pilot.pause()
+        assert isinstance(app.screen, ModelSwitcherScreen)
+        await pilot.press("escape")
         await pilot.pause()
 
 
