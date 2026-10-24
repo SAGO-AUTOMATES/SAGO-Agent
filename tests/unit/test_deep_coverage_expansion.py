@@ -11,7 +11,6 @@ Directly targets previously uncovered modules:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -199,7 +198,7 @@ class TestPeerManager:
 
         mgr = PeerManager(config_path=tmp_path / "peers.json")
         p1 = mgr.add_peer("worker1.local", alias="w1")
-        p2 = mgr.add_peer("worker2.local", alias="w2")
+        mgr.add_peer("worker2.local", alias="w2")
 
         assert len(mgr.list_peers()) == 2
         assert mgr.get_peer("worker1.local") is not None

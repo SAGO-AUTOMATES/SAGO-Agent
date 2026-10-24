@@ -1108,41 +1108,93 @@ def _run_interactive_setup() -> None:
 
     # 1. Select LLM provider
     console.print("\n[bold]1. Choose your Primary LLM Provider:[/]")
-    console.print("  [cyan]1.[/] Google Gemini [dim](Fast & recommended default)[/]")
-    console.print("  [cyan]2.[/] OpenAI [dim](GPT-4o / o1 / o3-mini)[/]")
+    console.print(
+        "  [cyan]1.[/] OpenRouter [dim](Recommended default — Free tier available, 200+ models)[/]"
+    )
+    console.print(
+        "  [cyan]2.[/] Google Gemini [dim](Gemini 2.5 Pro / Flash — high context window)[/]"
+    )
     console.print("  [cyan]3.[/] Anthropic Claude [dim](Claude 3.7 Sonnet / Haiku)[/]")
-    console.print("  [cyan]4.[/] OpenRouter [dim](Unified API for 100+ models)[/]")
-    console.print("  [cyan]5.[/] Ollama [dim](100% Private local offline LLM)[/]")
+    console.print("  [cyan]4.[/] OpenAI [dim](GPT-4o / o3-mini / o1)[/]")
+    console.print("  [cyan]5.[/] DeepSeek [dim](DeepSeek V3 / R1 — cost effective & powerful)[/]")
+    console.print("  [cyan]6.[/] Groq [dim](Ultra-fast Llama 3.3 / Qwen inference)[/]")
+    console.print("  [cyan]7.[/] Ollama [dim](100% Private local offline LLM)[/]")
+    console.print("  [cyan]8.[/] LM Studio [dim](Local OpenAI-compatible server)[/]")
+    console.print("  [cyan]9.[/] Custom Endpoint [dim](Any OpenAI-compatible server or proxy)[/]")
 
-    choice = Prompt.ask("Select provider", choices=["1", "2", "3", "4", "5"], default="1")
+    choice = Prompt.ask(
+        "Select provider", choices=["1", "2", "3", "4", "5", "6", "7", "8", "9"], default="1"
+    )
     providers_map = {
-        "1": ("gemini", "GEMINI_API_KEY", "gemini-2.0-flash"),
-        "2": ("openai", "OPENAI_API_KEY", "gpt-4o"),
-        "3": ("claude", "ANTHROPIC_API_KEY", "claude-sonnet-4-20250514"),
-        "4": ("openrouter", "OPENROUTER_API_KEY", "anthropic/claude-sonnet-4"),
-        "5": ("ollama", None, "llama3.1"),
+        "1": ("openrouter", "OPENROUTER_API_KEY", "openrouter/free"),
+        "2": ("google", "GEMINI_API_KEY", "gemini-2.5-flash"),
+        "3": ("anthropic", "ANTHROPIC_API_KEY", "claude-3-7-sonnet-20250219"),
+        "4": ("openai", "OPENAI_API_KEY", "gpt-4o"),
+        "5": ("deepseek", "DEEPSEEK_API_KEY", "deepseek-chat"),
+        "6": ("groq", "GROQ_API_KEY", "llama-3.3-70b-versatile"),
+        "7": ("ollama", None, "deepseek-r1"),
+        "8": ("lmstudio", None, "local-model"),
+        "9": ("custom", None, "custom-model"),
     }
     provider, api_key_env, default_model = providers_map[choice]
 
     logger.info("Setup wizard: provider selected=%s", provider)
 
-    # 2. Get API key if needed
+    # 2. Custom Endpoint / Base URL configuration
+    custom_base_url: str | None = None
+    if provider == "ollama":
+        default_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+        custom_base_url = Prompt.ask("Ollama Base URL", default=default_url)
+        # Probe local Ollama models if running
+        try:
+            import json
+            import urllib.request
+
+            probe_url = custom_base_url.replace("/v1", "").rstrip("/") + "/api/tags"
+            req = urllib.request.Request(probe_url, headers={"User-Agent": "sago-setup"})
+            with urllib.request.urlopen(req, timeout=0.8) as r:
+                tags_data = json.loads(r.read().decode())
+                local_models = [m.get("name") for m in tags_data.get("models", []) if m.get("name")]
+                if local_models:
+                    console.print(
+                        f"  [green]✓[/] Detected local Ollama models: [bold cyan]{', '.join(local_models[:5])}[/]"
+                    )
+                    default_model = local_models[0]
+        except Exception:
+            console.print(
+                "  [dim]Note: Ollama server not detected on that port yet. You can start it anytime with 'ollama serve'.[/dim]"
+            )
+    elif provider == "lmstudio":
+        default_url = os.environ.get("LMSTUDIO_BASE_URL", "http://localhost:1234/v1")
+        custom_base_url = Prompt.ask("LM Studio Base URL", default=default_url)
+    elif provider == "custom":
+        custom_base_url = Prompt.ask("API Base URL (e.g. https://api.myproxy.com/v1)")
+
+    # 3. Get API key if needed
     saved_key: str | None = None
     if api_key_env:
         current_env = os.environ.get(api_key_env, "")
         prompt_msg = f"Enter {api_key_env}" + (
             f" [dim](found in env: {_mask_secret(current_env)})[/]" if current_env else ""
         )
+        if provider == "openrouter":
+            prompt_msg += " [dim](Optional: press Enter to use default free models)[/]"
         entered_key = Prompt.ask(prompt_msg, default=current_env)
         if entered_key:
             saved_key = entered_key
             os.environ[api_key_env] = entered_key
             console.print(f"  [green]✓[/] {api_key_env} registered.")
+        elif provider == "openrouter":
+            console.print("  [green]✓[/] Using default OpenRouter free tier (no key needed).")
+    elif provider == "custom":
+        custom_key = Prompt.ask("API Key (optional if proxy does not require auth)", default="")
+        if custom_key:
+            saved_key = custom_key
 
-    # 3. Model selection
+    # 4. Model selection
     selected_model = Prompt.ask("Default Model", default=default_model)
 
-    # 4. Save persistent user config to ~/.sago/config.yaml
+    # 5. Save persistent user config to ~/.sago/config.yaml and ~/.sago/settings.json
     config_file = sago_home / "config.yaml"
     user_config: dict[str, Any] = {}
     if config_file.exists():
@@ -1159,11 +1211,28 @@ def _run_interactive_setup() -> None:
         "enabled": True,
         "model": selected_model,
     }
-    if saved_key and api_key_env:
-        user_config["llm_providers"]["providers"][provider]["api_key_env"] = api_key_env
+    if saved_key:
+        if api_key_env:
+            user_config["llm_providers"]["providers"][provider]["api_key_env"] = api_key_env
+        else:
+            user_config["llm_providers"]["providers"][provider]["api_key"] = saved_key
+    if custom_base_url:
+        user_config["llm_providers"]["providers"][provider]["base_url"] = custom_base_url
 
     config_file.write_text(yaml.dump(user_config, default_flow_style=False))
     console.print(f"  [green]✓[/] Configuration saved to [bold]{config_file}[/]")
+
+    from sago.settings import save_setting
+
+    save_setting("provider", provider)
+    save_setting("model", selected_model)
+    if custom_base_url:
+        save_setting("base_url", custom_base_url)
+        if provider == "ollama":
+            os.environ["OLLAMA_BASE_URL"] = custom_base_url
+        elif provider == "lmstudio":
+            os.environ["LMSTUDIO_BASE_URL"] = custom_base_url
+    console.print("  [green]✓[/] Settings synchronized with TUI & CLI environments.")
 
     # 5. Initialize SQLite Database
     from sago.database import init
@@ -1213,6 +1282,12 @@ def setup() -> None:
 
 
 @cli.command()
+def configure() -> None:
+    """Configure SAGO LLM provider, default model, and workspace settings."""
+    _run_interactive_setup()
+
+
+@cli.command()
 def onboard() -> None:
     """Seamless interactive onboarding wizard for new Sago setups."""
     _run_interactive_setup()
@@ -1257,12 +1332,27 @@ def doctor() -> None:
     except Exception as exc:
         table.add_row("SQLite Database", "[red]✗ FAIL[/]", str(exc))
 
-    # 4. LLM API Keys
+    # 4. Active LLM Configuration & Settings
+    from sago.settings import load_setting
+
+    active_prov = os.environ.get("SAGO_PROVIDER") or load_setting("provider") or "openrouter"
+    active_mod = os.environ.get("SAGO_MODEL") or load_setting("model") or "openrouter/free"
+    table.add_row(
+        "Active LLM Engine",
+        "[green]✓ PASS[/]",
+        f"Provider: [bold cyan]{active_prov}[/] | Model: [bold green]{active_mod}[/]",
+    )
+
+    # 5. LLM API Keys
     keys = {
+        "OPENROUTER_API_KEY": os.environ.get("OPENROUTER_API_KEY"),
         "GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY"),
         "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY"),
         "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY"),
-        "OPENROUTER_API_KEY": os.environ.get("OPENROUTER_API_KEY"),
+        "DEEPSEEK_API_KEY": os.environ.get("DEEPSEEK_API_KEY"),
+        "GROQ_API_KEY": os.environ.get("GROQ_API_KEY"),
+        "MISTRAL_API_KEY": os.environ.get("MISTRAL_API_KEY"),
+        "TOGETHER_API_KEY": os.environ.get("TOGETHER_API_KEY"),
     }
     configured_keys = [k for k, v in keys.items() if v]
     if configured_keys:
@@ -1270,11 +1360,72 @@ def doctor() -> None:
     else:
         table.add_row(
             "LLM API Keys",
-            "[yellow]! NONE[/]",
-            "No API keys found in environment. Set GEMINI_API_KEY or run 'sago setup'.",
+            "[dim]○ FREE TIER[/]",
+            "No cloud keys found. OpenRouter free tier & local Ollama models ready.",
         )
 
-    # 5. Ports availability
+    # 6. Local LLM Engines (Ollama & LM Studio)
+    import json
+    import urllib.request
+
+    ollama_base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    ollama_probe = ollama_base.replace("/v1", "").rstrip("/") + "/api/tags"
+    try:
+        req = urllib.request.Request(ollama_probe, headers={"User-Agent": "sago-doctor"})
+        with urllib.request.urlopen(req, timeout=0.5) as r:
+            odata = json.loads(r.read().decode())
+            omodels = [m.get("name") for m in odata.get("models", []) if m.get("name")]
+            omod_desc = (
+                f"{len(omodels)} models: {', '.join(omodels[:3])}"
+                if omodels
+                else "Server running (0 models pulled)"
+            )
+            table.add_row(
+                "Ollama Engine", "[green]● ACTIVE[/]", f"Online at {ollama_base} ({omod_desc})"
+            )
+    except Exception:
+        table.add_row(
+            "Ollama Engine",
+            "[dim]○ READY[/]",
+            "Offline / port 11434 free (run 'ollama serve' to enable local LLMs)",
+        )
+
+    lms_base = os.environ.get("LMSTUDIO_BASE_URL", "http://localhost:1234/v1")
+    lms_probe = lms_base.rstrip("/") + "/models"
+    try:
+        req = urllib.request.Request(lms_probe, headers={"User-Agent": "sago-doctor"})
+        with urllib.request.urlopen(req, timeout=0.5) as r:
+            table.add_row("LM Studio Engine", "[green]● ACTIVE[/]", f"Online at {lms_base}")
+    except Exception:
+        table.add_row(
+            "LM Studio Engine",
+            "[dim]○ READY[/]",
+            "Offline / port 1234 free (start LM Studio local server if using local models)",
+        )
+
+    # 7. Workspace & Git
+    try:
+        import subprocess
+
+        git_res = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=1.0,
+        )
+        if git_res.returncode == 0:
+            branch = git_res.stdout.strip()
+            table.add_row(
+                "Git Workspace",
+                "[green]✓ PASS[/]",
+                f"Branch: [bold cyan]{branch}[/] ({Path.cwd()})",
+            )
+        else:
+            table.add_row("Git Workspace", "[dim]○ INFO[/]", f"Workspace: {Path.cwd()}")
+    except Exception:
+        table.add_row("Git Workspace", "[dim]○ INFO[/]", f"Workspace: {Path.cwd()}")
+
+    # 8. Ports availability
     for name, port in [("Daemon Port", 7654), ("Mesh P2P Port", 7655)]:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:

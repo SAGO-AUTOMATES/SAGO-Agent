@@ -1,16 +1,8 @@
 """Comprehensive unit tests for sago tools: ssh, session, web, vcs, system, file modules."""
 
-import json
-import os
 import platform
-import re
-import tempfile
-import textwrap
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, mock_open, patch, call
-
-import pytest
-
+from unittest.mock import MagicMock, Mock, patch
 
 # ---------------------------------------------------------------------------
 # SSH Command
@@ -613,7 +605,7 @@ class TestK8sOpsTool:
     def test_namespace_added(self, mock_resolve, mock_run):
         mock_run.return_value = Mock(returncode=0, stdout="ok", stderr="")
         t = self._make()
-        result = t.execute(operation="get", resource="pods", namespace="kube-system")
+        t.execute(operation="get", resource="pods", namespace="kube-system")
         cmd = mock_run.call_args[0][0]
         assert "-n" in cmd
         assert "kube-system" in cmd
@@ -780,7 +772,7 @@ class TestFileOperationsTool:
         src.write_text("data")
         dst = tmp_path / "dst.txt"
         t = self._make()
-        result = t._run(operation="move", source=str(src), destination=str(dst))
+        t._run(operation="move", source=str(src), destination=str(dst))
         assert dst.exists()
         assert not src.exists()
 
@@ -798,7 +790,7 @@ class TestFileOperationsTool:
         src.write_text("data")
         dst = tmp_path / "dst.txt"
         t = self._make()
-        result = t._run(operation="copy", source=str(src), destination=str(dst))
+        t._run(operation="copy", source=str(src), destination=str(dst))
         assert dst.exists()
         assert src.exists()
         assert dst.read_text() == "data"
@@ -809,7 +801,7 @@ class TestFileOperationsTool:
         (src / "f.txt").write_text("hi")
         dst = tmp_path / "dst_dir"
         t = self._make()
-        result = t._run(operation="copy", source=str(src), destination=str(dst), recursive=True)
+        t._run(operation="copy", source=str(src), destination=str(dst), recursive=True)
         assert dst.exists()
         assert (dst / "f.txt").read_text() == "hi"
 
@@ -818,7 +810,7 @@ class TestFileOperationsTool:
         src.write_text("x")
         dst = tmp_path / "new.txt"
         t = self._make()
-        result = t._run(operation="rename", source=str(src), destination=str(dst))
+        t._run(operation="rename", source=str(src), destination=str(dst))
         assert dst.exists()
         assert not src.exists()
 

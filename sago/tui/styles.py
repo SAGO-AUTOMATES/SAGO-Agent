@@ -168,6 +168,8 @@ Markdown > .code-block, Markdown Horizontal > .code-block, .exchange-body .code-
 .welcome-version { color: #ffffff; text-style: bold; text-align: center; width: 100%; height: 1; margin: 1 0 0 0; }
 .welcome-dev-badge { text-align: center; width: 100%; height: 1; margin: 1 0 0 0; }
 .welcome-workspace-badge { text-align: center; width: 100%; height: 1; margin: 1 0 0 0; }
+.welcome-model-badge { text-align: center; width: 100%; height: 1; margin: 1 0 0 0; }
+.welcome-tips-badge { text-align: center; width: 100%; height: 1; margin: 1 0 0 0; }
 .welcome-subtitle { color: #8b949e; text-align: center; width: 100%; height: 1; margin: 0; }
 .welcome-hint { color: #484f58; text-align: center; width: 100%; height: 1; margin: 2 0 0 0; }
 .welcome-separator { color: #30363d; text-align: center; width: 100%; height: 1; margin: 1 0 0 0; }

@@ -453,7 +453,7 @@ class CommandHandlers:
             # Show current plan
             lines = []
             for i, step in enumerate(plan):
-                lines.append(f"  {i + 1}. [{step.get('agent', '?')}] {step.get('task', '')[:80]}")
+                lines.append(f"  {i + 1}. ({step.get('agent', '?')}) {step.get('task', '')[:80]}")
             self._add_system_message("Current plan:\n" + "\n".join(lines))
             return
 
@@ -466,7 +466,7 @@ class CommandHandlers:
                     old_agent = plan[step_num].get("agent", "?")
                     plan[step_num]["task"] = new_task
                     self._add_system_message(
-                        f"Step {step_num + 1} updated: [{old_agent}] {new_task[:60]}"
+                        f"Step {step_num + 1} updated: ({old_agent}) {new_task[:60]}"
                     )
                 else:
                     self._add_system_message(f"Invalid step number. Plan has {len(plan)} steps.")
@@ -483,7 +483,7 @@ class CommandHandlers:
                 agent = "python-engineer"
                 task_text = agent_task
             plan.append({"agent": agent, "task": task_text})
-            self._add_system_message(f"Added step {len(plan)}: [{agent}] {task_text[:60]}")
+            self._add_system_message(f"Added step {len(plan)}: ({agent}) {task_text[:60]}")
 
         elif action == "remove" and len(parts) >= 2:
             try:
@@ -491,7 +491,7 @@ class CommandHandlers:
                 if 0 <= step_num < len(plan):
                     removed = plan.pop(step_num)
                     self._add_system_message(
-                        f"Removed step {step_num + 1}: [{removed.get('agent', '?')}] {removed.get('task', '')[:60]}"
+                        f"Removed step {step_num + 1}: ({removed.get('agent', '?')}) {removed.get('task', '')[:60]}"
                     )
                 else:
                     self._add_system_message(f"Invalid step number. Plan has {len(plan)} steps.")
@@ -499,7 +499,7 @@ class CommandHandlers:
                 self._add_system_message("Usage: /plan remove <step_number>")
         else:
             self._add_system_message(
-                "Usage: /plan [edit <step> <task> | add <agent>: <task> | remove <step>]"
+                "Usage: /plan (edit <step> <task> | add <agent>: <task> | remove <step>)"
             )
 
     def _show_status(self: SagoApp) -> None:
@@ -1012,8 +1012,13 @@ class CommandHandlers:
 
         parts = m.split(None, 2) if m else []
 
-        # /model — show all cleanly in a single consolidated panel
+        # /model — open interactive ModelSwitcherScreen modal by default (or show text if "list")
         if not parts:
+            if hasattr(self, "action_open_model_switcher"):
+                self.action_open_model_switcher()
+                return
+
+        if not parts or parts[0] == "list":
             models = get_all_models()
             providers: dict[str, list[str]] = {}
             for model in models:
@@ -1025,14 +1030,13 @@ class CommandHandlers:
             container = self.query_one("#messages")
             lines = [
                 f"[bold green]● Active Model:[/] [bold white]{cur}[/]  ([cyan]Provider: {prov}[/])\n",
-                "[dim]Switch model: /model <name>  |  Add: /model add <id>  |  Refresh: /model refresh[/dim]\n",
+                "[dim]Switch: /model <name>  |  Interactive: F6 or Ctrl+M  |  Add: /model add <id>[/dim]\n",
             ]
 
             for provider, pmodels in sorted(providers.items()):
                 lines.append(
                     f"[bold cyan]▼ Provider: {provider.upper()} ({len(pmodels)} models)[/]"
                 )
-                # Display in clean bulleted list
                 for m in pmodels[:10]:
                     marker = "[bold green]▶[/]" if m == cur else " "
                     lines.append(f"  {marker} [yellow]{m}[/]")
@@ -1076,72 +1080,70 @@ class CommandHandlers:
 
         # Known providers for smart parsing (registry-driven, aliases included)
         from sago.llm.registry import (
-            get_provider_spec,
-            guess_provider_from_model,
-            infer_provider_for_model,
             known_provider_keys,
             normalize_provider,
         )
+        from sago.settings import save_setting
 
         valid_names = set(known_provider_keys())
 
-        # /model <provider> <model> — explicit syntax (e.g. /model google gemini-2.0-pro or /model openrouter deepseek/deepseek-r1)
+        # /model <provider> <model> — explicit syntax (e.g. /model google gemini-2.5-pro or /model deepseek deepseek-chat)
         if len(parts) >= 2 and parts[0].lower() in valid_names:
             provider = normalize_provider(parts[0])
             model_name = " ".join(parts[1:])
             self.current_provider = provider
             self.current_model = model_name
+            save_setting("provider", provider)
+            save_setting("model", model_name)
             self._add_system_message(
                 f"Provider: [bold cyan]{provider}[/] | Model: [bold green]{model_name}[/]"
             )
             return
 
-        # /model provider/model or general string
+        # Explicit provider:model or provider/model syntax (e.g. /model openai/gpt-4o, /model ollama:llama3.2)
         search = parts[0]
-        if "/" in search:
-            prefix, rest = search.split("/", 1)
-            if prefix.lower() in valid_names:
-                provider = normalize_provider(prefix)
-                self.current_provider = provider
-                self.current_model = rest if provider == "google" else search
-                self._add_system_message(
-                    f"Provider: [bold cyan]{self.current_provider}[/] | Model: [bold green]{self.current_model}[/]"
-                )
-                return
+        from sago.llm.registry import split_provider_and_model
 
+        explicit_provider, clean_mid = split_provider_and_model(search)
+        if explicit_provider:
+            self.current_provider = explicit_provider
+            self.current_model = clean_mid if explicit_provider != "openrouter" else search
+            save_setting("provider", explicit_provider)
+            save_setting("model", self.current_model)
+            self._add_system_message(
+                f"Provider: [bold cyan]{self.current_provider}[/] | Model: [bold green]{self.current_model}[/]"
+            )
+            return
+
+        # No provider specified in command — NEVER override or guess provider!
+        # Search among models for current provider or use directly
         models = get_all_models()
-        for model in models:
-            if search.lower() in model.lower():
-                self.current_model = model
-                guessed = guess_provider_from_model(model)
-                if guessed and get_provider_spec(guessed):
-                    self.current_provider = guessed
-                else:
-                    inferred = infer_provider_for_model(model)
-                    if inferred:
-                        self.current_provider = inferred
-                self._add_system_message(
-                    f"Model: [bold green]{model}[/] (Provider: [bold cyan]{self.current_provider}[/])"
-                )
-                return
+        target_model = search
+        cur_pfx = f"{self.current_provider}/"
+        for candidate in models:
+            if candidate.lower() == search.lower():
+                target_model = candidate
+                break
+            if (
+                candidate.startswith(cur_pfx)
+                and candidate[len(cur_pfx) :].lower() == search.lower()
+            ):
+                target_model = candidate[len(cur_pfx) :]
+                break
 
-        # Not in list — allow custom model
-        self.current_model = search
-        guessed = guess_provider_from_model(search)
-        if guessed and get_provider_spec(guessed):
-            self.current_provider = guessed
-        else:
-            # Unknown 'vendor/model' ids (e.g. stealth/ox-alpha) route via OpenRouter
-            inferred = infer_provider_for_model(search)
-            if inferred:
-                self.current_provider = inferred
-        provider_label = (
-            f"(Provider: [bold cyan]{self.current_provider}[/])" if "/" in search else "(custom)"
+        if target_model.startswith(cur_pfx) and self.current_provider != "openrouter":
+            target_model = target_model[len(cur_pfx) :]
+
+        self.current_model = target_model
+        save_setting("provider", self.current_provider)
+        save_setting("model", self.current_model)
+        self._add_system_message(
+            f"Model: [bold green]{self.current_model}[/] (Provider: [bold cyan]{self.current_provider}[/])"
         )
-        self._add_system_message(f"Model: [bold green]{search}[/] {provider_label}")
 
     def _change_provider(self: SagoApp, p: str) -> None:
         from sago.llm.registry import get_provider_spec, known_providers, normalize_provider
+        from sago.settings import save_setting
 
         if not p:
             from rich.markup import escape as _escape
@@ -1172,10 +1174,10 @@ class CommandHandlers:
             )
             return
         self.current_provider = canonical
-        # Keep the user's explicit model if it already belongs to this provider;
-        # otherwise seed the provider default.
         if "/" not in self.current_model or self.current_model.split("/", 1)[0] != canonical:
             self.current_model = spec.default_model
+        save_setting("provider", canonical)
+        save_setting("model", self.current_model)
         key_status = (
             "local"
             if spec.local or not spec.api_key_env
@@ -2835,7 +2837,7 @@ class CommandHandlers:
                 TaskStatus.COMPLETED: "\033[32m✓\033[0m",
                 TaskStatus.IN_PROGRESS: "\033[33m⟳\033[0m",
                 TaskStatus.FAILED: "\033[31m✗\033[0m",
-                TaskStatus.WAITING: "\033[36m◎\033[0m",
+                TaskStatus.WAITING_INPUT: "\033[36m◎\033[0m",
                 TaskStatus.SKIPPED: "\033[90m⊘\033[0m",
             }.get(todo.status, "\033[90m○\033[0m")
             step_lines.append(f"  {status_icon} {i + 1}. {todo.description[:70]}")
@@ -2865,7 +2867,7 @@ class CommandHandlers:
                 for todo in plan.todos:
                     if todo.id == args or args in todo.description:
                         self._add_system_message(
-                            f"[{todo.id}] {todo.description}\nStatus: {todo.status.value}"
+                            f"({todo.id}) {todo.description}\nStatus: {todo.status.value}"
                         )
                         return
                 self._add_system_message(f"Todo not found: {args}")
@@ -2890,7 +2892,7 @@ class CommandHandlers:
                 tm.complete_todo(plan.id, todo_id, result="Marked done by user")
                 next_todo = plan.current_todo
                 if next_todo:
-                    self._add_system_message(f"Next: [{next_todo.id}] {next_todo.description}")
+                    self._add_system_message(f"Next: ({next_todo.id}) {next_todo.description}")
                 else:
                     self._add_system_message("All todos completed! 🎉")
             else:
@@ -3079,9 +3081,10 @@ class CommandHandlers:
             elapsed = f"{t.elapsed:.1f}s" if t.elapsed > 0 else "..."
             tool_info = f" | {t.current_tool}" if t.current_tool else ""
             lines.append(
-                f"  {icon} {t.agent_id} [{t.agent_name}] {t.status.value} {elapsed}{tool_info}"
+                f"  {icon} {t.agent_id} ({t.agent_name}) {t.status.value} {elapsed}{tool_info}"
             )
-            lines.append(f"    Task: {t.task[:60]}")
+            safe_task = t.task[:60].replace("[", "(").replace("]", ")")
+            lines.append(f"    Task: {safe_task}")
         self._add_system_message("\n".join(lines))
 
     def _cancel_task(self: SagoApp, args: str) -> None:

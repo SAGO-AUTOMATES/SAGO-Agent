@@ -71,11 +71,13 @@ async def api_agents() -> list[dict[str, Any]]:
         agents = list_agents()
         return [
             {
-                "name": a.name,
-                "role": a.role,
-                "description": a.description,
-                "category": getattr(a, "category", "general"),
-                "tools": getattr(a, "tools", []),
+                "name": a["name"] if isinstance(a, dict) else a.name,
+                "role": a.get("role", "") if isinstance(a, dict) else a.role,
+                "description": a.get("description", "") if isinstance(a, dict) else a.description,
+                "category": a.get("category", "general")
+                if isinstance(a, dict)
+                else getattr(a, "category", "general"),
+                "tools": a.get("tools", []) if isinstance(a, dict) else getattr(a, "tools", []),
             }
             for a in agents
         ]
@@ -701,7 +703,10 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str) -> None:
                         all_ag = list_agents()
                         output_text = (
                             f"**Available Specialist Agents ({len(all_ag)} total):**\n"
-                            + ", ".join(f"`@{a.name}`" for a in all_ag[:30])
+                            + ", ".join(
+                                f"`@{a['name'] if isinstance(a, dict) else a.name}`"
+                                for a in all_ag[:30]
+                            )
                         )
                         if len(all_ag) > 30:
                             output_text += f"\n\n*... and {len(all_ag) - 30} more. Type `@` in chat to search all.*"

@@ -102,35 +102,63 @@ THEMES = {
 }
 
 BUILTIN_MODELS = [
-    "openrouter/free",
+    # Google Gemini
+    "google/gemini-2.5-pro",
+    "google/gemini-2.5-flash",
+    "google/gemini-2.0-flash",
+    "google/gemini-2.0-flash-lite",
+    # OpenAI
     "openai/gpt-4o",
     "openai/gpt-4o-mini",
-    "openai/gpt-4-turbo",
+    "openai/o1",
+    "openai/o3-mini",
+    # Anthropic Claude
+    "anthropic/claude-3-7-sonnet",
     "anthropic/claude-3-5-sonnet",
-    "anthropic/claude-3-haiku",
-    "anthropic/claude-3-opus",
-    "google/gemini-2.0-flash-001",
-    "google/gemini-2.0-flash-lite",
-    "google/gemini-pro",
-    "meta-llama/llama-3.1-70b-instruct",
-    "meta-llama/llama-3.1-405b-instruct",
+    "anthropic/claude-3-5-haiku",
+    # DeepSeek
     "deepseek/deepseek-chat",
-    "deepseek/deepseek-coder",
-    "deepseek/deepseek-r1",
-    "mistralai/mistral-large-latest",
-    "mistralai/mixtral-8x7b-instruct",
-    "qwen/qwen-2.5-72b-instruct",
+    "deepseek/deepseek-reasoner",
+    # Groq (Ultra-Fast)
+    "groq/llama-3.3-70b-versatile",
+    "groq/qwen-2.5-coder-32b",
+    # Local Ollama
+    "ollama/deepseek-r1",
+    "ollama/llama3.1",
+    "ollama/qwen2.5-coder",
+    # Mistral AI
+    "mistral/mistral-large-latest",
+    "mistral/codestral-latest",
+    # OpenRouter
+    "openrouter/free",
+    "openrouter/auto",
+    "openrouter/deepseek/deepseek-r1:free",
+    "meta-llama/llama-3.1-70b-instruct",
     "qwen/qwen-2.5-coder-32b-instruct",
-    "cohere/command-r-plus",
-    "perplexity/sonar-pro",
 ]
 
 BUILTIN_COSTS = {
-    "openrouter/free": {"input": 0, "output": 0},
-    "openrouter/deepseek/deepseek-chat": {"input": 0.14, "output": 0.28},
-    "openrouter/meta-llama/llama-3.1-70b-instruct": {"input": 0.52, "output": 0.75},
-    "openrouter/qwen/qwen-2.5-72b-instruct": {"input": 0.35, "output": 0.4},
-    "openrouter/google/gemini-2.0-flash-001": {"input": 0.075, "output": 0.3},
+    "openrouter/free": {"input": 0.0, "output": 0.0},
+    "openrouter/auto": {"input": 0.5, "output": 1.5},
+    "openrouter/deepseek/deepseek-r1:free": {"input": 0.0, "output": 0.0},
+    "deepseek/deepseek-chat": {"input": 0.14, "output": 0.28},
+    "deepseek/deepseek-reasoner": {"input": 0.55, "output": 2.19},
+    "google/gemini-2.5-flash": {"input": 0.075, "output": 0.3},
+    "google/gemini-2.5-pro": {"input": 1.25, "output": 5.0},
+    "google/gemini-2.0-flash": {"input": 0.1, "output": 0.4},
+    "google/gemini-2.0-flash-lite": {"input": 0.075, "output": 0.3},
+    "openai/gpt-4o": {"input": 2.5, "output": 10.0},
+    "openai/gpt-4o-mini": {"input": 0.15, "output": 0.6},
+    "openai/o1": {"input": 15.0, "output": 60.0},
+    "openai/o3-mini": {"input": 1.1, "output": 4.4},
+    "anthropic/claude-3-7-sonnet": {"input": 3.0, "output": 15.0},
+    "anthropic/claude-3-5-sonnet": {"input": 3.0, "output": 15.0},
+    "anthropic/claude-3-5-haiku": {"input": 0.8, "output": 4.0},
+    "groq/llama-3.3-70b-versatile": {"input": 0.59, "output": 0.79},
+    "groq/qwen-2.5-coder-32b": {"input": 0.59, "output": 0.79},
+    "ollama/deepseek-r1": {"input": 0.0, "output": 0.0},
+    "ollama/llama3.1": {"input": 0.0, "output": 0.0},
+    "ollama/qwen2.5-coder": {"input": 0.0, "output": 0.0},
 }
 
 # Keep as dict for backward compat (used in status display)

@@ -118,6 +118,11 @@ class ShortcutsScreen(ModalScreen[None]):
                     markup=True,
                 )
                 yield Static(
+                    "  [bold cyan]F6 / Ctrl + M[/bold cyan] : Open Interactive Model & Provider Switcher",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
                     "  [bold cyan]Ctrl + R[/bold cyan]       : Hot-reload configuration and execution mode",
                     classes="shortcut-row",
                     markup=True,

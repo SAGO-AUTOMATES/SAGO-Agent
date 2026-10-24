@@ -209,6 +209,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         Binding("f3", "open_diff_viewer", "Diff"),
         Binding("f4", "open_file_explorer", "Files"),
         Binding("f5", "open_session_manager", "Sessions"),
+        Binding("f6", "open_model_switcher", "Model"),
+        Binding("ctrl+m", "open_model_switcher", "Model Switcher", show=False),
         Binding("escape", "dismiss_suggestions", "Dismiss"),
         Binding("y", "approve_action", "Approve", show=True, priority=True),
         Binding("n", "deny_action", "Deny", show=True, priority=True),
@@ -334,6 +336,11 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                         yield Button(
                             "🔄 Sessions [F5]",
                             id="btn-input-sessions",
+                            classes="btn-input-action",
+                        )
+                        yield Button(
+                            "🤖 Model [F6]",
+                            id="btn-input-model",
                             classes="btn-input-action",
                         )
                         yield Button("🧹 Clear", id="btn-input-clear", classes="btn-input-action")
@@ -492,6 +499,20 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             Static(
                 f"[dim]Workspace:[/] [bold cyan]{workspace_path}[/bold cyan]",
                 classes="welcome-workspace-badge",
+                markup=True,
+            )
+        )
+        welcome.mount(
+            Static(
+                f"[dim]Active Model:[/] [bold green]{self.current_model}[/bold green] [dim](Provider: [cyan]{self.current_provider}[/cyan])[/dim]",
+                classes="welcome-model-badge",
+                markup=True,
+            )
+        )
+        welcome.mount(
+            Static(
+                "[dim]Quick Tips:[/] [bold #79c0ff]F6[/] Switch Models  •  [bold #79c0ff]?[/] Shortcuts  •  [bold #79c0ff]@agent[/] Specialists  •  [bold #79c0ff]#file[/] Context",
+                classes="welcome-tips-badge",
                 markup=True,
             )
         )
@@ -1210,19 +1231,6 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             if val.startswith("/"):
                 inp.value = val + " "
                 inp.cursor_position = len(inp.value)
-                if (
-                    val.startswith("/model ")
-                    and not val.startswith("/model add")
-                    and not val.startswith("/model remove")
-                    and not val.startswith("/model refresh")
-                ):
-                    from sago.llm.registry import infer_provider_for_model
-
-                    model_id = val[7:].strip()
-                    inferred = infer_provider_for_model(model_id)
-                    if inferred:
-                        self.current_provider = inferred
-                    self.current_model = model_id
             else:
                 v = inp.value  # type: ignore[attr-defined]
                 last_space = v.rfind(" ")
@@ -1471,6 +1479,31 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         except Exception as e:
             self._add_system_message(f"🔄 Session manager error: {e}")
 
+    def action_open_model_switcher(self) -> None:
+        """Open the interactive model & provider switcher modal (F6 / Ctrl+M / /model)."""
+        try:
+            from sago.settings import save_setting
+            from sago.tui.modals import ModelSwitcherScreen
+
+            def _on_model_selected(result: dict[str, str] | None) -> None:
+                if not result:
+                    return
+                prov = result.get("provider", self.current_provider)
+                mod = result.get("model", self.current_model)
+                if not mod:
+                    return
+                self.current_provider = prov
+                self.current_model = mod
+                save_setting("provider", prov)
+                save_setting("model", mod)
+                self._add_system_message(
+                    f"● Active Model: [bold white]{mod}[/]  ([cyan]Provider: {prov}[/])"
+                )
+
+            self.push_screen(ModelSwitcherScreen(), _on_model_selected)
+        except Exception as e:
+            self._add_system_message(f"🤖 Model switcher error: {e}")
+
     @on(Button.Pressed, "#btn-top-traces")
     @on(Button.Pressed, "#btn-input-traces")
     def on_traces_button_clicked(self) -> None:
@@ -1491,6 +1524,11 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     def on_sessions_button_clicked(self) -> None:
         """Open session switcher from input action bar button."""
         self.action_open_session_manager()
+
+    @on(Button.Pressed, "#btn-input-model")
+    def on_model_button_clicked(self) -> None:
+        """Open model switcher from input action bar button."""
+        self.action_open_model_switcher()
 
     @on(Button.Pressed, ".btn-view-trace")
     def on_view_trace_button(self, event: Button.Pressed) -> None:
@@ -2017,7 +2055,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         start_config_watching()
         config = get_config()
         mode = getattr(config.execution, "mode", "native")
-        self._add_system_message(f"Config reloaded: execution mode is now [{mode}]")
+        self._add_system_message(f"Config reloaded: execution mode is now `{mode}`")
         self._update_execution_mode(mode)
 
     def _update_execution_mode(self, mode: str) -> None:
