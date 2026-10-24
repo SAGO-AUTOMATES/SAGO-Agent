@@ -406,9 +406,13 @@ class ContextAssembler:
                         f"Decisions: {'; '.join(pyramid.architectural_decisions[:3])}"
                     )
                 if pyramid.modified_files:
-                    pyramid_parts.append(
-                        f"Modified Files: {', '.join(pyramid.modified_files[-8:])}"
-                    )
+                    total_mod = len(pyramid.modified_files)
+                    if total_mod <= 6:
+                        pyramid_parts.append(f"Modified Files: {', '.join(pyramid.modified_files)}")
+                    else:
+                        pyramid_parts.append(
+                            f"Modified Files ({total_mod} files, showing recent): {', '.join(pyramid.modified_files[-5:])} (+{total_mod - 5} more files)"
+                        )
                 if pyramid.semantic_summary:
                     pyramid_parts.append(f"Prior Progress: {pyramid.semantic_summary[:300]}")
                 if pyramid_parts:
@@ -421,7 +425,7 @@ class ContextAssembler:
         # 5. Learning Store (Successes, Known Fixes & Strategies)
         try:
             logger.debug("Step 5: Querying learning store")
-            ls = get_learning_store()
+            ls = get_learning_store(self.cwd)
             tools_list = available_tools or []
             suggestion = ls.suggest_approach(task_type, tools_list)
             if suggestion and token_budget.consume(suggestion):

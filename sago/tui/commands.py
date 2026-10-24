@@ -304,7 +304,8 @@ class CommandHandlers:
 
         from sago.engine.prompt_enhancer import enhance_prompt
 
-        enhancement = enhance_prompt(task=task, agent_role=agent_name)
+        recent = getattr(self, "messages", [])[-5:] if hasattr(self, "messages") else None
+        enhancement = enhance_prompt(task=task, agent_role=agent_name, recent_turns=recent)
 
         self._add_command_turn(
             "delegate",

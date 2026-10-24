@@ -10,6 +10,7 @@ import json
 import logging
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from sago.paths import get_sago_home
@@ -19,10 +20,14 @@ logger = logging.getLogger("sago.learning")
 
 
 class LearningStore:
-    """Persistent store for learning from past sessions."""
+    """Persistent store for learning from past sessions with project and global scoping."""
 
-    def __init__(self) -> None:
+    def __init__(self, project_root: str | Path | None = None) -> None:
+        self.project_root: Path | None = Path(project_root).resolve() if project_root else None
         self._path = get_sago_home() / "learning.json"
+        self._project_path: Path | None = (
+            (self.project_root / ".sago" / "learning.json") if self.project_root else None
+        )
         self._lock = threading.Lock()
         self._data: dict[str, Any] = self._load()
 
@@ -30,7 +35,7 @@ class LearningStore:
         data: dict[str, Any] | None = None
         if self._path.exists():
             try:
-                logger.debug("Loading learning store from %s", self._path)
+                logger.debug("Loading global learning store from %s", self._path)
                 data = json.loads(self._path.read_text())
             except Exception as e:
                 log_error("Failed to load learning store", e)
@@ -44,6 +49,17 @@ class LearningStore:
                 "language_patterns": {},
                 "error_fixes": {},
             }
+
+        # Merge project-scoped learnings if present (project rules take precedence)
+        if self._project_path and self._project_path.exists():
+            try:
+                logger.debug("Merging project-scoped learning store from %s", self._project_path)
+                proj_data = json.loads(self._project_path.read_text())
+                for k in ("error_fixes", "successful_patterns", "language_patterns"):
+                    if k in proj_data:
+                        data.setdefault(k, {}).update(proj_data[k])
+            except Exception as e:
+                logger.debug("Failed to merge project-scoped learning: %s", e)
         # Merge repo-level memory/learning.json defaults (read_file→glob_files pattern)
         # This ensures context_assembler always has the directory hint even on fresh installs
         try:
@@ -89,6 +105,10 @@ class LearningStore:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(json.dumps(self._data, indent=2, default=str))
             logger.debug("Saved learning store to %s", self._path)
+            if self._project_path:
+                self._project_path.parent.mkdir(parents=True, exist_ok=True)
+                self._project_path.write_text(json.dumps(self._data, indent=2, default=str))
+                logger.debug("Saved project learning store to %s", self._project_path)
         except Exception as e:
             log_error("Failed to save learning store", e)
             logger.error("Failed to save learning store: %s", e)
@@ -225,13 +245,13 @@ class LearningStore:
         return None
 
 
-# Global instance
-_learning_store: LearningStore | None = None
+# Global instance cache by project root
+_learning_stores: dict[str, LearningStore] = {}
 
 
-def get_learning_store() -> LearningStore:
-    """Get the global learning store."""
-    global _learning_store
-    if _learning_store is None:
-        _learning_store = LearningStore()
-    return _learning_store
+def get_learning_store(project_root: str | Path | None = None) -> LearningStore:
+    """Get or create a scoped learning store (project-specific or global)."""
+    key = str(Path(project_root).resolve()) if project_root else "global"
+    if key not in _learning_stores:
+        _learning_stores[key] = LearningStore(project_root=project_root)
+    return _learning_stores[key]

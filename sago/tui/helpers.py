@@ -809,6 +809,12 @@ class UIHelpers:
             card_lines.append(f"[dim]Targets:[/] [cyan]{targets}[/cyan]")
         if tags:
             card_lines.append(f"[dim]Additions:[/] [green]{tags}[/green]")
+        raw_summary = getattr(enhancement, "context_summary", "")
+        if raw_summary:
+            summary_escaped = escape(str(raw_summary))
+            card_lines.append(
+                f"\n[dim]── Prior Turns & Working Context (2-7 lines) ──[/dim]\n[cyan]{summary_escaped}[/cyan]"
+            )
         if crit_lines:
             card_lines.append(f"\n[bold]Acceptance Criteria:[/]\n{crit_lines}")
 

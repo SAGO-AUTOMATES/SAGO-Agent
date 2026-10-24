@@ -605,6 +605,7 @@ class MessageProcessorMixin:
                     agent_role=self.current_agent,
                     llm_client=client,
                     llm_model=api_model,
+                    recent_turns=history[-5:] if history else None,
                 )
                 if enhancement.was_modified and not _is_lightweight:
                     self.call_from_thread(
