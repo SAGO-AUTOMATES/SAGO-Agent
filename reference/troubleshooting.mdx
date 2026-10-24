@@ -1,0 +1,62 @@
+---
+title: "Troubleshooting & Errors"
+description: "Common issues, diagnostic error codes, recovery strategies, and fixes."
+icon: "circle-exclamation"
+---
+
+## Diagnostic Checklist
+
+If you encounter unexpected behavior:
+1. Check system and provider status: `/status`
+2. Open the Developer Inspector (<kbd>F2</kbd>) to view exact error traces and HTTP status codes.
+3. Verify your API keys in the environment: `env | grep -E "API_KEY|SAGO"`
+4. Test tool discovery and reload state: <kbd>Ctrl+R</kbd> or `/skill reload`
+
+---
+
+## Common Issues & Solutions
+
+### 1. Model Authentication Errors (`APIKeyError` or 401 Unauthorized)
+- **Cause:** Missing or malformed API key for the selected provider.
+- **Fix:** Set the appropriate environment variable in your shell profile (`~/.bashrc`, `~/.zshrc`):
+  ```bash
+  export ANTHROPIC_API_KEY="sk-ant-..."
+  export OPENAI_API_KEY="sk-..."
+  export GEMINI_API_KEY="..."
+  ```
+  Or switch to the free default tier (`openrouter/free`) which requires zero keys.
+
+### 2. Local Ollama Model Connection Refused
+- **Cause:** Ollama daemon is not running or listening on a different port.
+- **Fix:** Ensure Ollama is running (`ollama serve`) and verify `base_url` in `~/.sago/settings.json` points to:
+  ```json
+  {
+    "provider": "ollama",
+    "base_url": "http://127.0.0.1:11434/v1"
+  }
+  ```
+
+### 3. Tree-Sitter Parser C-Extensions Not Found
+- **Cause:** The optional native C grammars are not compiled in your Python environment.
+- **Behavior:** SAGO automatically falls back to `_fallback_regex_skeleton` with zero disruption.
+- **Fix to enable full AST:**
+  ```bash
+  pip install tree-sitter tree-sitter-python tree-sitter-rust tree-sitter-typescript
+  ```
+
+### 4. Hallucination Warning: "Low confidence (X/100)"
+- **Cause:** SAGO's 9-stage `HallucinationVerifier` detected statements, file paths, or function signatures not corroborated by actual tool calls or repository files.
+- **Action:** Inspect the warning details in the TUI. SAGO automatically strips fabricated claims from the output to protect code integrity.
+
+---
+
+## Error Types Reference
+
+| Exception | Category | Recovery Strategy |
+|---|---|---|
+| `ToolPermissionError` | Permissions | Approve via prompt or run `/yolo on` |
+| `ToolTimeoutError` | Subprocess | Increase command timeout or optimize heavy query |
+| `AgentDelegationError`| Multi-Agent | Delegator will select an alternate specialist profile |
+| `RecursionLimitError` | Orchestrator | Maximum subagent delegation depth reached (capped at 5) |
+| `CycleDetectedError` | Orchestrator | Execution loop detected circular handoff (A -> B -> A) |
+| `ContextWindowExceeded`| LLM Tokens | Run `/compact` or lower `SAGO_COMPACTION_THRESHOLD` |

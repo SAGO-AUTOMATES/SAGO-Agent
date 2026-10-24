@@ -1,0 +1,97 @@
+---
+title: "Tools Catalog"
+description: "Comprehensive catalog of all 73 built-in tools across files, coding, shell, network, and systems."
+icon: "wrench"
+---
+
+## Overview
+
+SAGO provides **73 auto-discovered tools** organized into modular categories. All tools are executed within an OpenAI-compatible function-calling loop with risk-based permission gating and automatic error recovery.
+
+---
+
+## Risk-Based Permission System
+
+Tools are assigned a risk level to prevent accidental modifications or destructive operations:
+
+| Risk Level | Representative Tools | Default Behavior |
+|---|---|---|
+| **Safe** | `read_file`, `glob_files`, `grep_content`, `env_info`, `os_detector`, `web_search`, `web_fetch` | **Auto-approved** |
+| **Low** | `write_file`, `edit_file`, `file_operations`, `archive`, `code_sandbox` | **Auto-approved** |
+| **Medium** | `execute_shell`, `background_process`, `docker_ops`, `k8s_ops`, `browser` | **Requires user approval** |
+| **High** | `ssh_connect`, `ssh_command`, `sudo_executor` | **Requires user approval** |
+| **Critical** | `spawn_agent` | **Requires user approval** |
+
+<Note>
+In TUI or headless mode, you can bypass permission confirmations by toggling YOLO mode with `/yolo on` or passing the `--yolo` CLI flag.
+</Note>
+
+---
+
+## Tool Categories
+
+<Tabs>
+  <Tab title="File Operations">
+    ### File Tools (15 Tools)
+
+    | Tool | Description | Common Parameters |
+    |---|---|---|
+    | `read_file` | Read file contents with auto-detected encoding | `path`, `encoding` |
+    | `write_file` | Write content to a file, creating parent directories | `path`, `content`, `append` |
+    | `edit_file` | Precise search-and-replace edit with single-match guarantee | `path`, `old_string`, `new_string`, `replaceAll` |
+    | `glob_files` | Find matching file paths recursively using glob patterns | `pattern`, `path` |
+    | `grep_content` | Search file contents with regular expressions | `pattern`, `include`, `path` |
+    | `file_operations`| Perform filesystem tasks (move, copy, delete, stat, mkdir) | `operation`, `source`, `destination` |
+    | `archive` | Create or extract `.zip`, `.tar.gz`, `.bz2` archives | `operation`, `archive_path`, `files` |
+    | `convert_to_markdown` | Convert PDF, Word, Excel, PPTX, or HTML to clean Markdown | `source_path`, `output_path` |
+  </Tab>
+
+  <Tab title="Coding & AST">
+    ### Coding & Static Analysis (7 Tools)
+
+    | Tool | Description |
+    |---|---|
+    | `tree_sitter_skeleton` | Extract token-efficient class & function skeletons across 8+ languages |
+    | `call_graph_explorer` | Traverse 2-hop caller and callee dependency graphs |
+    | `hybrid_search` | BM25 lexical + dense vector hybrid search across the repository |
+    | `ast_analyzer` | Deep AST symbol, class hierarchy, and import resolution |
+    | `test_runner` | Run test suites (pytest, cargo test, go test) and capture structured failures |
+    | `linter` | Run static linters (ruff, eslint, golangci-lint) with auto-fix support |
+    | `code_sandbox` | Execute isolated code snippets in secure subprocess sandboxes |
+  </Tab>
+
+  <Tab title="Shell & Infrastructure">
+    ### Shell, Docker & Cloud Tools
+
+    | Tool | Description |
+    |---|---|
+    | `execute_shell` | Execute shell commands in workspace directory with timeout guards |
+    | `background_process` | Start, monitor, stream logs from, or kill long-running background tasks |
+    | `docker_ops` | Manage containers, images, volumes, and Docker Compose services |
+    | `k8s_ops` | Inspect Kubernetes pods, deployments, services, and cluster events |
+    | `ssh_connect` | Establish encrypted SSH sessions to remote hosts |
+    | `ssh_command` | Execute remote commands over authenticated SSH tunnels |
+  </Tab>
+
+  <Tab title="Web & Network">
+    ### Web & Network Tools
+
+    | Tool | Description |
+    |---|---|
+    | `web_search` | Search live technical documentation and public APIs |
+    | `web_fetch` | Fetch web pages with HTML-to-Markdown conversion |
+    | `browser` | Headless browser automation (Playwright/Chromium) for dynamic sites |
+    | `dns_lookup` | Query DNS records (A, AAAA, CNAME, MX, TXT) |
+    | `port_scanner` | Check open network ports and local service availability |
+    | `curl_request` | Make authenticated HTTP requests (GET, POST, PUT, DELETE) |
+  </Tab>
+</Tabs>
+
+---
+
+## Error Handling & Recovery
+
+Every tool invocation is protected by the `sago/errors/handler.py` recovery engine:
+1. **Self-Correction:** If a tool call fails (e.g. `read_file` on a directory), the engine consults `LearningStore` for known fixes.
+2. **Crash Prevention:** A failing tool returns a clean diagnostic error message back to the LLM turn loop rather than terminating the agent process.
+3. **Audit Tracing:** Microsecond tool latencies, parameters, and outputs are logged to the Developer Inspector (<kbd>F2</kbd>).

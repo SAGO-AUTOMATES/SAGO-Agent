@@ -1,0 +1,56 @@
+---
+title: "Introduction"
+description: "Meet SAGO — the autonomous terminal-first AI coding agent engineered for 10,000+ file codebases."
+icon: "sparkles"
+---
+
+## What is SAGO?
+
+**SAGO** is a high-performance autonomous AI software engineering agent operating directly in your terminal. Designed from the ground up to solve complex software engineering challenges, SAGO bridges deep static code intelligence with multi-agent orchestration.
+
+Whether navigating a massive 10,000+ file polyglot monorepo, refactoring core abstractions across 50 files concurrently, or exploring an unfamiliar architecture, SAGO executes with surgical precision, automated syntax verification, and zero hallucination safeguards.
+
+<CardGroup cols={2}>
+  <Card title="Polyglot AST & Skeletons" icon="code-branch" href="/architecture/tree-sitter-skeletons">
+    Universal Tree-Sitter grammars across Python, Rust, Go, Java, TypeScript, and C/C++ compress codebases into token-efficient structural signatures.
+  </Card>
+  <Card title="Graph-Guided Context" icon="diagram-project" href="/architecture/graph-guided-context">
+    2-hop call graphs and bidirectional caller/callee analysis dynamically assemble relevant dependencies without context bloat.
+  </Card>
+  <Card title="Map-Reduce Swarms" icon="users-gear" href="/docs/map-reduce-swarms">
+    Distributes large-scale refactors touching 15+ to 100+ files across parallel subagents with automated verification merges.
+  </Card>
+  <Card title="Dynamic Compaction" icon="compress" href="/architecture/dynamic-compaction">
+    Intelligent context guards adapt dynamically to model tiers (Local 50k–100k, Cloud 150k–200k, Massive 750k–1M).
+  </Card>
+</CardGroup>
+
+---
+
+## Core Philosophy
+
+### 1. Prototype First & Zero-Friction Out-of-the-Box
+SAGO requires **zero initial credit card or paid API keys**. Fresh installations default to the free tier (`openrouter/free`), allowing you to launch `sago tui` immediately and start inspecting code. When you're ready, switch effortlessly to Claude 3.7 Sonnet, OpenAI GPT-4o, Google Gemini 2.5 Pro, or local Ollama models via `F6` or `/model`.
+
+### 2. Surgical Context Over Brute Force
+Feeding 100 raw files into an LLM context creates severe attention diffusion (*"Lost in the Middle"* syndrome) and hallucinations. SAGO employs a **4-Phase Scale Architecture**:
+1. **Git-Aware Incremental Indexing:** Detects repository state in <20ms using `git ls-files` fast paths.
+2. **Universal Skeletonization:** Omits implementation bodies (`{ ... }`) to outline 10,000 files in under 3,000 tokens.
+3. **Graph Neighborhood Traversal:** Explores 2 hops of callers and callees around the target symbol.
+4. **Context Poisoning Safeguards:** Caps massive changesets to recent modifications plus aggregate directory clusters.
+
+### 3. Project-Scoped Isolated Learning
+SAGO learns from past command corrections, syntax errors, and architectural patterns. Rather than polluting global memory across unrelated projects, SAGO isolates project conventions into `<project_root>/.sago/learning.json` while maintaining cross-cutting tool fixes globally in `~/.sago/learning.json`.
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="bolt" href="/docs/quickstart">
+    Install SAGO and run your first autonomous engineering session in under 60 seconds.
+  </Card>
+  <Card title="Model & Provider Setup" icon="sliders" href="/docs/models-and-providers">
+    Configure Claude, OpenAI, Gemini, DeepSeek, or local Ollama and LM Studio runtimes.
+  </Card>
+</CardGroup>

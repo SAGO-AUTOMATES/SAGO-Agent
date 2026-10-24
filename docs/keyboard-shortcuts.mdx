@@ -1,0 +1,40 @@
+---
+title: "Keyboard Shortcuts"
+description: "Master terminal navigation, hotkeys, and quick actions in SAGO."
+icon: "keyboard"
+---
+
+## Global Navigation Keys
+
+| Shortcut | Action | Description |
+|---|---|---|
+| <kbd>F1</kbd> or <kbd>?</kbd> | **Cheatsheet Modal** | Opens the interactive command and hotkey cheatsheet |
+| <kbd>F2</kbd> | **Developer Inspector** | Toggles live microsecond traces and payload inspector |
+| <kbd>F6</kbd> or <kbd>Ctrl+M</kbd>| **Model Switcher** | Opens the dual-pane model & provider selector modal |
+| <kbd>Ctrl+C</kbd> | **Instant Cancel** | Cancels active LLM generation or subagent task cleanly |
+| <kbd>Ctrl+K</kbd> | **Clear Messages** | Clears the chat message timeline from the screen |
+| <kbd>Ctrl+R</kbd> | **Hot-Reload** | Reloads settings, plugins, and custom skills from disk |
+| <kbd>Esc</kbd> | **Close / Unfocus** | Dismisses active modal dialogs or returns focus to prompt |
+
+---
+
+## Chat & Message Controls
+
+| Shortcut | Action |
+|---|---|
+| <kbd>Up</kbd> / <kbd>Down</kbd> | Navigate message history in the input box |
+| <kbd>PageUp</kbd> / <kbd>PageDown</kbd> | Scroll conversation transcript smoothly |
+| <kbd>Ctrl+L</kbd> | Redraw and refresh terminal window |
+| <kbd>Tab</kbd> / <kbd>Shift+Tab</kbd> | Cycle focus between Prompt, Sidebar, and Buttons |
+| <kbd>Enter</kbd> (on Turn Header) | Toggle collapse state of the highlighted turn card |
+
+---
+
+## Mentions & Quick Attachments
+
+Type trigger symbols directly into the chat input:
+
+- `#file`: Opens recursive fuzzy file picker with git-modified priority.
+- `@agent`: Mentions a specialist agent (e.g. `@python-engineer`, `@security-testing-engineer`).
+- `/`: Triggers the live slash command autocomplete list.
+- `!command`: Shell escape prefix (executes command locally in your shell and captures output).

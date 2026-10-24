@@ -1,0 +1,90 @@
+---
+title: "Models & Providers"
+description: "Clean provider decoupling, model switching modal, and local Ollama setup."
+icon: "sliders"
+---
+
+## Provider & Model Decoupling
+
+SAGO strictly decouples **Provider** (credentials, base URL, endpoint protocol) from **Model** (model name identifier).
+
+- **No Substring Guessing:** Model names like `llama-3.3-70b` or `deepseek-r1` are never hijacked by heuristic substring matching.
+- **Explicit Provider Binding:** You can specify explicit `{provider}:{model}` or `{provider}/{model}` identifiers anytime.
+- **Zero Fallback Hijacking:** If an API key is missing, SAGO never silently switches providers behind your back; it provides clear instructions on which environment variable to set.
+
+---
+
+## Interactive Switcher Modal (<kbd>F6</kbd> / <kbd>Ctrl+M</kbd>)
+
+Press <kbd>F6</kbd> or run `/model` inside the TUI to open the interactive model switcher:
+
+- **Provider Filter Pills:** Filter by `[All]`, `[Google]`, `[OpenAI]`, `[Anthropic]`, `[DeepSeek]`, `[Groq]`, `[Ollama]`, and `[OpenRouter]`.
+- **Live Search Bar:** Real-time search by vendor name, capability tag (Vision, Coding, Fast, Reasoning), or model ID.
+- **Capability Badges:** Instant visual tags indicating pricing, context length, and supported features.
+- **Custom Model Entry:** Enter any custom model identifier with dedicated provider binding.
+
+---
+
+## Slash Commands
+
+You can switch models and providers directly from the chat prompt:
+
+```bash
+# Switch provider and model simultaneously
+/model anthropic claude-3-7-sonnet-20250219
+/model google gemini-2.5-pro
+/model openai gpt-4o
+
+# Switch model under the currently active provider
+/model claude-3-5-haiku
+
+# Switch provider only
+/provider ollama
+```
+
+---
+
+## Supported Providers & Environment Variables
+
+| Provider | Canonical Name | Environment Variable | Default Model | Local / Cloud |
+|---|---|---|---|---|
+| **Google Gemini** | `google` | `GEMINI_API_KEY` | `gemini-2.5-pro` | Cloud (1M–2M context) |
+| **OpenAI** | `openai` | `OPENAI_API_KEY` | `gpt-4o` | Cloud (128k context) |
+| **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY` | `claude-3-7-sonnet-20250219` | Cloud (200k context) |
+| **DeepSeek** | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` | Cloud (128k context) |
+| **Groq** | `groq` | `GROQ_API_KEY` | `llama-3.3-70b-versatile` | Cloud (Ultra-Fast) |
+| **Mistral AI** | `mistral` | `MISTRAL_API_KEY` | `mistral-large-latest` | Cloud (128k context) |
+| **Together AI** | `together` | `TOGETHER_API_KEY` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | Cloud |
+| **OpenRouter** | `openrouter` | `OPENROUTER_API_KEY` | `openrouter/free` | Cloud (Free + 200+ models) |
+| **Ollama** | `ollama` | *None (Local)* | `deepseek-r1` | Local (`localhost:11434`) |
+| **LM Studio** | `lmstudio` | *None (Local)* | `local-model` | Local (`localhost:1234`) |
+
+---
+
+## Local Models with Ollama
+
+SAGO works out of the box with locally hosted Ollama instances with zero API keys:
+
+<Steps>
+  <Step title="Start Ollama">
+    ```bash
+    ollama run qwen2.5-coder:7b
+    # or
+    ollama run deepseek-r1:8b
+    ```
+  </Step>
+  <Step title="Switch to Ollama in SAGO">
+    Inside SAGO TUI, type:
+    ```bash
+    /provider ollama
+    /model qwen2.5-coder:7b
+    ```
+    Or launch from CLI:
+    ```bash
+    sago tui --provider ollama --model qwen2.5-coder:7b
+    ```
+  </Step>
+  <Step title="Dynamic Local Compaction Guard">
+    SAGO automatically detects local runtimes and switches the context guard to the **Local Tier** (50k–100k tokens), protecting CPU/GPU memory and preventing context overflows.
+  </Step>
+</Steps>

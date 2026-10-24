@@ -1,0 +1,62 @@
+---
+title: "Command Manual"
+description: "Comprehensive reference of all slash commands in SAGO."
+icon: "terminal"
+---
+
+## Core & Session Commands
+
+| Command | Syntax | Description |
+|---|---|---|
+| `/help` | `/help [query]` | Display categorized command reference manual |
+| `/?` | `/?` | Open interactive keyboard shortcuts modal (<kbd>F1</kbd>) |
+| `/status` | `/status` | View system health, active provider, model, and token metrics |
+| `/clear` | `/clear` | Clear message history from the screen |
+| `/compact` | `/compact` | Trigger immediate context compaction adapted to model tier |
+| `/session` | `/session [list\|save\|load\|reset]` | Manage active and archived conversation sessions |
+| `/export` | `/export [filename]` | Export conversation transcript to clean Markdown (`.md`) |
+| `/exit` | `/exit` | Save active session state and exit cleanly |
+
+---
+
+## Agent Orchestration Commands
+
+| Command | Syntax | Description |
+|---|---|---|
+| `/agent` | `/agent [name]` | Select active specialist agent profile (340+ profiles) |
+| `/agents` | `/agents [category]` | List available specialist agents by engineering discipline |
+| `/delegate` | `/delegate <agent> <task>` | Delegate an isolated task to a specialist subagent |
+| `/chain` | `/chain <a1,a2> <task>` | Chain agents sequentially (e.g. `architect,coder`) |
+| `/orchestrate`| `/orchestrate <task>` | Auto-decompose task across a specialist team |
+| `/parallel` | `/parallel <a1: task1, a2: task2>` | Run specialist agents concurrently in parallel |
+| `/tasks` | `/tasks [list\|cancel]` | Background worker task manager |
+| `/cancel` | `/cancel` | Cancel active generation or background task (<kbd>Ctrl+C</kbd>) |
+
+---
+
+## Code Intelligence & VCS Commands
+
+| Command | Syntax | Description |
+|---|---|---|
+| `/map` | `/map [query]` | Generate compact Tree-Sitter AST symbol repository map |
+| `/graph` | `/graph [summary\|arch\|process\|models]` | Generate Mermaid architecture and process diagrams |
+| `/verify` | `/verify` | Run multi-language linters, type checks, and tests |
+| `/search` | `/search <query>` | Hybrid BM25 probabilistic + dense vector code search |
+| `/git` | `/git [status\|diff\|commit\|log]` | Git repository inspection and fast operations |
+| `/diff` | `/diff [file]` | View workspace diffs of modified files |
+| `/commit` | `/commit <message>` | Stage all changes and commit with verification checks |
+| `/checkpoint`| `/checkpoint [create\|restore\|list]`| Point-in-time workspace snapshotting and 1-click restore |
+
+---
+
+## Model & Interface Commands
+
+| Command | Syntax | Description |
+|---|---|---|
+| `/model` | `/model [provider] [model]` | Open model switcher modal (<kbd>F6</kbd>) or switch directly |
+| `/provider`| `/provider <name>` | Change active LLM backend provider |
+| `/effort` | `/effort [low\|medium\|high\|max]` | Adjust reasoning effort and iteration limits |
+| `/theme` | `/theme [name]` | Switch terminal color theme (e.g. `cyberpunk`, `obsidian`) |
+| `/dev` | `/dev [on\|off\|traces]` | Toggle real-time developer telemetry and microsecond traces |
+| `/yolo` | `/yolo` | Toggle auto-approval mode for tool executions |
+| `/reload` | `/reload` | Hot-reload all configurations and dynamic plugins from disk |

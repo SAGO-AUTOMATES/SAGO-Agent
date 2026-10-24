@@ -1,0 +1,49 @@
+---
+title: "Specialist Agents Catalog"
+description: "Over 340 domain-specific engineering agent profiles ready out of the box."
+icon: "id-badge"
+---
+
+## Overview
+
+SAGO includes **340+ domain-specific agent profiles** located in `agents/profiles/`. Each agent possesses tailored system prompts, domain knowledge, best practices, and preferred toolchains.
+
+---
+
+## Key Categories
+
+### Backend & Systems Engineering
+- `python-engineer`: Modern Python (3.10+), FastAPI, AsyncIO, Type Hints, and Ruff/Pytest.
+- `rust-engineer`: Memory safety, borrow checker resolution, Cargo workflows, and Serde.
+- `go-engineer`: Concurrency patterns, goroutines, channels, and idiomatic error handling.
+- `cpp-engineer`: Modern C++20, RAII, CMake, and memory sanitizers.
+- `java-engineer`: Spring Boot, Gradle/Maven, JVM profiling, and enterprise patterns.
+
+### Web & Frontend Engineering
+- `frontend-engineer`: React, Next.js, TypeScript, TailwindCSS, and state management.
+- `fullstack-engineer`: End-to-end integration across frontend, API, and database layers.
+- `ui-ux-designer`: Accessible styling, design tokens, and CSS Grid/Flexbox layouts.
+
+### Databases & Data Engineering
+- `database-architect`: Relational schema design, normalization, migration strategies, and indexing.
+- `postgresql-engineer`: Query optimization, EXPLAIN ANALYZE, triggers, and partitioning.
+- `milvus-engineer`: Vector search databases, collection schemas, and index building.
+- `influxdb-engineer`: Time-series data modeling, retention policies, and downsampling.
+
+### DevOps, Cloud & Security
+- `kubernetes-engineer`: Manifest generation, Helm charts, ingress, and pod health monitoring.
+- `security-testing-engineer`: SAST/DAST audits, OWASP Top 10 vulnerabilities, and dependency scanning.
+- `devops-engineer`: CI/CD pipelines, Docker containerization, and Terraform infrastructure.
+
+---
+
+## Activating an Agent
+
+In the TUI:
+```bash
+# Switch active profile
+/agent security-testing-engineer
+
+# Mention in prompt
+@python-engineer refactor the async queue worker in services/queue.py
+```

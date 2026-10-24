@@ -1,0 +1,104 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "SAGO",
+  "logo": {
+    "dark": "/images/logo-dark.svg",
+    "light": "/images/logo-light.svg"
+  },
+  "favicon": "/favicon.png",
+  "colors": {
+    "primary": "#388bfd",
+    "light": "#58a6ff",
+    "dark": "#1f6feb",
+    "anchors": {
+      "from": "#388bfd",
+      "to": "#a371f7"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/SAGO-AUTOMATES/SAGO-Agent"
+    },
+    {
+      "name": "Releases",
+      "url": "https://github.com/SAGO-AUTOMATES/SAGO-Agent/releases"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Install SAGO",
+    "url": "https://github.com/SAGO-AUTOMATES/SAGO-Agent#quickstart"
+  },
+  "tabs": [
+    {
+      "name": "Documentation",
+      "url": "docs"
+    },
+    {
+      "name": "Architecture & Internals",
+      "url": "architecture"
+    },
+    {
+      "name": "Reference",
+      "url": "reference"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        "docs/introduction",
+        "docs/quickstart",
+        "docs/models-and-providers"
+      ]
+    },
+    {
+      "group": "Interactive TUI & Experience",
+      "pages": [
+        "docs/tui-guide",
+        "docs/commands",
+        "docs/keyboard-shortcuts",
+        "docs/sessions"
+      ]
+    },
+    {
+      "group": "Multi-Agent Orchestration",
+      "pages": [
+        "docs/orchestration",
+        "docs/specialist-agents",
+        "docs/map-reduce-swarms"
+      ]
+    },
+    {
+      "group": "Architecture & Scale",
+      "pages": [
+        "architecture/overview",
+        "architecture/git-aware-indexing",
+        "architecture/tree-sitter-skeletons",
+        "architecture/graph-guided-context",
+        "architecture/dynamic-compaction",
+        "architecture/learning-system"
+      ]
+    },
+    {
+      "group": "Tools & Extensibility",
+      "pages": [
+        "reference/tools-catalog",
+        "reference/tool-authoring",
+        "reference/skills-and-plugins",
+        "reference/mcp-servers"
+      ]
+    },
+    {
+      "group": "Developer & Operations",
+      "pages": [
+        "reference/developer-mode",
+        "reference/configuration",
+        "reference/troubleshooting"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/SAGO-AUTOMATES/SAGO-Agent"
+  }
+}

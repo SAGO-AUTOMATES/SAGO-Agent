@@ -1,0 +1,81 @@
+---
+title: "Developer Mode & Telemetry"
+description: "Microsecond telemetry, live trace inspector, and transparent reasoning debugging."
+icon: "gauge-high"
+---
+
+## Overview
+
+Developer Mode provides deep, transparent visibility into SAGO's internal execution loop. It tracks microsecond latencies, prompt payloads, function-calling arguments, agent delegations, and thinking blocks.
+
+<Note>
+**v0.1.14+ Default:** Developer Mode is **enabled by default** during the beta release. Fresh installs immediately provide live traces without needing manual configuration.
+</Note>
+
+---
+
+## Live Developer Inspector (<kbd>F2</kbd>)
+
+Press <kbd>F2</kbd> or run `/dev inspector` to open the full-screen Inspector modal:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ ⚡ SAGO Developer Inspector & Execution Traces                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Trace ID: trc_8f93b2a   Turn: 3   Elapsed: 1,420ms   Tokens: 4,120         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  TIMELINE EVENTS                                                            │
+│  00:00.002  [Intake] User query parsed (Complexity: HIGH, Type: REFACTOR)   │
+│  00:00.015  [Index] Git-aware index: 1,420 files scanned in 18ms            │
+│  00:00.045  [AST] Tree-Sitter skeletonized 12 files (3,400 -> 310 tokens)   │
+│  00:00.120  [Graph] 2-hop BFS extracted 8 caller/callee neighbors           │
+│  00:00.150  [LLM Request] Model: claude-3-7-sonnet | System prompt: 2.1k tok│
+│  00:01.210  [LLM Response] Finish reason: tool_calls (edit_file)            │
+│  00:01.215  [Tool Exec] edit_file(path="src/pool.py") -> SUCCESS            │
+│  00:01.420  [Verify] Syntax & AST verification PASSED (0 errors)            │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Configuration
+
+Control Developer Mode via multiple channels:
+
+### 1. Slash Commands in TUI
+```bash
+# Toggle Developer Mode
+/dev toggle
+
+# Force ON or OFF
+/dev on
+/dev off
+
+# Open the live telemetry modal
+/dev inspector
+```
+
+### 2. User Configuration (`~/.sago/settings.json`)
+```json
+{
+  "dev_mode": true
+}
+```
+
+### 3. Environment Variable
+```bash
+# Force enable
+export SAGO_DEV_MODE=1
+
+# Force disable
+export SAGO_DEV_MODE=0
+```
+
+---
+
+## Tracing Architecture (`DevTracer`)
+
+The telemetry engine (`sago/tui/dev_tracer.py`):
+1. **Zero Model Context Pollution:** Telemetry events and debug stats are dispatched to UI callbacks and never appended to LLM conversation payloads.
+2. **Microsecond Precision:** Measures exact wall-clock latencies across network calls, tool executions, and file I/O.
+3. **Session Artifacts:** Traces are written to `.sago/traces/` in structured JSON for retrospective analysis.

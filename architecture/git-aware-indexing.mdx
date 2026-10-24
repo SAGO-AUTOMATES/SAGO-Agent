@@ -1,0 +1,47 @@
+---
+title: "Git-Aware Incremental Indexing"
+description: "Sub-20ms indexing for 10,000+ files with live delta detection."
+icon: "bolt-lightning"
+---
+
+## The Bottleneck of Naive Scans
+
+Scanning 10,000+ files using standard filesystem `os.walk` or recursive globbing is slow, introduces high I/O latency, and wastes CPU parsing non-source files (`node_modules`, build artifacts, `.lock` files).
+
+---
+
+## The Git Fast Path (`git ls-files`)
+
+SAGO leverages Git's internal index cache via `git ls-files -co --exclude-standard`:
+- **Speed:** Traverses 10,000 files in **under 20ms**.
+- **Ignore Rules:** Automatically honors `.gitignore`, global git excludes, and submodule boundaries.
+
+```python
+# sago/memory/codebase_indexer.py
+def _list_files_git(project_path: Path) -> list[str]:
+    result = subprocess.run(
+        ["git", "ls-files", "-co", "--exclude-standard"],
+        cwd=project_path,
+        capture_output=True,
+        text=True,
+    )
+    return [line for line in result.stdout.splitlines() if not should_ignore_file(line)]
+```
+
+---
+
+## Intelligent Noise Filtering (`should_ignore_file`)
+
+SAGO immediately filters out files that poison LLM attention:
+- **Lockfiles:** `package-lock.json`, `pnpm-lock.yaml`, `Cargo.lock`, `uv.lock`, `poetry.lock`.
+- **Minified Assets:** `*.min.js`, `*.min.css`, `*.map`, `*.bundle.js`.
+- **Generated Code:** Protocol buffers (`*.pb.go`), GraphQL schema outputs, migration snapshots.
+- **Binary & Media:** Executables, images, fonts, archives, compiled objects (`.so`, `.dll`, `.dylib`).
+
+---
+
+## Incremental Delta Caching
+
+Rather than re-indexing entire repositories on every turn, SAGO runs `git status --porcelain`:
+- Files modified in the working tree are incrementally updated in memory (`index_files_incremental()`).
+- Deleted files are pruned cleanly (`remove_files_from_index()`).

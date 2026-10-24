@@ -1,0 +1,94 @@
+---
+title: "Tool Authoring"
+description: "How to create, test, and register custom tools in SAGO with auto-discovery."
+icon: "hammer"
+---
+
+## Tool Architecture
+
+All tools in SAGO subclass `BaseTool` (`sago/tools/base.py`). Tools declare:
+- `name: str` — Stable identifier exposed to LLM function-calling schemas.
+- `description: str` — Natural-language explanation of purpose and usage.
+- `category: ToolCategory` — Categorization (e.g. `CODING`, `FILE`, `SHELL`, `NETWORK`).
+- `args_model: type[BaseModel]` — Pydantic schema defining validated arguments.
+- `_run(self, **kwargs) -> str` — The internal execution method.
+
+---
+
+## Zero-Config Auto-Discovery
+
+SAGO automatically discovers tools at runtime by scanning `sago/tools/**/*.py` and your local `.sago/tools/**/*.py`:
+
+- Any subclass of `BaseTool` with a non-empty `name` is dynamically loaded.
+- Pydantic models in `args_model` are automatically converted to OpenAI JSON function definitions.
+- No central registry file edit or manual registration is required.
+
+---
+
+## Step-by-Step Example
+
+Create a custom tool by adding a file under `sago/tools/system/uptime_tool.py` or `.sago/tools/uptime_tool.py`:
+
+```python
+"""System uptime and load average tool."""
+
+from __future__ import annotations
+
+import os
+import time
+from pydantic import BaseModel, Field
+from sago.tools.base import BaseTool, ToolCategory, ToolResult
+
+class UptimeArgs(BaseModel):
+    detailed: bool = Field(
+        default=False,
+        description="Whether to include per-CPU load averages and memory pressure.",
+    )
+
+class UptimeTool(BaseTool):
+    name = "system_uptime"
+    description = "Inspect system uptime, active load averages, and core count."
+    category = ToolCategory.SYSTEM
+    args_model = UptimeArgs
+
+    def _run(self, detailed: bool = False) -> str:
+        # Load averages across 1, 5, and 15 minutes
+        load1, load5, load15 = os.getloadavg()
+        cpu_count = os.cpu_count() or 1
+        uptime_seconds = time.monotonic()
+
+        output = (
+            f"Uptime: {int(uptime_seconds // 3600)}h {int((uptime_seconds % 3600) // 60)}m\n"
+            f"Load Average: {load1:.2f}, {load5:.2f}, {load15:.2f} ({cpu_count} CPUs)"
+        )
+        if detailed:
+            output += f"\nLoad per CPU: {load1 / cpu_count:.2%}"
+        return output
+```
+
+---
+
+## Best Practices for Authoring Tools
+
+### 1. `_run` Must Never Raise
+Never allow unhandled exceptions to escape `_run`. Catch operational errors and return clear diagnostic messages:
+
+```python
+def _run(self, path: str) -> str:
+    try:
+        content = Path(path).read_text(encoding="utf-8")
+        return content
+    except FileNotFoundError:
+        return f"Error: File not found at '{path}'"
+    except PermissionError:
+        return f"Error: Permission denied reading '{path}'"
+```
+
+### 2. Descriptive Pydantic Fields
+LLM function-calling accuracy depends on descriptive field annotations. Use `Field(description="...")` on all parameter schema properties.
+
+### 3. Use BaseTool Helper Methods
+`BaseTool` provides cross-platform helpers:
+- `self._run_command(cmd, timeout)`: Safe subprocess execution with timeout guards.
+- `self._expand_path(path)`: Expands `~` and relative workspace paths.
+- `self._get_temp_dir()`: Resolves sandboxed temporary workspace directories.

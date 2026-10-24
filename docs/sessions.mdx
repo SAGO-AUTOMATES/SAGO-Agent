@@ -1,0 +1,65 @@
+---
+title: "Session Management"
+description: "Save, load, resume, and export conversation states with database persistence."
+icon: "clock-rotate-left"
+---
+
+## Overview
+
+SAGO maintains persistent SQLite and JSON session stores. Every conversation turn, tool output, reasoning trace, and compaction checkpoint is persisted so you can close your terminal and resume anytime without data loss.
+
+---
+
+## Slash Commands in TUI
+
+```bash
+# List all saved sessions with timestamp and token counts
+/session list
+
+# Save current conversation state
+/session save my-feature-refactor
+
+# Switch or load a saved session by ID or name
+/session load my-feature-refactor
+
+# Load from an exported .json session file
+/session load /path/to/session.json
+
+# Reset current conversation context
+/session reset
+```
+
+---
+
+## CLI Session Operations
+
+You can manage and inspect sessions directly from your terminal:
+
+```bash
+# List all previous sessions
+sago session list
+
+# Resume the most recent session directly in TUI
+sago resume
+
+# Resume a specific session ID
+sago resume 7f3b8901
+
+# Inspect session transcript in JSON format
+sago session show 7f3b8901
+```
+
+---
+
+## Session Export & Markdown Dumps
+
+Export complete conversation threads to clean GitHub Flavored Markdown:
+
+```bash
+/export docs/conversation-summary.md
+```
+
+Exported files include:
+- Metadata header (Model, Provider, Timestamp, Total Tokens, Tool Calls).
+- Full user prompts, enhanced context summaries, and model responses.
+- Syntax-highlighted code blocks with executed tool results.

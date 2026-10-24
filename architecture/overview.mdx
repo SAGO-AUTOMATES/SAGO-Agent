@@ -1,0 +1,43 @@
+---
+title: "Architecture Overview"
+description: "High-level architecture of SAGO — designed to scale to 10,000+ files."
+icon: "cubes"
+---
+
+## The 4-Phase Scale Engine
+
+SAGO scales reliably to massive monorepos and polyglot codebases using a 4-phase architecture:
+
+```mermaid
+graph TD
+    subgraph Phase 1: High-Speed Indexing
+        GitFiles["Git Fast Path (git ls-files)\n<20ms across 10k files"]
+        Ignore["Comprehensive Ignore Filter\n(Lockfiles, minified, binaries)"]
+    end
+
+    subgraph Phase 2: Structural Condensation
+        TreeSitter["Polyglot Tree-Sitter Parsers\n(Py, Rs, Go, Java, TS, C/C++)"]
+        Skeleton["Skeletonizer\n(Stripped bodies -> <3k tokens)"]
+    end
+
+    subgraph Phase 3: Graph Context Assembly
+        CallGraph["2-Hop Call Graph Expansion\n(BFS caller/callee traversal)"]
+        Context["ContextAssembler\n(Delta capping for 100+ files)"]
+    end
+
+    subgraph Phase 4: Swarm Refactoring
+        MapReduce["Map-Reduce Coordinator\n(Parallel cluster workers)"]
+        Verifier["ProjectVerifier\n(Syntax + Tests merge)"]
+    end
+
+    GitFiles --> Ignore --> TreeSitter --> Skeleton --> CallGraph --> Context --> MapReduce --> Verifier
+```
+
+---
+
+## Architectural Principles
+
+1. **Deterministic Code Intelligence:** SAGO never relies solely on vector similarity (RAG) for symbol navigation. AST parsing, import graphs, and call graphs provide mathematically exact relationship mapping.
+2. **Dynamic Context Guards:** Context compaction thresholds adapt automatically to model context lengths (Local 50k–100k, Standard 150k–200k, Massive 750k–1M).
+3. **Pure Model Context:** Telemetry, compaction notices, and status cards are displayed to the user via UI callbacks, never injected into the LLM conversation payload.
+4. **Isolated Project Learning:** Learnings are stored at the project root (`.sago/learning.json`) to prevent cross-repo contamination.

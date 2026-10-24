@@ -1,0 +1,47 @@
+---
+title: "Map-Reduce Parallel Refactoring Swarms"
+description: "Parallel worker swarms for cross-cutting tasks touching 15+ to 100+ files."
+icon: "network-wired"
+---
+
+## The Challenge: Cross-Cutting Refactors
+
+When refactoring a central abstraction across 50–100+ files (e.g. updating an authentication middleware or migrating an API protocol), traditional single-thread agents fail due to:
+- Context limit exhaustion.
+- Lost in the Middle attention degradation.
+- Interrupted or inconsistent edits.
+
+---
+
+## The SAGO Map-Reduce Solution
+
+SAGO introduces the **Map-Reduce Parallel Refactoring Coordinator** (`MapReduceRefactorCoordinator` in `sago/orchestrator/delegator.py`):
+
+```mermaid
+flowchart TD
+    Task["Refactor Task (15+ Files)"] --> Partition["Directory Clustering & Partitioning\n(Groups files into semantic clusters)"]
+    Partition --> W1["Worker Agent 1\n(Cluster: src/auth/*)"]
+    Partition --> W2["Worker Agent 2\n(Cluster: src/api/*)"]
+    Partition --> W3["Worker Agent 3\n(Cluster: src/models/*)"]
+    W1 --> Collect["Collect Diffs & AST Validations"]
+    W2 --> Collect
+    W3 --> Collect
+    Collect --> Reduce["Reduce Merge Coordinator\n(Detects conflicts & verifies syntax)"]
+    Reduce --> Verifier["ProjectVerifier (Lint + Unit Tests)"]
+```
+
+---
+
+## Key Components
+
+### 1. Partitioning (Map)
+Files are grouped into cohesive clusters based on directory depth, module boundaries, and dependency call graphs. Each worker receives only the relevant file skeletons and caller/callee context for its assigned cluster.
+
+### 2. Isolated Execution
+Workers execute concurrently with their own context budgets, preventing cross-contamination and context poisoning.
+
+### 3. Verification & Merging (Reduce)
+Before applying edits to the workspace:
+- Syntax trees are validated with Tree-Sitter AST parsers.
+- `ProjectVerifier` runs linters (Ruff, ESLint, `cargo check`) across the joined workspace.
+- If conflicts arise, the coordinator resolves them before final commit.

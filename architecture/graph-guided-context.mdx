@@ -1,0 +1,86 @@
+---
+title: "Graph-Guided Context"
+description: "2-hop bidirectional call graph traversal and caller/callee neighborhood expansion."
+icon: "diagram-project"
+---
+
+## The Pitfall of Traditional Semantic Search (RAG)
+
+Standard RAG (Retrieval-Augmented Generation) uses vector similarity or BM25 keywords to pull snippets into prompt context. While helpful for general questions, vector search frequently fails software engineering tasks because:
+- High cosine similarity does not imply architectural dependency.
+- Crucial type signatures, interface implementations, and upstream callers are omitted because their text doesn't match the query keywords.
+- Unrelated utility functions with similar wording pollute the context.
+
+---
+
+## 2-Hop Bidirectional Call Graph
+
+SAGO resolves this with **Graph-Guided Context Assembly** (`sago/memory/call_graph.py` and `sago/engine/context_assembler.py`).
+
+Instead of guessing relevant code, SAGO extracts actual symbol relationships using AST call-site analysis:
+
+```mermaid
+flowchart TD
+    Target["Target Function / Method\n(Seed Symbol)"]
+    
+    subgraph Hop 1: Direct Neighbors
+        Caller1["Direct Caller A"]
+        Caller2["Direct Caller B"]
+        Callee1["Direct Callee 1"]
+        Callee2["Direct Callee 2"]
+    end
+
+    subgraph Hop 2: Secondary Context
+        Contract["Interface / Protocol Contract"]
+        TypeDef["Type / Schema Definitions"]
+        Upstream["Upstream Orchestrator"]
+    end
+
+    Caller1 --> Target
+    Caller2 --> Target
+    Target --> Callee1
+    Target --> Callee2
+
+    Upstream --> Caller1
+    Callee1 --> TypeDef
+    Callee2 --> Contract
+```
+
+---
+
+## Neighborhood Traversal Algorithm
+
+When inspecting a symbol or debugging an issue, SAGO's `CallGraph.get_n_hop_neighborhood(seed_symbols, max_hops=2)` performs breadth-first search (BFS):
+
+1. **Hop 1 (Direct Inward & Outward Edges):**
+   - **Callers (`get_callers`):** Functions or methods that invoke the target symbol. Crucial for understanding callers' expectations, invariants, and error contracts.
+   - **Callees (`get_callees`):** Downstream functions invoked by the target symbol. Crucial for understanding dependencies and return values.
+
+2. **Hop 2 (Secondary Structural Edges):**
+   - Upstream API handlers or CLI command routers.
+   - Pydantic models, TypeScript types, or database schemas passed across the boundary.
+
+---
+
+## The Context Assembler Pipeline
+
+`ContextAssembler` (`sago/engine/context_assembler.py`) unifies structural graphs, project instructions, and working memory within a strict token budget:
+
+```mermaid
+flowchart LR
+    Budget["TokenBudget Guard\n(e.g. 12,000 token limit)"]
+    Graph["Graph Context\n(Hop-1 & Hop-2 Neighbors)"]
+    BM25["BM25 Index\n(Live Delta Search)"]
+    Instructions["Project Instructions\n(.sago/instructions.md)"]
+
+    Graph --> Budget
+    BM25 --> Budget
+    Instructions --> Budget
+    Budget --> Payload["Assembled Context Payload"]
+```
+
+### Context Assembly Features
+
+- **Strict Token Budgeting (`_TokenBudget`):** Guarantees that injected graph context never exhausts model context limits or starves message history.
+- **Delta Capping for Large Changesets:** When over 100 files are modified or scanned, `ContextAssembler` caps file lists (`Modified Files (N total): file1, file2 ... (+N more)`) to prevent context poisoning.
+- **Short-Circuit for Summary Queries:** When the user asks summary questions (`what did you do?`, `/summary`), the heavy BFS graph traversal is cleanly bypassed, immediately generating an extractive LLM summary without token waste.

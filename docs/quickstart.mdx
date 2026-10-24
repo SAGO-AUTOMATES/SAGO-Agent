@@ -1,0 +1,95 @@
+---
+title: "Quickstart"
+description: "Get SAGO up and running in under 60 seconds."
+icon: "bolt"
+---
+
+## Installation
+
+<Tabs>
+  <Tab title="uv (Recommended)">
+    ```bash
+    # Install or run directly with uv
+    uv tool install sago-agent
+    # or run without installing:
+    uvx sago-agent
+    ```
+  </Tab>
+  <Tab title="pip">
+    ```bash
+    pip install sago-agent
+    ```
+  </Tab>
+  <Tab title="From Source">
+    ```bash
+    git clone https://github.com/SAGO-AUTOMATES/SAGO-Agent.git
+    cd SAGO-Agent
+    uv sync
+    uv run sago tui
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## 1-Minute Setup Wizard
+
+Run the interactive setup wizard to configure your terminal environment and favorite model providers:
+
+```bash
+sago onboard
+```
+
+The onboarding wizard:
+- Checks system dependencies (`git`, `python`, `ripgrep`, `tree-sitter`).
+- Configures your default provider (OpenRouter, Google Gemini, Anthropic, OpenAI, or local Ollama).
+- Validates API key connectivity with live ping tests.
+- Creates your global `~/.sago/config.yaml` profile.
+
+---
+
+## Launching the Terminal Interface (TUI)
+
+Launch the interactive dual-pane Textual TUI inside any code repository:
+
+```bash
+cd /path/to/your/project
+sago tui
+```
+
+<Tip>
+Fresh installs automatically boot with `openrouter/free` enabled. You can immediately begin asking questions, inspecting repositories, and running commands without entering an API key.
+</Tip>
+
+---
+
+## CLI Headless Mode
+
+For automated scripts, CI/CD pipelines, or quick command-line queries without launching the TUI:
+
+```bash
+# Execute a single task with live terminal streaming
+sago run "Find all unused imports in src/ and remove them"
+
+# Run an AST repository map
+sago map --query "PaymentProcessor"
+
+# Search code with hybrid BM25 + dense semantic vector search
+sago search "database connection retry logic"
+
+# Inspect system health and active provider
+sago doctor
+```
+
+---
+
+## Keyboard Essentials in TUI
+
+| Shortcut | Action |
+|---|---|
+| <kbd>F1</kbd> or <kbd>?</kbd> | Open Interactive Keyboard Shortcuts Cheatsheet Modal |
+| <kbd>F2</kbd> | Toggle Real-Time Developer Telemetry Inspector & Traces |
+| <kbd>F6</kbd> or <kbd>Ctrl+M</kbd> | Open Model & Provider Switcher Modal |
+| <kbd>Ctrl+C</kbd> | Instant Graceful Cancellation Token |
+| <kbd>Ctrl+K</kbd> | Clear Message History |
+| <kbd>Esc</kbd> | Close Any Open Modal Window |

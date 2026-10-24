@@ -1,0 +1,71 @@
+---
+title: "Interactive TUI Guide"
+description: "Master the terminal dual-pane interface, turn cards, collapsible reasoning bubbles, and themes."
+icon: "window-maximize"
+---
+
+## Overview of the Terminal Interface
+
+SAGO's Textual-powered TUI provides a responsive, keyboard-driven environment designed for high-density engineering workflows.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ ✦ SAGO Agent v0.1.15   [Active Model: claude-3-7-sonnet (Provider: anthropic)]│
+├──────────────────────────────────────────────────────┬──────────────────────┤
+│  CHAT TIMELINE & TURNS                               │ AGENT DASHBOARD      │
+│                                                      │                      │
+│  👤 User: "Refactor database connection pool"        │ ● Active: system     │
+│  ✨ Enhanced Prompt [2-7 line summary]               │ ⚡ Tasks: 1 running   │
+│  ▼ ● system — Technical Reasoning                    │ 📋 Todos: 3 pending  │
+│    Analyzing existing pool configurations in src/... │ 📦 Files: 4 modified │
+│  ▼ ⚡ Tools [read_file, edit_file, verify_edit]       │                      │
+│    ✓ edit_file(path="src/db/pool.py")                │ ──────────────────── │
+│  ▼ ✓ Execution Succeeded (Syntax verified)           │ ⏱ Elapsed: 4.2s      │
+│                                                      │ 🪙 Tokens: 12.4k     │
+├──────────────────────────────────────────────────────┴──────────────────────┤
+│ > Ask SAGO a question, enter a command (/help), or use #file mention...     │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Turn Structure & Cards
+
+Each interaction with SAGO is encapsulated inside structured turn widgets:
+
+### 1. Enhanced Prompt Card (`✨ Enhanced Prompt`)
+Before the main LLM call executes, the lightweight non-agent context summarizer produces a **2–7 line working summary** detailing active goals, touched files, and candidate symbols. Click the header or press <kbd>Enter</kbd> to toggle between collapsed and expanded views.
+
+### 2. Systematic Thinking Header (`● {agent} — Technical Reasoning`)
+Reasoning blocks from thinking models (Claude, DeepSeek-R1, Gemini) stream directly into dedicated collapsible reasoning bubbles. You can inspect internal reasoning steps in real time without cluttering your final answers.
+
+### 3. Tool Execution Cards (`⚡ Tools`)
+Every tool invocation renders its status in real time:
+- **Running:** Active spinner with execution parameters.
+- **Success:** Green badge with output preview and modification counts.
+- **Failure:** Red badge with actionable error diagnostics and recovery steps.
+
+### 4. Smart Auto-Collapsing & Scrolling
+To keep long sessions responsive and prevent terminal lag:
+- Completed intermediate exchange cards collapse smoothly.
+- The latest active turn remains pinned and auto-scrolls.
+- The vertical scrollbar is permanently visible with full mouse and touch scroll support.
+
+---
+
+## Themes & Styling
+
+SAGO comes with 10 carefully designed terminal themes:
+
+```bash
+/theme obsidian          # Deep Dark (Default)
+/theme cyberpunk         # Neon Matrix
+/theme tokyo-night       # Tokyo Night Cyber Dark
+/theme nord              # Nord Arctic Frost
+/theme dracula           # Dracula Gothic Night
+/theme monokai           # Monokai Retro Hacker
+/theme catppuccin-mocha  # Pastel Dark
+/theme solarized-dark    # Solarized Dark Studio
+/theme gruvbox-dark      # Warm Retro
+/theme rose-pine         # Minimal Muted
+```

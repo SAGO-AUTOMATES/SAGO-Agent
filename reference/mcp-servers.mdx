@@ -1,0 +1,83 @@
+---
+title: "MCP Servers & Client"
+description: "Model Context Protocol integration — expose SAGO tools or connect external MCP servers."
+icon: "plug"
+---
+
+## Overview
+
+SAGO provides full bidirectional support for the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/):
+1. **MCP Server**: Expose SAGO's 73 native tools to external IDEs, Claude Desktop, or custom clients.
+2. **MCP Client**: Connect external MCP servers (GitHub, Postgres, Slack, S3) into SAGO so agents can use them seamlessly.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        SAGO MCP                             │
+├─────────────────────────────────────────────────────────────┤
+│  MCP Server                    MCP Client                   │
+│  ┌─────────────────┐          ┌─────────────────┐          │
+│  │ Expose Tools     │          │ Connect Servers  │          │
+│  │ - read_file      │          │ - filesystem     │          │
+│  │ - write_file     │          │ - github         │          │
+│  │ - tree_sitter    │          │ - postgres       │          │
+│  │ - execute_shell  │          │ - custom servers │          │
+│  └─────────────────┘          └─────────────────┘          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 1. Running SAGO as an MCP Server
+
+Launch SAGO's MCP server over standard input/output (`stdio`) or SSE:
+
+```bash
+# Start SAGO MCP server via stdio
+sago mcp server
+
+# Start with custom port
+sago mcp server --port 8080
+```
+
+### Claude Desktop Integration
+
+Add SAGO to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "sago": {
+      "command": "sago",
+      "args": ["mcp", "server"]
+    }
+  }
+}
+```
+
+All 73 SAGO tools — including polyglot Tree-Sitter AST skeletonizers, 2-hop call graph exploration, and git-aware search — become available in Claude Desktop.
+
+---
+
+## 2. Connecting External MCP Servers into SAGO
+
+Configure external MCP servers in `~/.sago/config/sago.yaml` or `.sago/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..."
+      }
+    },
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/mydb"]
+    }
+  }
+}
+```
+
+When SAGO launches, external MCP tools are auto-discovered, wrapped as native `BaseTool` instances, and gated by the same permission and hallucination verification systems.
