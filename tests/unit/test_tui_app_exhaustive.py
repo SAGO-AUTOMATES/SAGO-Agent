@@ -249,7 +249,10 @@ async def test_tui_app_actions_and_watchers_deep():
         app.action_scroll_home()
         app.action_scroll_end()
         app.action_dismiss_suggestions()
+        app._hide_welcome_screen()
         app.action_clear_chat()
+        assert "has-welcome" in app.query_one("#messages-parent").classes
+        assert "hidden" not in app.query_one("#welcome-screen").classes
 
         # Approval actions
         app.approval_message = "Delete all files?"

@@ -18,7 +18,7 @@ from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, DirectoryTree, Input, Label, OptionList, Select, Static
 from textual.widgets.option_list import Option
@@ -723,47 +723,56 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
     }
     #model-filter-bar {
         height: auto;
-        padding: 1 0;
+        padding: 0 0 1 0;
+        margin-bottom: 1;
         border-bottom: solid #1c2128;
     }
     #model-search-input {
         width: 100%;
-        margin-bottom: 1;
-        border: solid #30363d;
+        height: 1;
+        border: none;
         background: #161b22;
         color: #f0f6fc;
+        padding: 0 1;
+        margin-bottom: 1;
     }
     #model-search-input:focus {
-        border: solid #58a6ff;
+        border: none;
+        background: #1c2128;
+        color: #ffffff;
     }
     #model-provider-tabs {
-        height: auto;
-        layout: grid;
-        grid-size: 4 2;
-        grid-gutter: 1 1;
+        height: 1;
+        layout: horizontal;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-size: 0 0;
     }
     Button.provider-pill {
-        width: 100%;
-        height: 3;
-        border: solid #30363d;
-        padding: 0 1;
+        height: 1;
+        min-width: 5;
+        width: auto;
+        border: none !important;
         background: #161b22;
-        color: #f0f6fc;
-        text-style: bold;
+        color: #8b949e;
+        padding: 0 1;
+        margin-right: 1;
     }
     Button.provider-pill:hover {
         background: #21262d;
-        border: solid #58a6ff;
-        color: #58a6ff;
+        color: #f0f6fc;
+        border: none !important;
     }
     Button.provider-pill:focus {
-        border: solid #58a6ff;
+        border: none !important;
+        text-style: none;
     }
     Button.provider-pill.-active {
-        background: #1f6feb;
-        color: #ffffff;
-        border: solid #79c0ff;
+        background: #388bfd !important;
+        color: #ffffff !important;
         text-style: bold;
+        border: none !important;
+        tint: transparent !important;
     }
     #model-body {
         height: 1fr;
@@ -777,9 +786,27 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
     }
     #model-options {
         background: #0d1117;
-        border: none;
+        border: none !important;
+        padding: 0;
         scrollbar-size: 1 1;
         scrollbar-color: #388bfd #161b22;
+    }
+    #model-options:focus {
+        border: none !important;
+        background-tint: transparent;
+    }
+    #model-options > .option-list--option-highlighted {
+        background: #1f6feb;
+        color: #ffffff;
+        text-style: bold;
+    }
+    #model-options:focus > .option-list--option-highlighted {
+        background: #1f6feb;
+        color: #ffffff;
+        text-style: bold;
+    }
+    #model-options > .option-list--option-hover {
+        background: #161b22;
     }
     #model-detail-col {
         width: 50%;
@@ -789,19 +816,27 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
     #btn-select-model {
         margin-bottom: 1;
         width: 100%;
-        height: 3;
+        height: 1;
         background: #238636;
         color: #ffffff;
         text-style: bold;
-        border: solid #3fb950;
+        border: none !important;
+        padding: 0 1;
     }
     #btn-select-model:hover {
         background: #2ea043;
-        border: solid #56d364;
+        color: #ffffff;
+        border: none !important;
     }
     #btn-select-model:focus {
         background: #2ea043;
-        border: solid #56d364;
+        color: #ffffff;
+        border: none !important;
+    }
+    #btn-select-model.-active {
+        background: #2ea043 !important;
+        border: none !important;
+        tint: transparent !important;
     }
     #model-detail-scroll {
         height: 1fr;
@@ -871,7 +906,7 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
                     placeholder="Search models (e.g. flash, gpt, deepseek, sonnet)...",
                     id="model-search-input",
                 )
-                with Grid(id="model-provider-tabs"):
+                with Horizontal(id="model-provider-tabs"):
                     yield Button("✦ All", id="tab-all", classes="provider-pill -active")
                     yield Button("Google", id="tab-google", classes="provider-pill")
                     yield Button("OpenAI", id="tab-openai", classes="provider-pill")
@@ -928,6 +963,8 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
         _apply_theme(self)
         self._build_catalog()
         self._populate_options()
+        for btn in self.query(".provider-pill"):
+            btn.can_focus = False
         try:
             self.query_one("#model-search-input", Input).focus()
         except Exception:
@@ -1126,6 +1163,10 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
             event.button.add_class("-active")
             self._provider_filter = bid.replace("tab-", "")
             self._populate_options()
+            try:
+                self.query_one("#model-options", OptionList).focus()
+            except Exception:
+                pass
         elif bid == "btn-select-model":
             self.action_select_current()
         elif bid == "btn-use-custom":

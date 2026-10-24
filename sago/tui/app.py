@@ -560,6 +560,18 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         except Exception as e:
             logger.debug("Could not hide welcome screen: %s", e)
 
+    def _show_welcome_screen(self) -> None:
+        """Unhide the welcome screen and restore initial brand view."""
+        try:
+            welcome = self.query_one("#welcome-screen")
+            welcome.remove_class("hidden")
+            parent = self.query_one("#messages-parent")
+            parent.add_class("has-welcome")
+            if not welcome.children:
+                self._populate_welcome_screen()
+        except Exception as e:
+            logger.debug("Could not show welcome screen: %s", e)
+
     def _extract_file_context(self, message: str) -> str:
         """Extract #file references from message and return their contents as context."""
         from pathlib import Path
@@ -2110,7 +2122,11 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     def action_clear_chat(self) -> None:
         self.query_one("#messages").remove_children()
         self.messages.clear()
-        self._add_system_message("Cleared.")
+        self._show_welcome_screen()
+        try:
+            self.query_one("#msg-input").focus()
+        except Exception:
+            pass
 
     def action_scroll_page_up(self) -> None:
         """Scroll message viewport page up."""
