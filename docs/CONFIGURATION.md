@@ -39,8 +39,9 @@ Sago uses multiple configuration files with different purposes. Here's the hiera
 **Available keys:**
 | Key | Type | Description |
 |-----|------|-------------|
-| `model` | string | Default LLM model (e.g., "gemini-2.5-flash", "gpt-4o") |
-| `provider` | string | Default provider ("google", "openai", "anthropic", "openrouter", "ollama") |
+| `model` | string | Default LLM model (e.g., "openrouter/free", "gemini-2.5-flash", "gpt-4o", "deepseek-chat") |
+| `provider` | string | Default provider ("openrouter", "google", "anthropic", "openai", "deepseek", "groq", "ollama", "lmstudio", "custom") |
+| `base_url` | string | Custom API endpoint URL for Ollama, LM Studio, or OpenAI-compatible proxies (e.g. "http://localhost:11434/v1") |
 | `agent` | string | Default agent to use |
 | `yolo` | bool | Skip permission prompts (dangerous in production) |
 | `dev_mode` | bool | Enable developer features |

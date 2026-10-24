@@ -2,6 +2,47 @@
 
 All notable changes to the SAGO project are documented in this file.
 
+## [0.1.15] - 2026-10-24 (Model Switcher Overhaul, Provider Decoupling, Zero-Friction OpenRouter Default, Doctor Diagnostics & 78%+ Coverage)
+
+### Added
+- **Clean Provider/Model Decoupling Architecture (`sago/llm/registry.py`, `sago/llm/tui_providers.py`):**
+  - Adopted industry-standard `{ providerID, modelID }` architecture (aligned with OpenCode / Hermes-Agent).
+  - Implemented `split_provider_and_model(model_spec, default_provider=None)` to cleanly parse explicit `provider/model` or `provider:model` pairings without substring guessing.
+  - Eradicated heuristic substring guessing from `guess_provider_from_model` and `infer_provider_for_model` — active providers are strictly respected.
+  - Eliminated silent provider hijacking loops in `resolve_active_llm_config` — missing credentials produce clear, actionable error messages rather than silently flipping providers behind the user's back.
+- **Zero-Friction Default Experience (`sago/main.py`, `sago/tui/app.py`):**
+  - Set default out-of-the-box provider to `openrouter` with model `openrouter/free` across both CLI and TUI.
+  - First-time users can immediately start coding, testing, and delegating tasks without requiring a paid API key upfront.
+- **Enhanced TUI Model Switcher Modal (`sago/tui/modals.py`, `sago/tui/app.py`):**
+  - Added dedicated `ModelSwitcherScreen` modal accessible via `F6` or `Ctrl+M` and action bar button `🤖 Model [F6]`.
+  - Features real-time model searching, provider filter pills (`[All]`, `[Google]`, `[OpenAI]`, `[Anthropic]`, `[DeepSeek]`, `[Groq]`, `[Ollama]`, `[OpenRouter]`), capability badges (vision, coding, tool use, reasoning, fast), and a custom model entry input with provider dropdown binding.
+  - Updated `/model <provider> <model>` and `/model <model>` slash commands in `sago/tui/commands.py` with bracket sanitization and safe styling.
+- **Unified Interactive Onboarding Wizard (`sago onboard`, `sago setup`, `sago configure` in `sago/main.py`):**
+  - Step-by-step interactive setup wizard supporting OpenRouter free tier, Google Gemini, Anthropic Claude, OpenAI, DeepSeek, Groq, Ollama, LM Studio, and custom OpenAI-compatible proxies.
+  - Live local engine probing: automatically pings `localhost:11434` to detect running Ollama instances and populate installed models.
+  - Custom Base URL configuration for local engines and enterprise proxies.
+  - Automatic secret masking for pre-existing environment variables (`sk-or-...a81f`).
+  - Dual synchronization: persists configuration to both `~/.sago/config.yaml` and `~/.sago/settings.json`.
+  - Automatic SQLite database provisioning and git pre-commit quality hook setup.
+- **Deep System Diagnostics (`sago doctor` in `sago/main.py`):**
+  - 15-point diagnostic check covering Python runtime, SQLite database tables, active LLM configuration, status of all 8 provider keys, live socket/HTTP probing for Ollama and LM Studio with installed models list, git workspace branch/status, daemon/mesh ports, and specialist agent fleet metrics.
+- **Exhaustive Unit & Integration Test Suite:**
+  - Added 58 comprehensive tests across `test_cli_main_exhaustive.py`, `test_tui_model_switcher_and_providers.py`, `test_tui_commands_exhaustive.py`, `test_tui_app_exhaustive.py`, `test_tui_modals_exhaustive.py`, and `test_tui_models_deep.py`.
+  - Pushed test coverage to **>= 75%** on all modified core modules:
+    - `sago/tui/models.py`: **99%**
+    - `sago/llm/registry.py`: **93%**
+    - `sago/tui/modals.py`: **90%**
+    - `sago/llm/tui_providers.py`: **79%**
+    - `sago/tui/app.py`: **76%**
+    - `sago/tui/commands.py`: **76%**
+    - Combined target suite: **78.50%** coverage.
+
+### Fixed
+- **Silent provider flipping:** Prevented user-chosen providers from being silently hijacked when an environment key was absent.
+- **Substring model guessing crashes:** Local models (e.g. Ollama with `gpt4all` or custom fine-tunes) no longer crash by mistakenly routing to OpenAI.
+- **Config caching leak across test runs:** Added cache invalidation safeguards in `sago/config/loader.py` and unit test fixtures.
+- **Pre-push git hook environment compatibility:** Enhanced `scripts/pre-push-check.sh` to prefer `uv run` for consistent execution across virtual environments.
+
 ## [0.1.14] - 2026-08-27 (Unreleased — security gates, tool guardrails, persistent memory, subagents, summary waste, dev default, multi-line workspace TUI)
 
 ### Added

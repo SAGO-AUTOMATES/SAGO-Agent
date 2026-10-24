@@ -211,7 +211,7 @@ Show system and connection status.
 
 | Command | Description |
 |---------|-------------|
-| `/model [name\|add\|remove]` | Switch active model. Any OpenRouter-style `vendor/model` id works (e.g. `stealth/ox-alpha`) — unknown vendor prefixes route via OpenRouter automatically |
+| `/model [provider] <model>` | Open Model Switcher modal (`F6` / `Ctrl+M`), or explicitly change model (`/model gpt-4o`, `/model openrouter openai/gpt-4o`). Preserves active provider without heuristic hijacking |
 | `/provider <name>` | Change LLM backend provider. Bare `/provider` lists providers with key status; unknown names are rejected with the valid list |
 | `/effort <level>` | Adjust reasoning effort (`low`, `medium`, `high`, `max`) |
 | `/cost` | Display session token usage analytics and spend metrics |
