@@ -785,18 +785,9 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
         width: 50%;
         height: 100%;
         padding: 1 1 0 1;
-        scrollbar-size: 1 1;
-        scrollbar-color: #388bfd #161b22;
-    }
-    #model-details {
-        padding: 1;
-        background: #161b22;
-        border: solid #21262d;
-        color: #c9d1d9;
-        margin-bottom: 1;
     }
     #btn-select-model {
-        margin: 1 0;
+        margin-bottom: 1;
         width: 100%;
         height: 3;
         background: #238636;
@@ -811,6 +802,18 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
     #btn-select-model:focus {
         background: #2ea043;
         border: solid #56d364;
+    }
+    #model-detail-scroll {
+        height: 1fr;
+        scrollbar-size: 1 1;
+        scrollbar-color: #388bfd #161b22;
+    }
+    #model-details {
+        padding: 1;
+        background: #161b22;
+        border: solid #21262d;
+        color: #c9d1d9;
+        margin-bottom: 1;
     }
     #model-custom-section {
         margin-top: 1;
@@ -881,44 +884,45 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
                 with Vertical(id="model-list-col"):
                     yield Label("AVAILABLE MODELS", classes="section-label")
                     yield OptionList(id="model-options")
-                with VerticalScroll(id="model-detail-col"):
-                    yield Static(
-                        "[dim]Select a model from the list or enter custom below...[/dim]",
-                        id="model-details",
-                    )
+                with Vertical(id="model-detail-col"):
                     yield Button(
                         "✓ Use Selected Model",
                         id="btn-select-model",
                         variant="primary",
                     )
-                    with Vertical(id="model-custom-section"):
-                        yield Label("[bold cyan]Custom / Manual Model Entry[/bold cyan]")
-                        yield Static("[dim]Type any custom model ID without overrides:[/dim]")
-                        yield Input(
-                            placeholder="e.g. meta-llama/Llama-3.3-70B-Instruct or qwen2.5:32b",
-                            id="custom-model-input",
+                    with VerticalScroll(id="model-detail-scroll"):
+                        yield Static(
+                            "[dim]Select a model from the list or enter custom below...[/dim]",
+                            id="model-details",
                         )
-                        yield Select(
-                            options=[
-                                ("Google (Gemini)", "google"),
-                                ("OpenAI", "openai"),
-                                ("Anthropic (Claude)", "anthropic"),
-                                ("DeepSeek", "deepseek"),
-                                ("Groq", "groq"),
-                                ("Mistral AI", "mistral"),
-                                ("Ollama (Local)", "ollama"),
-                                ("OpenRouter", "openrouter"),
-                                ("LM Studio (Local)", "lmstudio"),
-                            ],
-                            prompt="Select Provider for Custom Model",
-                            id="custom-provider-select",
-                            value="openrouter",
-                        )
-                        yield Button(
-                            "Use Custom Model",
-                            id="btn-use-custom",
-                            variant="success",
-                        )
+                        with Vertical(id="model-custom-section"):
+                            yield Label("[bold cyan]Custom / Manual Model Entry[/bold cyan]")
+                            yield Static("[dim]Type any custom model ID without overrides:[/dim]")
+                            yield Input(
+                                placeholder="e.g. meta-llama/Llama-3.3-70B-Instruct or qwen2.5:32b",
+                                id="custom-model-input",
+                            )
+                            yield Select(
+                                options=[
+                                    ("Google (Gemini)", "google"),
+                                    ("OpenAI", "openai"),
+                                    ("Anthropic (Claude)", "anthropic"),
+                                    ("DeepSeek", "deepseek"),
+                                    ("Groq", "groq"),
+                                    ("Mistral AI", "mistral"),
+                                    ("Ollama (Local)", "ollama"),
+                                    ("OpenRouter", "openrouter"),
+                                    ("LM Studio (Local)", "lmstudio"),
+                                ],
+                                prompt="Select Provider for Custom Model",
+                                id="custom-provider-select",
+                                value="openrouter",
+                            )
+                            yield Button(
+                                "Use Custom Model",
+                                id="btn-use-custom",
+                                variant="success",
+                            )
 
     def on_mount(self) -> None:
         _apply_theme(self)
@@ -1085,6 +1089,8 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
                 styled.append("100% Free / Local\n", style="bold green")
             else:
                 styled.append(f"${inp:.3f}/M in, ${out:.3f}/M out\n", style="yellow")
+            styled.append("Price Source:   ", style="dim")
+            styled.append("Official Provider Catalog / OpenRouter API\n", style="dim cyan")
 
         styled.append("\nFeatures & Capabilities:\n", style="bold")
         if "reasoner" in model or "r1" in model or "o1" in model or "o3" in model:
