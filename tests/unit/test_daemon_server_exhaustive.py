@@ -262,8 +262,9 @@ def test_sago_client_empty_response():
             client._send({"action": "ping"})
 
 
-def test_daemon_start_foreground():
+def test_daemon_start_foreground(tmp_path):
     daemon = SagoDaemon()
+    daemon.pid_file = tmp_path / "daemon.pid"
     with (
         patch.object(daemon, "is_running", side_effect=[False, True]),
         patch.object(daemon, "_run_server"),
@@ -271,3 +272,5 @@ def test_daemon_start_foreground():
     ):
         daemon.start(foreground=True)
         assert daemon.status().startswith("Running")
+        if daemon.pid_file.exists():
+            daemon.pid_file.unlink(missing_ok=True)
