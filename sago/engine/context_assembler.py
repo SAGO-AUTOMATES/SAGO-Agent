@@ -74,6 +74,7 @@ class AssembledContext:
     languages: list[str] = field(default_factory=list)
     frameworks: list[str] = field(default_factory=list)
     ast_symbols_context: str = ""
+    graph_context: str = ""
     rag_snippets_context: str = ""
     memory_pyramid_context: str = ""
     learning_approach: str = ""
@@ -91,6 +92,11 @@ class AssembledContext:
 
         if self.ast_symbols_context:
             sections.append(f"### Relevant Symbols & Code Outline\n{self.ast_symbols_context}")
+
+        if self.graph_context:
+            sections.append(
+                f"### Graph-Guided Code Intelligence (2-Hop Call Graph)\n{self.graph_context}"
+            )
 
         if self.rag_snippets_context:
             sections.append(
@@ -332,6 +338,32 @@ class ContextAssembler:
                     len(matching_symbols),
                     token_budget.used,
                 )
+
+            # 2b. Graph-Guided 2-Hop Call Graph Expansion
+            try:
+                seed_symbols = []
+                for ms in matching_symbols:
+                    m = re.search(r"•\s+`[^`]+`\s+([a-zA-Z0-9_]+)", ms)
+                    if m:
+                        name = m.group(1)
+                        if name not in seed_symbols:
+                            seed_symbols.append(name)
+                    else:
+                        m_hub = re.search(r"—\s+([a-zA-Z0-9_]+)", ms)
+                        if m_hub and m_hub.group(1) not in seed_symbols:
+                            seed_symbols.append(m_hub.group(1))
+                if not seed_symbols:
+                    seed_symbols = [w for w in task_words if len(w) > 3][:4]
+                if seed_symbols:
+                    graph_ctx = self.assemble_graph_guided_context(
+                        seed_symbols=seed_symbols,
+                        max_hops=2,
+                        token_budget_tokens=min(1200, token_budget.remaining()),
+                    )
+                    if graph_ctx and token_budget.consume(graph_ctx):
+                        ctx.graph_context = graph_ctx
+            except Exception as e:
+                log_error("ContextAssembler: Graph-guided call-graph expansion failed", e)
         except Exception as e:
             log_error("ContextAssembler: AST symbol extraction failed", e)
 
@@ -496,6 +528,7 @@ class ContextAssembler:
                     [
                         "project" if ctx.project_summary else None,
                         "ast" if ctx.ast_symbols_context else None,
+                        "graph" if ctx.graph_context else None,
                         "rag" if ctx.rag_snippets_context else None,
                         "pyramid" if ctx.memory_pyramid_context else None,
                         "learning" if ctx.learning_approach else None,
@@ -507,6 +540,50 @@ class ContextAssembler:
             ),
         )
         return ctx
+
+    def assemble_graph_guided_context(
+        self,
+        seed_symbols: list[str],
+        max_hops: int = 2,
+        token_budget_tokens: int = 1500,
+    ) -> str:
+        """Assemble a structured 2-hop call graph context starting from seed symbols."""
+        if not seed_symbols:
+            return ""
+        try:
+            from sago.memory.call_graph import get_call_graph
+
+            cg = get_call_graph(self.cwd)
+            neighborhood = cg.get_n_hop_neighborhood(seed_symbols, max_hops=max_hops)
+
+            lines: list[str] = [
+                f"**Seed Symbols:** {', '.join(f'`{s}`' for s in seed_symbols[:6])}"
+            ]
+
+            hop1 = neighborhood.get(1, [])
+            if hop1:
+                lines.append("\n**Hop 1 (Direct Callers & Callees):**")
+                for src, rel, tgt in hop1[:12]:
+                    rel_str = "calls ➔" if rel == "calls" else "called by ⬅"
+                    file_info = f" ({cg.symbol_files[src]})" if src in cg.symbol_files else ""
+                    lines.append(f"• `{src}` {rel_str} `{tgt}`{file_info}")
+
+            hop2 = neighborhood.get(2, [])
+            if hop2:
+                lines.append("\n**Hop 2 (Secondary Architecture Neighborhood):**")
+                for src, rel, tgt in hop2[:8]:
+                    lines.append(f"• `{src}` ➔ `{tgt}`")
+
+            result = "\n".join(lines)
+            max_chars = token_budget_tokens * 4
+            if len(result) > max_chars:
+                result = result[:max_chars] + "\n... [truncated graph context]"
+            return result
+        except Exception as e:
+            logger.debug("Failed to assemble graph-guided context: %s", e)
+            return ""
+
+    assemble_context = assemble
 
 
 _assembler_instance: ContextAssembler | None = None

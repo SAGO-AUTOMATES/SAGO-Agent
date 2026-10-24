@@ -331,3 +331,23 @@ class SagoOrchestrator:
             },
         }
         return configs.get(agent_name)
+
+    def execute_map_reduce(
+        self,
+        task: str,
+        affected_files: list[str],
+        max_workers: int = 4,
+        worker_fn: Any = None,
+        run_verifier: bool = True,
+    ) -> Any:
+        """Execute a cross-cutting refactoring task using Map-Reduce parallel swarm."""
+        from sago.orchestrator.delegator import MapReduceRefactorCoordinator
+
+        coordinator = MapReduceRefactorCoordinator()
+        return coordinator.execute_map_reduce_refactor(
+            task=task,
+            affected_files=affected_files,
+            max_workers=max_workers,
+            worker_fn=worker_fn,
+            run_verifier=run_verifier,
+        )

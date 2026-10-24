@@ -69,6 +69,47 @@ class SearchResult:
 class CodebaseIndexer:
     """Index and search code files using TF-IDF scoring."""
 
+    IGNORE_FILE_PATTERNS = {
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "poetry.lock",
+        "Cargo.lock",
+        "composer.lock",
+        "Pipfile.lock",
+        "Gemfile.lock",
+        "go.sum",
+        "bun.lockb",
+    }
+
+    IGNORE_FILE_SUFFIXES = (
+        ".min.js",
+        ".min.css",
+        ".map",
+        ".bundle.js",
+        ".bundle.css",
+        ".pb.go",
+        "_pb2.py",
+        "_pb2_grpc.py",
+        ".g.dart",
+        ".wasm",
+        ".iso",
+        ".bin",
+        ".dylib",
+        ".so",
+        ".dll",
+        ".exe",
+    )
+
+    @classmethod
+    def should_ignore_file(cls, path: Path | str) -> bool:
+        p = Path(path)
+        name = p.name
+        if name in cls.IGNORE_FILE_PATTERNS:
+            return True
+        name_lower = name.lower()
+        return any(name_lower.endswith(suf) for suf in cls.IGNORE_FILE_SUFFIXES)
+
     def __init__(self) -> None:
         self._chunks: list[CodeChunk] = []
         self._idf: dict[str, float] = {}
@@ -131,6 +172,8 @@ class CodebaseIndexer:
             dirs[:] = [d for d in dirs if d not in exclude_dirs]
 
             for fname in files:
+                if self.should_ignore_file(fname):
+                    continue
                 ext = os.path.splitext(fname)[1].lower()
                 if ext not in extensions:
                     continue
