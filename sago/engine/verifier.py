@@ -148,7 +148,7 @@ class ProjectVerifier:
 
         # 2. Pytest test suite
         logger.debug("Running pytest")
-        code, out = self.run_command_safe(["pytest", "-q", "--tb=short"])
+        code, out = self.run_command_safe(["pytest", "-q", "--tb=short"], timeout=180)
         if code != 0 and "Command not found" not in out and "no tests ran" not in out.lower():
             tests_passed = False
             raw_outputs.append(f"--- Pytest Output ---\n{out}")

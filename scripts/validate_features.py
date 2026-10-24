@@ -17,7 +17,6 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import tempfile
 import time
@@ -28,9 +27,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
+from rich.console import Console  # noqa: E402
+from rich.panel import Panel  # noqa: E402
+from rich.table import Table  # noqa: E402
 
 console = Console()
 
@@ -107,7 +106,7 @@ class ValidationSuite:
 
 async def validate_tui(suite: ValidationSuite) -> None:
     console.print("\n[bold yellow]1. Validating TUI (Headless App & Pilot)[/bold yellow]")
-    from textual.widgets import Collapsible, Static
+    from textual.widgets import Collapsible
 
     from sago.tui.app import SagoApp
     from sago.tui.helpers import ExchangeTurnCard
@@ -118,10 +117,10 @@ async def validate_tui(suite: ValidationSuite) -> None:
         app = SagoApp()
         async with app.run_test() as pilot:
             await pilot.pause()
-            msg_container = app.query_one("#messages")
+            assert app.query_one("#messages") is not None
             input_box = app.query_one("#msg-input")
-            welcome_screen = app.query_one("#welcome-screen")
-            approval_bar = app.query_one("#approval-bar")
+            assert app.query_one("#welcome-screen") is not None
+            assert app.query_one("#approval-bar") is not None
             suite.record(
                 "TUI Core",
                 "DOM Elements Mount",
@@ -316,11 +315,10 @@ def validate_engine(suite: ValidationSuite) -> None:
 
 def validate_code_intelligence(suite: ValidationSuite) -> None:
     console.print("\n[bold yellow]3. Validating Code Intelligence & Tools[/bold yellow]")
-    from sago.memory.code_intelligence import CodeIntelligenceService, get_code_intelligence
+    from sago.memory.code_intelligence import get_code_intelligence
     from sago.memory.context_budget import ContextBudgetManager, estimate_tokens
-    from sago.memory.tree_sitter_parser import is_available, parse_symbols
+    from sago.memory.tree_sitter_parser import parse_symbols
     from sago.tools.admin.tool_discovery import ToolDiscoveryTool
-    from sago.tools.coding.lsp_query_tool import LSPQueryTool
     from sago.tools.coding.verify_edit_tool import VerifyEditTool
     from sago.tools.skills.load_skill_tool import LoadSkillTool
 
@@ -410,9 +408,9 @@ def validate_code_intelligence(suite: ValidationSuite) -> None:
 
 def validate_orchestration_and_evals(suite: ValidationSuite) -> None:
     console.print("\n[bold yellow]4. Validating Orchestration, IPC & Evals[/bold yellow]")
-    from evals.harness import evaluate_response, load_benchmark_cases, run_eval
+    from evals.harness import load_benchmark_cases, run_eval
     from sago.agents.registry import AgentDefinition, ScopedAgentRegistry
-    from sago.orchestrator.message_bus import get_message_bus, publish
+    from sago.orchestrator.message_bus import get_message_bus
     from sago.tools.registry import ScopedToolRegistry
     from sago.workflow.engine import WorkflowEngine
     from sago.workflow.templates import WorkflowTemplates
