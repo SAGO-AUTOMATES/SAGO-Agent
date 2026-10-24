@@ -138,7 +138,7 @@ class DiffViewerScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical(id="diff-dialog"):
             with Horizontal(id="diff-header"):
-                yield Label("Workspace Diff", id="diff-title")
+                yield Label("± Workspace Diff", id="diff-title")
                 yield Static("[dim]R Refresh · Esc Close[/dim]", id="diff-hints")
             with Horizontal(id="diff-body"):
                 with Vertical(id="diff-file-list"):
@@ -406,7 +406,7 @@ class FileExplorerScreen(ModalScreen):
         cwd = Path.cwd()
         with Vertical(id="file-dialog"):
             with Horizontal(id="file-header"):
-                yield Label(f"Workspace Explorer — {cwd.name}", id="file-title")
+                yield Label(f"▤ Workspace Explorer — {cwd.name}", id="file-title")
                 yield Static("[dim]Esc Close[/dim]", id="file-hints")
             with Horizontal(id="file-body"):
                 with Vertical(id="tree-container"):
@@ -554,7 +554,7 @@ class SessionManagerScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical(id="session-dialog"):
             with Horizontal(id="session-header"):
-                yield Label("Session History & Switcher", id="session-title")
+                yield Label("↻ Session History & Switcher", id="session-title")
                 yield Static("[dim]Enter Switch · R Refresh · Esc Close[/dim]", id="session-hints")
             with Horizontal(id="session-body"):
                 with Vertical(id="session-list-col"):

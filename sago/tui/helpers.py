@@ -321,7 +321,7 @@ def _render_markdown_rich(content: str) -> Any:
 
 def _make_code_copy_button(code: str) -> Button:
     """Create a copy button that stores code for clipboard handler in app.py."""
-    btn = Button("📋 Copy Code", classes="btn-copy-code")
+    btn = Button("⎘ Copy Code", classes="btn-copy-code")
     btn._code_content = code  # type: ignore[attr-defined]
     return btn
 
@@ -1160,7 +1160,7 @@ class UIHelpers:
                     markup=True,
                 )
                 view_btn = Button(
-                    "View Trace ⚡",
+                    "◈ View Trace",
                     id=f"btn-view-trace-{id(traces)}",
                     classes="btn-view-trace",
                 )

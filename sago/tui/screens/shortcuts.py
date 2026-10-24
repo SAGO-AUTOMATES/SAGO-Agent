@@ -85,7 +85,7 @@ class ShortcutsScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="shortcuts-dialog"):
-            yield Static("⌨️  SAGO SHORTCUTS & QUICK REFERENCE", classes="shortcuts-header")
+            yield Static("⌨ SAGO SHORTCUTS & QUICK REFERENCE", classes="shortcuts-header")
             with ScrollableContainer(classes="shortcuts-content"):
                 yield Static(
                     "[bold yellow]─── KEYBOARD SHORTCUTS ───[/bold yellow]",

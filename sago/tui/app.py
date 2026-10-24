@@ -326,12 +326,14 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                     )
                     with Horizontal(id="approval-buttons"):
                         yield Button(
-                            "Approve [Y]",
+                            "✓ Approve [Y]",
                             id="btn-approve",
                             variant="success",
                             classes="approve-btn",
                         )
-                        yield Button("Deny [N]", id="btn-deny", variant="error", classes="deny-btn")
+                        yield Button(
+                            "✕ Deny [N]", id="btn-deny", variant="error", classes="deny-btn"
+                        )
                 with Vertical(id="parallel-bar"):
                     yield Static(
                         "Parallel Agents",
@@ -345,26 +347,24 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                         placeholder="/, @, # for autocomplete (or type a message)", id="msg-input"
                     )
                     with Horizontal(id="input-action-bar"):
+                        yield Button("⌨ Help [F1]", id="btn-input-help", classes="btn-input-action")
                         yield Button(
-                            "⌨  Help [F1]", id="btn-input-help", classes="btn-input-action"
-                        )
-                        yield Button(
-                            "⚡ Dev Traces [F2]",
+                            "◈ Traces [F2]",
                             id="btn-input-traces",
-                            classes="btn-input-action btn-action-traces dev-only-btn",
+                            classes="btn-input-action dev-only-btn",
                         )
                         yield Button(
-                            "🔍 Diff [F3]",
+                            "± Diff [F3]",
                             id="btn-input-diff",
                             classes="btn-input-action",
                         )
                         yield Button(
-                            "📁 Files [F4]",
+                            "▤ Files [F4]",
                             id="btn-input-files",
                             classes="btn-input-action",
                         )
                         yield Button(
-                            "🔄 Sessions [F5]",
+                            "↻ Sessions [F5]",
                             id="btn-input-sessions",
                             classes="btn-input-action",
                         )
@@ -373,14 +373,14 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                             id="btn-input-model",
                             classes="btn-input-action",
                         )
-                        yield Button("🧹 Clear", id="btn-input-clear", classes="btn-input-action")
+                        yield Button("⊘ Clear", id="btn-input-clear", classes="btn-input-action")
                         yield Button(
-                            "⛔ Cancel",
+                            "■ Cancel",
                             id="btn-input-cancel",
                             classes="btn-input-action btn-action-cancel",
                         )
                         yield Button(
-                            "🚪 Exit",
+                            "✕ Exit",
                             id="btn-input-exit",
                             classes="btn-input-action btn-action-exit",
                         )
@@ -424,6 +424,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             self._pending_resume = None
         # Auto-refresh models if stale
         self._auto_refresh_models()
+        for btn in self.query("#input-action-bar Button"):
+            btn.can_focus = False
         self.query_one("#msg-input").focus()
         # Start dashboard update timer
         self._dashboard_timer = self.set_interval(1.0, self._periodic_dashboard_update)
@@ -1027,17 +1029,17 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             if is_error:
                 event.button.label = "✗ Copy failed"
                 self._add_system_message(
-                    f"📋 {result} — tip: hold Shift while selecting text to copy natively"
+                    f"⎘ {result} — tip: hold Shift while selecting text to copy natively"
                 )
             else:
                 event.button.label = "✓ Copied!"
                 self._add_system_message(
-                    f"📋 {result} — tip: Shift+drag selects text natively in terminal"
+                    f"⎘ {result} — tip: Shift+drag selects text natively in terminal"
                 )
 
             def _reset() -> None:
                 try:
-                    event.button.label = "📋 Copy Code"
+                    event.button.label = "⎘ Copy Code"
                 except Exception as e:
                     log_exception(e, "Failed to reset copy button label")
 
@@ -1471,16 +1473,14 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         tracer = get_dev_tracer()
         events = tracer.get_recent_traces(limit=500)
         if not events:
-            self._add_system_message(
-                "⚡ No traces yet. Enable with `/dev on`, then run some tasks."
-            )
+            self._add_system_message("◈ No traces yet. Enable with `/dev on`, then run some tasks.")
             return
         try:
             from sago.tui.trace_viewer import TraceViewerScreen
 
             self.push_screen(TraceViewerScreen(events))
         except Exception as e:
-            self._add_system_message(f"⚡ Trace viewer error: {e}")
+            self._add_system_message(f"◈ Trace viewer error: {e}")
 
     def action_open_diff_viewer(self) -> None:
         """Open the interactive diff inspector modal (F3)."""
@@ -1489,7 +1489,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
             self.push_screen(DiffViewerScreen())
         except Exception as e:
-            self._add_system_message(f"🔍 Diff viewer error: {e}")
+            self._add_system_message(f"± Diff viewer error: {e}")
 
     def action_open_file_explorer(self) -> None:
         """Open the workspace file tree explorer modal (F4)."""
@@ -1498,7 +1498,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
             self.push_screen(FileExplorerScreen())
         except Exception as e:
-            self._add_system_message(f"📁 File explorer error: {e}")
+            self._add_system_message(f"▤ File explorer error: {e}")
 
     def action_open_session_manager(self) -> None:
         """Open the session switcher & manager modal (F5)."""
@@ -1507,7 +1507,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
             self.push_screen(SessionManagerScreen())
         except Exception as e:
-            self._add_system_message(f"🔄 Session manager error: {e}")
+            self._add_system_message(f"↻ Session manager error: {e}")
 
     def action_open_model_switcher(self) -> None:
         """Open the interactive model & provider switcher modal (F6 / Ctrl+M / /model)."""
@@ -1571,14 +1571,14 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
             trace_events = get_dev_tracer().get_recent_traces(limit=500)
         if not trace_events:
-            self._add_system_message("⚡ No traces captured yet.")
+            self._add_system_message("◈ No traces captured yet.")
             return
         try:
             from sago.tui.trace_viewer import TraceViewerScreen
 
             self.push_screen(TraceViewerScreen(trace_events, turn_label=trace_label))
         except Exception as e:
-            self._add_system_message(f"⚡ Trace viewer error: {e}")
+            self._add_system_message(f"◈ Trace viewer error: {e}")
 
     @on(Button.Pressed, "#btn-top-dashboard")
     @on(Button.Pressed, "#btn-input-dashboard")
@@ -1596,6 +1596,10 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     def on_clear_button_clicked(self) -> None:
         """Clear message log from input action bar button."""
         self.action_clear_chat()
+        try:
+            self.query_one("#msg-input").focus()
+        except Exception:
+            pass
 
     @on(Button.Pressed, "#btn-input-cancel")
     def on_cancel_button_clicked(self) -> None:
