@@ -69,7 +69,7 @@ sago project-graph --dir ./services --view arch
 ```
 
 ### `sago map`
-Generate an AST-parsed compact symbol repository map (classes, methods, signatures) across 1,000+ files.
+Generate an AST-parsed compact symbol repository map (classes, methods, signatures) across 10,000+ files using multi-language Tree-Sitter grammars (Python, Rust, Go, Java, TypeScript, C/C++) and universal skeleton outlines.
 
 ```bash
 sago map
@@ -77,7 +77,7 @@ sago map --dir ./src --query UserService --max-files 100
 ```
 
 ### `sago search`
-Natural language semantic & BM25 hybrid codebase search across 1,000+ files without external cloud vector DBs.
+Natural language semantic & BM25 hybrid codebase search across 10,000+ files with Git-aware fast scanning and zero-dependency local vector embeddings.
 
 ```bash
 sago search "Where are database models defined?"
@@ -166,7 +166,7 @@ Show system and connection status.
 | `/?` | Open interactive keyboard shortcuts & quick reference modal (`F1`) |
 | `/status` | System health, active provider, model, and session metrics |
 | `/clear` | Clear chat message history from terminal screen |
-| `/compact` | Trigger immediate hierarchical context compaction |
+| `/compact` | Trigger immediate context compaction (LLM-distilled or structured extraction with touched files & decisions) |
 | `/session [list\|save\|load\|reset]` | Manage sessions (list active, save state, load from disk, or reset) |
 | `/export` | Export active conversation transcript to Markdown (`.md`) |
 | `/exit` | Save active session state and exit cleanly |

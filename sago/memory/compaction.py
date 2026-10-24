@@ -241,9 +241,17 @@ class SessionCompactor:
         decisions = []
         action_items = []
         entities = set()
+        files_mentioned = set()
+
+        file_pat = re.compile(
+            r"\b([\w\-./]+\.(?:py|js|ts|jsx|tsx|go|rs|java|c|cpp|md|json|toml|sql))\b"
+        )
 
         for msg in older_messages:
             content = msg.get("content", "")
+            for f in file_pat.findall(content):
+                if not f.startswith("http") and not f.endswith(".min.js"):
+                    files_mentioned.add(f)
 
             # Extract decisions
             if any(
@@ -274,7 +282,9 @@ class SessionCompactor:
 
             # Extract key points
             if msg.get("role") == "user":
-                key_points.append(content[:200])
+                clean_kp = content.strip().splitlines()[0][:120]
+                if clean_kp and not clean_kp.startswith("/"):
+                    key_points.append(clean_kp)
 
             # Simple entity extraction
             words = content.split()
@@ -285,13 +295,15 @@ class SessionCompactor:
         # Build summary
         summary_parts = []
         if key_points:
-            summary_parts.append(f"User discussed {len(key_points)} topics")
+            summary_parts.append(f"Goals: {'; '.join(key_points[-3:])}")
+        if files_mentioned:
+            summary_parts.append(f"Files touched: {', '.join(sorted(files_mentioned)[:5])}")
         if decisions:
-            summary_parts.append(f"{len(decisions)} decisions were made")
-        if action_items:
-            summary_parts.append(f"{len(action_items)} action items identified")
+            summary_parts.append(
+                f"Decisions: {'; '.join(d.splitlines()[0][:80] for d in decisions[-2:])}"
+            )
 
-        summary = "; ".join(summary_parts) if summary_parts else "Conversation session"
+        summary = " | ".join(summary_parts) if summary_parts else "Conversation session"
 
         # Build compacted context from recent messages
         recent_context = []

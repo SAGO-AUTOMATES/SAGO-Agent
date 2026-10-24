@@ -33,7 +33,12 @@ Sago is a **production-grade multi-agent orchestration system** built for real-w
 | **Permission System** | Risk-based tool permissions (safe/low/medium/high/critical) with approval workflow |
 | **Session Persistence** | SQLite database + JSON file save/load with full state preservation |
 | **Workflow Engine** | Stateful multi-step workflows with dependencies, retries, and pausing |
-| **Hybrid BM25 & Dense Code Search** | Probabilistic BM25 + zero-dependency 128-d dense vector semantic search across 1,000+ files (`sago search`) |
+| **Hybrid BM25 & Dense Code Search** | Probabilistic BM25 + zero-dependency 128-d dense vector semantic search across 10,000+ files with Git fast path (`sago search`) |
+| **Polyglot Tree-Sitter Skeletons** | Universal AST parsing across Python, Rust, Go, Java, TypeScript, and C/C++ omitting bodies to compress 10k files into <3k tokens |
+| **Graph-Guided Context & 2-Hop Graphs** | Dynamic bidirectional caller/callee and interface contract neighborhood expansion (`CallGraph`) |
+| **Map-Reduce Refactoring Swarm** | Parallel worker swarms for cross-cutting changes touching 15+ to 100+ files with automated verification merges |
+| **Robust Compaction & Context Poisoning Guard** | Proactive 45k token auto-compaction, delta capping for 100+ files, and 2–7 line lightweight prompt enhancer working summaries |
+| **Project-Scoped Learning System** | Isolated `<project>/.sago/learning.json` preventing cross-project pollution with confidence-gated pattern memorization |
 | **Continuous Background Linting** | Automatic non-blocking verification passes upon file modification with instant diagnostics |
 | **4-Tier Hierarchical Memory Pyramid** | 4-tiered context compaction (Architectural goals, deltas, semantic distillation, and working turns) with auto-triggering saving ~70% token overhead |
 | **Developer Mode (`/dev`)** | Real-time function execution tracing, LLM payload inspection, and microsecond latency diagnostics — **default ON until v1.0** (`dev_mode: true # TODO: flip to false at 1.0`), fresh install shows Inspector (`F2`) without `/dev on` |

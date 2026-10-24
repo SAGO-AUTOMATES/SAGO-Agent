@@ -4138,26 +4138,26 @@ def execute_agent_task(
                 pass
             continue
 
-        # Auto-compact if messages are getting too large — 175k context guard
-        # Triggers at 175k tokens (~700k chars) to prevent bloat/hallucination.
+        # Auto-compact if messages are getting too large — 45k context guard
+        # Triggers at 45k tokens (~180k chars) or 25+ messages to prevent bloat/hallucination.
         # Shows compact summary to user when it happens (manual /compact also works).
-        if len(messages) > 30:
+        if len(messages) > 15:
             # Check actual token estimate, not just message count
             est_tokens = sum(len(str(m.get("content", "")) or "") // 4 for m in messages)
-            if est_tokens > 175000 or len(messages) > 50:
+            if est_tokens > 45000 or len(messages) > 25:
                 old_len = len(messages)
                 old_tokens = est_tokens
-                messages = _compact_messages_if_needed(messages, max_tokens=80000)
+                messages = _compact_messages_if_needed(messages, max_tokens=25000)
                 # Show compact summary to user so they see what was summarized
                 try:
-                    compact_info = f"📦 Auto-compact: {old_len} msgs (~{old_tokens:,} tokens) → {len(messages)} msgs | 175k guard tripped"
+                    compact_info = f"📦 Auto-compact: {old_len} msgs (~{old_tokens:,} tokens) → {len(messages)} msgs | 45k context guard"
                     if on_thinking:
                         on_thinking(compact_info)
                     # Also add as system message so it's visible in chat
                     messages.append(
                         {
                             "role": "system",
-                            "content": f"[COMPACTED] {compact_info}. Recent context preserved, older history summarized.",
+                            "content": f"[COMPACTED] {compact_info}. Recent working context preserved, older history compacted.",
                         }
                     )
                 except Exception:

@@ -1258,8 +1258,17 @@ class CommandHandlers:
         try:
             from sago.memory.compaction import SessionCompactor
 
-            compactor = SessionCompactor(max_context_tokens=1000)
+            compactor = SessionCompactor(max_context_tokens=1500)
+            llm_summary = None
+            try:
+                llm_summary = compactor.compact_with_llm(self.messages)
+            except Exception:
+                pass
+
             compacted = compactor.compact_messages(self.messages, preserve_recent=2)
+            chosen_summary = (
+                llm_summary if (llm_summary and len(llm_summary) > 20) else compacted.summary
+            )
 
             orig_count = len(self.messages)
             # Keep first turn if available and last 2 messages
@@ -1269,7 +1278,7 @@ class CommandHandlers:
 
             summary_text = (
                 f"📋 **Compacted Context Summary ({middle_count} messages condensed):**\n"
-                f"{compacted.summary}"
+                f"{chosen_summary}"
             )
             if compacted.key_points:
                 summary_text += "\n\n**Key Points:**\n" + "\n".join(

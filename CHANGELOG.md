@@ -5,6 +5,20 @@ All notable changes to the SAGO project are documented in this file.
 ## [0.1.15] - 2026-10-24 (Model Switcher Overhaul, Provider Decoupling, Zero-Friction OpenRouter Default, Doctor Diagnostics & 78%+ Coverage)
 
 ### Added
+- **4-Phase Scale Architecture for 10,000+ Files & Polyglot Repositories (`sago/memory/`, `sago/orchestrator/`, `sago/engine/`):**
+  - **Phase 1 (Git-Aware Incremental Indexing):** Uses `git ls-files` fast path (10k files in <20ms) and `git status --porcelain` delta detection. Automatically excludes lockfiles, minified bundles, and generated code. Added `index_files_incremental()` and `remove_files_from_index()` for live in-memory BM25 index updates during editing sessions.
+  - **Phase 2 (Polyglot Tree-Sitter AST & Skeletonizer):** Multi-language parsing across Python, Rust, Go, Java, TypeScript, TSX, C, and C++. Generates compact AST skeletons omitting function/method implementation bodies to condense 10,000+ files into <3,000 tokens.
+  - **Phase 3 (Graph-Guided Context & 2-Hop Call Graphs):** Dynamic bidirectional caller/callee and interface contract neighborhood expansion (`CallGraph`), prioritizing high-signal architectural dependencies over noisy file dumps.
+  - **Phase 4 (Map-Reduce Refactoring Swarm):** Coordinated parallel refactoring (`MapReduceRefactorCoordinator`) that partitions cross-cutting multi-file changes (15+ to 100+ files) into cohesive clusters with concurrent worker execution and automated `ProjectVerifier` reduce merges.
+- **Project-Scoped vs. Global Learning Store (`sago/learning.py`):**
+  - Project-specific patterns, commands, and rules are isolated into `<project_root>/.sago/learning.json`, eliminating cross-project learning pollution.
+  - Global cross-cutting tool error fixes (e.g. directory handling, git safety) remain persisted in `~/.sago/learning.json`.
+  - Confidence gating: successful patterns are only recorded when `confidence >= 70%` and zero hallucinations are detected.
+- **Robust Compaction & Context Poisoning Guard (`sago/memory/compaction.py`, `sago/engine/prompt_enhancer.py`, `sago/tui/commands.py`):**
+  - Proactive auto-compaction triggers automatically at 45,000 tokens or 25+ messages in `simple_executor.py`, condensing older turns into structured memory while preserving active working context.
+  - Delta capping: when 100+ files are modified, SAGO caps the prompt context to recent files plus aggregate cluster counts to prevent attention diffusion and "Lost in the Middle" syndrome.
+  - 2–7 line lightweight prompt enhancer context summarizer synthesizes prior turns into a crisp working state summary before the next big LLM call, rendered live inside the TUI's collapsible `✨ Enhanced Prompt` turn card.
+  - Manual `/compact` command enhanced with LLM-backed architectural summarization and structured extraction of goals, touched files, and key decisions.
 - **Clean Provider/Model Decoupling Architecture (`sago/llm/registry.py`, `sago/llm/tui_providers.py`):**
   - Adopted industry-standard `{ providerID, modelID }` architecture (aligned with OpenCode / Hermes-Agent).
   - Implemented `split_provider_and_model(model_spec, default_provider=None)` to cleanly parse explicit `provider/model` or `provider:model` pairings without substring guessing.
