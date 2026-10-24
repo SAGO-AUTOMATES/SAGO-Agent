@@ -713,6 +713,9 @@ class ToolUsageStore:
         if len(self._pending) >= self._batch_size:
             self.flush()
 
+    record = log
+    add = log
+
     def flush(self) -> None:
         """Flush pending tool usage logs to disk (drains the shared per-session queue)."""
         with _batch_lock:
