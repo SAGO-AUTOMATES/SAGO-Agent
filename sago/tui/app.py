@@ -339,7 +339,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                             classes="btn-input-action",
                         )
                         yield Button(
-                            "🤖 Model [F6]",
+                            "✦ Models [F6]",
                             id="btn-input-model",
                             classes="btn-input-action",
                         )
@@ -1502,7 +1502,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
             self.push_screen(ModelSwitcherScreen(), _on_model_selected)
         except Exception as e:
-            self._add_system_message(f"🤖 Model switcher error: {e}")
+            self._add_system_message(f"✦ Model switcher error: {e}")
 
     @on(Button.Pressed, "#btn-top-traces")
     @on(Button.Pressed, "#btn-input-traces")

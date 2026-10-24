@@ -18,7 +18,7 @@ from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, DirectoryTree, Input, Label, OptionList, Select, Static
 from textual.widgets.option_list import Option
@@ -696,8 +696,8 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
         background: rgba(1, 4, 9, 0.88);
     }
     #model-dialog {
-        width: 92%;
-        height: 88%;
+        width: 94%;
+        height: 90%;
         background: #0d1117;
         border: solid #1c2128;
         border-top: solid #58a6ff;
@@ -729,26 +729,40 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
     #model-search-input {
         width: 100%;
         margin-bottom: 1;
+        border: solid #30363d;
+        background: #161b22;
+        color: #f0f6fc;
+    }
+    #model-search-input:focus {
+        border: solid #58a6ff;
     }
     #model-provider-tabs {
         height: auto;
-        layout: horizontal;
+        layout: grid;
+        grid-size: 4 2;
+        grid-gutter: 1 1;
     }
-    .provider-pill {
-        margin-right: 1;
-        min-width: 8;
-        height: 1;
-        border: none;
+    Button.provider-pill {
+        width: 100%;
+        height: 3;
+        border: solid #30363d;
         padding: 0 1;
+        background: #161b22;
+        color: #f0f6fc;
+        text-style: bold;
+    }
+    Button.provider-pill:hover {
         background: #21262d;
-        color: #c9d1d9;
+        border: solid #58a6ff;
+        color: #58a6ff;
     }
-    .provider-pill:hover {
-        background: #30363d;
+    Button.provider-pill:focus {
+        border: solid #58a6ff;
     }
-    .provider-pill.-active {
+    Button.provider-pill.-active {
         background: #1f6feb;
         color: #ffffff;
+        border: solid #79c0ff;
         text-style: bold;
     }
     #model-body {
@@ -770,29 +784,61 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
     #model-detail-col {
         width: 50%;
         height: 100%;
-        padding: 1 0 0 1;
+        padding: 1 1 0 1;
         scrollbar-size: 1 1;
         scrollbar-color: #388bfd #161b22;
+    }
+    #model-details {
+        padding: 1;
+        background: #161b22;
+        border: solid #21262d;
+        color: #c9d1d9;
+        margin-bottom: 1;
+    }
+    #btn-select-model {
+        margin: 1 0;
+        width: 100%;
+        height: 3;
+        background: #238636;
+        color: #ffffff;
+        text-style: bold;
+        border: solid #3fb950;
+    }
+    #btn-select-model:hover {
+        background: #2ea043;
+        border: solid #56d364;
+    }
+    #btn-select-model:focus {
+        background: #2ea043;
+        border: solid #56d364;
     }
     #model-custom-section {
         margin-top: 1;
         padding: 1;
-        border: dashed #30363d;
+        border: solid #30363d;
         background: #161b22;
     }
     #custom-model-input {
         margin-bottom: 1;
+        border: solid #30363d;
+        background: #0d1117;
+        color: #f0f6fc;
     }
     #custom-provider-select {
         margin-bottom: 1;
-    }
-    #btn-select-model {
-        margin-top: 1;
-        width: 100%;
+        border: solid #30363d;
     }
     #btn-use-custom {
         margin-top: 1;
         width: 100%;
+        height: 3;
+        background: #1f6feb;
+        color: #ffffff;
+        text-style: bold;
+        border: solid #58a6ff;
+    }
+    #btn-use-custom:hover {
+        background: #388bfd;
     }
     """
 
@@ -812,7 +858,7 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="model-dialog"):
             with Horizontal(id="model-header"):
-                yield Label("Model & Provider Switcher", id="model-title")
+                yield Label("✦ Model & Provider Switcher", id="model-title")
                 yield Static(
                     "[dim]↑↓ Navigate · Enter Select · Esc Close[/dim]",
                     id="model-hints",
@@ -822,8 +868,8 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
                     placeholder="Search models (e.g. flash, gpt, deepseek, sonnet)...",
                     id="model-search-input",
                 )
-                with Horizontal(id="model-provider-tabs"):
-                    yield Button("All", id="tab-all", classes="provider-pill -active")
+                with Grid(id="model-provider-tabs"):
+                    yield Button("✦ All", id="tab-all", classes="provider-pill -active")
                     yield Button("Google", id="tab-google", classes="provider-pill")
                     yield Button("OpenAI", id="tab-openai", classes="provider-pill")
                     yield Button("Anthropic", id="tab-anthropic", classes="provider-pill")
@@ -882,6 +928,32 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
             self.query_one("#model-search-input", Input).focus()
         except Exception:
             pass
+
+    def on_key(self, event) -> None:
+        """Handle keyboard navigation keys so Up/Down arrows work from anywhere."""
+        if event.key in ("down", "up", "pageup", "pagedown"):
+            try:
+                opts = self.query_one("#model-options", OptionList)
+                if event.key == "down":
+                    event.prevent_default()
+                    event.stop()
+                    opts.action_cursor_down()
+                    opts.scroll_to_highlight()
+                elif event.key == "up":
+                    event.prevent_default()
+                    event.stop()
+                    opts.action_cursor_up()
+                    opts.scroll_to_highlight()
+                elif event.key == "pagedown":
+                    event.prevent_default()
+                    event.stop()
+                    opts.action_page_down()
+                elif event.key == "pageup":
+                    event.prevent_default()
+                    event.stop()
+                    opts.action_page_up()
+            except Exception:
+                pass
 
     def _build_catalog(self) -> None:
         from sago.llm.registry import (
@@ -1029,6 +1101,10 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
         styled.append("  • Full tool use and function calling enabled in SAGO\n", style="dim")
 
         self.query_one("#model-details", Static).update(styled)
+        try:
+            self.query_one("#btn-select-model", Button).label = f"✓ Use Selected Model ({model})"
+        except Exception:
+            pass
 
     @on(Input.Changed, "#model-search-input")
     def on_search_changed(self, event: Input.Changed) -> None:
@@ -1061,9 +1137,17 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
 
     @on(OptionList.OptionSelected, "#model-options")
     def on_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """When an option is clicked, highlight it and update details panel.
+
+        The user confirms their choice by clicking '✓ Use Selected Model' or pressing Enter.
+        """
         if event.option and event.option.id:
             prov, model = str(event.option.id).split("::", 1)
-            self.dismiss({"provider": prov, "model": model})
+            self._selected_entry = {"provider": prov, "model": model}
+            for item in self._model_catalog:
+                if item["provider"] == prov and item["model"] == model:
+                    self._show_details(item)
+                    break
 
     def _apply_custom_model(self) -> None:
         custom_input = self.query_one("#custom-model-input", Input).value.strip()

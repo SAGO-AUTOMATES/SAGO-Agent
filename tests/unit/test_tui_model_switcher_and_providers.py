@@ -6,7 +6,7 @@ import os
 from unittest.mock import MagicMock
 
 import pytest
-from textual.widgets import Input, OptionList
+from textual.widgets import Button, Input, OptionList
 
 from sago.llm.registry import (
     get_provider_spec,
@@ -131,6 +131,43 @@ async def test_model_switcher_screen_modal():
         screen._populate_options()
         await pilot.pause()
         assert options.option_count > 0
+
+        # Keyboard arrow navigation
+        mock_down = MagicMock(key="down")
+        screen.on_key(mock_down)
+        assert mock_down.prevent_default.called
+        assert mock_down.stop.called
+
+        mock_up = MagicMock(key="up")
+        screen.on_key(mock_up)
+        assert mock_up.prevent_default.called
+        assert mock_up.stop.called
+
+        mock_pgdn = MagicMock(key="pagedown")
+        screen.on_key(mock_pgdn)
+        assert mock_pgdn.prevent_default.called
+
+        mock_pgup = MagicMock(key="pageup")
+        screen.on_key(mock_pgup)
+        assert mock_pgup.prevent_default.called
+
+        # Selecting an option highlights and populates details without closing
+        opt = options.get_option_at_index(0)
+        screen.on_option_selected(MagicMock(option=opt))
+        assert screen._selected_entry is not None
+        assert "✓ Use Selected Model" in str(screen.query_one("#btn-select-model", Button).label)
+
+        # Confirming selection
+        dismiss_result = None
+
+        def mock_dismiss(result):
+            nonlocal dismiss_result
+            dismiss_result = result
+
+        screen.dismiss = mock_dismiss
+
+        screen.action_select_current()
+        assert dismiss_result == screen._selected_entry
 
         # Custom model entry
         custom_input = screen.query_one("#custom-model-input", Input)
