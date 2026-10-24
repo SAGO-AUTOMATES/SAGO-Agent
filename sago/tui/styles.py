@@ -47,7 +47,8 @@ Screen { background: #0a0d12; }
     padding: 1 1;
     overflow-y: scroll;
     overflow-x: hidden;
-    scrollbar-size: 1 1;
+    scrollbar-size-vertical: 1;
+    scrollbar-size-horizontal: 0;
     scrollbar-color: #388bfd #161b22;
     scrollbar-color-hover: #79c0ff #161b22;
     scrollbar-gutter: stable;
@@ -120,7 +121,7 @@ Collapsible .collapsible-body { background: #0d1117; color: #e6edf3; padding: 1 
 #msg-input { background: #0a0d12; border: none; border-top: solid #21262d; color: #c9d1d9; margin: 0; padding: 0 1; width: 1fr; }
 #msg-input:focus { border: none; border-top: solid #388bfd; color: #ffffff; background: #0a0d12; }
 
-#input-action-bar { height: auto; max-height: 2; margin: 1 0 0 0; overflow-x: auto; overflow-y: hidden; }
+#input-action-bar { height: auto; max-height: 2; margin: 1 0 0 0; overflow-x: auto; overflow-y: hidden; scrollbar-size: 0 0; scrollbar-gutter: auto; }
 .hide-action-bar #input-action-bar { display: none; }
 .btn-input-action { height: 1; min-width: 4; border: none !important; background: transparent; color: #8b949e; margin-right: 1; padding: 0 1; }
 .btn-input-action:hover { background: #21262d; color: #f0f6fc; border: none !important; }

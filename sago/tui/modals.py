@@ -108,15 +108,19 @@ class DiffViewerScreen(ModalScreen):
     #diff-options {
         background: #0d1117;
         border: none;
-        scrollbar-size: 1 1;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
+        scrollbar-color-hover: #79c0ff #161b22;
     }
     #diff-content-scroll {
         width: 68%;
         height: 100%;
         padding: 0 0 0 1;
-        scrollbar-size: 1 1;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
+        scrollbar-color-hover: #79c0ff #161b22;
     }
     #diff-content {
         color: #c9d1d9;
@@ -308,7 +312,8 @@ class FileExplorerScreen(ModalScreen):
     DirectoryTree {
         background: #0d1117;
         border: none;
-        scrollbar-size: 1 1;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
         scrollbar-color-hover: #79c0ff #161b22;
     }
@@ -316,7 +321,8 @@ class FileExplorerScreen(ModalScreen):
         width: 68%;
         height: 100%;
         padding-left: 1;
-        scrollbar-size: 1 1;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
         scrollbar-color-hover: #79c0ff #161b22;
     }
@@ -524,15 +530,19 @@ class SessionManagerScreen(ModalScreen):
     #session-options {
         background: #0d1117;
         border: none;
-        scrollbar-size: 1 1;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
+        scrollbar-color-hover: #79c0ff #161b22;
     }
     #session-detail-col {
         width: 60%;
         height: 100%;
         padding: 1 0 0 1;
-        scrollbar-size: 1 1;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
+        scrollbar-color-hover: #79c0ff #161b22;
     }
     #session-details {
         color: #c9d1d9;
@@ -788,8 +798,10 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
         background: #0d1117;
         border: none !important;
         padding: 0;
-        scrollbar-size: 1 1;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
+        scrollbar-color-hover: #79c0ff #161b22;
     }
     #model-options:focus {
         border: none !important;
@@ -840,8 +852,10 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
     }
     #model-detail-scroll {
         height: 1fr;
-        scrollbar-size: 1 1;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
+        scrollbar-color-hover: #79c0ff #161b22;
     }
     #model-details {
         padding: 1;
@@ -1145,7 +1159,7 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
 
         self.query_one("#model-details", Static).update(styled)
         try:
-            self.query_one("#btn-select-model", Button).label = f"✓ Use Selected Model ({model})"
+            self.query_one("#btn-select-model", Button).label = "✓ Use Selected Model"
         except Exception:
             pass
 

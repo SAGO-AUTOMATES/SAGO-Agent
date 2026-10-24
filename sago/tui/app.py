@@ -1406,18 +1406,29 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 self._try_process_queue()
 
     def on_mouse_scroll_down(self, event) -> None:
-        self.query_one("#messages").scroll_down()
+        if self.screen is not self:
+            return  # Let active modal handle its own scrolling
         try:
+            self.query_one("#messages").scroll_down(animate=True)
             if self.is_scrolled_to_bottom():
                 self._hide_new_messages_badge()
         except Exception:
             pass
 
     def on_mouse_scroll_up(self, event) -> None:
-        self.query_one("#messages").scroll_up()
+        if self.screen is not self:
+            return  # Let active modal handle its own scrolling
+        try:
+            self.query_one("#messages").scroll_up(animate=True)
+        except Exception:
+            pass
 
     def on_click(self, event) -> None:
-        self.query_one("#msg-input").focus()
+        if self.screen is self:
+            try:
+                self.query_one("#msg-input").focus()
+            except Exception:
+                pass
 
     def _periodic_dashboard_update(self) -> None:
         """Periodically update the dashboard with current task states."""
@@ -2147,14 +2158,14 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     def action_scroll_line_up(self) -> None:
         """Scroll message viewport line up."""
         try:
-            self.query_one("#messages").scroll_up(animate=False)
+            self.query_one("#messages").scroll_up(animate=True)
         except Exception as e:
             log_exception(e, "Failed to scroll line up")
 
     def action_scroll_line_down(self) -> None:
         """Scroll message viewport line down."""
         try:
-            self.query_one("#messages").scroll_down(animate=False)
+            self.query_one("#messages").scroll_down(animate=True)
             if self.is_scrolled_to_bottom():
                 self._hide_new_messages_badge()
         except Exception as e:
