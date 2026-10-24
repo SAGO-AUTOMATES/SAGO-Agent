@@ -1256,9 +1256,15 @@ class CommandHandlers:
             return
 
         try:
-            from sago.memory.compaction import SessionCompactor
+            from sago.memory.compaction import (
+                SessionCompactor,
+                get_dynamic_compaction_thresholds,
+            )
 
-            compactor = SessionCompactor(max_context_tokens=1500)
+            prov = getattr(self, "current_provider", None)
+            mod = getattr(self, "current_model", None)
+            thresholds = get_dynamic_compaction_thresholds(provider=prov, model=mod)
+            compactor = SessionCompactor(provider=prov, model=mod)
             llm_summary = None
             try:
                 llm_summary = compactor.compact_with_llm(self.messages)
@@ -1324,13 +1330,13 @@ class CommandHandlers:
 
             compaction_card = Collapsible(
                 Static(RichMarkdown(summary_text), classes="markdown-body msg-system"),
-                title=f"⚡ Session Compacted ({middle_count} messages condensed)",
+                title=f"⚡ Session Compacted [{thresholds.tier.upper()}] ({middle_count} messages condensed)",
                 collapsed=False,
             )
             container = self.query_one("#messages")
             container.mount(compaction_card)
             self._add_system_message(
-                f"✓ Session compacted: {orig_count} messages reduced to {len(self.messages)}."
+                f"✓ Session compacted ({thresholds.tier} tier, {thresholds.trigger_tokens // 1000}k limit): {orig_count} messages reduced to {len(self.messages)}."
             )
             self._smart_scroll_end(animate=False)
         except Exception as err:

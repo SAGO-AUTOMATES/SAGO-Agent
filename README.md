@@ -37,7 +37,7 @@ Sago is a **production-grade multi-agent orchestration system** built for real-w
 | **Polyglot Tree-Sitter Skeletons** | Universal AST parsing across Python, Rust, Go, Java, TypeScript, and C/C++ omitting bodies to compress 10k files into <3k tokens |
 | **Graph-Guided Context & 2-Hop Graphs** | Dynamic bidirectional caller/callee and interface contract neighborhood expansion (`CallGraph`) |
 | **Map-Reduce Refactoring Swarm** | Parallel worker swarms for cross-cutting changes touching 15+ to 100+ files with automated verification merges |
-| **Robust Compaction & Context Poisoning Guard** | Proactive 45k token auto-compaction, delta capping for 100+ files, and 2–7 line lightweight prompt enhancer working summaries |
+| **Dynamic Model-Tier Compaction & Context Poisoning Guard** | Dynamic context guard (Local: 50k-100k, Standard cloud: 150k-200k, Massive 1M+: 750k-1M), delta capping for 100+ files, and 2–7 line lightweight prompt enhancer working summaries |
 | **Project-Scoped Learning System** | Isolated `<project>/.sago/learning.json` preventing cross-project pollution with confidence-gated pattern memorization |
 | **Continuous Background Linting** | Automatic non-blocking verification passes upon file modification with instant diagnostics |
 | **4-Tier Hierarchical Memory Pyramid** | 4-tiered context compaction (Architectural goals, deltas, semantic distillation, and working turns) with auto-triggering saving ~70% token overhead |

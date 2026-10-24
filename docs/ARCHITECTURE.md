@@ -250,11 +250,16 @@ To reliably analyze, navigate, and refactor codebases containing 10,000+ files a
 - **Global Learnings (`~/.sago/learning.json`)**: Captures cross-cutting tool error fixes (e.g. `read_file on directory → use glob_files`) and CLI syntax.
 - **Hallucination & Confidence Gate**: Success patterns are only recorded when `confidence >= 70%` and code/claim hallucination detectors find zero issues.
 
-## Robust Compaction & Context Poisoning Guard (`sago/memory/compaction.py`, `sago/engine/prompt_enhancer.py`)
+## Dynamic Compaction & Context Poisoning Guard (`sago/memory/compaction.py`, `sago/engine/prompt_enhancer.py`)
 
 - **Context Poisoning Guard**: When 100+ files are touched, file lists are capped (`Modified Files (N total): file1, file2 ... (+N more)`) to prevent LLM attention degradation and "Lost in the Middle" syndrome.
 - **2–7 Line Working Context Summarizer**: `PromptEnhancer.summarize_working_context()` extracts a crisp 2-to-7 line distillation of prior turns before the main LLM call. Visible in the TUI under the `✨ Enhanced Prompt` turn card.
-- **Proactive Auto-Compaction**: Triggers automatically at 45,000 tokens or 25+ messages in `simple_executor.py`, condensing older turns into structured memory while preserving active working turns. Manual `/compact` in TUI triggers instant deep compaction.
+- **Dynamic Model-Tier Auto-Compaction**: Compaction thresholds automatically adapt to the active model and provider:
+  - **Local Tier (Ollama, LM Studio, local models)**: 50k–100k tokens (default trigger: 75,000 tokens, pruned target: 35,000 tokens, 20 messages guard). Configurable via `SAGO_COMPACTION_THRESHOLD_LOCAL`.
+  - **Standard Cloud Tier (Claude 3.5 Sonnet, GPT-4o, DeepSeek, Groq, Mistral)**: 150k–200k tokens (default trigger: 175,000 tokens, pruned target: 80,000 tokens, 45 messages guard). Configurable via `SAGO_COMPACTION_THRESHOLD_STANDARD`.
+  - **Massive Context Tier (Google Gemini 1.5/2.0/2.5 Pro/Flash, Claude 1M, Qwen 1M)**: 750k–1M tokens (default trigger: 750,000 tokens, pruned target: 250,000 tokens, 120 messages guard). Configurable via `SAGO_COMPACTION_THRESHOLD_MASSIVE`.
+  - **Global Override**: `SAGO_COMPACTION_THRESHOLD` or `SAGO_MAX_TOKENS`.
+- **Manual `/compact`**: Triggers instant deep compaction via hierarchical memory pyramid distillation with TUI collapsible turn card updates.
 
 ## Agents & profiles (agents/)
 

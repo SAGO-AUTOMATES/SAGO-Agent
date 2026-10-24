@@ -14,11 +14,16 @@ All notable changes to the SAGO project are documented in this file.
   - Project-specific patterns, commands, and rules are isolated into `<project_root>/.sago/learning.json`, eliminating cross-project learning pollution.
   - Global cross-cutting tool error fixes (e.g. directory handling, git safety) remain persisted in `~/.sago/learning.json`.
   - Confidence gating: successful patterns are only recorded when `confidence >= 70%` and zero hallucinations are detected.
-- **Robust Compaction & Context Poisoning Guard (`sago/memory/compaction.py`, `sago/engine/prompt_enhancer.py`, `sago/tui/commands.py`):**
-  - Proactive auto-compaction triggers automatically at 45,000 tokens or 25+ messages in `simple_executor.py`, condensing older turns into structured memory while preserving active working context.
+- **Dynamic Model-Tier Compaction & Context Poisoning Guard (`sago/memory/compaction.py`, `sago/engine/prompt_enhancer.py`, `sago/tui/commands.py`):**
+  - Dynamic context thresholds adapted to provider/model context windows:
+    - **Local Models (Ollama, LM Studio, local)**: 50,000–100,000 token guard (default trigger: 75k, target: 35k).
+    - **Standard Cloud Models (Claude 3.5 Sonnet, GPT-4o, DeepSeek, Groq, Mistral)**: 150,000–200,000 token guard (default trigger: 175k, target: 80k).
+    - **Massive Context Models (Google Gemini 1.5/2.0/2.5 Pro/Flash, Claude 1M, Qwen 1M)**: 750,000–1,000,000 token guard (default trigger: 750k, target: 250k).
+    - Granular environment variable overrides (`SAGO_COMPACTION_THRESHOLD_LOCAL`, `SAGO_COMPACTION_THRESHOLD_STANDARD`, `SAGO_COMPACTION_THRESHOLD_MASSIVE`, and `SAGO_COMPACTION_THRESHOLD`).
+  - Proactive auto-compaction triggers automatically based on active model tier in `simple_executor.py`, condensing older turns into structured memory while preserving active working context.
   - Delta capping: when 100+ files are modified, SAGO caps the prompt context to recent files plus aggregate cluster counts to prevent attention diffusion and "Lost in the Middle" syndrome.
   - 2–7 line lightweight prompt enhancer context summarizer synthesizes prior turns into a crisp working state summary before the next big LLM call, rendered live inside the TUI's collapsible `✨ Enhanced Prompt` turn card.
-  - Manual `/compact` command enhanced with LLM-backed architectural summarization and structured extraction of goals, touched files, and key decisions.
+  - Manual `/compact` command enhanced with dynamic tier detection, LLM-backed architectural summarization, and structured extraction of goals, touched files, and key decisions.
 - **Clean Provider/Model Decoupling Architecture (`sago/llm/registry.py`, `sago/llm/tui_providers.py`):**
   - Adopted industry-standard `{ providerID, modelID }` architecture (aligned with OpenCode / Hermes-Agent).
   - Implemented `split_provider_and_model(model_spec, default_provider=None)` to cleanly parse explicit `provider/model` or `provider:model` pairings without substring guessing.

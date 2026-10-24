@@ -2509,11 +2509,21 @@ def execute_agent_task(
         msgs: list[dict[str, Any]], max_tokens: int | None = None
     ) -> list[dict[str, Any]]:
         """Compact messages if total content exceeds token limit using semantic distillation."""
-        effective_max_tokens = (
-            max_tokens
-            if max_tokens is not None
-            else int(os.environ.get("SAGO_MAX_TOKENS", str(_get_executor_config().max_tokens)))
-        )
+        if max_tokens is not None:
+            effective_max_tokens = max_tokens
+        else:
+            env_override = os.environ.get("SAGO_COMPACTION_THRESHOLD") or os.environ.get(
+                "SAGO_MAX_TOKENS"
+            )
+            if env_override and env_override.isdigit():
+                effective_max_tokens = int(env_override)
+            else:
+                from sago.memory.compaction import get_dynamic_compaction_thresholds
+
+                effective_max_tokens = get_dynamic_compaction_thresholds(
+                    provider=provider, model=model, base_url=base_url
+                ).target_tokens
+
         total_chars = sum(len(str(m.get("content", "") or "")) for m in msgs)
         estimated_tokens = total_chars // 4
         logger.debug(
@@ -4138,19 +4148,34 @@ def execute_agent_task(
                 pass
             continue
 
-        # Auto-compact if messages are getting too large — 45k context guard
-        # Triggers at 45k tokens (~180k chars) or 25+ messages to prevent bloat/hallucination.
+        # Auto-compact if messages are getting too large — dynamic context guard
+        # Tiers:
+        # - Local models (Ollama, LM Studio): 50k-100k tokens (trigger: 75k)
+        # - Standard cloud models (Claude, GPT-4o): 150k-200k tokens (trigger: 175k)
+        # - Massive context models (Gemini 1M, Claude 1M): 750k-1M tokens (trigger: 750k)
         # Shows compact summary to user when it happens (manual /compact also works).
-        if len(messages) > 15:
-            # Check actual token estimate, not just message count
+        from sago.memory.compaction import get_dynamic_compaction_thresholds
+
+        dynamic_thresholds = get_dynamic_compaction_thresholds(
+            provider=provider, model=model, base_url=base_url
+        )
+        if len(messages) > 10:
             est_tokens = sum(len(str(m.get("content", "")) or "") // 4 for m in messages)
-            if est_tokens > 45000 or len(messages) > 25:
+            if (
+                est_tokens > dynamic_thresholds.trigger_tokens
+                or len(messages) > dynamic_thresholds.trigger_messages
+            ):
                 old_len = len(messages)
                 old_tokens = est_tokens
-                messages = _compact_messages_if_needed(messages, max_tokens=25000)
+                messages = _compact_messages_if_needed(
+                    messages, max_tokens=dynamic_thresholds.target_tokens
+                )
                 # Show compact summary to user so they see what was summarized
                 try:
-                    compact_info = f"📦 Auto-compact: {old_len} msgs (~{old_tokens:,} tokens) → {len(messages)} msgs | 45k context guard"
+                    compact_info = (
+                        f"📦 Auto-compact ({dynamic_thresholds.tier}): {old_len} msgs (~{old_tokens:,} tokens) → "
+                        f"{len(messages)} msgs | {dynamic_thresholds.trigger_tokens // 1000}k guard ({dynamic_thresholds.description})"
+                    )
                     if on_thinking:
                         on_thinking(compact_info)
                     # Also add as system message so it's visible in chat

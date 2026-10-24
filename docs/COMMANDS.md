@@ -166,7 +166,7 @@ Show system and connection status.
 | `/?` | Open interactive keyboard shortcuts & quick reference modal (`F1`) |
 | `/status` | System health, active provider, model, and session metrics |
 | `/clear` | Clear chat message history from terminal screen |
-| `/compact` | Trigger immediate context compaction (LLM-distilled or structured extraction with touched files & decisions) |
+| `/compact` | Trigger immediate context compaction adapted to active model tier (Local: 50k-100k, Standard: 150k-200k, Massive: 750k-1M) |
 | `/session [list\|save\|load\|reset]` | Manage sessions (list active, save state, load from disk, or reset) |
 | `/export` | Export active conversation transcript to Markdown (`.md`) |
 | `/exit` | Save active session state and exit cleanly |

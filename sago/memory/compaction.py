@@ -15,6 +15,156 @@ from typing import Any
 logger = logging.getLogger("sago.memory.compaction")
 
 
+@dataclass(frozen=True)
+class CompactionThresholds:
+    """Dynamic context compaction thresholds based on model and provider capabilities."""
+
+    tier: str  # "local", "standard", "massive"
+    trigger_tokens: int  # token threshold when compaction should automatically trigger
+    target_tokens: int  # target budget when pruning context
+    trigger_messages: int  # message turn guard threshold
+    description: str  # human-readable badge / description
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "tier": self.tier,
+            "trigger_tokens": self.trigger_tokens,
+            "target_tokens": self.target_tokens,
+            "trigger_messages": self.trigger_messages,
+            "description": self.description,
+        }
+
+
+def get_dynamic_compaction_thresholds(
+    provider: str | None = None,
+    model: str | None = None,
+    base_url: str | None = None,
+) -> CompactionThresholds:
+    """Determine dynamic compaction thresholds based on provider/model capabilities.
+
+    Tiers:
+    1. Local models (Ollama, LM Studio, local models, etc.):
+       - Range: 50k to 100k tokens
+       - Default trigger: 75,000 tokens (~300k chars) or 20+ messages
+       - Pruned target: 35,000 tokens
+       - Configurable via SAGO_COMPACTION_THRESHOLD_LOCAL
+
+    2. Standard Cloud models (Claude 3.5 Sonnet, GPT-4o, DeepSeek, Groq, Mistral, OpenRouter default):
+       - Range: 150k to 200k tokens
+       - Default trigger: 175,000 tokens (~700k chars) or 45+ messages
+       - Pruned target: 80,000 tokens
+       - Configurable via SAGO_COMPACTION_THRESHOLD_STANDARD
+
+    3. Massive Context models (Gemini 1.5/2.0/2.5 Pro/Flash, Claude 1M, Qwen 1M, models with >= 1M context):
+       - Range: 750k to 1M tokens
+       - Default trigger: 750,000 tokens (~3,000,000 chars) or 120+ messages
+       - Pruned target: 250,000 tokens
+       - Configurable via SAGO_COMPACTION_THRESHOLD_MASSIVE
+
+    Global override: SAGO_COMPACTION_THRESHOLD or SAGO_MAX_TOKENS.
+    """
+    import os
+
+    # Global explicit overrides take precedence if set
+    global_override = os.environ.get("SAGO_COMPACTION_THRESHOLD") or os.environ.get(
+        "SAGO_MAX_TOKENS"
+    )
+    global_tokens = int(global_override) if global_override and global_override.isdigit() else None
+
+    # Resolve provider and model if not provided
+    prov_str = (provider or "").lower().strip()
+    model_str = (model or "").lower().strip()
+    base_str = (base_url or "").lower().strip()
+
+    if not prov_str or not model_str:
+        try:
+            from sago.llm.tui_providers import resolve_active_llm_config
+
+            active_cfg = resolve_active_llm_config(
+                provider=provider, model=model, base_url=base_url
+            )
+            if not prov_str:
+                prov_str = (active_cfg.get("provider") or "").lower().strip()
+            if not model_str:
+                model_str = (active_cfg.get("model") or "").lower().strip()
+            if not base_str:
+                base_str = (active_cfg.get("base_url") or "").lower().strip()
+        except Exception:
+            pass
+
+    # Check local providers / endpoints
+    is_local = (
+        prov_str in ("ollama", "lmstudio", "local", "mock")
+        or "localhost" in base_str
+        or "127.0.0.1" in base_str
+        or "local" in model_str
+        or "gguf" in model_str
+        or "ollama" in model_str
+    )
+
+    if not is_local:
+        try:
+            from sago.llm.registry import get_provider_spec
+
+            spec = get_provider_spec(prov_str)
+            if spec and spec.local:
+                is_local = True
+        except Exception:
+            pass
+
+    # 1. Local Tier: 50k to 100k
+    if is_local:
+        env_val = os.environ.get("SAGO_COMPACTION_THRESHOLD_LOCAL")
+        trigger = int(env_val) if env_val and env_val.isdigit() else (global_tokens or 75_000)
+        target = min(35_000, int(trigger * 0.45))
+        return CompactionThresholds(
+            tier="local",
+            trigger_tokens=trigger,
+            target_tokens=target,
+            trigger_messages=20,
+            description="Local model tier (50k-100k guard: 75k tokens)",
+        )
+
+    # 2. Massive Context Tier (1M+ context window): 750k to 1M
+    is_massive = prov_str in ("google", "gemini") or any(
+        marker in model_str
+        for marker in (
+            "gemini-1.5",
+            "gemini-2.",
+            "gemini-exp",
+            "gemini",
+            "1m",
+            "2m",
+            "1000k",
+            "massive",
+        )
+    )
+
+    if is_massive:
+        env_val = os.environ.get("SAGO_COMPACTION_THRESHOLD_MASSIVE")
+        trigger = int(env_val) if env_val and env_val.isdigit() else (global_tokens or 750_000)
+        target = min(250_000, int(trigger * 0.35))
+        return CompactionThresholds(
+            tier="massive",
+            trigger_tokens=trigger,
+            target_tokens=target,
+            trigger_messages=120,
+            description="Massive context tier (750k-1M guard: 750k tokens)",
+        )
+
+    # 3. Standard Cloud Tier: 150k to 200k
+    env_val = os.environ.get("SAGO_COMPACTION_THRESHOLD_STANDARD")
+    trigger = int(env_val) if env_val and env_val.isdigit() else (global_tokens or 175_000)
+    target = min(80_000, int(trigger * 0.45))
+    return CompactionThresholds(
+        tier="standard",
+        trigger_tokens=trigger,
+        target_tokens=target,
+        trigger_messages=45,
+        description="Standard cloud tier (150k-200k guard: 175k tokens)",
+    )
+
+
 @dataclass
 class CompactedContext:
     """Compacted context from a long conversation."""
@@ -208,8 +358,18 @@ class InputSummarizer:
 class SessionCompactor:
     """Compacts long sessions while preserving important context."""
 
-    def __init__(self, max_context_tokens: int = 4000) -> None:
-        self.max_context_tokens = max_context_tokens
+    def __init__(
+        self,
+        max_context_tokens: int | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> None:
+        if max_context_tokens is not None:
+            self.max_context_tokens = max_context_tokens
+            self.thresholds: CompactionThresholds | None = None
+        else:
+            self.thresholds = get_dynamic_compaction_thresholds(provider=provider, model=model)
+            self.max_context_tokens = self.thresholds.trigger_tokens
         self.summarizer = InputSummarizer()
 
     def compact_messages(
