@@ -90,6 +90,7 @@ def get_git_modified_files(cwd: Path) -> set[str]:
                     modified.add(Path(rel_path).name)
     except Exception as e:
         logger.debug("Failed to get git modified files: %s", e)
+    _GIT_CACHE[key] = (now, modified)
     return modified
 
 
@@ -453,22 +454,25 @@ def get_subcommand_completions(raw: str) -> tuple[list[str], list[str]] | None:
 
     # /agent subcommands & list
     if cmd in ("/agent", "/agents"):
+        items = []
+        values = []
         if arg == "list" or not arg:
-            items = [
+            items.append(
                 "[bold magenta]list      [/bold magenta] [dim]List all 300+ specialist agents by domain[/dim]"
-            ]
-            values = ["/agent list"]
-            try:
-                from sago.agents.registry import list_agents
+            )
+            values.append("/agent list")
+        try:
+            from sago.agents.registry import list_agents
 
-                agents = list_agents()
-                for a in rank_agents_fuzzy(agents, arg if arg != "list" else "")[:20]:
-                    items.append(
-                        f"[bold magenta]@{a['name']:<22}[/bold magenta] [dim]{a.get('description', '')[:38]}[/dim]"
-                    )
-                    values.append(f"/agent {a['name']}")
-            except Exception as e:
-                logger.debug("Failed to load agent registry for suggestions: %s", e)
+            agents = list_agents()
+            for a in rank_agents_fuzzy(agents, arg if arg != "list" else "")[:20]:
+                items.append(
+                    f"[bold magenta]@{a['name']:<22}[/bold magenta] [dim]{a.get('description', '')[:38]}[/dim]"
+                )
+                values.append(f"/agent {a['name']}")
+        except Exception as e:
+            logger.debug("Failed to load agent registry for suggestions: %s", e)
+        return items, values
 
     # /git subcommands
     if cmd == "/git":
@@ -576,6 +580,8 @@ def get_subcommand_completions(raw: str) -> tuple[list[str], list[str]] | None:
                     values.append(f"/checkpoint restore {cid}")
         except Exception as e:
             logger.debug("Failed to load checkpoints for suggestions: %s", e)
+        return items, values
+
     if cmd == "/chain":
         chain_workflows = {
             "architect -> python-engineer -> test-engineer": "Plan architecture, implement in Python, run tests",

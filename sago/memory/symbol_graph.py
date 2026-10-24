@@ -213,9 +213,41 @@ class SymbolGraph:
         )
 
     def extract_generic_symbols(self, file_path: Path, content: str, lang: str) -> FileSymbols:
-        """Regex-based symbol extractor for JS/TS/Go/Rust/Java/C++/Ruby/PHP/Kotlin/Swift/C#/Dart/Elixir/Lua."""
+        """Symbol extractor using tree-sitter when available, with regex fallback."""
         symbols: list[SymbolInfo] = []
         lines = content.splitlines()
+
+        # Try tree-sitter first
+        try:
+            from sago.memory.tree_sitter_parser import is_available, parse_symbols
+
+            if is_available(lang):
+                ts_syms = parse_symbols(lang, content)
+                if ts_syms:
+                    for s in ts_syms:
+                        symbols.append(
+                            SymbolInfo(
+                                name=s["name"],
+                                symbol_type=s["kind"],
+                                line_number=s["line"],
+                                signature=s.get("signature", ""),
+                                docstring=s.get("docstring", ""),
+                            )
+                        )
+                    return FileSymbols(
+                        file_path=str(
+                            file_path.relative_to(self.root_dir)
+                            if file_path.is_relative_to(self.root_dir)
+                            else file_path
+                        ),
+                        language=lang,
+                        symbols=symbols,
+                        line_count=len(lines),
+                        size_bytes=len(content),
+                        mtime=file_path.stat().st_mtime if file_path.exists() else time.time(),
+                    )
+        except Exception as e:
+            logger.debug("Tree-sitter parse in symbol graph failed for %s: %s", lang, e)
 
         # Comprehensive high-precision patterns across languages
         patterns = [
@@ -376,7 +408,39 @@ class SymbolGraph:
             if suffix == ".py":
                 fs = self.extract_python_symbols(file_path, content)
             elif suffix in (".ts", ".tsx", ".js", ".jsx"):
-                fs = self.extract_generic_symbols(file_path, content, "typescript")
+                try:
+                    from sago.memory.tree_sitter_parser import is_available, parse_symbols
+
+                    lang = "typescript" if suffix in (".ts", ".tsx") else "javascript"
+                    if is_available(lang):
+                        ts_syms = parse_symbols(lang, content)
+                        if ts_syms:
+                            rel = (
+                                file_path.relative_to(self.root_dir)
+                                if file_path.is_relative_to(self.root_dir)
+                                else file_path
+                            )
+                            fs = FileSymbols(
+                                file_path=str(rel),
+                                language=lang,
+                                symbols=[
+                                    SymbolInfo(
+                                        name=s["name"],
+                                        symbol_type=s["kind"],
+                                        line_number=s["line"],
+                                    )
+                                    for s in ts_syms
+                                ],
+                                line_count=len(content.splitlines()),
+                                size_bytes=len(content),
+                                mtime=mtime,
+                            )
+                        else:
+                            fs = self.extract_generic_symbols(file_path, content, "typescript")
+                    else:
+                        fs = self.extract_generic_symbols(file_path, content, "typescript")
+                except Exception:
+                    fs = self.extract_generic_symbols(file_path, content, "typescript")
             elif suffix == ".rs":
                 fs = self.extract_generic_symbols(file_path, content, "rust")
             elif suffix == ".go":
@@ -476,9 +540,22 @@ class SymbolGraph:
                 break
 
         full_map = "\n\n".join(all_outlines)
-        # Token estimation & trimming
-        if len(full_map) > max_tokens * 4:
-            full_map = full_map[: max_tokens * 4] + "\n\n... [Repo map truncated for brevity]"
+        # Token estimation & trimming (tiktoken if available, else char heuristic)
+        try:
+            import tiktoken
+
+            enc = tiktoken.get_encoding("cl100k_base")
+            token_count = len(enc.encode(full_map))
+            if token_count > max_tokens:
+                # Trim by characters proportionally
+                ratio = max_tokens / max(token_count, 1)
+                full_map = (
+                    full_map[: int(len(full_map) * ratio)]
+                    + "\n\n... [Repo map truncated for brevity]"
+                )
+        except Exception:
+            if len(full_map) > max_tokens * 4:
+                full_map = full_map[: max_tokens * 4] + "\n\n... [Repo map truncated for brevity]"
         return full_map
 
     def get_symbol_outline(self, max_files: int = 100) -> dict[str, list[dict[str, object]]]:
@@ -617,3 +694,31 @@ class SymbolGraph:
         body = "\n\n".join(file_sections)
         footer = "\n\n---\n*Tip: Run `/map <query>` to search specific symbols, or `/graph` for architecture diagrams.*"
         return header + body + footer
+
+    def generate_skeleton(self, file_path: Path | str, content: str | None = None) -> str:
+        """Generate a compact AST skeleton outline of a source file omitting bodies."""
+        from sago.memory.tree_sitter_parser import generate_skeleton as ts_generate_skeleton
+
+        p = Path(file_path)
+        if content is None:
+            if not p.is_file():
+                return ""
+            content = p.read_text(encoding="utf-8", errors="replace")
+
+        ext = p.suffix.lower()
+        ext_to_lang = {
+            ".py": "python",
+            ".ts": "typescript",
+            ".tsx": "tsx",
+            ".js": "javascript",
+            ".jsx": "javascript",
+            ".rs": "rust",
+            ".go": "go",
+            ".java": "java",
+            ".cpp": "cpp",
+            ".hpp": "cpp",
+            ".c": "c",
+            ".h": "c",
+        }
+        lang = ext_to_lang.get(ext, "")
+        return ts_generate_skeleton(lang, content)

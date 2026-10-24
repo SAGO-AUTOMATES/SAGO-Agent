@@ -20,7 +20,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import DirectoryTree, Label, OptionList, Static
+from textual.widgets import Button, DirectoryTree, Input, Label, OptionList, Select, Static
 from textual.widgets.option_list import Option
 
 from sago.tui.helpers import _get_syntax_theme
@@ -108,15 +108,23 @@ class DiffViewerScreen(ModalScreen):
     #diff-options {
         background: #0d1117;
         border: none;
-        scrollbar-size: 1 1;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
+        scrollbar-color-hover: #79c0ff #161b22;
     }
     #diff-content-scroll {
         width: 68%;
         height: 100%;
         padding: 0 0 0 1;
-        scrollbar-size: 1 1;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
+        scrollbar-color-hover: #79c0ff #161b22;
     }
     #diff-content {
         color: #c9d1d9;
@@ -138,7 +146,7 @@ class DiffViewerScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical(id="diff-dialog"):
             with Horizontal(id="diff-header"):
-                yield Label("Workspace Diff", id="diff-title")
+                yield Label("± Workspace Diff", id="diff-title")
                 yield Static("[dim]R Refresh · Esc Close[/dim]", id="diff-hints")
             with Horizontal(id="diff-body"):
                 with Vertical(id="diff-file-list"):
@@ -170,16 +178,22 @@ class DiffViewerScreen(ModalScreen):
                         status, fpath = parts[0], parts[1]
                         files.append((status, fpath))
 
-            option_list = self.query_one("#diff-options", OptionList)
-            option_list.clear_options()
+            try:
+                option_list = self.query_one("#diff-options", OptionList)
+                option_list.clear_options()
+            except Exception:
+                return
             self._diff_map.clear()
 
             if not files:
                 option_list.add_option(Option("No modified files"))
-                self.query_one("#diff-content", Static).update(
-                    "[bold green]Clean Working Tree[/bold green]\n\n"
-                    "No unstaged or staged changes detected."
-                )
+                try:
+                    self.query_one("#diff-content", Static).update(
+                        "[bold green]Clean Working Tree[/bold green]\n\n"
+                        "No unstaged or staged changes detected."
+                    )
+                except Exception:
+                    pass
                 return
 
             for status, fpath in files:
@@ -202,7 +216,12 @@ class DiffViewerScreen(ModalScreen):
             self._display_file_diff(initial_file)
 
         except Exception as e:
-            self.query_one("#diff-content", Static).update(f"[red]Error fetching diff: {e}[/red]")
+            try:
+                self.query_one("#diff-content", Static).update(
+                    f"[red]Error fetching diff: {e}[/red]"
+                )
+            except Exception:
+                pass
 
     def _display_file_diff(self, file_path: str) -> None:
         diff_text = self._diff_map.get(file_path, "No diff available")
@@ -297,7 +316,10 @@ class FileExplorerScreen(ModalScreen):
     DirectoryTree {
         background: #0d1117;
         border: none;
-        scrollbar-size: 1 1;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
         scrollbar-color-hover: #79c0ff #161b22;
     }
@@ -305,7 +327,10 @@ class FileExplorerScreen(ModalScreen):
         width: 68%;
         height: 100%;
         padding-left: 1;
-        scrollbar-size: 1 1;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
         scrollbar-color-hover: #79c0ff #161b22;
     }
@@ -395,7 +420,7 @@ class FileExplorerScreen(ModalScreen):
         cwd = Path.cwd()
         with Vertical(id="file-dialog"):
             with Horizontal(id="file-header"):
-                yield Label(f"Workspace Explorer — {cwd.name}", id="file-title")
+                yield Label(f"▤ Workspace Explorer — {cwd.name}", id="file-title")
                 yield Static("[dim]Esc Close[/dim]", id="file-hints")
             with Horizontal(id="file-body"):
                 with Vertical(id="tree-container"):
@@ -513,15 +538,23 @@ class SessionManagerScreen(ModalScreen):
     #session-options {
         background: #0d1117;
         border: none;
-        scrollbar-size: 1 1;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
+        scrollbar-color-hover: #79c0ff #161b22;
     }
     #session-detail-col {
         width: 60%;
         height: 100%;
         padding: 1 0 0 1;
-        scrollbar-size: 1 1;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
+        scrollbar-color-hover: #79c0ff #161b22;
     }
     #session-details {
         color: #c9d1d9;
@@ -543,7 +576,7 @@ class SessionManagerScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical(id="session-dialog"):
             with Horizontal(id="session-header"):
-                yield Label("Session History & Switcher", id="session-title")
+                yield Label("↻ Session History & Switcher", id="session-title")
                 yield Static("[dim]Enter Switch · R Refresh · Esc Close[/dim]", id="session-hints")
             with Horizontal(id="session-body"):
                 with Vertical(id="session-list-col"):
@@ -562,8 +595,11 @@ class SessionManagerScreen(ModalScreen):
     def _load_sessions(self) -> None:
         from sago.database import Session
 
-        option_list = self.query_one("#session-options", OptionList)
-        option_list.clear_options()
+        try:
+            option_list = self.query_one("#session-options", OptionList)
+            option_list.clear_options()
+        except Exception:
+            return
         self._sessions = []
 
         try:
@@ -668,3 +704,538 @@ class SessionManagerScreen(ModalScreen):
                 self._show_details(s)
                 self._selected_sid = sid
                 break
+
+
+# ─── F6 / Ctrl+M: Model & Provider Switcher ──────────────────────────────────
+
+
+class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
+    """Interactive model & provider switcher modal (F6 / Ctrl+M / /model)."""
+
+    DEFAULT_CSS = """
+    ModelSwitcherScreen {
+        align: center middle;
+        background: rgba(1, 4, 9, 0.88);
+    }
+    #model-dialog {
+        width: 94%;
+        height: 90%;
+        background: #0d1117;
+        border: solid #1c2128;
+        border-top: solid #58a6ff;
+        padding: 0 1 1 1;
+    }
+    #model-header {
+        height: 3;
+        dock: top;
+        padding: 0 1;
+        border-bottom: solid #1c2128;
+    }
+    #model-title {
+        text-style: bold;
+        width: 1fr;
+        padding: 0 0 0 1;
+        color: #58a6ff;
+    }
+    #model-hints {
+        color: #8b949e;
+        width: auto;
+        padding: 0 1 0 0;
+        content-align: right middle;
+    }
+    #model-filter-bar {
+        height: auto;
+        padding: 0 0 1 0;
+        margin-bottom: 1;
+        border-bottom: solid #1c2128;
+    }
+    #model-search-input {
+        width: 100%;
+        height: 1;
+        border: none;
+        background: #161b22;
+        color: #f0f6fc;
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+    #model-search-input:focus {
+        border: none;
+        background: #1c2128;
+        color: #ffffff;
+    }
+    #model-provider-tabs {
+        height: 1;
+        layout: horizontal;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-size: 0 0;
+    }
+    Button.provider-pill {
+        height: 1;
+        min-width: 5;
+        width: auto;
+        border: none !important;
+        background: #161b22;
+        color: #8b949e;
+        padding: 0 1;
+        margin-right: 1;
+    }
+    Button.provider-pill:hover {
+        background: #21262d;
+        color: #f0f6fc;
+        border: none !important;
+    }
+    Button.provider-pill:focus {
+        border: none !important;
+        text-style: none;
+    }
+    Button.provider-pill.-active {
+        background: #388bfd !important;
+        color: #ffffff !important;
+        text-style: bold;
+        border: none !important;
+        tint: transparent !important;
+    }
+    #model-body {
+        height: 1fr;
+        layout: horizontal;
+    }
+    #model-list-col {
+        width: 50%;
+        height: 100%;
+        border-right: solid #1c2128;
+        padding: 1 1 0 0;
+    }
+    #model-options {
+        background: #0d1117;
+        border: none !important;
+        padding: 0;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
+        scrollbar-color: #388bfd #161b22;
+        scrollbar-color-hover: #79c0ff #161b22;
+    }
+    #model-options:focus {
+        border: none !important;
+        background-tint: transparent;
+    }
+    #model-options > .option-list--option-highlighted {
+        background: #1f6feb;
+        color: #ffffff;
+        text-style: bold;
+    }
+    #model-options:focus > .option-list--option-highlighted {
+        background: #1f6feb;
+        color: #ffffff;
+        text-style: bold;
+    }
+    #model-options > .option-list--option-hover {
+        background: #161b22;
+    }
+    #model-detail-col {
+        width: 50%;
+        height: 100%;
+        padding: 1 1 0 1;
+    }
+    #btn-select-model {
+        margin-bottom: 1;
+        width: 100%;
+        height: 1;
+        background: #238636;
+        color: #ffffff;
+        text-style: bold;
+        border: none !important;
+        padding: 0 1;
+    }
+    #btn-select-model:hover {
+        background: #2ea043;
+        color: #ffffff;
+        border: none !important;
+    }
+    #btn-select-model:focus {
+        background: #2ea043;
+        color: #ffffff;
+        border: none !important;
+    }
+    #btn-select-model.-active {
+        background: #2ea043 !important;
+        border: none !important;
+        tint: transparent !important;
+    }
+    #model-detail-scroll {
+        height: 1fr;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
+        scrollbar-color: #388bfd #161b22;
+        scrollbar-color-hover: #79c0ff #161b22;
+    }
+    #model-details {
+        padding: 1;
+        background: #161b22;
+        border: solid #21262d;
+        color: #c9d1d9;
+        margin-bottom: 1;
+    }
+    #model-custom-section {
+        margin-top: 1;
+        padding: 1;
+        border: solid #30363d;
+        background: #161b22;
+    }
+    #custom-model-input {
+        margin-bottom: 1;
+        border: solid #30363d;
+        background: #0d1117;
+        color: #f0f6fc;
+    }
+    #custom-provider-select {
+        margin-bottom: 1;
+        border: solid #30363d;
+    }
+    #btn-use-custom {
+        margin-top: 1;
+        width: 100%;
+        height: 3;
+        background: #1f6feb;
+        color: #ffffff;
+        text-style: bold;
+        border: solid #58a6ff;
+    }
+    #btn-use-custom:hover {
+        background: #388bfd;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("q", "dismiss", "Close"),
+        Binding("enter", "select_current", "Select", priority=True),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._provider_filter = "all"
+        self._search_query = ""
+        self._selected_entry: dict[str, str] | None = None
+        self._model_catalog: list[dict[str, Any]] = []
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="model-dialog"):
+            with Horizontal(id="model-header"):
+                yield Label("✦ Model & Provider Switcher", id="model-title")
+                yield Static(
+                    "[dim]↑↓ Navigate · Enter Select · Esc Close[/dim]",
+                    id="model-hints",
+                )
+            with Vertical(id="model-filter-bar"):
+                yield Input(
+                    placeholder="Search models (e.g. flash, gpt, deepseek, sonnet)...",
+                    id="model-search-input",
+                )
+                with Horizontal(id="model-provider-tabs"):
+                    yield Button("✦ All", id="tab-all", classes="provider-pill -active")
+                    yield Button("Google", id="tab-google", classes="provider-pill")
+                    yield Button("OpenAI", id="tab-openai", classes="provider-pill")
+                    yield Button("Anthropic", id="tab-anthropic", classes="provider-pill")
+                    yield Button("DeepSeek", id="tab-deepseek", classes="provider-pill")
+                    yield Button("Groq", id="tab-groq", classes="provider-pill")
+                    yield Button("Ollama", id="tab-ollama", classes="provider-pill")
+                    yield Button("OpenRouter", id="tab-openrouter", classes="provider-pill")
+            with Horizontal(id="model-body"):
+                with Vertical(id="model-list-col"):
+                    yield Label("AVAILABLE MODELS", classes="section-label")
+                    yield OptionList(id="model-options")
+                with Vertical(id="model-detail-col"):
+                    yield Button(
+                        "✓ Use Selected Model",
+                        id="btn-select-model",
+                        variant="primary",
+                    )
+                    with VerticalScroll(id="model-detail-scroll"):
+                        yield Static(
+                            "[dim]Select a model from the list or enter custom below...[/dim]",
+                            id="model-details",
+                        )
+                        with Vertical(id="model-custom-section"):
+                            yield Label("[bold cyan]Custom / Manual Model Entry[/bold cyan]")
+                            yield Static("[dim]Type any custom model ID without overrides:[/dim]")
+                            yield Input(
+                                placeholder="e.g. meta-llama/Llama-3.3-70B-Instruct or qwen2.5:32b",
+                                id="custom-model-input",
+                            )
+                            yield Select(
+                                options=[
+                                    ("Google (Gemini)", "google"),
+                                    ("OpenAI", "openai"),
+                                    ("Anthropic (Claude)", "anthropic"),
+                                    ("DeepSeek", "deepseek"),
+                                    ("Groq", "groq"),
+                                    ("Mistral AI", "mistral"),
+                                    ("Ollama (Local)", "ollama"),
+                                    ("OpenRouter", "openrouter"),
+                                    ("LM Studio (Local)", "lmstudio"),
+                                ],
+                                prompt="Select Provider for Custom Model",
+                                id="custom-provider-select",
+                                value="openrouter",
+                            )
+                            yield Button(
+                                "Use Custom Model",
+                                id="btn-use-custom",
+                                variant="success",
+                            )
+
+    def on_mount(self) -> None:
+        _apply_theme(self)
+        self._build_catalog()
+        self._populate_options()
+        for btn in self.query(".provider-pill"):
+            btn.can_focus = False
+        try:
+            self.query_one("#model-search-input", Input).focus()
+        except Exception:
+            pass
+
+    def on_key(self, event) -> None:
+        """Handle keyboard navigation keys so Up/Down arrows work from anywhere."""
+        if event.key in ("down", "up", "pageup", "pagedown"):
+            try:
+                opts = self.query_one("#model-options", OptionList)
+                if event.key == "down":
+                    event.prevent_default()
+                    event.stop()
+                    opts.action_cursor_down()
+                    opts.scroll_to_highlight()
+                elif event.key == "up":
+                    event.prevent_default()
+                    event.stop()
+                    opts.action_cursor_up()
+                    opts.scroll_to_highlight()
+                elif event.key == "pagedown":
+                    event.prevent_default()
+                    event.stop()
+                    opts.action_page_down()
+                elif event.key == "pageup":
+                    event.prevent_default()
+                    event.stop()
+                    opts.action_page_up()
+            except Exception:
+                pass
+
+    def _build_catalog(self) -> None:
+        from sago.llm.registry import (
+            get_provider_spec,
+            resolve_api_key,
+            split_provider_and_model,
+        )
+        from sago.tui.models import get_all_models, get_model_costs
+
+        all_models = get_all_models()
+        costs = get_model_costs()
+        cur_model = getattr(self.app, "current_model", "")
+        cur_provider = getattr(self.app, "current_provider", "")
+
+        self._model_catalog = []
+        for raw in all_models:
+            explicit_prov, clean_mid = split_provider_and_model(raw)
+            if explicit_prov:
+                prov = explicit_prov
+                mid = clean_mid if explicit_prov != "openrouter" else raw
+            else:
+                prov = cur_provider or "openrouter"
+                mid = raw
+
+            spec = get_provider_spec(prov)
+            has_key = bool(resolve_api_key(prov, mid)) if spec and not spec.local else True
+            cost_info = costs.get(raw, {})
+
+            self._model_catalog.append(
+                {
+                    "raw": raw,
+                    "provider": prov,
+                    "model": mid,
+                    "is_active": (raw == cur_model or (prov == cur_provider and mid == cur_model)),
+                    "has_key": has_key,
+                    "cost": cost_info,
+                    "spec": spec,
+                }
+            )
+
+    def _populate_options(self) -> None:
+        try:
+            options_widget = self.query_one("#model-options", OptionList)
+            options_widget.clear_options()
+        except Exception:
+            return
+
+        filtered = []
+        q = self._search_query.lower().strip()
+        pf = self._provider_filter
+
+        for item in self._model_catalog:
+            if pf != "all" and item["provider"] != pf:
+                continue
+            if q and q not in item["raw"].lower() and q not in item["provider"].lower():
+                continue
+            filtered.append(item)
+
+        color_map = {
+            "google": "cyan",
+            "openai": "yellow",
+            "anthropic": "magenta",
+            "deepseek": "bright_blue",
+            "groq": "bright_green",
+            "mistral": "bright_cyan",
+            "ollama": "green",
+            "openrouter": "white",
+            "lmstudio": "green",
+        }
+
+        for item in filtered:
+            prov = item["provider"]
+            c = color_map.get(prov, "cyan")
+            active_mark = "[bold green]● [/bold green]" if item["is_active"] else "  "
+            prov_tag = f"[{c}][{prov}][/{c}]"
+            model_name = f"[bold white]{item['model']}[/bold white]"
+            free_tag = "[green]Free[/green]" if item.get("cost", {}).get("input") == 0 else ""
+
+            label = f"{active_mark}{prov_tag:<14} {model_name} {free_tag}".strip()
+            opt_id = f"{item['provider']}::{item['model']}"
+            options_widget.add_option(Option(prompt=label, id=opt_id))
+
+        if filtered:
+            first = filtered[0]
+            self._selected_entry = {"provider": first["provider"], "model": first["model"]}
+            self._show_details(first)
+            options_widget.highlighted = 0
+        else:
+            self._selected_entry = None
+            self.query_one("#model-details", Static).update(
+                "[dim]No matching models found. Use the manual entry form below to configure any model.[/dim]"
+            )
+
+    def _show_details(self, entry: dict[str, Any]) -> None:
+        prov = entry["provider"]
+        model = entry["model"]
+        is_active = entry["is_active"]
+        has_key = entry["has_key"]
+        cost = entry.get("cost", {})
+        spec = entry.get("spec")
+
+        styled = Text()
+        styled.append("Selected Model: ", style="dim")
+        styled.append(f"{model}\n", style="bold white")
+        styled.append("Provider:       ", style="dim")
+        styled.append(f"{prov.upper()}\n", style="bold cyan")
+
+        if is_active:
+            styled.append("Status:         ", style="dim")
+            styled.append("● Active in current session\n", style="bold green")
+
+        styled.append("Auth Status:    ", style="dim")
+        if spec and spec.local:
+            styled.append("✓ Local Engine (No API key needed)\n", style="green")
+        elif has_key:
+            env_var = spec.api_key_env if spec else f"{prov.upper()}_API_KEY"
+            styled.append(f"✓ Configured in ${env_var}\n", style="green")
+        else:
+            env_var = spec.api_key_env if spec else f"{prov.upper()}_API_KEY"
+            styled.append(f"⚠ Missing ${env_var}\n", style="bold yellow")
+            if spec and spec.billing_url:
+                styled.append(f"  Get API key: {spec.billing_url}\n", style="dim cyan")
+
+        if cost and "input" in cost and "output" in cost:
+            inp = cost["input"]
+            out = cost["output"]
+            styled.append("Pricing:        ", style="dim")
+            if inp == 0 and out == 0:
+                styled.append("100% Free / Local\n", style="bold green")
+            else:
+                styled.append(f"${inp:.3f}/M in, ${out:.3f}/M out\n", style="yellow")
+            styled.append("Price Source:   ", style="dim")
+            styled.append("Official Provider Catalog / OpenRouter API\n", style="dim cyan")
+
+        styled.append("\nFeatures & Capabilities:\n", style="bold")
+        if "reasoner" in model or "r1" in model or "o1" in model or "o3" in model:
+            styled.append("  • Deep chain-of-thought step-by-step reasoning\n", style="dim")
+        if "coder" in model or "sonnet" in model or "gpt-4o" in model:
+            styled.append(
+                "  • Specialized for complex code generation, refactoring, and multi-file AST edits\n",
+                style="dim",
+            )
+        if "flash" in model or "mini" in model or "groq" in prov:
+            styled.append(
+                "  • High token throughput & near-instant response latency\n", style="dim"
+            )
+        styled.append("  • Full tool use and function calling enabled in SAGO\n", style="dim")
+
+        self.query_one("#model-details", Static).update(styled)
+        try:
+            self.query_one("#btn-select-model", Button).label = "✓ Use Selected Model"
+        except Exception:
+            pass
+
+    @on(Input.Changed, "#model-search-input")
+    def on_search_changed(self, event: Input.Changed) -> None:
+        self._search_query = event.value
+        self._populate_options()
+
+    @on(Button.Pressed)
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        bid = event.button.id or ""
+        if bid.startswith("tab-"):
+            for btn in self.query(".provider-pill"):
+                btn.remove_class("-active")
+            event.button.add_class("-active")
+            self._provider_filter = bid.replace("tab-", "")
+            self._populate_options()
+            try:
+                self.query_one("#model-options", OptionList).focus()
+            except Exception:
+                pass
+        elif bid == "btn-select-model":
+            self.action_select_current()
+        elif bid == "btn-use-custom":
+            self._apply_custom_model()
+
+    @on(OptionList.OptionHighlighted, "#model-options")
+    def on_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
+        if event.option and event.option.id:
+            prov, model = str(event.option.id).split("::", 1)
+            self._selected_entry = {"provider": prov, "model": model}
+            for item in self._model_catalog:
+                if item["provider"] == prov and item["model"] == model:
+                    self._show_details(item)
+                    break
+
+    @on(OptionList.OptionSelected, "#model-options")
+    def on_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """When an option is clicked, highlight it and update details panel.
+
+        The user confirms their choice by clicking '✓ Use Selected Model' or pressing Enter.
+        """
+        if event.option and event.option.id:
+            prov, model = str(event.option.id).split("::", 1)
+            self._selected_entry = {"provider": prov, "model": model}
+            for item in self._model_catalog:
+                if item["provider"] == prov and item["model"] == model:
+                    self._show_details(item)
+                    break
+
+    def _apply_custom_model(self) -> None:
+        custom_input = self.query_one("#custom-model-input", Input).value.strip()
+        if not custom_input:
+            return
+        provider_select = self.query_one("#custom-provider-select", Select).value
+        chosen_provider = str(provider_select) if provider_select else "openrouter"
+        self.dismiss({"provider": chosen_provider, "model": custom_input})
+
+    def action_select_current(self) -> None:
+        if self._selected_entry:
+            self.dismiss(self._selected_entry)
+        else:
+            self._apply_custom_model()

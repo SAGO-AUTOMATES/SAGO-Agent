@@ -20,6 +20,7 @@ Architecture:
 from __future__ import annotations
 
 import ast
+import asyncio
 import hashlib
 import logging
 import os
@@ -34,6 +35,10 @@ logger = logging.getLogger("sago.engine.hallucination_verifier")
 
 # ---- Constants ----
 _MIN_CODE_LENGTH = 20
+
+# In-memory cache for external syntax checks (keyed by content hash) to avoid
+# re-running compilers on identical content.
+_EXTERNAL_SYNTAX_CACHE: dict[str, list[str]] = {}
 _SYNTAX_CHECK_TIMEOUT = 30
 _ERROR_MESSAGE_MAX_LEN = 200
 _CONFIDENCE_THRESHOLD = 50
@@ -1385,6 +1390,7 @@ class ResponseVerifier:
         tool_history: list[dict] | None = None,
         task_type: str = "create",
         integrity_result: list[str] | None = None,
+        root_dir: str | None = None,
     ) -> VerificationResult:
         """Run the full verification pipeline on a response.
 
@@ -1426,6 +1432,139 @@ class ResponseVerifier:
         claim_issues = _verify_claims(content, tool_history)
         logger.debug("Stage 3 - Claim verification: %d issues", len(claim_issues))
 
+        # 3b. Symbol-existence grounding (optional, when root_dir provided)
+        symbol_issues: list[str] = []
+        if root_dir:
+            try:
+                from sago.memory.symbol_graph import SymbolGraph
+
+                sg = SymbolGraph(root_dir=root_dir)
+                # Collect known symbol names
+                known: set[str] = set()
+                try:
+                    outline = sg.get_symbol_outline(max_files=200)
+                    for syms in outline.values():
+                        for s in syms:
+                            known.add(str(s.get("name", "")).lower())
+                except Exception:
+                    pass
+                if known:
+                    # Common non-symbol identifiers (built-ins, standard types, common tools)
+                    _excluded_terms = {
+                        "self",
+                        "cls",
+                        "true",
+                        "false",
+                        "none",
+                        "null",
+                        "undefined",
+                        "args",
+                        "kwargs",
+                        "main",
+                        "init",
+                        "test",
+                        "tests",
+                        "list",
+                        "dict",
+                        "tuple",
+                        "set",
+                        "frozenset",
+                        "str",
+                        "int",
+                        "float",
+                        "bool",
+                        "bytes",
+                        "object",
+                        "json",
+                        "yaml",
+                        "toml",
+                        "html",
+                        "css",
+                        "sql",
+                        "bash",
+                        "sh",
+                        "zsh",
+                        "path",
+                        "file",
+                        "error",
+                        "exception",
+                        "result",
+                        "output",
+                        "input",
+                        "pytest",
+                        "unittest",
+                        "ruff",
+                        "mypy",
+                        "pip",
+                        "uv",
+                        "git",
+                        "diff",
+                        "string",
+                        "number",
+                        "boolean",
+                        "array",
+                        "any",
+                        "void",
+                        "promise",
+                        "docker",
+                        "curl",
+                        "node",
+                        "npm",
+                        "pnpm",
+                        "yarn",
+                        "async",
+                        "await",
+                        "import",
+                        "export",
+                        "return",
+                        "class",
+                        "function",
+                        "const",
+                        "let",
+                        "var",
+                    }
+                    # Find backtick-quoted identifiers that look like symbols
+                    for m in re.finditer(r"`([A-Za-z_][A-Za-z0-9_]*)`", content):
+                        ident = m.group(1).lower()
+                        if len(ident) >= 4 and ident not in known and ident not in _excluded_terms:
+                            symbol_issues.append(
+                                f"Symbol '{m.group(1)}' not found in repository symbol index"
+                            )
+                            if len(symbol_issues) >= 5:
+                                break
+            except Exception as e:
+                logger.debug("Symbol grounding failed: %s", e)
+
+        # 3c. Post-execution syntax check on modified files (best-effort).
+        if root_dir and tool_history:
+            try:
+                from pathlib import Path
+
+                modified = set()
+                for tc in tool_history:
+                    if tc.get("tool") in ("write_file", "edit_file", "multi_replace_file"):
+                        args = tc.get("args", {}) or {}
+                        for key in ("file_path", "path"):
+                            val = args.get(key)
+                            if val:
+                                modified.add(str(val))
+                for fp in modified:
+                    p = Path(fp)
+                    if not p.is_absolute():
+                        p = Path(root_dir) / fp
+                    if p.suffix.lower() == ".py" and p.exists():
+                        try:
+                            import ast as _ast
+
+                            _ast.parse(p.read_text(encoding="utf-8", errors="replace"))
+                        except SyntaxError as e:
+                            symbol_issues.append(
+                                f"Modified file '{fp}' has Python syntax error: {e.msg}"
+                            )
+            except Exception as e:
+                logger.debug("Post-execution syntax check failed: %s", e)
+        claim_issues = claim_issues + symbol_issues
+
         # 4. Hedging/subtle claim detection
         hedging_issues = _detect_hedging_phrases(content, tool_history)
         logger.debug("Stage 4 - Hedging phrases: %d issues", len(hedging_issues))
@@ -1437,7 +1576,14 @@ class ResponseVerifier:
         # 6. External syntax checking
         external_issues = []
         if self.enable_external_checks:
-            external_issues = _external_syntax_check(content)
+            import hashlib
+
+            _cache_key = hashlib.md5(content.encode("utf-8", errors="replace")).hexdigest()
+            if _cache_key in _EXTERNAL_SYNTAX_CACHE:
+                external_issues = _EXTERNAL_SYNTAX_CACHE[_cache_key]
+            else:
+                external_issues = _external_syntax_check(content)
+                _EXTERNAL_SYNTAX_CACHE[_cache_key] = external_issues
             logger.debug("Stage 6 - External syntax check: %d issues", len(external_issues))
 
         # 7. Tool result integrity (plugin tamper detection)
@@ -1463,6 +1609,13 @@ class ResponseVerifier:
         # Extra penalty for hedging and integrity issues
         confidence -= len(hedging_issues) * 8
         confidence -= len(integrity_issues) * 15
+
+        # Calibration: scale confidence by tool success ratio when tools were used.
+        if tool_history:
+            total = len(tool_history)
+            success = sum(1 for t in tool_history if t.get("success", True))
+            ratio = success / total if total else 1.0
+            confidence = int(confidence * (0.5 + 0.5 * ratio))
         confidence = max(0, min(100, confidence))
         logger.info(
             "Verification complete: confidence=%d, hallucinations=%s, total_issues=%d [fab=%d inline=%d claims=%d hedging=%d code=%d external=%d integrity=%d]",
@@ -1481,7 +1634,9 @@ class ResponseVerifier:
         # 9. Sanitize content if needed
         cleaned_content = content
         sanitized = False
-        if self.auto_sanitize and all_issues and confidence < self.confidence_threshold:
+        # Require at least 2 issues before sanitizing to reduce false-positive
+        # stripping of legitimate content.
+        if self.auto_sanitize and len(all_issues) >= 2 and confidence < self.confidence_threshold:
             logger.info(
                 "Sanitizing content: confidence=%d < threshold=%d",
                 confidence,
@@ -1509,6 +1664,18 @@ class ResponseVerifier:
             sanitized=sanitized,
         )
 
+    async def verify_async(
+        self,
+        content: str,
+        tool_history: list[dict] | None = None,
+        task_type: str = "create",
+        integrity_result: list[str] | None = None,
+    ) -> VerificationResult:
+        """Non-blocking wrapper around verify() for TUI/async callers."""
+        return await asyncio.to_thread(
+            self.verify, content, tool_history, task_type, integrity_result
+        )
+
     def verify_and_warn(
         self,
         content: str,
@@ -1530,6 +1697,19 @@ class ResponseVerifier:
         warning_lines.append("Treat these claims with skepticism. Verify independently.")
 
         return result.cleaned_content, "\n".join(warning_lines)
+
+    def suggest_correction(self, result: VerificationResult) -> str:
+        """Build a correction prompt fragment from verification issues."""
+        if not result or not result.all_issues:
+            return ""
+        lines = [
+            "Your previous response had the following verification issues. "
+            "Please correct them using tools where needed:",
+        ]
+        for issue in result.all_issues[:10]:
+            lines.append(f"- {issue}")
+        lines.append("Do not repeat unverified claims. Use tools to verify before stating facts.")
+        return "\n".join(lines)
 
 
 # Singleton for convenience

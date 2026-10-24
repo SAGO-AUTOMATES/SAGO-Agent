@@ -6,12 +6,15 @@ from sago.server.daemon import SagoClient, SagoDaemon
 
 
 @pytest.fixture
-def daemon():
+def daemon(tmp_path):
     """Create a daemon instance on a random port."""
     d = SagoDaemon(host="127.0.0.1", port=0)
+    d.pid_file = tmp_path / "daemon.pid"
     yield d
     if d._running:
         d.stop()
+    if d.pid_file.exists():
+        d.pid_file.unlink(missing_ok=True)
 
 
 class TestSagoDaemon:

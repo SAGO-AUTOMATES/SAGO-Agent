@@ -304,7 +304,8 @@ class CommandHandlers:
 
         from sago.engine.prompt_enhancer import enhance_prompt
 
-        enhancement = enhance_prompt(task=task, agent_role=agent_name)
+        recent = getattr(self, "messages", [])[-5:] if hasattr(self, "messages") else None
+        enhancement = enhance_prompt(task=task, agent_role=agent_name, recent_turns=recent)
 
         self._add_command_turn(
             "delegate",
@@ -453,7 +454,7 @@ class CommandHandlers:
             # Show current plan
             lines = []
             for i, step in enumerate(plan):
-                lines.append(f"  {i + 1}. [{step.get('agent', '?')}] {step.get('task', '')[:80]}")
+                lines.append(f"  {i + 1}. ({step.get('agent', '?')}) {step.get('task', '')[:80]}")
             self._add_system_message("Current plan:\n" + "\n".join(lines))
             return
 
@@ -466,7 +467,7 @@ class CommandHandlers:
                     old_agent = plan[step_num].get("agent", "?")
                     plan[step_num]["task"] = new_task
                     self._add_system_message(
-                        f"Step {step_num + 1} updated: [{old_agent}] {new_task[:60]}"
+                        f"Step {step_num + 1} updated: ({old_agent}) {new_task[:60]}"
                     )
                 else:
                     self._add_system_message(f"Invalid step number. Plan has {len(plan)} steps.")
@@ -483,7 +484,7 @@ class CommandHandlers:
                 agent = "python-engineer"
                 task_text = agent_task
             plan.append({"agent": agent, "task": task_text})
-            self._add_system_message(f"Added step {len(plan)}: [{agent}] {task_text[:60]}")
+            self._add_system_message(f"Added step {len(plan)}: ({agent}) {task_text[:60]}")
 
         elif action == "remove" and len(parts) >= 2:
             try:
@@ -491,7 +492,7 @@ class CommandHandlers:
                 if 0 <= step_num < len(plan):
                     removed = plan.pop(step_num)
                     self._add_system_message(
-                        f"Removed step {step_num + 1}: [{removed.get('agent', '?')}] {removed.get('task', '')[:60]}"
+                        f"Removed step {step_num + 1}: ({removed.get('agent', '?')}) {removed.get('task', '')[:60]}"
                     )
                 else:
                     self._add_system_message(f"Invalid step number. Plan has {len(plan)} steps.")
@@ -499,7 +500,7 @@ class CommandHandlers:
                 self._add_system_message("Usage: /plan remove <step_number>")
         else:
             self._add_system_message(
-                "Usage: /plan [edit <step> <task> | add <agent>: <task> | remove <step>]"
+                "Usage: /plan (edit <step> <task> | add <agent>: <task> | remove <step>)"
             )
 
     def _show_status(self: SagoApp) -> None:
@@ -543,6 +544,8 @@ class CommandHandlers:
             return
         if sid.lower().startswith("switch "):
             sid = sid[7:].strip()
+        elif sid.lower().startswith("load "):
+            sid = sid[5:].strip()
         if sid.lower().startswith("clean"):
             self._handle_clean_command("sessions")
             return
@@ -552,15 +555,19 @@ class CommandHandlers:
         if sid.lower().startswith("save"):
             self._save_session(sid[5:].strip())
             return
+        if sid.lower().startswith("reset"):
+            self._reset()
+            return
         try:
             from sago.database import MessageStore, Session, init_db
 
             init_db()
             s = Session()
-            sessions = s.list_all(limit=100)
+            matched = s.find_by_prefix(sid)
+            sessions = [matched] if matched else s.list_all(limit=100)
             s.close()
             for ses in sessions:
-                if ses["id"].startswith(sid):
+                if ses and (ses["id"].startswith(sid) or (matched and ses["id"] == matched["id"])):
                     self._hide_welcome_screen()
                     self.current_session_id = ses["id"]
                     # CRITICAL: Reset stale _message_store so new messages go to this session
@@ -745,10 +752,8 @@ class CommandHandlers:
                                         _msg_think = ""
                                         try:
                                             _msg_think = (
-                                                msg.get("thinking", "")
-                                                if isinstance(msg, dict)
-                                                else ""
-                                            )  # type: ignore[attr-defined]  # noqa: F821
+                                                m.get("thinking", "") if isinstance(m, dict) else ""
+                                            )
                                         except Exception:
                                             _msg_think = ""
                                         if (
@@ -1012,8 +1017,13 @@ class CommandHandlers:
 
         parts = m.split(None, 2) if m else []
 
-        # /model — show all cleanly in a single consolidated panel
+        # /model — open interactive ModelSwitcherScreen modal by default (or show text if "list")
         if not parts:
+            if hasattr(self, "action_open_model_switcher"):
+                self.action_open_model_switcher()
+                return
+
+        if not parts or parts[0] == "list":
             models = get_all_models()
             providers: dict[str, list[str]] = {}
             for model in models:
@@ -1025,14 +1035,13 @@ class CommandHandlers:
             container = self.query_one("#messages")
             lines = [
                 f"[bold green]● Active Model:[/] [bold white]{cur}[/]  ([cyan]Provider: {prov}[/])\n",
-                "[dim]Switch model: /model <name>  |  Add: /model add <id>  |  Refresh: /model refresh[/dim]\n",
+                "[dim]Switch: /model <name>  |  Interactive: F6 or Ctrl+M  |  Add: /model add <id>[/dim]\n",
             ]
 
             for provider, pmodels in sorted(providers.items()):
                 lines.append(
                     f"[bold cyan]▼ Provider: {provider.upper()} ({len(pmodels)} models)[/]"
                 )
-                # Display in clean bulleted list
                 for m in pmodels[:10]:
                     marker = "[bold green]▶[/]" if m == cur else " "
                     lines.append(f"  {marker} [yellow]{m}[/]")
@@ -1076,72 +1085,70 @@ class CommandHandlers:
 
         # Known providers for smart parsing (registry-driven, aliases included)
         from sago.llm.registry import (
-            get_provider_spec,
-            guess_provider_from_model,
-            infer_provider_for_model,
             known_provider_keys,
             normalize_provider,
         )
+        from sago.settings import save_setting
 
         valid_names = set(known_provider_keys())
 
-        # /model <provider> <model> — explicit syntax (e.g. /model google gemini-2.0-pro or /model openrouter deepseek/deepseek-r1)
+        # /model <provider> <model> — explicit syntax (e.g. /model google gemini-2.5-pro or /model deepseek deepseek-chat)
         if len(parts) >= 2 and parts[0].lower() in valid_names:
             provider = normalize_provider(parts[0])
             model_name = " ".join(parts[1:])
             self.current_provider = provider
             self.current_model = model_name
+            save_setting("provider", provider)
+            save_setting("model", model_name)
             self._add_system_message(
                 f"Provider: [bold cyan]{provider}[/] | Model: [bold green]{model_name}[/]"
             )
             return
 
-        # /model provider/model or general string
+        # Explicit provider:model or provider/model syntax (e.g. /model openai/gpt-4o, /model ollama:llama3.2)
         search = parts[0]
-        if "/" in search:
-            prefix, rest = search.split("/", 1)
-            if prefix.lower() in valid_names:
-                provider = normalize_provider(prefix)
-                self.current_provider = provider
-                self.current_model = rest if provider == "google" else search
-                self._add_system_message(
-                    f"Provider: [bold cyan]{self.current_provider}[/] | Model: [bold green]{self.current_model}[/]"
-                )
-                return
+        from sago.llm.registry import split_provider_and_model
 
+        explicit_provider, clean_mid = split_provider_and_model(search)
+        if explicit_provider:
+            self.current_provider = explicit_provider
+            self.current_model = clean_mid if explicit_provider != "openrouter" else search
+            save_setting("provider", explicit_provider)
+            save_setting("model", self.current_model)
+            self._add_system_message(
+                f"Provider: [bold cyan]{self.current_provider}[/] | Model: [bold green]{self.current_model}[/]"
+            )
+            return
+
+        # No provider specified in command — NEVER override or guess provider!
+        # Search among models for current provider or use directly
         models = get_all_models()
-        for model in models:
-            if search.lower() in model.lower():
-                self.current_model = model
-                guessed = guess_provider_from_model(model)
-                if guessed and get_provider_spec(guessed):
-                    self.current_provider = guessed
-                else:
-                    inferred = infer_provider_for_model(model)
-                    if inferred:
-                        self.current_provider = inferred
-                self._add_system_message(
-                    f"Model: [bold green]{model}[/] (Provider: [bold cyan]{self.current_provider}[/])"
-                )
-                return
+        target_model = search
+        cur_pfx = f"{self.current_provider}/"
+        for candidate in models:
+            if candidate.lower() == search.lower():
+                target_model = candidate
+                break
+            if (
+                candidate.startswith(cur_pfx)
+                and candidate[len(cur_pfx) :].lower() == search.lower()
+            ):
+                target_model = candidate[len(cur_pfx) :]
+                break
 
-        # Not in list — allow custom model
-        self.current_model = search
-        guessed = guess_provider_from_model(search)
-        if guessed and get_provider_spec(guessed):
-            self.current_provider = guessed
-        else:
-            # Unknown 'vendor/model' ids (e.g. stealth/ox-alpha) route via OpenRouter
-            inferred = infer_provider_for_model(search)
-            if inferred:
-                self.current_provider = inferred
-        provider_label = (
-            f"(Provider: [bold cyan]{self.current_provider}[/])" if "/" in search else "(custom)"
+        if target_model.startswith(cur_pfx) and self.current_provider != "openrouter":
+            target_model = target_model[len(cur_pfx) :]
+
+        self.current_model = target_model
+        save_setting("provider", self.current_provider)
+        save_setting("model", self.current_model)
+        self._add_system_message(
+            f"Model: [bold green]{self.current_model}[/] (Provider: [bold cyan]{self.current_provider}[/])"
         )
-        self._add_system_message(f"Model: [bold green]{search}[/] {provider_label}")
 
     def _change_provider(self: SagoApp, p: str) -> None:
         from sago.llm.registry import get_provider_spec, known_providers, normalize_provider
+        from sago.settings import save_setting
 
         if not p:
             from rich.markup import escape as _escape
@@ -1172,10 +1179,10 @@ class CommandHandlers:
             )
             return
         self.current_provider = canonical
-        # Keep the user's explicit model if it already belongs to this provider;
-        # otherwise seed the provider default.
         if "/" not in self.current_model or self.current_model.split("/", 1)[0] != canonical:
             self.current_model = spec.default_model
+        save_setting("provider", canonical)
+        save_setting("model", self.current_model)
         key_status = (
             "local"
             if spec.local or not spec.api_key_env
@@ -1249,10 +1256,25 @@ class CommandHandlers:
             return
 
         try:
-            from sago.memory.compaction import SessionCompactor
+            from sago.memory.compaction import (
+                SessionCompactor,
+                get_dynamic_compaction_thresholds,
+            )
 
-            compactor = SessionCompactor(max_context_tokens=1000)
+            prov = getattr(self, "current_provider", None)
+            mod = getattr(self, "current_model", None)
+            thresholds = get_dynamic_compaction_thresholds(provider=prov, model=mod)
+            compactor = SessionCompactor(provider=prov, model=mod)
+            llm_summary = None
+            try:
+                llm_summary = compactor.compact_with_llm(self.messages)
+            except Exception:
+                pass
+
             compacted = compactor.compact_messages(self.messages, preserve_recent=2)
+            chosen_summary = (
+                llm_summary if (llm_summary and len(llm_summary) > 20) else compacted.summary
+            )
 
             orig_count = len(self.messages)
             # Keep first turn if available and last 2 messages
@@ -1262,7 +1284,7 @@ class CommandHandlers:
 
             summary_text = (
                 f"📋 **Compacted Context Summary ({middle_count} messages condensed):**\n"
-                f"{compacted.summary}"
+                f"{chosen_summary}"
             )
             if compacted.key_points:
                 summary_text += "\n\n**Key Points:**\n" + "\n".join(
@@ -1308,13 +1330,13 @@ class CommandHandlers:
 
             compaction_card = Collapsible(
                 Static(RichMarkdown(summary_text), classes="markdown-body msg-system"),
-                title=f"⚡ Session Compacted ({middle_count} messages condensed)",
+                title=f"⚡ Session Compacted [{thresholds.tier.upper()}] ({middle_count} messages condensed)",
                 collapsed=False,
             )
             container = self.query_one("#messages")
             container.mount(compaction_card)
             self._add_system_message(
-                f"✓ Session compacted: {orig_count} messages reduced to {len(self.messages)}."
+                f"✓ Session compacted ({thresholds.tier} tier, {thresholds.trigger_tokens // 1000}k limit): {orig_count} messages reduced to {len(self.messages)}."
             )
             self._smart_scroll_end(animate=False)
         except Exception as err:
@@ -1407,6 +1429,49 @@ class CommandHandlers:
 
     def _load_session(self: SagoApp, sid: str) -> None:
         """Load a previous session's messages."""
+        sid = (sid or "").strip()
+        if sid.lower().startswith("load "):
+            sid = sid[5:].strip()
+        elif sid.lower().startswith("switch "):
+            sid = sid[7:].strip()
+        if not sid:
+            self._add_system_message("Usage: /load <session-id | json-file>")
+            return
+
+        # Check if sid points to an existing session file on disk
+        target_path = Path(sid)
+        if target_path.exists() and target_path.is_file():
+            try:
+                import uuid
+
+                file_content = target_path.read_text(encoding="utf-8")
+                sess_data = json.loads(file_content)
+                from sago.database import MessageStore, init_db
+                from sago.database import Session as DbSession
+
+                init_db()
+                file_sid = sess_data.get("id") or str(uuid.uuid4())
+                file_title = sess_data.get("title") or f"Imported: {target_path.name}"
+                with DbSession() as db_s:
+                    if not db_s.find_by_prefix(file_sid):
+                        db_s.id = file_sid
+                        db_s.create(title=file_title, metadata=sess_data.get("metadata") or {})
+                ms = MessageStore(file_sid)
+                if not ms.get_history(limit=1):
+                    for msg in sess_data.get("messages", []):
+                        ms.add(
+                            role=msg.get("role", "user"),
+                            content=msg.get("content", ""),
+                            agent_name=msg.get("agent_name"),
+                            metadata=msg.get("metadata") or {},
+                        )
+                    ms.flush()
+                ms.close()
+                sid = file_sid
+            except Exception as f_err:
+                self._add_system_message(f"Error loading session file {target_path}: {f_err}")
+                return
+
         try:
             from sago.database import MessageStore, Session, ToolUsageStore, init_db
 
@@ -1941,6 +2006,7 @@ class CommandHandlers:
                 f"Session not found: {sid}\nUse /sessions to list available sessions"
             )
         except Exception as e:
+            logger.exception("Failed to load session %s", sid)
             self._add_system_message(f"Load error: {e}")
 
     def _exit_session(self: SagoApp) -> None:
@@ -2835,7 +2901,7 @@ class CommandHandlers:
                 TaskStatus.COMPLETED: "\033[32m✓\033[0m",
                 TaskStatus.IN_PROGRESS: "\033[33m⟳\033[0m",
                 TaskStatus.FAILED: "\033[31m✗\033[0m",
-                TaskStatus.WAITING: "\033[36m◎\033[0m",
+                TaskStatus.WAITING_INPUT: "\033[36m◎\033[0m",
                 TaskStatus.SKIPPED: "\033[90m⊘\033[0m",
             }.get(todo.status, "\033[90m○\033[0m")
             step_lines.append(f"  {status_icon} {i + 1}. {todo.description[:70]}")
@@ -2865,7 +2931,7 @@ class CommandHandlers:
                 for todo in plan.todos:
                     if todo.id == args or args in todo.description:
                         self._add_system_message(
-                            f"[{todo.id}] {todo.description}\nStatus: {todo.status.value}"
+                            f"({todo.id}) {todo.description}\nStatus: {todo.status.value}"
                         )
                         return
                 self._add_system_message(f"Todo not found: {args}")
@@ -2890,7 +2956,7 @@ class CommandHandlers:
                 tm.complete_todo(plan.id, todo_id, result="Marked done by user")
                 next_todo = plan.current_todo
                 if next_todo:
-                    self._add_system_message(f"Next: [{next_todo.id}] {next_todo.description}")
+                    self._add_system_message(f"Next: ({next_todo.id}) {next_todo.description}")
                 else:
                     self._add_system_message("All todos completed! 🎉")
             else:
@@ -3079,9 +3145,10 @@ class CommandHandlers:
             elapsed = f"{t.elapsed:.1f}s" if t.elapsed > 0 else "..."
             tool_info = f" | {t.current_tool}" if t.current_tool else ""
             lines.append(
-                f"  {icon} {t.agent_id} [{t.agent_name}] {t.status.value} {elapsed}{tool_info}"
+                f"  {icon} {t.agent_id} ({t.agent_name}) {t.status.value} {elapsed}{tool_info}"
             )
-            lines.append(f"    Task: {t.task[:60]}")
+            safe_task = t.task[:60].replace("[", "(").replace("]", ")")
+            lines.append(f"    Task: {safe_task}")
         self._add_system_message("\n".join(lines))
 
     def _cancel_task(self: SagoApp, args: str) -> None:

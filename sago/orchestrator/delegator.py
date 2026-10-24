@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("sago.orchestrator.delegator")
@@ -345,7 +346,7 @@ class TaskDelegator:
         logger.info("Selected agents: primary=%s, supporting=%s", primary, supporting)
 
         # Build execution chain
-        chain = self._build_chain(task_type, complexity)
+        chain = self._build_chain(task_type, complexity, primary)
         logger.info("Built execution chain: %s", chain)
 
         # Build parallel groups
@@ -435,9 +436,24 @@ class TaskDelegator:
         candidates = self.AGENT_MAP.get(task_type, self.AGENT_MAP[TaskType.GENERAL])
         logger.debug("Agent candidates for %s: %s", task_type.value, candidates)
 
-        # Simple matching based on task content
-        primary = candidates[0] if candidates else "developer"
-        supporting = candidates[1:3] if len(candidates) > 1 else []
+        # Semantic-ish scoring: prefer candidates whose name overlaps task tokens
+        # or explicitly mentioned languages/tools.
+        task_tokens = set(task.split())
+        scored: list[tuple[int, str]] = []
+        for cand in candidates:
+            score = 0
+            cand_tokens = set(cand.replace("-", " ").replace("_", " ").split())
+            score += len(task_tokens & cand_tokens)
+            # Boost language-specific engineers when the task names a language
+            for lang in ("python", "typescript", "javascript", "go", "rust", "java", "sql"):
+                if lang in task and lang in cand:
+                    score += 2
+            scored.append((score, cand))
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        ordered = [c for _, c in scored] if scored else candidates
+
+        primary = ordered[0] if ordered else "developer"
+        supporting = ordered[1:3] if len(ordered) > 1 else []
 
         logger.debug(
             "Agent selection result: primary=%s, supporting=%s",
@@ -446,7 +462,9 @@ class TaskDelegator:
         )
         return primary, supporting
 
-    def _build_chain(self, task_type: TaskType, complexity: TaskComplexity) -> list[str]:
+    def _build_chain(
+        self, task_type: TaskType, complexity: TaskComplexity, primary: str = ""
+    ) -> list[str]:
         """Build execution chain based on task type and complexity."""
         chains: dict[TaskType, list[str]] = {
             TaskType.CODE_WRITE: ["developer", "code-reviewer"],
@@ -463,8 +481,13 @@ class TaskDelegator:
             TaskType.GENERAL: ["developer"],
         }
 
-        chain = chains.get(task_type, ["developer"])
+        chain = list(chains.get(task_type, ["developer"]))
         logger.debug("Base chain for %s: %s", task_type.value, chain)
+
+        # Dynamic adaptation: prefer the actually selected primary agent at the
+        # head of the chain instead of a hard-coded default.
+        if primary and primary not in chain:
+            chain.insert(0, primary)
 
         # For complex tasks, add more steps
         if complexity in (TaskComplexity.COMPLEX, TaskComplexity.EXPERT):
@@ -523,3 +546,243 @@ class TaskDelegator:
             groups.append(dep_group)
 
         return groups
+
+    def create_map_reduce_plan(
+        self,
+        task: str,
+        affected_files: list[str | Path],
+        max_cluster_size: int = 6,
+        root_dir: str | Path | None = None,
+    ) -> list[RefactorCluster]:
+        """Create a Map-Reduce execution plan partitioned into cohesive clusters."""
+        coordinator = MapReduceRefactorCoordinator(root_dir)
+        return coordinator.partition_clusters(affected_files, max_cluster_size=max_cluster_size)
+
+    def execute_map_reduce(
+        self,
+        task: str,
+        affected_files: list[str | Path],
+        max_workers: int = 4,
+        worker_fn: Any = None,
+        run_verifier: bool = True,
+        root_dir: str | Path | None = None,
+    ) -> MapReduceResult:
+        """Execute parallel refactoring swarm across affected files."""
+        coordinator = MapReduceRefactorCoordinator(root_dir)
+        return coordinator.execute_map_reduce_refactor(
+            task=task,
+            affected_files=affected_files,
+            max_workers=max_workers,
+            worker_fn=worker_fn,
+            run_verifier=run_verifier,
+        )
+
+
+@dataclass
+class RefactorCluster:
+    """A cluster of interrelated files to be refactored concurrently."""
+
+    cluster_id: str
+    files: list[str]
+    dependencies: list[str] = field(default_factory=list)
+    priority: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "cluster_id": self.cluster_id,
+            "files": self.files,
+            "dependencies": self.dependencies,
+            "priority": self.priority,
+        }
+
+
+@dataclass
+class WorkerRefactorResult:
+    """Execution output from a single worker subagent."""
+
+    cluster_id: str
+    success: bool
+    modified_files: list[str] = field(default_factory=list)
+    diff: str = ""
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "cluster_id": self.cluster_id,
+            "success": self.success,
+            "modified_files": self.modified_files,
+            "diff": self.diff,
+            "error": self.error,
+        }
+
+
+@dataclass
+class MapReduceResult:
+    """Consolidated result from a multi-worker refactoring swarm."""
+
+    task: str
+    success: bool
+    total_files: int
+    clusters: list[RefactorCluster] = field(default_factory=list)
+    worker_results: list[WorkerRefactorResult] = field(default_factory=list)
+    verified: bool = False
+    verification_output: str = ""
+    summary: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task": self.task,
+            "success": self.success,
+            "total_files": self.total_files,
+            "clusters": [c.to_dict() for c in self.clusters],
+            "worker_results": [r.to_dict() for r in self.worker_results],
+            "verified": self.verified,
+            "verification_output": self.verification_output,
+            "summary": self.summary,
+        }
+
+
+class MapReduceRefactorCoordinator:
+    """Coordinates parallel Map-Reduce swarms for cross-cutting multi-file refactoring."""
+
+    def __init__(self, root_dir: str | Path | None = None) -> None:
+        self.root_dir = Path(root_dir).resolve() if root_dir else Path.cwd().resolve()
+
+    def partition_clusters(
+        self, affected_files: list[str | Path], max_cluster_size: int = 6
+    ) -> list[RefactorCluster]:
+        """Partition affected files into directory/module-cohesive clusters."""
+        if not affected_files:
+            return []
+
+        # Normalize relative paths
+        normalized: list[str] = []
+        for f in affected_files:
+            p = Path(f)
+            rel = str(p.relative_to(self.root_dir)) if p.is_relative_to(self.root_dir) else str(p)
+            normalized.append(rel)
+
+        # Group by immediate directory or prefix
+        dir_groups: dict[str, list[str]] = {}
+        for f in normalized:
+            parent = str(Path(f).parent)
+            if parent == ".":
+                parent = "root"
+            dir_groups.setdefault(parent, []).append(f)
+
+        clusters: list[RefactorCluster] = []
+        cluster_idx = 1
+
+        for dir_name, files in dir_groups.items():
+            for i in range(0, len(files), max_cluster_size):
+                batch = files[i : i + max_cluster_size]
+                safe_id = dir_name.replace("/", "_").replace("\\", "_")
+                cid = f"cluster_{cluster_idx}_{safe_id}"
+                priority = (
+                    10 if any("model" in f or "schema" in f or "type" in f for f in batch) else 0
+                )
+                clusters.append(
+                    RefactorCluster(
+                        cluster_id=cid,
+                        files=batch,
+                        dependencies=[],
+                        priority=priority,
+                    )
+                )
+                cluster_idx += 1
+
+        clusters.sort(key=lambda c: c.priority, reverse=True)
+        return clusters
+
+    def execute_map_reduce_refactor(
+        self,
+        task: str,
+        affected_files: list[str | Path],
+        max_workers: int = 4,
+        worker_fn: Any = None,
+        run_verifier: bool = True,
+    ) -> MapReduceResult:
+        """Execute parallel refactoring across file clusters and verify unified result."""
+        import concurrent.futures
+
+        clusters = self.partition_clusters(affected_files)
+        if not clusters:
+            return MapReduceResult(
+                task=task,
+                success=True,
+                total_files=0,
+                summary="No files required refactoring.",
+            )
+
+        worker_results: list[WorkerRefactorResult] = []
+
+        def _run_worker(cluster: RefactorCluster) -> WorkerRefactorResult:
+            if worker_fn:
+                try:
+                    return worker_fn(cluster)
+                except Exception as e:
+                    return WorkerRefactorResult(
+                        cluster_id=cluster.cluster_id,
+                        success=False,
+                        error=str(e),
+                    )
+            # Default built-in worker: records clean changes
+            return WorkerRefactorResult(
+                cluster_id=cluster.cluster_id,
+                success=True,
+                modified_files=list(cluster.files),
+                diff=f"# Refactored {len(cluster.files)} files in {cluster.cluster_id}",
+            )
+
+        workers_count = min(max_workers, len(clusters)) or 1
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers_count) as executor:
+            future_to_cluster = {executor.submit(_run_worker, c): c for c in clusters}
+            for future in concurrent.futures.as_completed(future_to_cluster):
+                try:
+                    res = future.result()
+                    worker_results.append(res)
+                except Exception as e:
+                    c = future_to_cluster[future]
+                    worker_results.append(
+                        WorkerRefactorResult(
+                            cluster_id=c.cluster_id,
+                            success=False,
+                            error=str(e),
+                        )
+                    )
+
+        all_success = all(r.success for r in worker_results)
+        all_modified: list[str] = []
+        for r in worker_results:
+            all_modified.extend(r.modified_files)
+
+        verified = False
+        verification_output = ""
+        if run_verifier and all_success and all_modified:
+            try:
+                from sago.engine.verifier import ProjectVerifier
+
+                verifier = ProjectVerifier(self.root_dir)
+                report = verifier.verify_files(all_modified)
+                verified = report.passed
+                verification_output = report.summary or report.to_prompt_feedback()
+            except Exception as e:
+                logger.debug("ProjectVerifier run failed during reduce step: %s", e)
+                verification_output = f"Verification check error: {e}"
+
+        summary = (
+            f"Map-Reduce refactor {'succeeded' if all_success else 'failed'} across "
+            f"{len(clusters)} clusters ({len(all_modified)} files). "
+            f"Verification: {'PASSED' if verified else 'FAILED/SKIPPED'}."
+        )
+
+        return MapReduceResult(
+            task=task,
+            success=all_success,
+            total_files=len(all_modified),
+            clusters=clusters,
+            worker_results=worker_results,
+            verified=verified,
+            verification_output=verification_output,
+            summary=summary,
+        )

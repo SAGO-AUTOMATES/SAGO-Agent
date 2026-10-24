@@ -47,6 +47,18 @@ openai = ["langchain-openai>=0.3.0"]
 claude = ["anthropic>=0.40.0", "langchain-anthropic>=0.3.0"]
 ollama = ["langchain-community>=0.3.0"]
 dev = ["ruff>=0.8.0", "mypy>=1.13.0", "pytest>=8.0.0", "pytest-cov>=5.0.0", "pytest-asyncio>=0.23.0", "anyio>=4.0.0", "build>=1.2.0", "twine>=5.0.0"]
+code-intel = [
+    "tree-sitter>=0.21.0",
+    "tree-sitter-python>=0.21.0",
+    "tree-sitter-javascript>=0.21.0",
+    "tree-sitter-typescript>=0.21.0",
+    "tree-sitter-rust>=0.21.0",
+    "tree-sitter-go>=0.21.0",
+    "tree-sitter-c>=0.21.0",
+    "tree-sitter-cpp>=0.21.0",
+    "tree-sitter-java>=0.21.0",
+    "tiktoken>=0.7.0",
+]
 
 [project.scripts]
 sago = "sago.main:main"
@@ -109,6 +121,7 @@ module = "sago.*"
 ignore_errors = true
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]

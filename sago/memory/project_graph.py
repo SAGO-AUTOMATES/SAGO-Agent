@@ -186,6 +186,7 @@ class ProjectGraph:
         max_files: int = 1500,
         include_symbols: bool = True,
         include_data_flow: bool = True,
+        include_call_graph: bool = False,
     ) -> ProjectGraph:
         """Scan workspace in parallel and generate all nodes, edges, and data models."""
         self.nodes.clear()
@@ -330,6 +331,7 @@ class ProjectGraph:
                     local_models,
                     local_endpoints,
                     local_fields,
+                    include_call_graph,
                 )
             elif lang in {"typescript", "javascript"}:
                 self._parse_js_ts_local(
@@ -460,6 +462,7 @@ class ProjectGraph:
         out_models: list[str],
         out_endpoints: list[str],
         out_fields: dict[str, list[str]],
+        include_call_graph: bool = False,
     ) -> None:
         try:
             tree = ast.parse(content, filename=rel_path)
@@ -529,6 +532,7 @@ class ProjectGraph:
                             language="python",
                             file_path=rel_path,
                             line_number=node.lineno,
+                            metadata={"qualified": f"{rel_path}::{node.name}"},
                         )
                     )
                     out_edges.append(
@@ -585,12 +589,41 @@ class ProjectGraph:
                             language="python",
                             file_path=rel_path,
                             line_number=node.lineno,
-                            metadata={"decorators": decorators},
+                            metadata={
+                                "decorators": decorators,
+                                "qualified": f"{rel_path}::{node.name}",
+                            },
                         )
                     )
                     out_edges.append(
                         GraphEdge(source=file_node_id, target=sym_id, relation="defines")
                     )
+
+        # Optional call-graph edges (Python only).
+        if include_call_graph and include_symbols:
+            try:
+                from sago.memory.call_graph import PythonCallGraphExtractor
+
+                defined = {
+                    n.label.rstrip("()")
+                    for n in out_nodes
+                    if n.node_type in ("function", "method", "class")
+                }
+                cg = PythonCallGraphExtractor().extract_file(
+                    Path(self.root_dir) / rel_path if False else Path(rel_path),
+                    content,
+                )
+                for edge in cg.edges:
+                    if edge.caller in defined and edge.callee in defined:
+                        out_edges.append(
+                            GraphEdge(
+                                source=f"sym:{rel_path}#{edge.caller}",
+                                target=f"sym:{rel_path}#{edge.callee}",
+                                relation="calls",
+                            )
+                        )
+            except Exception:
+                pass
 
     def _parse_js_ts_local(
         self,

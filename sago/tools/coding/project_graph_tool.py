@@ -32,8 +32,9 @@ class ProjectGraphTool(BaseTool):
 
     name = "project_graph"
     description = (
-        "Generate a deep architecture diagram, execution process map, file dependency graph, "
-        "and data models in curated dashboard, ASCII, Mermaid, or JSON."
+        "PREFER FIRST for architecture/overview: generate a deep architecture diagram, "
+        "execution process map, file dependency graph, and data models in curated dashboard, "
+        "ASCII, Mermaid, or JSON."
     )
     args_model = ProjectGraphArgs
     risk_level = "safe"

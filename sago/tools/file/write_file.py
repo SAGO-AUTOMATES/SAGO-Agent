@@ -29,6 +29,9 @@ class WriteFileArgs(BaseModel):
         default=True, description="Create parent directories if they don't exist"
     )
     backup: bool = Field(default=False, description="Create a backup before writing")
+    skip_syntax_check: bool = Field(
+        default=False, description="Skip syntax validation (e.g. for test fixtures, templates)"
+    )
 
 
 class WriteFileTool(BaseTool):
@@ -47,6 +50,7 @@ class WriteFileTool(BaseTool):
         encoding: str = "utf-8",
         create_dirs: bool = True,
         backup: bool = False,
+        skip_syntax_check: bool = False,
         **kwargs: Any,
     ) -> str:
         """Write content to a file.
@@ -77,20 +81,26 @@ class WriteFileTool(BaseTool):
 
         # Pre-write syntax validation for structured file formats
         ext = path.suffix.lower()
-        if ext == ".json":
-            try:
-                import json
+        if not skip_syntax_check:
+            if ext == ".json":
+                try:
+                    import json
 
-                json.loads(content)
-            except Exception as e:
-                return f"Error: Pre-write validation failed for JSON file: {e}"
-        elif ext in (".yaml", ".yml"):
-            try:
-                import yaml  # type: ignore
+                    json.loads(content)
+                except Exception as e:
+                    return f"Error: Pre-write validation failed for JSON file: {e}"
+            elif ext in (".yaml", ".yml"):
+                try:
+                    import yaml  # type: ignore
 
-                yaml.safe_load(content)
-            except Exception as e:
-                return f"Error: Pre-write validation failed for YAML file: {e}"
+                    yaml.safe_load(content)
+                except Exception as e:
+                    return f"Error: Pre-write validation failed for YAML file: {e}"
+            elif ext == ".py":
+                try:
+                    ast.parse(content)
+                except SyntaxError as e:
+                    return f"Error: Pre-write validation failed for Python file (syntax: ERROR): {e.msg} at line {e.lineno}"
 
         # Backup existing file
         if backup and path.exists():

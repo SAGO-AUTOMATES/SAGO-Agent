@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -117,9 +118,16 @@ def discover_tools(
     force_reload: bool = False,
     include_plugins: bool = True,
     include_mcp: bool = True,
+    safe_mode: bool = False,
 ) -> dict[str, ToolDefinition]:
     """Discover all tools dynamically across built-in modules, plugins, and MCP."""
     global _TOOLS_CACHE
+
+    if os.environ.get("SAGO_SAFE_DISCOVERY") == "1":
+        safe_mode = True
+    if safe_mode:
+        include_plugins = False
+        include_mcp = False
 
     if _TOOLS_CACHE and not force_reload:
         return _TOOLS_CACHE
@@ -304,3 +312,70 @@ def list_categories() -> dict[str, list[ToolDefinition]]:
 def get_total_tools_count() -> int:
     """Return the total number of dynamically discovered tools."""
     return len(discover_tools())
+
+
+def select_tools_for_task(
+    task: str,
+    tools: dict[str, ToolDefinition] | None = None,
+    max_tools: int = 25,
+) -> list[str]:
+    """Heuristic task-aware tool subset selection (additive).
+
+    Returns a list of tool names likely relevant to ``task``. Callers may use
+    this to reduce the schema payload sent to the LLM. When no match is found,
+    returns up to ``max_tools`` tool names so behavior degrades gracefully.
+    """
+    discovered = tools if tools is not None else discover_tools()
+    if not discovered:
+        return []
+
+    task_lower = (task or "").lower()
+    scored: list[tuple[int, str]] = []
+    for name, tdef in discovered.items():
+        score = 0
+        haystack = f"{name} {tdef.description} {tdef.category}".lower()
+        for token in task_lower.split():
+            if len(token) < 3:
+                continue
+            if token in haystack:
+                score += 1
+        # Boost core coding tools for code-related tasks
+        if any(k in task_lower for k in ("code", "file", "function", "class")):
+            if tdef.category in ("coding", "file"):
+                score += 1
+        scored.append((score, name))
+
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    selected = [n for s, n in scored if s > 0][:max_tools]
+    if not selected:
+        selected = [n for _, n in scored[:max_tools]]
+    return selected
+
+
+class ScopedToolRegistry:
+    """Session/agent-scoped tool registry wrapper (additive).
+
+    Wraps the global discovery with an allow-list so different agents/sessions
+    can expose different tool subsets without mutating global state.
+    """
+
+    def __init__(self, allowed: set[str] | None = None) -> None:
+        self._allowed = allowed
+
+    def tools(self) -> dict[str, ToolDefinition]:
+        discovered = discover_tools()
+        if self._allowed is None:
+            return dict(discovered)
+        return {k: v for k, v in discovered.items() if k in self._allowed}
+
+    def allow(self, names: set[str]) -> None:
+        if self._allowed is None:
+            self._allowed = set(names)
+        else:
+            self._allowed |= names
+
+    def deny(self, names: set[str]) -> None:
+        if self._allowed is None:
+            self._allowed = set(discover_tools().keys()) - set(names)
+        else:
+            self._allowed -= names

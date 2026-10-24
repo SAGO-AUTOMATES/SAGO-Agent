@@ -30,6 +30,7 @@ class PromptEnhancementResult:
     acceptance_criteria: list[str] = field(default_factory=list)
     operational_constraints: list[str] = field(default_factory=list)
     improvements: list[str] = field(default_factory=list)
+    context_summary: str = ""
     was_modified: bool = True
     agent_role: str = ""
     timestamp: float = field(default_factory=time.time)
@@ -43,6 +44,7 @@ class PromptEnhancementResult:
             "acceptance_criteria": self.acceptance_criteria,
             "operational_constraints": self.operational_constraints,
             "improvements": self.improvements,
+            "context_summary": self.context_summary,
             "was_modified": self.was_modified,
             "agent_role": self.agent_role,
             "timestamp": self.timestamp,
@@ -205,6 +207,8 @@ class PromptEnhancer:
         agent_role: str = "Specialist Agent",
         cwd: str | Path | None = None,
         extra_context: str = "",
+        recent_turns: list[dict[str, Any]] | None = None,
+        modified_files: list[str] | None = None,
     ) -> PromptEnhancementResult:
         """Enhance a user prompt with minimal, targeted additions."""
         raw = (task or "").strip()
@@ -228,6 +232,12 @@ class PromptEnhancer:
                 agent_role=agent_role,
             )
 
+        # Generate fast 2-7 line working context summary
+        context_summary = self.summarize_working_context(
+            recent_turns=recent_turns,
+            modified_files=modified_files,
+        )
+
         # Classify intent
         intent_key, intent_desc, constraints = self._classify_intent(raw)
         logger.debug(
@@ -243,6 +253,7 @@ class PromptEnhancer:
                 original_prompt=raw,
                 enhanced_prompt=raw,
                 intent_summary=intent_desc,
+                context_summary=context_summary,
                 was_modified=False,
                 agent_role=agent_role,
             )
@@ -257,7 +268,13 @@ class PromptEnhancer:
 
         # Build minimal enhanced prompt
         enhanced = self._build_prompt(
-            raw, intent_desc, targets, constraints, domain_rules, extra_context
+            raw,
+            intent_desc,
+            targets,
+            constraints,
+            domain_rules,
+            extra_context,
+            context_summary=context_summary,
         )
 
         # Build acceptance criteria (just the task-relevant ones)
@@ -272,6 +289,8 @@ class PromptEnhancer:
             improvements.append(f"{domain} domain")
         if extra_context:
             improvements.append("extra context")
+        if context_summary:
+            improvements.append("context summary")
 
         result = PromptEnhancementResult(
             original_prompt=raw,
@@ -281,6 +300,7 @@ class PromptEnhancer:
             acceptance_criteria=criteria,
             operational_constraints=constraints + domain_rules,
             improvements=improvements,
+            context_summary=context_summary,
             was_modified=True,
             agent_role=agent_role,
         )
@@ -302,6 +322,8 @@ class PromptEnhancer:
         extra_context: str = "",
         client: Any = None,
         model: str = "",
+        recent_turns: list[dict[str, Any]] | None = None,
+        modified_files: list[str] | None = None,
     ) -> PromptEnhancementResult:
         """LLM-enhanced prompt improvement. Falls back to regex on failure."""
         raw = (task or "").strip()
@@ -314,10 +336,23 @@ class PromptEnhancer:
                 agent_role=agent_role,
             )
 
+        # Generate fast 2-7 line working context summary
+        context_summary = self.summarize_working_context(
+            recent_turns=recent_turns,
+            modified_files=modified_files,
+            client=client,
+            model=model,
+        )
+
         # Simple queries: skip LLM call entirely
         if self._is_simple_query(raw):
             return self.enhance(
-                task=task, agent_role=agent_role, cwd=cwd, extra_context=extra_context
+                task=task,
+                agent_role=agent_role,
+                cwd=cwd,
+                extra_context=extra_context,
+                recent_turns=recent_turns,
+                modified_files=modified_files,
             )
 
         targets = self._extract_file_refs(raw)
@@ -369,6 +404,8 @@ Task: {raw[:1500]}"""
                 domain_rules = self._DOMAIN_CONSTRAINTS.get(domain, [])
 
                 enhanced_parts = [llm_enhanced]
+                if context_summary:
+                    enhanced_parts.append(f"\nPrior State (2-7 lines):\n{context_summary}")
                 if targets:
                     enhanced_parts.append(f"\nFiles: {', '.join(targets)}")
                 if llm_criteria:
@@ -387,6 +424,7 @@ Task: {raw[:1500]}"""
                     acceptance_criteria=llm_criteria or self._build_criteria(intent_key, raw),
                     operational_constraints=constraints + domain_rules,
                     improvements=["LLM-enhanced", f"{intent_key.replace('_', ' ')} intent"],
+                    context_summary=context_summary,
                     was_modified=True,
                     agent_role=agent_role,
                 )
@@ -397,7 +435,14 @@ Task: {raw[:1500]}"""
             logger.debug("LLM enhancement failed: %s", e)
 
         # Fallback to regex-based enhancement
-        return self.enhance(task=task, agent_role=agent_role, cwd=cwd, extra_context=extra_context)
+        return self.enhance(
+            task=task,
+            agent_role=agent_role,
+            cwd=cwd,
+            extra_context=extra_context,
+            recent_turns=recent_turns,
+            modified_files=modified_files,
+        )
 
     def _is_simple_query(self, text: str) -> bool:
         """Check if query is too simple to warrant enhancement."""
@@ -529,6 +574,77 @@ Task: {raw[:1500]}"""
 
         return targets[:5]
 
+    def summarize_working_context(
+        self,
+        recent_turns: list[dict[str, Any]] | None = None,
+        modified_files: list[str] | None = None,
+        client: Any = None,
+        model: str = "",
+    ) -> str:
+        """Fast 2-7 line summary of prior working state to prevent context poisoning."""
+        if not recent_turns and not modified_files:
+            return ""
+
+        turns = (recent_turns or [])[-4:]
+        turn_snippets = []
+        for t in turns:
+            role = t.get("role", "user")
+            content = str(t.get("content", "")).strip()
+            if content:
+                turn_snippets.append(f"{role}: {content[:180]}")
+
+        file_info = ""
+        if modified_files:
+            if len(modified_files) <= 5:
+                file_info = f"Modified files: {', '.join(modified_files)}"
+            else:
+                file_info = f"Modified files ({len(modified_files)} total): {', '.join(modified_files[-4:])} (+{len(modified_files) - 4} more)"
+
+        if client and model and turn_snippets:
+            try:
+                system_prompt = (
+                    "Summarize the working conversation state in 2 to 5 short bullet points. "
+                    "Be ultra-concise: what was accomplished, what files changed, what current objective is. "
+                    "Max 7 lines."
+                )
+                user_msg = (
+                    "Recent History:\n"
+                    + "\n".join(turn_snippets)
+                    + (f"\n{file_info}" if file_info else "")
+                )
+                if hasattr(client, "models"):
+                    resp = client.models.generate_content(
+                        model=model,
+                        contents=f"{system_prompt}\n\n{user_msg}",
+                    )
+                    txt = (resp.text or "").strip()
+                else:
+                    resp = client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_msg},
+                        ],
+                        max_tokens=140,
+                        temperature=0.2,
+                    )
+                    txt = (resp.choices[0].message.content or "").strip()
+                if txt:
+                    lines = [ln.strip() for ln in txt.splitlines() if ln.strip()]
+                    return "\n".join(lines[:7])
+            except Exception as e:
+                logger.debug("Fast LLM working context summary failed: %s", e)
+
+        # High-signal deterministic fallback (2-5 lines)
+        lines = []
+        if turn_snippets:
+            last_turn = turns[-1].get("content", "").strip()[:90]
+            lines.append(f"• Recent turn: {last_turn}")
+        if file_info:
+            lines.append(f"• {file_info}")
+        lines.append("• State: Proceeding with current instruction.")
+        return "\n".join(lines[:5])
+
     def _build_prompt(
         self,
         raw: str,
@@ -537,9 +653,13 @@ Task: {raw[:1500]}"""
         constraints: list[str],
         domain_rules: list[str],
         extra_context: str,
+        context_summary: str = "",
     ) -> str:
         """Build minimal enhanced prompt. No verbose markdown headers."""
         parts = [raw]
+
+        if context_summary:
+            parts.append(f"\nPrior State (2-7 lines):\n{context_summary}")
 
         if targets:
             parts.append(f"\nFiles: {', '.join(targets)}")
@@ -613,6 +733,8 @@ def enhance_prompt(
     extra_context: str = "",
     llm_client: Any = None,
     llm_model: str = "",
+    recent_turns: list[dict[str, Any]] | None = None,
+    modified_files: list[str] | None = None,
 ) -> PromptEnhancementResult:
     """Convenience function to enhance a user prompt."""
     enhancer = get_prompt_enhancer(root_dir=cwd)
@@ -626,6 +748,8 @@ def enhance_prompt(
                 extra_context=extra_context,
                 client=llm_client,
                 model=llm_model,
+                recent_turns=recent_turns,
+                modified_files=modified_files,
             )
         except Exception as e:
             logger.debug("LLM enhancement failed, falling back to regex: %s", e)
@@ -635,6 +759,8 @@ def enhance_prompt(
         agent_role=agent_role,
         cwd=cwd,
         extra_context=extra_context,
+        recent_turns=recent_turns,
+        modified_files=modified_files,
     )
 
 

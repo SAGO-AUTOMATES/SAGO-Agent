@@ -115,11 +115,21 @@ class AgentSpinner(Static):
         super().__init__(**kwargs)
         self.agent_id = agent_id
         self.agent_name = agent_name
-        self.task = task
+        self._task_text = task
         self.frame = 0
         self.color = get_agent_color(agent_id)
         self.status = AgentStatus.RUNNING
         self.current_tool = ""
+
+    @property
+    def task_text(self) -> str:
+        """Task description text for the spinner."""
+        return self._task_text
+
+    @task_text.setter
+    def task_text(self, value: str) -> None:
+        self._task_text = value
+        self.refresh()
 
     def render(self) -> str:
         from rich.markup import escape as _escape
@@ -128,7 +138,7 @@ class AgentSpinner(Static):
             self.FRAMES[self.frame] if self.status == AgentStatus.RUNNING else self._status_icon()
         )
         task_info = f" | {_escape(self.current_tool)}" if self.current_tool else ""
-        task_preview = f": {_escape(self.task[:40])}" if self.task else ""
+        task_preview = f": {_escape(self._task_text[:40])}" if self._task_text else ""
         # Use [/] not [/{color}] — latter leaks as literal "[/italic #...]"
         return f"[{self.color}]{icon} {_escape(self.agent_name)}[/]{task_preview}{task_info}"
 
@@ -238,7 +248,7 @@ class AgentDashboard(Widget):
         failed = sum(1 for a in agents if a.status == AgentStatus.FAILED)
 
         for info in agents:
-            entry = Vertical(classes="agent-entry")
+            children: list[Widget] = []
 
             # Agent name with color
             status_icon = {
@@ -255,29 +265,34 @@ class AgentDashboard(Widget):
                 classes="agent-name",
                 markup=False,
             )
-            entry.mount(name_line)
+            children.append(name_line)
 
             # Task preview
             if info.task:
-                entry.mount(Static(f"  {info.task[:50]}", classes="agent-task", markup=False))
+                children.append(Static(f"  {info.task[:50]}", classes="agent-task", markup=False))
 
             # Current tool
             if info.current_tool and info.status == AgentStatus.RUNNING:
-                entry.mount(Static(f"  → {info.current_tool}", classes="agent-tools", markup=False))
+                children.append(
+                    Static(f"  → {info.current_tool}", classes="agent-tools", markup=False)
+                )
 
             # Progress bar
             if info.status == AgentStatus.RUNNING and info.progress > 0:
                 bar_len = 20
                 filled = int(bar_len * info.progress)
                 bar = "█" * filled + "░" * (bar_len - filled)
-                entry.mount(
+                children.append(
                     Static(f"  {bar} {info.progress:.0%}", classes="agent-progress", markup=False)
                 )
 
             # Elapsed time
             if info.elapsed > 0:
-                entry.mount(Static(f"  {info.elapsed:.1f}s", classes="agent-tools", markup=False))
+                children.append(
+                    Static(f"  {info.elapsed:.1f}s", classes="agent-tools", markup=False)
+                )
 
+            entry = Vertical(*children, classes="agent-entry")
             agent_list.mount(entry)
 
         # Update stats

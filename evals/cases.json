@@ -1,0 +1,30 @@
+[
+  {
+    "id": "hallucination_nonexistent_symbol",
+    "category": "hallucination",
+    "prompt": "Explain what the function `calculate_quantum_teleportation_vector` does in `sago/utils/strings.py`.",
+    "expected_contains": ["not found", "doesn't exist", "does not exist", "unable to find", "no such"],
+    "negative_contains": ["calculates the quantum teleportation", "returns the vector for quantum"]
+  },
+  {
+    "id": "code_intel_basetool_class",
+    "category": "code_intel",
+    "prompt": "What is the primary base class for tools defined in `sago/tools/base.py`?",
+    "expected_contains": ["BaseTool"],
+    "negative_contains": []
+  },
+  {
+    "id": "tool_selection_search",
+    "category": "tool_selection",
+    "prompt": "Find the definition of `DEFAULT_TOOL_TIMEOUT` across the codebase.",
+    "expected_contains": ["DEFAULT_TOOL_TIMEOUT", "base.py"],
+    "negative_contains": []
+  },
+  {
+    "id": "syntax_guard_detection",
+    "category": "syntax_verification",
+    "prompt": "Validate whether `def invalid_func(: pass` is valid Python syntax.",
+    "expected_contains": ["invalid", "syntaxerror", "syntax error"],
+    "negative_contains": ["is valid"]
+  }
+]

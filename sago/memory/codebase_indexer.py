@@ -69,6 +69,47 @@ class SearchResult:
 class CodebaseIndexer:
     """Index and search code files using TF-IDF scoring."""
 
+    IGNORE_FILE_PATTERNS = {
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "poetry.lock",
+        "Cargo.lock",
+        "composer.lock",
+        "Pipfile.lock",
+        "Gemfile.lock",
+        "go.sum",
+        "bun.lockb",
+    }
+
+    IGNORE_FILE_SUFFIXES = (
+        ".min.js",
+        ".min.css",
+        ".map",
+        ".bundle.js",
+        ".bundle.css",
+        ".pb.go",
+        "_pb2.py",
+        "_pb2_grpc.py",
+        ".g.dart",
+        ".wasm",
+        ".iso",
+        ".bin",
+        ".dylib",
+        ".so",
+        ".dll",
+        ".exe",
+    )
+
+    @classmethod
+    def should_ignore_file(cls, path: Path | str) -> bool:
+        p = Path(path)
+        name = p.name
+        if name in cls.IGNORE_FILE_PATTERNS:
+            return True
+        name_lower = name.lower()
+        return any(name_lower.endswith(suf) for suf in cls.IGNORE_FILE_SUFFIXES)
+
     def __init__(self) -> None:
         self._chunks: list[CodeChunk] = []
         self._idf: dict[str, float] = {}
@@ -131,6 +172,8 @@ class CodebaseIndexer:
             dirs[:] = [d for d in dirs if d not in exclude_dirs]
 
             for fname in files:
+                if self.should_ignore_file(fname):
+                    continue
                 ext = os.path.splitext(fname)[1].lower()
                 if ext not in extensions:
                     continue
@@ -267,11 +310,14 @@ class CodebaseIndexer:
                     )
             return chunks
 
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                start = node.lineno - 1
-                end = getattr(node, "end_lineno", node.lineno) or node.lineno
-                chunk_content = "\n".join(lines[start:end])
+        # Traverse only top-level and direct class members to avoid
+        # duplicating nested functions/methods (ast.walk descends into all
+        # nested scopes, which previously emitted the same method twice).
+        def _add_function(node: Any, chunk_type: str = "function") -> None:
+            start = node.lineno - 1
+            end = getattr(node, "end_lineno", node.lineno) or node.lineno
+            chunk_content = "\n".join(lines[start:end])
+            if chunk_content.strip():
                 chunks.append(
                     CodeChunk(
                         file_path=file_path,
@@ -279,14 +325,16 @@ class CodebaseIndexer:
                         end_line=end,
                         content=chunk_content,
                         language="python",
-                        chunk_type="function",
+                        chunk_type=chunk_type,
                         name=node.name,
                     )
                 )
-            elif isinstance(node, ast.ClassDef):
-                start = node.lineno - 1
-                end = getattr(node, "end_lineno", node.lineno) or node.lineno
-                chunk_content = "\n".join(lines[start:end])
+
+        def _add_class(node: ast.ClassDef) -> None:
+            start = node.lineno - 1
+            end = getattr(node, "end_lineno", node.lineno) or node.lineno
+            chunk_content = "\n".join(lines[start:end])
+            if chunk_content.strip():
                 chunks.append(
                     CodeChunk(
                         file_path=file_path,
@@ -298,6 +346,17 @@ class CodebaseIndexer:
                         name=node.name,
                     )
                 )
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    _add_function(item, chunk_type="method")
+                elif isinstance(item, ast.ClassDef):
+                    _add_class(item)
+
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                _add_function(node)
+            elif isinstance(node, ast.ClassDef):
+                _add_class(node)
 
         # Add imports as a chunk
         import_lines = []

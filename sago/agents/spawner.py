@@ -517,11 +517,16 @@ class AgentSpawner:
                 # Build context for this subtask
                 ctx_str = shared_ctx.get_context_for(agent_name)
 
+                model_name = getattr(
+                    getattr(self.config, "llm", None),
+                    "model",
+                    getattr(self.config, "model", "default"),
+                )
                 result = execute_agent_task(
                     task=task,
                     agent_role=agent_name.replace("-", " ").title(),
                     system_prompt=self._get_parallel_prompt(agent_name, ctx_str),
-                    model=self.config.llm.model,
+                    model=model_name,
                     api_key=os.environ.get(
                         "OPENROUTER_API_KEY", os.environ.get("OPENAI_API_KEY", "")
                     ),

@@ -156,7 +156,37 @@ class SagoTextAreaInput(TextArea):
         self.styles.height = min(5, max(3, line_count + 2))
 
     async def _on_key(self, event) -> None:
-        if event.key == "enter":
+        if event.key in ("f6", "ctrl+m"):
+            event.prevent_default()
+            event.stop()
+            self.app.action_open_model_switcher()
+            return
+        elif event.key == "f1":
+            event.prevent_default()
+            event.stop()
+            self.app.action_show_shortcuts()
+            return
+        elif event.key == "f2":
+            event.prevent_default()
+            event.stop()
+            self.app.action_open_trace_viewer()
+            return
+        elif event.key == "f3":
+            event.prevent_default()
+            event.stop()
+            self.app.action_open_diff_viewer()
+            return
+        elif event.key == "f4":
+            event.prevent_default()
+            event.stop()
+            self.app.action_open_file_explorer()
+            return
+        elif event.key == "f5":
+            event.prevent_default()
+            event.stop()
+            self.app.action_open_session_manager()
+            return
+        elif event.key == "enter":
             event.prevent_default()
             event.stop()
             val = self.text
@@ -198,17 +228,48 @@ class SagoTextAreaInput(TextArea):
 MultiLinePasteInput = SagoTextAreaInput
 
 
+class SagoActionBar(Horizontal):
+    """Horizontal container for the action bar with auto-updating touch scroll chevrons."""
+
+    def on_resize(self, event: Any) -> None:
+        self._sync_arrows()
+
+    def watch_scroll_x(self, old_val: float, new_val: float) -> None:
+        self._sync_arrows()
+
+    def _sync_arrows(self) -> None:
+        try:
+            prev_b = self.app.query_one("#btn-action-prev", Button)
+            next_b = self.app.query_one("#btn-action-next", Button)
+            if self.max_scroll_x <= 0:
+                prev_b.add_class("hidden")
+                next_b.add_class("hidden")
+            else:
+                if self.scroll_x > 0:
+                    prev_b.remove_class("hidden")
+                else:
+                    prev_b.add_class("hidden")
+                if self.scroll_x < self.max_scroll_x:
+                    next_b.remove_class("hidden")
+                else:
+                    next_b.add_class("hidden")
+        except Exception:
+            pass
+
+
 class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageProcessorMixin):
     CSS = TUI_CSS
 
     BINDINGS = [
-        Binding("ctrl+q", "quit", "Quit"),
-        Binding("ctrl+l", "clear_chat", "Clear"),
-        Binding("f1", "show_shortcuts", "Help / ?"),
-        Binding("f2", "open_trace_viewer", "Traces"),
-        Binding("f3", "open_diff_viewer", "Diff"),
-        Binding("f4", "open_file_explorer", "Files"),
-        Binding("f5", "open_session_manager", "Sessions"),
+        Binding("ctrl+q", "quit", "Quit", priority=True),
+        Binding("ctrl+l", "clear_chat", "Clear", priority=True),
+        Binding("f1", "show_shortcuts", "Help / ?", priority=True),
+        Binding("f2", "open_trace_viewer", "Traces", priority=True),
+        Binding("f3", "open_diff_viewer", "Diff", priority=True),
+        Binding("f4", "open_file_explorer", "Files", priority=True),
+        Binding("f5", "open_session_manager", "Sessions", priority=True),
+        Binding("f6", "open_model_switcher", "Model", priority=True),
+        Binding("ctrl+m", "open_model_switcher", "Model Switcher", show=False, priority=True),
         Binding("escape", "dismiss_suggestions", "Dismiss"),
         Binding("y", "approve_action", "Approve", show=True, priority=True),
         Binding("n", "deny_action", "Deny", show=True, priority=True),
@@ -294,12 +355,14 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                     )
                     with Horizontal(id="approval-buttons"):
                         yield Button(
-                            "Approve [Y]",
+                            "✓ Approve [Y]",
                             id="btn-approve",
                             variant="success",
                             classes="approve-btn",
                         )
-                        yield Button("Deny [N]", id="btn-deny", variant="error", classes="deny-btn")
+                        yield Button(
+                            "✕ Deny [N]", id="btn-deny", variant="error", classes="deny-btn"
+                        )
                 with Vertical(id="parallel-bar"):
                     yield Static(
                         "Parallel Agents",
@@ -312,40 +375,54 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                     yield MultiLinePasteInput(
                         placeholder="/, @, # for autocomplete (or type a message)", id="msg-input"
                     )
-                    with Horizontal(id="input-action-bar"):
+                    with Horizontal(id="action-bar-container"):
                         yield Button(
-                            "⌨  Help [F1]", id="btn-input-help", classes="btn-input-action"
+                            "‹", id="btn-action-prev", classes="action-scroll-arrow hidden"
                         )
+                        with SagoActionBar(id="input-action-bar"):
+                            yield Button(
+                                "⌨ Help [F1]", id="btn-input-help", classes="btn-input-action"
+                            )
+                            yield Button(
+                                "◈ Traces [F2]",
+                                id="btn-input-traces",
+                                classes="btn-input-action dev-only-btn",
+                            )
+                            yield Button(
+                                "± Diff [F3]",
+                                id="btn-input-diff",
+                                classes="btn-input-action",
+                            )
+                            yield Button(
+                                "▤ Files [F4]",
+                                id="btn-input-files",
+                                classes="btn-input-action",
+                            )
+                            yield Button(
+                                "↻ Sessions [F5]",
+                                id="btn-input-sessions",
+                                classes="btn-input-action",
+                            )
+                            yield Button(
+                                "✦ Models [F6]",
+                                id="btn-input-model",
+                                classes="btn-input-action",
+                            )
+                            yield Button(
+                                "⊘ Clear", id="btn-input-clear", classes="btn-input-action"
+                            )
+                            yield Button(
+                                "■ Cancel",
+                                id="btn-input-cancel",
+                                classes="btn-input-action btn-action-cancel",
+                            )
+                            yield Button(
+                                "✕ Exit",
+                                id="btn-input-exit",
+                                classes="btn-input-action btn-action-exit",
+                            )
                         yield Button(
-                            "⚡ Dev Traces [F2]",
-                            id="btn-input-traces",
-                            classes="btn-input-action btn-action-traces dev-only-btn",
-                        )
-                        yield Button(
-                            "🔍 Diff [F3]",
-                            id="btn-input-diff",
-                            classes="btn-input-action",
-                        )
-                        yield Button(
-                            "📁 Files [F4]",
-                            id="btn-input-files",
-                            classes="btn-input-action",
-                        )
-                        yield Button(
-                            "🔄 Sessions [F5]",
-                            id="btn-input-sessions",
-                            classes="btn-input-action",
-                        )
-                        yield Button("🧹 Clear", id="btn-input-clear", classes="btn-input-action")
-                        yield Button(
-                            "⛔ Cancel",
-                            id="btn-input-cancel",
-                            classes="btn-input-action btn-action-cancel",
-                        )
-                        yield Button(
-                            "🚪 Exit",
-                            id="btn-input-exit",
-                            classes="btn-input-action btn-action-exit",
+                            "›", id="btn-action-next", classes="action-scroll-arrow hidden"
                         )
             with Vertical(id="agent-dashboard", classes="hidden"):
                 yield Static("Agent Dashboard", classes="dashboard-title", markup=True)
@@ -387,6 +464,10 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             self._pending_resume = None
         # Auto-refresh models if stale
         self._auto_refresh_models()
+        for btn in self.query("#input-action-bar Button"):
+            btn.can_focus = False
+        for b in self.query(".action-scroll-arrow"):
+            b.can_focus = False
         self.query_one("#msg-input").focus()
         # Start dashboard update timer
         self._dashboard_timer = self.set_interval(1.0, self._periodic_dashboard_update)
@@ -495,6 +576,20 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 markup=True,
             )
         )
+        welcome.mount(
+            Static(
+                f"[dim]Active Model:[/] [bold green]{self.current_model}[/bold green] [dim](Provider: [cyan]{self.current_provider}[/cyan])[/dim]",
+                classes="welcome-model-badge",
+                markup=True,
+            )
+        )
+        welcome.mount(
+            Static(
+                "[dim]Quick Tips:[/] [bold #79c0ff]F6[/] Switch Models  •  [bold #79c0ff]?[/] Shortcuts  •  [bold #79c0ff]@agent[/] Specialists  •  [bold #79c0ff]#file[/] Context",
+                classes="welcome-tips-badge",
+                markup=True,
+            )
+        )
         welcome.mount(Static("Type a message or use /help for commands", classes="welcome-hint"))
 
     def _hide_welcome_screen(self) -> None:
@@ -506,6 +601,18 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             parent.remove_class("has-welcome")
         except Exception as e:
             logger.debug("Could not hide welcome screen: %s", e)
+
+    def _show_welcome_screen(self) -> None:
+        """Unhide the welcome screen and restore initial brand view."""
+        try:
+            welcome = self.query_one("#welcome-screen")
+            welcome.remove_class("hidden")
+            parent = self.query_one("#messages-parent")
+            parent.add_class("has-welcome")
+            if not welcome.children:
+                self._populate_welcome_screen()
+        except Exception as e:
+            logger.debug("Could not show welcome screen: %s", e)
 
     def _extract_file_context(self, message: str) -> str:
         """Extract #file references from message and return their contents as context."""
@@ -976,17 +1083,17 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             if is_error:
                 event.button.label = "✗ Copy failed"
                 self._add_system_message(
-                    f"📋 {result} — tip: hold Shift while selecting text to copy natively"
+                    f"⎘ {result} — tip: hold Shift while selecting text to copy natively"
                 )
             else:
                 event.button.label = "✓ Copied!"
                 self._add_system_message(
-                    f"📋 {result} — tip: Shift+drag selects text natively in terminal"
+                    f"⎘ {result} — tip: Shift+drag selects text natively in terminal"
                 )
 
             def _reset() -> None:
                 try:
-                    event.button.label = "📋 Copy Code"
+                    event.button.label = "⎘ Copy Code"
                 except Exception as e:
                     log_exception(e, "Failed to reset copy button label")
 
@@ -1210,19 +1317,6 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
             if val.startswith("/"):
                 inp.value = val + " "
                 inp.cursor_position = len(inp.value)
-                if (
-                    val.startswith("/model ")
-                    and not val.startswith("/model add")
-                    and not val.startswith("/model remove")
-                    and not val.startswith("/model refresh")
-                ):
-                    from sago.llm.registry import infer_provider_for_model
-
-                    model_id = val[7:].strip()
-                    inferred = infer_provider_for_model(model_id)
-                    if inferred:
-                        self.current_provider = inferred
-                    self.current_model = model_id
             else:
                 v = inp.value  # type: ignore[attr-defined]
                 last_space = v.rfind(" ")
@@ -1354,18 +1448,71 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                 self._try_process_queue()
 
     def on_mouse_scroll_down(self, event) -> None:
-        self.query_one("#messages").scroll_down()
+        if self.screen is not self:
+            return  # Let active modal handle its own scrolling
         try:
+            bar = self.query_one("#input-action-bar", SagoActionBar)
+            if (
+                hasattr(event, "x")
+                and hasattr(event, "y")
+                and bar.region.contains(event.x, event.y)
+            ):
+                bar.scroll_to(x=min(bar.max_scroll_x, bar.scroll_x + 20), animate=True)
+                return
+        except Exception:
+            pass
+        try:
+            self.query_one("#messages").scroll_down(animate=True)
             if self.is_scrolled_to_bottom():
                 self._hide_new_messages_badge()
         except Exception:
             pass
 
     def on_mouse_scroll_up(self, event) -> None:
-        self.query_one("#messages").scroll_up()
+        if self.screen is not self:
+            return  # Let active modal handle its own scrolling
+        try:
+            bar = self.query_one("#input-action-bar", SagoActionBar)
+            if (
+                hasattr(event, "x")
+                and hasattr(event, "y")
+                and bar.region.contains(event.x, event.y)
+            ):
+                bar.scroll_to(x=max(0, bar.scroll_x - 20), animate=True)
+                return
+        except Exception:
+            pass
+        try:
+            self.query_one("#messages").scroll_up(animate=True)
+        except Exception:
+            pass
+
+    @on(Button.Pressed, "#btn-action-prev")
+    def on_action_prev_clicked(self) -> None:
+        """Scroll action bar left on mobile touch."""
+        try:
+            bar = self.query_one("#input-action-bar", SagoActionBar)
+            bar.scroll_to(x=max(0, bar.scroll_x - 25), animate=True)
+            self.query_one("#msg-input").focus()
+        except Exception:
+            pass
+
+    @on(Button.Pressed, "#btn-action-next")
+    def on_action_next_clicked(self) -> None:
+        """Scroll action bar right on mobile touch."""
+        try:
+            bar = self.query_one("#input-action-bar", SagoActionBar)
+            bar.scroll_to(x=min(bar.max_scroll_x, bar.scroll_x + 25), animate=True)
+            self.query_one("#msg-input").focus()
+        except Exception:
+            pass
 
     def on_click(self, event) -> None:
-        self.query_one("#msg-input").focus()
+        if self.screen is self:
+            try:
+                self.query_one("#msg-input").focus()
+            except Exception:
+                pass
 
     def _periodic_dashboard_update(self) -> None:
         """Periodically update the dashboard with current task states."""
@@ -1433,16 +1580,14 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         tracer = get_dev_tracer()
         events = tracer.get_recent_traces(limit=500)
         if not events:
-            self._add_system_message(
-                "⚡ No traces yet. Enable with `/dev on`, then run some tasks."
-            )
+            self._add_system_message("◈ No traces yet. Enable with `/dev on`, then run some tasks.")
             return
         try:
             from sago.tui.trace_viewer import TraceViewerScreen
 
             self.push_screen(TraceViewerScreen(events))
         except Exception as e:
-            self._add_system_message(f"⚡ Trace viewer error: {e}")
+            self._add_system_message(f"◈ Trace viewer error: {e}")
 
     def action_open_diff_viewer(self) -> None:
         """Open the interactive diff inspector modal (F3)."""
@@ -1451,7 +1596,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
             self.push_screen(DiffViewerScreen())
         except Exception as e:
-            self._add_system_message(f"🔍 Diff viewer error: {e}")
+            self._add_system_message(f"± Diff viewer error: {e}")
 
     def action_open_file_explorer(self) -> None:
         """Open the workspace file tree explorer modal (F4)."""
@@ -1460,7 +1605,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
             self.push_screen(FileExplorerScreen())
         except Exception as e:
-            self._add_system_message(f"📁 File explorer error: {e}")
+            self._add_system_message(f"▤ File explorer error: {e}")
 
     def action_open_session_manager(self) -> None:
         """Open the session switcher & manager modal (F5)."""
@@ -1469,7 +1614,32 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
             self.push_screen(SessionManagerScreen())
         except Exception as e:
-            self._add_system_message(f"🔄 Session manager error: {e}")
+            self._add_system_message(f"↻ Session manager error: {e}")
+
+    def action_open_model_switcher(self) -> None:
+        """Open the interactive model & provider switcher modal (F6 / Ctrl+M / /model)."""
+        try:
+            from sago.settings import save_setting
+            from sago.tui.modals import ModelSwitcherScreen
+
+            def _on_model_selected(result: dict[str, str] | None) -> None:
+                if not result:
+                    return
+                prov = result.get("provider", self.current_provider)
+                mod = result.get("model", self.current_model)
+                if not mod:
+                    return
+                self.current_provider = prov
+                self.current_model = mod
+                save_setting("provider", prov)
+                save_setting("model", mod)
+                self._add_system_message(
+                    f"● Active Model: [bold white]{mod}[/]  ([cyan]Provider: {prov}[/])"
+                )
+
+            self.push_screen(ModelSwitcherScreen(), _on_model_selected)
+        except Exception as e:
+            self._add_system_message(f"✦ Model switcher error: {e}")
 
     @on(Button.Pressed, "#btn-top-traces")
     @on(Button.Pressed, "#btn-input-traces")
@@ -1492,6 +1662,11 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         """Open session switcher from input action bar button."""
         self.action_open_session_manager()
 
+    @on(Button.Pressed, "#btn-input-model")
+    def on_model_button_clicked(self) -> None:
+        """Open model switcher from input action bar button."""
+        self.action_open_model_switcher()
+
     @on(Button.Pressed, ".btn-view-trace")
     def on_view_trace_button(self, event: Button.Pressed) -> None:
         """Handle per-turn 'View Trace ⚡' button clicks."""
@@ -1503,14 +1678,14 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
 
             trace_events = get_dev_tracer().get_recent_traces(limit=500)
         if not trace_events:
-            self._add_system_message("⚡ No traces captured yet.")
+            self._add_system_message("◈ No traces captured yet.")
             return
         try:
             from sago.tui.trace_viewer import TraceViewerScreen
 
             self.push_screen(TraceViewerScreen(trace_events, turn_label=trace_label))
         except Exception as e:
-            self._add_system_message(f"⚡ Trace viewer error: {e}")
+            self._add_system_message(f"◈ Trace viewer error: {e}")
 
     @on(Button.Pressed, "#btn-top-dashboard")
     @on(Button.Pressed, "#btn-input-dashboard")
@@ -1528,6 +1703,10 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     def on_clear_button_clicked(self) -> None:
         """Clear message log from input action bar button."""
         self.action_clear_chat()
+        try:
+            self.query_one("#msg-input").focus()
+        except Exception:
+            pass
 
     @on(Button.Pressed, "#btn-input-cancel")
     def on_cancel_button_clicked(self) -> None:
@@ -2017,7 +2196,7 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         start_config_watching()
         config = get_config()
         mode = getattr(config.execution, "mode", "native")
-        self._add_system_message(f"Config reloaded: execution mode is now [{mode}]")
+        self._add_system_message(f"Config reloaded: execution mode is now `{mode}`")
         self._update_execution_mode(mode)
 
     def _update_execution_mode(self, mode: str) -> None:
@@ -2038,7 +2217,11 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     def action_clear_chat(self) -> None:
         self.query_one("#messages").remove_children()
         self.messages.clear()
-        self._add_system_message("Cleared.")
+        self._show_welcome_screen()
+        try:
+            self.query_one("#msg-input").focus()
+        except Exception:
+            pass
 
     def action_scroll_page_up(self) -> None:
         """Scroll message viewport page up."""
@@ -2059,14 +2242,14 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
     def action_scroll_line_up(self) -> None:
         """Scroll message viewport line up."""
         try:
-            self.query_one("#messages").scroll_up(animate=False)
+            self.query_one("#messages").scroll_up(animate=True)
         except Exception as e:
             log_exception(e, "Failed to scroll line up")
 
     def action_scroll_line_down(self) -> None:
         """Scroll message viewport line down."""
         try:
-            self.query_one("#messages").scroll_down(animate=False)
+            self.query_one("#messages").scroll_down(animate=True)
             if self.is_scrolled_to_bottom():
                 self._hide_new_messages_badge()
         except Exception as e:

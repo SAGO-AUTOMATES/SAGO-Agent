@@ -709,3 +709,49 @@ def resolve_specialist_agent(
         return "general-assistant"
 
     return default_agent or "full-stack-engineer"
+
+
+class ScopedAgentRegistry:
+    """Session or execution scoped agent registry (additive).
+
+    Allows sessions to register custom agents or override existing agent profiles
+    without polluting the global AGENTS registry.
+    """
+
+    def __init__(self, overrides: dict[str, AgentDefinition] | None = None) -> None:
+        self._overrides: dict[str, AgentDefinition] = dict(overrides or {})
+
+    def register(self, agent: AgentDefinition) -> None:
+        """Register or override an agent in this scope."""
+        self._overrides[agent.name.lower()] = agent
+        self._overrides[agent.codename.lower()] = agent
+
+    def unregister(self, name: str) -> None:
+        """Remove a scoped agent override."""
+        self._overrides.pop(name.lower(), None)
+
+    def get(self, name: str) -> AgentDefinition | None:
+        """Get an agent from the scoped registry or fallback to global registry."""
+        norm = name.lower()
+        if norm in self._overrides:
+            return self._overrides[norm]
+        return get_agent(name)
+
+    def list_all(self) -> list[dict[str, Any]]:
+        """List all agents combining global agents with scoped overrides."""
+        all_names = set(AGENTS.keys()) | set(self._overrides.keys())
+        result = []
+        for n in sorted(all_names):
+            ag = self.get(n)
+            if ag and ag.name == n:
+                result.append(
+                    {
+                        "name": ag.name,
+                        "codename": ag.codename,
+                        "role": ag.role,
+                        "description": ag.description,
+                        "skills": ag.skills,
+                        "category": ag.category,
+                    }
+                )
+        return result

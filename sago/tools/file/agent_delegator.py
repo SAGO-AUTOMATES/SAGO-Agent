@@ -10,6 +10,7 @@ Smart routing of tasks to appropriate agents based on:
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -81,6 +82,90 @@ TASK_AGENTS: dict[str, list[str]] = {
 }
 
 
+# Capability descriptions for embedding-based semantic routing (opt-in).
+AGENT_CAPABILITIES: dict[str, str] = {
+    "python-engineer": "Python backend development, scripting, automation, data processing, testing",
+    "backend-engineer": "Backend services, APIs, databases, server-side logic",
+    "data-engineer": "Data pipelines, ETL, analytics, databases, migrations",
+    "ml-engineer": "Machine learning models, training, inference, embeddings",
+    "data-analyst": "Data analysis, reports, visualization, insights",
+    "frontend-engineer": "Frontend UI, React, Vue, HTML, CSS, components",
+    "react-engineer": "React.js applications, hooks, components, state management",
+    "vue-engineer": "Vue.js applications, components, reactivity",
+    "ui-engineer": "User interfaces, design systems, accessibility, styling",
+    "css-engineer": "CSS styling, layouts, animations, responsive design",
+    "ux-engineer": "User experience flows, wireframes, usability",
+    "fullstack-engineer": "End-to-end features, fullstack web applications, integration of backend and frontend",
+    "mobile-engineer": "Mobile app development, cross-platform",
+    "ios-engineer": "iOS apps, Swift, SwiftUI, Apple platforms",
+    "android-engineer": "Android apps, Kotlin, Jetpack",
+    "flutter-engineer": "Flutter and Dart mobile apps",
+    "java-engineer": "Java services, JVM ecosystems, Maven, Gradle",
+    "go-engineer": "Go services, concurrency, CLI tools, networking",
+    "rust-engineer": "Rust systems programming, performance, safety",
+    "cpp-engineer": "C++ systems, game engines, performance critical code",
+    "c-engineer": "C programming, embedded systems, low-level code",
+    "systems-engineer": "Systems programming, memory management, OS internals",
+    "ruby-engineer": "Ruby on Rails, gems, scripting",
+    "php-engineer": "PHP applications, CMS, web backends",
+    "devops": "CI/CD pipelines, deployments, infrastructure, containers, shell",
+    "sre-engineer": "Reliability, monitoring, incident response, performance, uptime",
+    "kubernetes-engineer": "Kubernetes, Helm, orchestrations, YAML manifests",
+    "platform-engineer": "Developer platforms, setup, configuration, tooling",
+    "release-engineer": "Release management, versioning, builds, deployment automation",
+    "qa-engineer": "Quality assurance, test planning, bug triage",
+    "test-engineer": "Automated tests, unit tests, integration tests, coverage",
+    "automation-engineer": "Test automation, end-to-end suites, scripts",
+    "security-engineer": "Vulnerability analysis, secure coding, audits",
+    "appsec-engineer": "Application security, OWASP, dependency scanning",
+    "performance-engineer": "Profiling, optimization, latency, throughput tuning",
+    "database-engineer": "SQL, schema design, migrations, query optimization",
+    "api-engineer": "REST/GraphQL API design, contracts, versioning",
+    "code-reviewer": "Code review, quality checks, best practices",
+    "technical-writer": "Documentation, README files, guides, API references",
+    "documentation-updater": "Keeping docs in sync with code changes",
+    "debugger": "Debugging errors, stack traces, root cause analysis",
+    "software-engineer": "General software engineering, refactoring, design patterns",
+}
+
+
+def _semantic_boost(task: str) -> dict[str, float]:
+    """Embedding-similarity bonus per agent (opt-in semantic routing).
+
+    Uses the shared embedding helper (OpenAI when SAGO_EMBEDDING_PROVIDER=openai,
+    deterministic hash vectors otherwise). Returns a name->score map; empty when
+    disabled or on any error.
+    """
+    if os.environ.get("SAGO_SEMANTIC_ROUTING", "").strip() != "1":
+        return {}
+    try:
+        import math
+
+        from sago.memory.hybrid_indexer import _compute_embedding
+
+        task_vec = _compute_embedding(task or "generic software task")
+        norm_task = math.sqrt(sum(v * v for v in task_vec)) or 1.0
+        scored: dict[str, float] = {}
+        for agent, desc in AGENT_CAPABILITIES.items():
+            vec = _compute_embedding(desc)
+            dot = sum(a * b for a, b in zip(task_vec, vec))
+            norm_a = math.sqrt(sum(v * v for v in vec)) or 1.0
+            sim = dot / (norm_task * norm_a)
+            # Remap cosine sim (often ~0..0.5 for hash vectors) into a modest boost.
+            boost = max(0.0, min(0.45, sim * 1.8))
+            if boost > 0.05:
+                scored[agent] = boost
+        # De-noise: subtract the mean so "everything looks similar" collapses away.
+        if scored:
+            mean = sum(scored.values()) / len(scored)
+            scored = {a: max(0.0, b - mean) for a, b in scored.items()}
+            scored = {a: b for a, b in scored.items() if b > 0.05}
+        return scored
+    except Exception as e:
+        logger.debug("Semantic routing unavailable: %s", e)
+        return {}
+
+
 @dataclass
 class DelegationResult:
     """Result of agent delegation analysis."""
@@ -142,6 +227,13 @@ class AgentDelegator:
                 for agent in agents[:2]:
                     scores[agent] = scores.get(agent, 0) + 0.5
                 reasons.append(f"task:{keyword}")
+
+        # Semantic routing (opt-in): embedding similarity against agent capabilities
+        semantic = _semantic_boost(task)
+        for agent, boost in semantic.items():
+            scores[agent] = scores.get(agent, 0.0) + boost
+            if boost > 0.2:
+                reasons.append(f"semantic:{agent}:{boost:.2f}")
 
         # If no scores, use defaults
         if not scores:

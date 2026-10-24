@@ -26,7 +26,12 @@ When any task is dispatched to an agent, orchestrated across a specialist team, 
 4. **Domain-Specific Engineering Guidelines**
    - Automatically injects best-practice constraints tailored to the agent's specialty (Python, Web, Security, Database, DevOps).
 
-5. **Complexity Assessment & Overthinking Prevention**
+5. **2–7 Line Working Context Summarizer & Anti-Poisoning Guard**
+   - Before executing a heavy agent turn, a fast, lightweight non-agent call synthesizes prior conversation turns into an ultra-concise 2–7 line summary.
+   - Prevents context poisoning and attention degradation when 50+ or 100+ files have been touched across previous turns.
+   - Transparently displayed to the user inside the TUI's collapsible `✨ Enhanced Prompt` turn card.
+
+6. **Complexity Assessment & Overthinking Prevention**
    - Classifies queries as simple/medium/complex to calibrate response depth.
    - Simple queries ("hi", "what is 2+2") get minimal enhancement — no heavy tooling overhead.
    - Lightweight "query" type for quick info lookups ("what's in this file", "where is X defined").

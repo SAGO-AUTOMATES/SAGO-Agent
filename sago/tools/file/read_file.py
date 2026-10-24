@@ -33,7 +33,7 @@ class ReadFileTool(BaseTool):
     """Tool for reading file contents."""
 
     name = "read_file"
-    description = "Read the contents of a file. Returns the file content as a string."
+    description = "Read the contents of a file (targeted: use offset/limit for large files; auto-caps huge files). Returns the file content as a string."
     args_model = ReadFileArgs
 
     def _run(
@@ -202,6 +202,13 @@ class ReadFileTool(BaseTool):
                 logger.debug("AST parsing failed for %s: %s", path, e)
 
         lines = content.splitlines(keepends=True)
+        total_lines = len(content.splitlines())
+
+        # Auto-cap very large reads to avoid context poisoning when no explicit
+        # limit is given. Callers can paginate with offset/limit.
+        _auto_cap = 400
+        if limit == 0 and total_lines > 800 and offset == 0:
+            limit = _auto_cap
 
         if offset > 0:
             lines = lines[offset:]
@@ -210,7 +217,6 @@ class ReadFileTool(BaseTool):
 
         result = "".join(lines)
         line_count = len(lines)
-        total_lines = len(content.splitlines())
 
         if line_count == 0:
             header = f"--- {path} (empty or beyond offset, total lines: {total_lines}) ---\n"
@@ -219,7 +225,12 @@ class ReadFileTool(BaseTool):
 
         # Add size warning for large files
         size_hint = ""
-        if size > 500 * 1024 and limit == 0 and offset == 0:
+        if total_lines > 800 and limit == _auto_cap and offset == 0:
+            size_hint = (
+                f"[Hint] Auto-capped to first {_auto_cap} of {total_lines} lines to avoid context overflow. "
+                f"Use offset/limit to read more.\n"
+            )
+        elif size > 500 * 1024 and limit == 0 and offset == 0:
             size_hint = f"[Hint] Large file ({size} bytes, {total_lines} lines) — consider using offset/limit or grep_content for targeted reads.\n"
 
         # Truncate extremely long output (>100KB) hint

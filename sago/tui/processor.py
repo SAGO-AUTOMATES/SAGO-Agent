@@ -391,7 +391,10 @@ class MessageProcessorMixin:
                     use_native_gemini = self.current_provider == "google"
                     gemini_client = client if use_native_gemini else None
                 except ValueError as e:
-                    self.call_from_thread(self._hide_spinner)
+                    try:
+                        self.call_from_thread(self._hide_spinner)
+                    except Exception:
+                        pass
                     # Detailed provider error with actionable next steps
                     err_detail = str(e)
                     provider_hint = (
@@ -404,7 +407,10 @@ class MessageProcessorMixin:
                         f"→ Retry: `/retry` or `/continue` after fixing key\n"
                         f"→ Status: `/status` to see current provider/model"
                     )
-                    self.call_from_thread(self._add_error_inline, hint, "Provider setup failed")
+                    try:
+                        self.call_from_thread(self._add_error_inline, hint, "Provider setup failed")
+                    except Exception:
+                        pass
                     return
 
                 start_time = _time.time()
@@ -599,6 +605,7 @@ class MessageProcessorMixin:
                     agent_role=self.current_agent,
                     llm_client=client,
                     llm_model=api_model,
+                    recent_turns=history[-5:] if history else None,
                 )
                 if enhancement.was_modified and not _is_lightweight:
                     self.call_from_thread(
@@ -1995,7 +2002,10 @@ class MessageProcessorMixin:
 
                             verifier = get_verifier()
                             verification = verifier.verify(
-                                content, tool_history=tool_history, task_type=task_type
+                                content,
+                                tool_history=tool_history,
+                                task_type=task_type,
+                                root_dir=os.getcwd(),
                             )
                             if verification.has_hallucinations:
                                 content = verification.cleaned_content
@@ -2014,6 +2024,7 @@ class MessageProcessorMixin:
                             content or "",
                             tool_history=tool_history,
                             task_type=task_type,
+                            root_dir=os.getcwd(),
                         )
                         confidence = verification.confidence
                         all_issues = verification.all_issues
@@ -2034,7 +2045,10 @@ class MessageProcessorMixin:
 
                         verifier = get_verifier()
                         verification = verifier.verify(
-                            content, tool_history=[], task_type=task_type
+                            content,
+                            tool_history=[],
+                            task_type=task_type,
+                            root_dir=os.getcwd(),
                         )
                         if verification.has_hallucinations:
                             content = verification.cleaned_content
@@ -2147,7 +2161,10 @@ class MessageProcessorMixin:
                     )
 
         except Exception as e:
-            self.call_from_thread(self._hide_spinner)
+            try:
+                self.call_from_thread(self._hide_spinner)
+            except Exception:
+                pass
             error_msg = str(e)
             logger.error(
                 "Error during message processing: %s (model=%s, provider=%s, elapsed=%.1fs)",

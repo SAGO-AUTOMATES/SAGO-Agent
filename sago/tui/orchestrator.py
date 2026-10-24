@@ -646,10 +646,13 @@ class AgentOrchestrationMixin:
                     info.status = AgentStatus.COMPLETED
                     info.result = result
                     info.elapsed = _time.time() - info.start_time
-                    self.call_from_thread(self._update_dashboard)
-                    # Update handoff flow: mark completed/failed
-                    _step_status = "completed" if is_success else "failed"
-                    self.call_from_thread(handoff_widget.update_step, _hf_idx, _step_status)
+                    try:
+                        self.call_from_thread(self._update_dashboard)
+                        # Update handoff flow: mark completed/failed
+                        _step_status = "completed" if is_success else "failed"
+                        self.call_from_thread(handoff_widget.update_step, _hf_idx, _step_status)
+                    except Exception:
+                        pass
                     _hf_idx += 1
                     # Stop chain on failure — subsequent steps depend on this one
                     if not is_success:
@@ -804,8 +807,11 @@ class AgentOrchestrationMixin:
                 )
             except Exception as exc:
                 logger.debug("dev tracer record failed (chain failed): %s", exc)
-            self.call_from_thread(self._hide_spinner)
-            self.call_from_thread(self._add_error_inline, f"Chain error: {e}")
+            try:
+                self.call_from_thread(self._hide_spinner)
+                self.call_from_thread(self._add_error_inline, f"Chain error: {e}")
+            except Exception:
+                pass
         finally:
             self.is_thinking = False
             try:

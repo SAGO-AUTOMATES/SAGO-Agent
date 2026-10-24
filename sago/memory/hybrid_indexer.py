@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import re
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -126,6 +127,73 @@ def _tokenize_code(text: str) -> list[str]:
     return tokens
 
 
+_EMBEDDING_PROVIDER = None  # resolved lazily
+
+
+def _resolve_embedding_provider() -> str:
+    global _EMBEDDING_PROVIDER
+    if _EMBEDDING_PROVIDER is not None:
+        return _EMBEDDING_PROVIDER
+    import os
+
+    provider = os.environ.get("SAGO_EMBEDDING_PROVIDER", "hash").strip().lower()
+    if provider == "openai" and os.environ.get("OPENAI_API_KEY"):
+        _EMBEDDING_PROVIDER = "openai"
+    else:
+        _EMBEDDING_PROVIDER = "hash"
+    return _EMBEDDING_PROVIDER
+
+
+def _compute_embeddings_batch(
+    texts: list[str], dim: int = 128, batch_size: int = 100
+) -> list[list[float]]:
+    """Compute embeddings for a batch of texts with fallback to dense hash vector.
+
+    Maintains uniform vector dimension (default 128) across providers to ensure
+    cosine similarity compatibility.
+    """
+    if not texts:
+        return []
+    provider = _resolve_embedding_provider()
+    if provider == "openai":
+        try:
+            import math
+
+            import openai
+
+            client = openai.OpenAI()
+            results: list[list[float]] = []
+            for i in range(0, len(texts), batch_size):
+                batch = texts[i : i + batch_size]
+                batch_input = [t[:4000] if len(t) > 4000 else (t or "empty") for t in batch]
+                try:
+                    resp = client.embeddings.create(
+                        model="text-embedding-3-small", input=batch_input, dimensions=dim
+                    )
+                    for item in resp.data:
+                        vec = item.embedding
+                        norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+                        results.append([x / norm for x in vec])
+                except Exception:
+                    for t in batch:
+                        results.append(_compute_dense_vector(t.split(), dim=dim))
+            return results
+        except Exception:
+            global _EMBEDDING_PROVIDER
+            _EMBEDDING_PROVIDER = "hash"
+    return [_compute_dense_vector(t.split(), dim=dim) for t in texts]
+
+
+def _compute_embedding(text: str, dim: int = 128) -> list[float]:
+    """Compute an embedding vector, using a real provider when configured.
+
+    Falls back to the local hash vector on any failure so behavior stays
+    non-breaking.
+    """
+    batch_res = _compute_embeddings_batch([text], dim=dim)
+    return batch_res[0] if batch_res else _compute_dense_vector(text.split(), dim=dim)
+
+
 def _compute_dense_vector(tokens: list[str], dim: int = 128) -> list[float]:
     """Compute normalized dense semantic hash vector for zero-dependency local search."""
     if not tokens:
@@ -188,9 +256,154 @@ class HybridCodeIndexer:
         "target",
         ".pytest_cache",
         ".ruff_cache",
+        ".mypy_cache",
+        ".tox",
         ".sago",
         "brain",
+        ".cache",
+        "coverage",
+        ".next",
+        ".turbo",
+        ".nuxt",
+        "vendor",
+        "pkg",
+        "bin",
+        "obj",
+        ".idea",
+        ".vscode",
     }
+
+    IGNORE_FILE_PATTERNS = {
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "poetry.lock",
+        "Cargo.lock",
+        "composer.lock",
+        "Pipfile.lock",
+        "Gemfile.lock",
+        "go.sum",
+        "bun.lockb",
+    }
+
+    IGNORE_FILE_SUFFIXES = (
+        ".min.js",
+        ".min.css",
+        ".map",
+        ".bundle.js",
+        ".bundle.css",
+        ".pb.go",
+        "_pb2.py",
+        "_pb2_grpc.py",
+        ".g.dart",
+        ".wasm",
+        ".iso",
+        ".bin",
+        ".dylib",
+        ".so",
+        ".dll",
+        ".exe",
+    )
+
+    @classmethod
+    def should_ignore_file(cls, path: Path | str) -> bool:
+        """Check if file matches lockfiles, minified bundles, or binary suffixes."""
+        p = Path(path)
+        name = p.name
+        if name in cls.IGNORE_FILE_PATTERNS:
+            return True
+        name_lower = name.lower()
+        if any(name_lower.endswith(suf) for suf in cls.IGNORE_FILE_SUFFIXES):
+            return True
+        return False
+
+    @classmethod
+    def find_git_root(cls, start_dir: Path) -> Path | None:
+        """Locate git root directory if it exists."""
+        curr = start_dir.resolve()
+        while True:
+            if (curr / ".git").exists():
+                return curr
+            if curr.parent == curr:
+                break
+            curr = curr.parent
+        return None
+
+    def get_git_files(self, max_files: int = 50000) -> list[Path] | None:
+        """Enumerate tracked and non-ignored files via git ls-files."""
+        git_root = self.find_git_root(self.root_dir)
+        if not git_root:
+            return None
+        try:
+            cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
+            proc = subprocess.run(
+                cmd,
+                cwd=str(self.root_dir),
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+            if proc.returncode != 0:
+                return None
+            files: list[Path] = []
+            for line in proc.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                p = (self.root_dir / line).resolve()
+                if self.should_ignore_file(p):
+                    continue
+                ext = p.suffix.lower()
+                if ext in self.LANGUAGE_EXTENSIONS and p.is_file():
+                    files.append(p)
+                    if len(files) >= max_files:
+                        break
+            return files
+        except Exception as e:
+            logger.debug("git ls-files failed: %s", e)
+            return None
+
+    def get_git_status_files(self) -> tuple[set[Path], set[Path]] | None:
+        """Get (changed_or_untracked, deleted) files via git status --porcelain."""
+        git_root = self.find_git_root(self.root_dir)
+        if not git_root:
+            return None
+        try:
+            cmd = ["git", "status", "--porcelain", "-uall"]
+            proc = subprocess.run(
+                cmd,
+                cwd=str(self.root_dir),
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+            if proc.returncode != 0:
+                return None
+            changed: set[Path] = set()
+            deleted: set[Path] = set()
+            for line in proc.stdout.splitlines():
+                if len(line) < 4:
+                    continue
+                status = line[:2]
+                rel = line[3:].strip()
+                if " -> " in rel:
+                    old_f, new_f = rel.split(" -> ", 1)
+                    deleted.add((self.root_dir / old_f).resolve())
+                    p = (self.root_dir / new_f).resolve()
+                else:
+                    p = (self.root_dir / rel).resolve()
+
+                if "D" in status:
+                    deleted.add(p)
+                else:
+                    if not self.should_ignore_file(p):
+                        ext = p.suffix.lower()
+                        if ext in self.LANGUAGE_EXTENSIONS and p.is_file():
+                            changed.add(p)
+            return changed, deleted
+        except Exception as e:
+            logger.debug("git status failed: %s", e)
+            return None
 
     def __init__(self, root_dir: str | Path | None = None) -> None:
         self.root_dir = Path(root_dir).resolve() if root_dir else Path.cwd().resolve()
@@ -254,9 +467,12 @@ class HybridCodeIndexer:
                         content = p.read_text(encoding="utf-8", errors="ignore")
                         if content.strip():
                             parsed = self._chunk_file(p, content)
-                            for chunk in parsed:
-                                chunk.vector = _compute_dense_vector(chunk.tokens)
-                            new_chunks.extend(parsed)
+                            if parsed:
+                                chunk_texts = [" ".join(c.tokens) for c in parsed]
+                                vecs = _compute_embeddings_batch(chunk_texts, dim=128)
+                                for chunk, vec in zip(parsed, vecs):
+                                    chunk.vector = vec
+                                new_chunks.extend(parsed)
                     except Exception as e:
                         log_exception(e, "Failed to parse file for cache update")
 
@@ -301,21 +517,30 @@ class HybridCodeIndexer:
             logger.debug("Failed to save hybrid index cache: %s", e)
 
     def index_project(self, max_files: int = 50000, force_reindex: bool = False) -> int:
-        """Scan and index codebase files with BM25 statistics, dense vectors, and disk caching."""
+        """Scan and index codebase files with BM25 statistics, dense vectors, and disk caching.
+
+        Uses ultra-fast git ls-files if within a git repo, falling back to os.walk with
+        hardened ignore filters for lockfiles and binaries.
+        """
         if self.is_indexed and not force_reindex:
             return len(self.chunks)
 
-        files_to_index: list[Path] = []
-        for root, dirs, files in os.walk(self.root_dir):
-            dirs[:] = [d for d in dirs if d not in self.IGNORE_DIRS and not d.startswith(".")]
-            for f in files:
-                ext = Path(f).suffix.lower()
-                if ext in self.LANGUAGE_EXTENSIONS:
-                    files_to_index.append(Path(root) / f)
+        files_to_index = self.get_git_files(max_files=max_files)
+        if files_to_index is None:
+            files_to_index = []
+            for root, dirs, files in os.walk(self.root_dir):
+                dirs[:] = [d for d in dirs if d not in self.IGNORE_DIRS and not d.startswith(".")]
+                for f in files:
+                    p = Path(root) / f
+                    if self.should_ignore_file(p):
+                        continue
+                    ext = p.suffix.lower()
+                    if ext in self.LANGUAGE_EXTENSIONS:
+                        files_to_index.append(p)
+                    if len(files_to_index) >= max_files:
+                        break
                 if len(files_to_index) >= max_files:
                     break
-            if len(files_to_index) >= max_files:
-                break
 
         if not force_reindex and self._load_cache(files_to_index):
             return len(self.chunks)
@@ -324,21 +549,33 @@ class HybridCodeIndexer:
         self.doc_freqs.clear()
         self.inverted_index.clear()
 
+        # Resolve embedding provider once; fall back to hash on failure.
+        try:
+            _resolve_embedding_provider()
+            if _resolve_embedding_provider() == "openai":
+                _compute_embedding("warmup")
+        except Exception:
+            global _EMBEDDING_PROVIDER
+            _EMBEDDING_PROVIDER = "hash"
+
         total_length = 0
         for file_path in files_to_index:
             try:
                 content = file_path.read_text(encoding="utf-8", errors="replace")
                 chunks = self._chunk_file(file_path, content)
-                for chunk in chunks:
-                    chunk.vector = _compute_dense_vector(chunk.tokens)
-                    chunk_idx = len(self.chunks)
-                    self.chunks.append(chunk)
-                    total_length += len(chunk.tokens)
+                if chunks:
+                    chunk_texts = [" ".join(c.tokens) for c in chunks]
+                    vecs = _compute_embeddings_batch(chunk_texts, dim=128)
+                    for chunk, vec in zip(chunks, vecs):
+                        chunk.vector = vec
+                        chunk_idx = len(self.chunks)
+                        self.chunks.append(chunk)
+                        total_length += len(chunk.tokens)
 
-                    # Update inverted index and document frequencies
-                    for term in chunk.term_freqs:
-                        self.doc_freqs[term] = self.doc_freqs.get(term, 0) + 1
-                        self.inverted_index.setdefault(term, []).append(chunk_idx)
+                        # Update inverted index and document frequencies
+                        for term in chunk.term_freqs:
+                            self.doc_freqs[term] = self.doc_freqs.get(term, 0) + 1
+                            self.inverted_index.setdefault(term, []).append(chunk_idx)
             except Exception as e:
                 logger.debug("Failed to index %s: %s", file_path, e)
 
@@ -347,6 +584,73 @@ class HybridCodeIndexer:
         self.is_indexed = True
         self._save_cache(files_to_index)
         return self.total_docs
+
+    def index_files_incremental(self, file_paths: list[Path | str]) -> int:
+        """Incrementally re-index or add specific files without scanning the entire repo."""
+        if not file_paths:
+            return len(self.chunks)
+
+        paths = [Path(p).resolve() for p in file_paths]
+        rel_paths = {
+            str(p.relative_to(self.root_dir)) if p.is_relative_to(self.root_dir) else str(p)
+            for p in paths
+        }
+
+        # Keep chunks from unaffected files
+        self.chunks = [c for c in self.chunks if c.file_path not in rel_paths]
+
+        # Parse new chunks
+        for p in paths:
+            if not p.is_file() or self.should_ignore_file(p):
+                continue
+            ext = p.suffix.lower()
+            if ext not in self.LANGUAGE_EXTENSIONS:
+                continue
+            try:
+                content = p.read_text(encoding="utf-8", errors="replace")
+                if not content.strip():
+                    continue
+                new_chunks = self._chunk_file(p, content)
+                if new_chunks:
+                    chunk_texts = [" ".join(c.tokens) for c in new_chunks]
+                    vecs = _compute_embeddings_batch(chunk_texts, dim=128)
+                    for chunk, vec in zip(new_chunks, vecs):
+                        chunk.vector = vec
+                        self.chunks.append(chunk)
+            except Exception as e:
+                logger.debug("Failed incremental index for %s: %s", p, e)
+
+        self._rebuild_indices()
+        self._save_cache(paths)
+        return len(self.chunks)
+
+    def remove_files_from_index(self, file_paths: list[Path | str]) -> int:
+        """Remove deleted files from the index."""
+        if not file_paths:
+            return len(self.chunks)
+        paths = [Path(p).resolve() for p in file_paths]
+        rel_paths = {
+            str(p.relative_to(self.root_dir)) if p.is_relative_to(self.root_dir) else str(p)
+            for p in paths
+        }
+        self.chunks = [c for c in self.chunks if c.file_path not in rel_paths]
+        self._rebuild_indices()
+        self._save_cache([])
+        return len(self.chunks)
+
+    def _rebuild_indices(self) -> None:
+        """Rebuild inverted index and doc frequencies from current chunks."""
+        self.doc_freqs.clear()
+        self.inverted_index.clear()
+        total_length = 0
+        for idx, chunk in enumerate(self.chunks):
+            total_length += len(chunk.tokens)
+            for term in chunk.term_freqs:
+                self.doc_freqs[term] = self.doc_freqs.get(term, 0) + 1
+                self.inverted_index.setdefault(term, []).append(idx)
+        self.total_docs = len(self.chunks)
+        self.avg_doc_len = total_length / max(self.total_docs, 1)
+        self.is_indexed = True
 
     def _chunk_file(self, file_path: Path, content: str) -> list[HybridCodeChunk]:
         """Extract multi-granularity semantic chunks from file content."""
@@ -383,11 +687,24 @@ class HybridCodeIndexer:
 
         if chunk_starts:
             for idx, (start, name, c_type) in enumerate(chunk_starts):
-                end = (
-                    chunk_starts[idx + 1][0]
-                    if idx + 1 < len(chunk_starts)
-                    else min(start + 60, len(lines))
-                )
+                # Prefer brace-aware boundaries for C-style languages.
+                if start < len(lines) and "{" in lines[start]:
+                    try:
+                        from sago.utils.code_blocks import brace_block_spans
+
+                        _, end = brace_block_spans(lines, start)
+                    except Exception:
+                        end = (
+                            chunk_starts[idx + 1][0]
+                            if idx + 1 < len(chunk_starts)
+                            else min(start + 60, len(lines))
+                        )
+                else:
+                    end = (
+                        chunk_starts[idx + 1][0]
+                        if idx + 1 < len(chunk_starts)
+                        else min(start + 60, len(lines))
+                    )
                 chunk_lines = lines[start:end]
                 chunk_content = "\n".join(chunk_lines)
                 if len(chunk_content.strip()) > 20:
@@ -443,7 +760,7 @@ class HybridCodeIndexer:
         if not q_tokens:
             return []
 
-        q_vec = _compute_dense_vector(q_tokens)
+        q_vec = _compute_embedding(" ".join(q_tokens))
 
         # Collect candidate chunk indices from inverted index
         candidate_indices: set[int] = set()

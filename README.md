@@ -33,7 +33,12 @@ Sago is a **production-grade multi-agent orchestration system** built for real-w
 | **Permission System** | Risk-based tool permissions (safe/low/medium/high/critical) with approval workflow |
 | **Session Persistence** | SQLite database + JSON file save/load with full state preservation |
 | **Workflow Engine** | Stateful multi-step workflows with dependencies, retries, and pausing |
-| **Hybrid BM25 & Dense Code Search** | Probabilistic BM25 + zero-dependency 128-d dense vector semantic search across 1,000+ files (`sago search`) |
+| **Hybrid BM25 & Dense Code Search** | Probabilistic BM25 + zero-dependency 128-d dense vector semantic search across 10,000+ files with Git fast path (`sago search`) |
+| **Polyglot Tree-Sitter Skeletons** | Universal AST parsing across Python, Rust, Go, Java, TypeScript, and C/C++ omitting bodies to compress 10k files into <3k tokens |
+| **Graph-Guided Context & 2-Hop Graphs** | Dynamic bidirectional caller/callee and interface contract neighborhood expansion (`CallGraph`) |
+| **Map-Reduce Refactoring Swarm** | Parallel worker swarms for cross-cutting changes touching 15+ to 100+ files with automated verification merges |
+| **Dynamic Model-Tier Compaction & Context Poisoning Guard** | Dynamic context guard (Local: 50k-100k, Standard cloud: 150k-200k, Massive 1M+: 750k-1M), delta capping for 100+ files, and 2–7 line lightweight prompt enhancer working summaries |
+| **Project-Scoped Learning System** | Isolated `<project>/.sago/learning.json` preventing cross-project pollution with confidence-gated pattern memorization |
 | **Continuous Background Linting** | Automatic non-blocking verification passes upon file modification with instant diagnostics |
 | **4-Tier Hierarchical Memory Pyramid** | 4-tiered context compaction (Architectural goals, deltas, semantic distillation, and working turns) with auto-triggering saving ~70% token overhead |
 | **Developer Mode (`/dev`)** | Real-time function execution tracing, LLM payload inspection, and microsecond latency diagnostics — **default ON until v1.0** (`dev_mode: true # TODO: flip to false at 1.0`), fresh install shows Inspector (`F2`) without `/dev on` |
@@ -66,13 +71,16 @@ cd SAGO-Agent
 # Install dependencies
 pip install -e .
 
-# Set your API key
-export OPENROUTER_API_KEY="your-key-here"
-
-# Launch the TUI
+# Launch the TUI immediately (defaults to OpenRouter Free tier — zero setup needed!)
 sago tui
 
-# Or run tasks from CLI
+# Or run the interactive onboarding wizard to configure Google, OpenAI, Claude, DeepSeek, or Ollama
+sago onboard
+
+# Verify system health, keys, and local engines anytime
+sago doctor
+
+# Run tasks directly from CLI
 sago smart "Fix the authentication bug"
 sago run "Build a REST API" --agent python-engineer
 ```
@@ -157,6 +165,9 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for full CLI and TUI command reference.
 
 | Command | Description |
 |---------|-------------|
+| `sago onboard` | **Interactive Onboarding Wizard** — First-time setup, auto-detect Ollama, configure keys |
+| `sago doctor` | **System Health Diagnostics** — Verify keys, local engines (Ollama/LM Studio), DB, git & ports |
+| `sago configure` | **Quick Configuration** — Switch primary LLM provider, default model, or proxy base URL |
 | `sago smart "task"` | **AI-powered execution** — LLM selects best agent, streams response |
 | `sago run "task"` | Execute task with auto-orchestration |
 | `sago run "task" --agent X` | Use specific agent |
@@ -180,6 +191,7 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for full CLI and TUI command reference.
 | `/diff` | `F3` | Interactive workspace diff and git changes inspector |
 | `/files` | `F4` | Interactive workspace file tree explorer & previewer |
 | `/sessions` | `F5` | Interactive session switcher & history manager |
+| `/model` | `F6` / `Ctrl+M` | Dual-pane Model & Provider Switcher modal with live search |
 | `/reload` | `Ctrl+R` | Hot-reload configuration & switch execution modes |
 | `/graph [view] [path]` | — | Show project topology, diagrams, or AI architectural analysis |
 | `/copy [code\|all]` | — | Copy the last response, code block, or chat history to the clipboard |

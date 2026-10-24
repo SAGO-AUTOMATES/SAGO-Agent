@@ -38,7 +38,7 @@ class ASTEditTool(BaseTool):
 
     name = "ast_edit"
     description = (
-        "Edit code by structure, not text. Can analyze code structure, "
+        "PREFER for code edits: edit by structure, not text. Can analyze code structure, "
         "replace function bodies, insert functions, rename symbols, add imports."
     )
     args_model = ASTEditArgs

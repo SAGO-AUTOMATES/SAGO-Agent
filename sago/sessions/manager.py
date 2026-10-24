@@ -15,6 +15,7 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from sago.utils.safe import log_exception
@@ -131,9 +132,9 @@ class Message:
 
     id: str
     session_id: str
-    thread_id: str | None
     role: str  # user, assistant, system, tool
     content: str
+    thread_id: str | None = None
     agent_name: str | None = None
     timestamp: float = field(default_factory=time.time)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -498,6 +499,14 @@ class SessionManager:
         except Exception:
             return None
 
+    def load_session(self, source: str | Path | dict[str, Any]) -> Session | None:
+        """Load session and register it in this SessionManager instance."""
+        sess = load_session(source)
+        if sess:
+            with self._lock:
+                self.sessions[sess.id] = sess
+        return sess
+
     def get_summary_by_agent(self, session_id: str) -> dict[str, Any]:
         """Build categorized summary by agent without re-running tools — 0 wasted tokens.
 
@@ -592,3 +601,97 @@ def is_summary_intent(msg: str) -> bool:
     if re.search(r"\bsum\w*ry\b", low) and len(low.split()) <= 10 and not has_file_hint:
         return True
     return False
+
+
+def import_session(json_data: str) -> Session | None:
+    """Import a session from JSON data string."""
+    return SessionManager().import_session(json_data)
+
+
+def load_session(source: str | Path | dict[str, Any]) -> Session | None:
+    """Load a Session instance from a JSON file, JSON string, session ID, or dict."""
+    from pathlib import Path
+
+    if isinstance(source, (str, Path)):
+        p = Path(source)
+        if p.exists() and p.is_file():
+            try:
+                content = p.read_text(encoding="utf-8")
+                return SessionManager().import_session(content)
+            except Exception as e:
+                logger.debug("Failed reading session file %s: %s", p, e)
+        s_str = str(source).strip()
+        if s_str.startswith("{") and s_str.endswith("}"):
+            return SessionManager().import_session(s_str)
+        try:
+            from sago.database import MessageStore, init_db
+            from sago.database import Session as DbSession
+
+            init_db()
+            with DbSession() as db_s:
+                matched = db_s.find_by_prefix(s_str)
+            if matched:
+                actual_sid = matched["id"]
+                ms = MessageStore(actual_sid)
+                history = ms.get_history(limit=1000)
+                ms.close()
+                sess = Session(
+                    id=actual_sid,
+                    title=matched.get("title", "Loaded Session"),
+                    status=_restore_session_status(matched),
+                )
+                for m in history:
+                    sess.messages.append(
+                        Message(
+                            id=str(m.get("id") or uuid.uuid4()),
+                            session_id=actual_sid,
+                            role=m.get("role", "user"),
+                            content=m.get("content", ""),
+                            agent_name=m.get("agent_name"),
+                        )
+                    )
+                return sess
+        except Exception as e:
+            logger.debug("Failed loading session from database for %s: %s", s_str, e)
+            return None
+    elif isinstance(source, dict):
+        return SessionManager().import_session(json.dumps(source))
+    return None
+
+
+def export_session(session_id: str, output_path: str | Path | None = None) -> str | None:
+    """Export a session to JSON string, and optionally write to output_path."""
+    from pathlib import Path
+
+    try:
+        from sago.database import MessageStore, ToolUsageStore, init_db
+        from sago.database import Session as DbSession
+
+        init_db()
+        with DbSession() as s:
+            matched = s.find_by_prefix(session_id)
+        if not matched:
+            return None
+        actual_sid = matched["id"]
+        ms = MessageStore(actual_sid)
+        history = ms.get_history(limit=10000)
+        ms.close()
+        tus = ToolUsageStore(actual_sid)
+        tools = tus.get_all()
+        tus.close()
+        data = {
+            "id": actual_sid,
+            "title": matched.get("title", ""),
+            "status": matched.get("status", "active"),
+            "created_at": matched.get("created_at"),
+            "metadata": matched.get("metadata"),
+            "messages": history,
+            "tool_calls": tools,
+        }
+        res = json.dumps(data, indent=2, ensure_ascii=False)
+        if output_path:
+            Path(output_path).write_text(res, encoding="utf-8")
+        return res
+    except Exception as e:
+        logger.debug("Failed export_session: %s", e)
+        return None

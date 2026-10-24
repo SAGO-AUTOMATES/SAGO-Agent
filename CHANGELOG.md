@@ -2,6 +2,66 @@
 
 All notable changes to the SAGO project are documented in this file.
 
+## [0.1.15] - 2026-10-24 (Model Switcher Overhaul, Provider Decoupling, Zero-Friction OpenRouter Default, Doctor Diagnostics & 78%+ Coverage)
+
+### Added
+- **4-Phase Scale Architecture for 10,000+ Files & Polyglot Repositories (`sago/memory/`, `sago/orchestrator/`, `sago/engine/`):**
+  - **Phase 1 (Git-Aware Incremental Indexing):** Uses `git ls-files` fast path (10k files in <20ms) and `git status --porcelain` delta detection. Automatically excludes lockfiles, minified bundles, and generated code. Added `index_files_incremental()` and `remove_files_from_index()` for live in-memory BM25 index updates during editing sessions.
+  - **Phase 2 (Polyglot Tree-Sitter AST & Skeletonizer):** Multi-language parsing across Python, Rust, Go, Java, TypeScript, TSX, C, and C++. Generates compact AST skeletons omitting function/method implementation bodies to condense 10,000+ files into <3,000 tokens.
+  - **Phase 3 (Graph-Guided Context & 2-Hop Call Graphs):** Dynamic bidirectional caller/callee and interface contract neighborhood expansion (`CallGraph`), prioritizing high-signal architectural dependencies over noisy file dumps.
+  - **Phase 4 (Map-Reduce Refactoring Swarm):** Coordinated parallel refactoring (`MapReduceRefactorCoordinator`) that partitions cross-cutting multi-file changes (15+ to 100+ files) into cohesive clusters with concurrent worker execution and automated `ProjectVerifier` reduce merges.
+- **Project-Scoped vs. Global Learning Store (`sago/learning.py`):**
+  - Project-specific patterns, commands, and rules are isolated into `<project_root>/.sago/learning.json`, eliminating cross-project learning pollution.
+  - Global cross-cutting tool error fixes (e.g. directory handling, git safety) remain persisted in `~/.sago/learning.json`.
+  - Confidence gating: successful patterns are only recorded when `confidence >= 70%` and zero hallucinations are detected.
+- **Dynamic Model-Tier Compaction & Context Poisoning Guard (`sago/memory/compaction.py`, `sago/engine/prompt_enhancer.py`, `sago/tui/commands.py`):**
+  - Dynamic context thresholds adapted to provider/model context windows:
+    - **Local Models (Ollama, LM Studio, local)**: 50,000–100,000 token guard (default trigger: 75k, target: 35k).
+    - **Standard Cloud Models (Claude 3.5 Sonnet, GPT-4o, DeepSeek, Groq, Mistral)**: 150,000–200,000 token guard (default trigger: 175k, target: 80k).
+    - **Massive Context Models (Google Gemini 1.5/2.0/2.5 Pro/Flash, Claude 1M, Qwen 1M)**: 750,000–1,000,000 token guard (default trigger: 750k, target: 250k).
+    - Granular environment variable overrides (`SAGO_COMPACTION_THRESHOLD_LOCAL`, `SAGO_COMPACTION_THRESHOLD_STANDARD`, `SAGO_COMPACTION_THRESHOLD_MASSIVE`, and `SAGO_COMPACTION_THRESHOLD`).
+  - Proactive auto-compaction triggers automatically based on active model tier in `simple_executor.py`, condensing older turns into structured memory while preserving active working context.
+  - Delta capping: when 100+ files are modified, SAGO caps the prompt context to recent files plus aggregate cluster counts to prevent attention diffusion and "Lost in the Middle" syndrome.
+  - 2–7 line lightweight prompt enhancer context summarizer synthesizes prior turns into a crisp working state summary before the next big LLM call, rendered live inside the TUI's collapsible `✨ Enhanced Prompt` turn card.
+  - Manual `/compact` command enhanced with dynamic tier detection, LLM-backed architectural summarization, and structured extraction of goals, touched files, and key decisions.
+- **Clean Provider/Model Decoupling Architecture (`sago/llm/registry.py`, `sago/llm/tui_providers.py`):**
+  - Adopted industry-standard `{ providerID, modelID }` architecture (aligned with OpenCode / Hermes-Agent).
+  - Implemented `split_provider_and_model(model_spec, default_provider=None)` to cleanly parse explicit `provider/model` or `provider:model` pairings without substring guessing.
+  - Eradicated heuristic substring guessing from `guess_provider_from_model` and `infer_provider_for_model` — active providers are strictly respected.
+  - Eliminated silent provider hijacking loops in `resolve_active_llm_config` — missing credentials produce clear, actionable error messages rather than silently flipping providers behind the user's back.
+- **Zero-Friction Default Experience (`sago/main.py`, `sago/tui/app.py`):**
+  - Set default out-of-the-box provider to `openrouter` with model `openrouter/free` across both CLI and TUI.
+  - First-time users can immediately start coding, testing, and delegating tasks without requiring a paid API key upfront.
+- **Enhanced TUI Model Switcher Modal (`sago/tui/modals.py`, `sago/tui/app.py`):**
+  - Added dedicated `ModelSwitcherScreen` modal accessible via `F6` or `Ctrl+M` and action bar button `🤖 Model [F6]`.
+  - Features real-time model searching, provider filter pills (`[All]`, `[Google]`, `[OpenAI]`, `[Anthropic]`, `[DeepSeek]`, `[Groq]`, `[Ollama]`, `[OpenRouter]`), capability badges (vision, coding, tool use, reasoning, fast), and a custom model entry input with provider dropdown binding.
+  - Updated `/model <provider> <model>` and `/model <model>` slash commands in `sago/tui/commands.py` with bracket sanitization and safe styling.
+- **Unified Interactive Onboarding Wizard (`sago onboard`, `sago setup`, `sago configure` in `sago/main.py`):**
+  - Step-by-step interactive setup wizard supporting OpenRouter free tier, Google Gemini, Anthropic Claude, OpenAI, DeepSeek, Groq, Ollama, LM Studio, and custom OpenAI-compatible proxies.
+  - Live local engine probing: automatically pings `localhost:11434` to detect running Ollama instances and populate installed models.
+  - Custom Base URL configuration for local engines and enterprise proxies.
+  - Automatic secret masking for pre-existing environment variables (`sk-or-...a81f`).
+  - Dual synchronization: persists configuration to both `~/.sago/config.yaml` and `~/.sago/settings.json`.
+  - Automatic SQLite database provisioning and git pre-commit quality hook setup.
+- **Deep System Diagnostics (`sago doctor` in `sago/main.py`):**
+  - 15-point diagnostic check covering Python runtime, SQLite database tables, active LLM configuration, status of all 8 provider keys, live socket/HTTP probing for Ollama and LM Studio with installed models list, git workspace branch/status, daemon/mesh ports, and specialist agent fleet metrics.
+- **Exhaustive Unit & Integration Test Suite:**
+  - Added 58 comprehensive tests across `test_cli_main_exhaustive.py`, `test_tui_model_switcher_and_providers.py`, `test_tui_commands_exhaustive.py`, `test_tui_app_exhaustive.py`, `test_tui_modals_exhaustive.py`, and `test_tui_models_deep.py`.
+  - Pushed test coverage to **>= 75%** on all modified core modules:
+    - `sago/tui/models.py`: **99%**
+    - `sago/llm/registry.py`: **93%**
+    - `sago/tui/modals.py`: **90%**
+    - `sago/llm/tui_providers.py`: **79%**
+    - `sago/tui/app.py`: **76%**
+    - `sago/tui/commands.py`: **76%**
+    - Combined target suite: **78.50%** coverage.
+
+### Fixed
+- **Silent provider flipping:** Prevented user-chosen providers from being silently hijacked when an environment key was absent.
+- **Substring model guessing crashes:** Local models (e.g. Ollama with `gpt4all` or custom fine-tunes) no longer crash by mistakenly routing to OpenAI.
+- **Config caching leak across test runs:** Added cache invalidation safeguards in `sago/config/loader.py` and unit test fixtures.
+- **Pre-push git hook environment compatibility:** Enhanced `scripts/pre-push-check.sh` to prefer `uv run` for consistent execution across virtual environments.
+
 ## [0.1.14] - 2026-08-27 (Unreleased — security gates, tool guardrails, persistent memory, subagents, summary waste, dev default, multi-line workspace TUI)
 
 ### Added

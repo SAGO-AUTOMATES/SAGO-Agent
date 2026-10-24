@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, "feature/**"]
   pull_request:
-    branches: [main]
+    branches: [main, develop, "feature/**"]
 
 permissions:
   contents: read
@@ -33,6 +33,26 @@ jobs:
       - name: Run ruff format check
         run: ruff format --check sago/
 
+  validate-features:
+    name: End-to-End TUI & Feature Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync --extra dev --extra code-intel
+
+      - name: Run SAGO End-to-End Feature & TUI Validator
+        run: uv run ./scripts/validate_features.py
+
   test:
     name: Tests
     runs-on: ubuntu-latest
@@ -51,7 +71,7 @@ jobs:
         run: pip install uv
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra code-intel
 
       - name: Run unit tests
         run: uv run pytest tests/unit/ -v --tb=short
@@ -77,12 +97,9 @@ jobs:
         run: pip install uv
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra code-intel
 
       - name: Run mypy
-        # Currently ~271 errors across 87 files (pre-existing). Kept advisory
-        # (non-blocking) until the type surface is cleaned up. Tracked as
-        # technical debt; flip to required once `uv run mypy sago` is clean.
         run: uv run mypy sago
         continue-on-error: true
 
@@ -101,10 +118,9 @@ jobs:
         run: pip install uv
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra code-intel
 
       - name: Run tests with coverage
-        # Gate: repo measures core line coverage. Progressively raised as coverage improves.
         run: uv run pytest --cov=sago --cov-report=term-missing --cov-report=xml --cov-report=markdown:coverage.md --cov-fail-under=48 -q
 
       - name: Post Coverage Summary to GitHub Step Summary
@@ -124,7 +140,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [lint, test, coverage]
+    needs: [lint, validate-features, test, coverage]
     steps:
       - uses: actions/checkout@v4
 

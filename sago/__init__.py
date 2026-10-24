@@ -10,5 +10,6 @@ __author__ = "Sago Contributors"
 
 from sago.database import init as init_db
 from sago.main import main
+from sago.sessions.manager import load_session
 
-__all__ = ["main", "init_db", "__version__"]
+__all__ = ["main", "init_db", "load_session", "__version__"]

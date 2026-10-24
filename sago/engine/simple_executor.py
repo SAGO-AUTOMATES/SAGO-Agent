@@ -19,6 +19,19 @@ from sago.utils.safe import log_exception
 
 logger = logging.getLogger(__name__)
 
+
+def _bus_event(sender: str, event: str, **data: Any) -> None:
+    """Publish a lifecycle event to the message bus (opt-in via SAGO_BUS_EVENTS=1)."""
+    if os.environ.get("SAGO_BUS_EVENTS", "").strip() != "1":
+        return
+    try:
+        from sago.orchestrator.message_bus import publish
+
+        publish(sender, "executor", {"event": event, **data})
+    except Exception as e:  # pragma: no cover - defensive, never break execution
+        logger.debug("Message bus event %s failed: %s", event, e)
+
+
 # ---------------------------------------------------------------------------
 # Unified callback propagation — contextvars so callbacks flow from
 # the outer processor into spawned agents automatically.
@@ -41,6 +54,9 @@ _current_todo_created: contextvars.ContextVar[Callable | None] = contextvars.Con
 _current_request_input: contextvars.ContextVar[Callable | None] = contextvars.ContextVar(
     "current_request_input", default=None
 )
+_current_token: contextvars.ContextVar[Callable | None] = contextvars.ContextVar(
+    "current_token", default=None
+)
 
 
 def set_execution_callbacks(
@@ -50,6 +66,7 @@ def set_execution_callbacks(
     on_todo_update: Callable | None = None,
     on_todo_created: Callable | None = None,
     on_request_input: Callable | None = None,
+    on_token: Callable | None = None,
 ) -> None:
     """Set callbacks in the current context. Call this before executing tools or agent tasks."""
     _current_tool_call.set(on_tool_call)
@@ -58,6 +75,7 @@ def set_execution_callbacks(
     _current_todo_update.set(on_todo_update)
     _current_todo_created.set(on_todo_created)
     _current_request_input.set(on_request_input)
+    _current_token.set(on_token)
 
 
 def get_execution_callbacks() -> dict[str, Callable | None]:
@@ -69,6 +87,7 @@ def get_execution_callbacks() -> dict[str, Callable | None]:
         "on_todo_update": _current_todo_update.get(),
         "on_todo_created": _current_todo_created.get(),
         "on_request_input": _current_request_input.get(),
+        "on_token": _current_token.get(),
     }
 
 
@@ -178,18 +197,36 @@ def _build_openai_tools(tool_classes: dict[str, type[BaseTool]]) -> list[dict[st
         }
 
         if cls.args_model:
-            fields = cls.args_model.model_fields
-            for field_name, field_info in fields.items():
-                prop = _pydantic_field_to_schema(field_info)
-                # Keep fuller param descriptions so old_string/new_string guidance survives
-                if "description" in prop and isinstance(prop["description"], str):
-                    pdesc = prop["description"].split("\n", 1)[0].strip()
-                    if len(pdesc) > 200:
-                        pdesc = pdesc[:197] + "..."
-                    prop["description"] = pdesc
-                parameters["properties"][field_name] = prop
-                if field_info.is_required():
-                    parameters["required"].append(field_name)
+            # Prefer Pydantic's native JSON schema (robust for nested/typed args).
+            # Fall back to the legacy hand-rolled converter on any failure.
+            try:
+                native = cls.args_model.model_json_schema()
+                props = native.get("properties", {}) or {}
+                for field_name, prop in props.items():
+                    if isinstance(prop, dict):
+                        if "description" in prop and isinstance(prop["description"], str):
+                            pdesc = prop["description"].split("\n", 1)[0].strip()
+                            if len(pdesc) > 200:
+                                pdesc = pdesc[:197] + "..."
+                            prop["description"] = pdesc
+                        parameters["properties"][field_name] = prop
+                req = native.get("required", []) or []
+                parameters["required"] = [r for r in req if r in parameters["properties"]]
+                if "$defs" in native:
+                    parameters["$defs"] = native["$defs"]
+            except Exception as exc:
+                logger.debug("Native schema conversion failed for %s: %s", cls.name, exc)
+                fields = cls.args_model.model_fields
+                for field_name, field_info in fields.items():
+                    prop = _pydantic_field_to_schema(field_info)
+                    if "description" in prop and isinstance(prop["description"], str):
+                        pdesc = prop["description"].split("\n", 1)[0].strip()
+                        if len(pdesc) > 200:
+                            pdesc = pdesc[:197] + "..."
+                        prop["description"] = pdesc
+                    parameters["properties"][field_name] = prop
+                    if field_info.is_required():
+                        parameters["required"].append(field_name)
 
         openai_tools.append(
             {
@@ -577,7 +614,16 @@ def _discover_tools() -> dict[str, type[BaseTool]]:
         from sago.tools.registry import discover_tools
 
         logger.info("Starting tool discovery from registry")
-        discovered = discover_tools()
+        safe_mode = os.environ.get("SAGO_SAFE_DISCOVERY") == "1"
+        discovered = discover_tools(safe_mode=safe_mode)
+
+        # Optional task-aware tool subset (additive, env-driven). When set, only
+        # the listed tool names are exposed to the LLM.
+        subset_env = os.environ.get("SAGO_TOOL_SUBSET", "").strip()
+        if subset_env:
+            allowed = {x.strip() for x in subset_env.split(",") if x.strip()}
+            discovered = {k: v for k, v in discovered.items() if k in allowed}
+
         _TOOL_CLASSES = {name: tdef.tool_class for name, tdef in discovered.items()}
         logger.info(
             "Discovered %d tools: %s",
@@ -679,6 +725,7 @@ ABSOLUTE RULES - VIOLATION = FAILURE:
 5. NEVER make structural or architectural claims without reading the relevant files.
 6. If uncertain about something, say "I'm not sure" rather than guessing.
 7. Keep responses concise and appropriate to the question complexity.
+8. CODEBASE QUESTIONS: If the user asks "what is this code/project about", "summarize the repo", or "architecture", you MUST call repo_map and/or project_graph FIRST to get a structural overview. Do NOT read whole files or README first. Use read_file only for specific files identified by the map.
 8. TOOL CALLING FORMAT: You have tools available via the function calling API. You MUST invoke them by emitting function calls in your tool_calls response. NEVER write tool calls as text, XML tags (<execute_browse_code>), or markdown code blocks — the system cannot parse those. If you write tool calls as text instead of using the function calling mechanism, the tools will NOT execute and you will be accused of fabrication.
 
 COMPLEXITY CALIBRATION:
@@ -700,6 +747,7 @@ ABSOLUTE RULES - VIOLATION = FAILURE:
 5. Report ONLY what you actually see in the tool results.
 6. If the user asks "what's in this file", read that ONE file and summarize briefly.
 7. If the user asks "where is X defined", search for X and report the location.
+8. CODEBASE OVERVIEW: If the user asks what the project/code does, call repo_map or project_graph FIRST, then read at most 2-3 specific files. Never dump whole files for an overview.
 8. TOOL CALLING FORMAT: You have tools available via the function calling API. You MUST invoke them by emitting function calls in your tool_calls response. NEVER write tool calls as text, XML tags (<execute_browse_code>), or markdown code blocks — the system cannot parse those. If you write tool calls as text instead of using the function calling mechanism, the tools will NOT execute and you will be accused of fabrication.
 
 STRICT LIMITS:
@@ -730,7 +778,9 @@ ABSOLUTE RULES - VIOLATION = FAILURE:
 
 SMART TOOL USAGE (not dumb):
 - Discovery FIRST: glob_files, file_search, grep_content, hybrid_search, search_symbol BEFORE read_file. Don't guess file names.
+- Targeted reads: use read_function (extract one function/class) instead of read_file for code. Use read_file with offset/limit only when needed.
 - Structure: use ast_grep, search_symbol, hybrid_search to understand architecture, not just raw read_file dumps.
+- Edits: PREFER ast_edit (replace_function/insert_function/rename/add_import) over edit_file/write_file for code changes.
 - Use read_file only after you know *which* file matters (via search). For 2+ files, use batch reads.
 - For changes: write_file/edit_file with resilient matching, then verify with execute_shell (pytest, ruff, tsc, go vet, etc.).
 - For large tasks, plan via todo list and execute stepwise — do not read one file and hallucinate the rest.
@@ -826,6 +876,8 @@ COMPLEXITY CALIBRATION:
 - For simple questions ("what does X do"): hybrid_search X, read the ONE file that defines X, give a 1-2 sentence answer.
 - For moderate analysis ("review this function"): search_symbol for the function + read its file, give focused findings.
 - For complex analysis ("review the architecture"): project_graph + hybrid_search + read key files systematically, give comprehensive report.
+- For "what changed"/diff questions: use git_operations with diff-stat FIRST, then targeted diff for specific files; summarize results. Do not attempt to read every changed file.
+- For large files: always use read_file with offset/limit; never read a >500-line file in one call.
 - DO NOT read files the user didn't ask about unless you need them for context.
 
 QUALITY STANDARDS:
@@ -982,7 +1034,7 @@ def _is_simple_analyze(task_type: str, file_count: int | None) -> bool:
     return task_type == "analyze" and file_count is not None and file_count <= 5
 
 
-_SIMPLE_ANALYZE_CAPS = {"max_tool_calls": 15, "max_iterations": 8, "max_tokens": 8000}
+_SIMPLE_ANALYZE_CAPS = {"max_tool_calls": 30, "max_iterations": 12, "max_tokens": 12000}
 
 
 def _load_agent_profile(agent_name: str) -> dict[str, Any] | None:
@@ -1875,6 +1927,8 @@ def execute_agent_task(
     pause_event: Any = None,
     session_id: str = "default",
     wall_timeout: float = 300.0,
+    cancellation_token: Any = None,
+    on_token: Callable | None = None,
 ) -> dict[str, Any]:
     """Execute a task with LLM, tools, and todo tracking.
 
@@ -1886,6 +1940,41 @@ def execute_agent_task(
         "execute_agent_task start: agent=%s, model=%s, task=%r", agent_role, model, task[:200]
     )
 
+    # Early check before expensive context / prompt setup
+    _early_cancel = False
+    if cancellation_token:
+        if callable(cancellation_token):
+            _early_cancel = cancellation_token()
+        elif hasattr(cancellation_token, "is_set"):
+            _early_cancel = cancellation_token.is_set()
+        elif hasattr(cancellation_token, "is_cancelled"):
+            _early_cancel = bool(cancellation_token.is_cancelled)
+    if not _early_cancel and os.environ.get("SAGO_CANCEL_REQUESTED", "0") == "1":
+        _early_cancel = True
+    if _early_cancel:
+        logger.info("execute_agent_task: cancelled before start")
+        return {
+            "success": False,
+            "output": "Task cancelled.",
+            "tool_calls": [],
+            "iterations": 0,
+            "tokens": {"input": 0, "output": 0},
+            "cancelled": True,
+        }
+
+    # Budget-aware effort scaling (opt-in via SAGO_BUDGET_AWARE=1): complex tasks
+    # get a larger token budget, simple tasks a smaller one. Default behavior
+    # (fixed max_tokens) is preserved unless the flag is set.
+    if os.environ.get("SAGO_BUDGET_AWARE", "").strip() == "1" and max_tokens >= 50000:
+        try:
+            if _is_complex_task(task):
+                max_tokens = 80000
+            else:
+                max_tokens = 20000
+            logger.info("Budget-aware effort: max_tokens=%d", max_tokens)
+        except Exception as e:
+            logger.debug("Budget-aware scaling failed: %s", e)
+
     # Resolve callbacks: explicit args > contextvars > None
     ctx = get_execution_callbacks()
     on_tool_call = on_tool_call or ctx["on_tool_call"]
@@ -1894,6 +1983,7 @@ def execute_agent_task(
     on_todo_created = on_todo_created or ctx["on_todo_created"]
     on_todo_update = on_todo_update or ctx["on_todo_update"]
     on_request_input = on_request_input or ctx["on_request_input"]
+    on_token = on_token or ctx.get("on_token")
 
     # Wrap callbacks to inject per-agent distinction so TUI can show
     # "● {agent} — Technical Reasoning" and "Tool: ... by @agent" and preserve
@@ -1954,6 +2044,37 @@ def execute_agent_task(
 
     tools = _discover_tools()
 
+    # Budget-aware tool filtering: small token budgets use a core subset.
+    try:
+        if max_tokens and max_tokens < 4000 and len(tools) > 20:
+            keep = {
+                "read_file",
+                "write_file",
+                "edit_file",
+                "execute_shell",
+                "ast_edit",
+                "grep_content",
+                "glob_files",
+                "git_operations",
+                "repo_map",
+                "project_graph",
+            }
+            tools = {k: v for k, v in tools.items() if k in keep}
+            logger.info("Budget-aware tool filter: %d tools", len(tools))
+    except Exception:
+        pass
+
+    # Task-aware tool subset (on by default; disable with SAGO_TOOL_SELECTION=0).
+    if os.environ.get("SAGO_TOOL_SELECTION", "1").strip() != "0":
+        try:
+            from sago.tools.registry import select_tools_for_task
+
+            selected = set(select_tools_for_task(task, tools, max_tools=25))
+            if selected:
+                tools = {k: v for k, v in tools.items() if k in selected}
+                logger.info("Task-aware tool selection: %d tools", len(tools))
+        except Exception as e:
+            logger.debug("Task-aware tool selection failed: %s", e)
     # --- Plugin: on_init hook (once per execution lifecycle) ---
     try:
         from sago.plugins.base import get_plugin_manager
@@ -2044,6 +2165,8 @@ def execute_agent_task(
 
     client, api_model = get_tui_client(provider, model)
     start_time = time.time()
+
+    _bus_event("executor", "task_started", task=task[:300], agent_role=agent_role, model=api_model)
 
     # 1. Automatically enhance prompt with intent, clarity, constraints, and criteria
     from sago.engine.prompt_enhancer import enhance_prompt
@@ -2386,11 +2509,21 @@ def execute_agent_task(
         msgs: list[dict[str, Any]], max_tokens: int | None = None
     ) -> list[dict[str, Any]]:
         """Compact messages if total content exceeds token limit using semantic distillation."""
-        effective_max_tokens = (
-            max_tokens
-            if max_tokens is not None
-            else int(os.environ.get("SAGO_MAX_TOKENS", str(_get_executor_config().max_tokens)))
-        )
+        if max_tokens is not None:
+            effective_max_tokens = max_tokens
+        else:
+            env_override = os.environ.get("SAGO_COMPACTION_THRESHOLD") or os.environ.get(
+                "SAGO_MAX_TOKENS"
+            )
+            if env_override and env_override.isdigit():
+                effective_max_tokens = int(env_override)
+            else:
+                from sago.memory.compaction import get_dynamic_compaction_thresholds
+
+                effective_max_tokens = get_dynamic_compaction_thresholds(
+                    provider=provider, model=model, base_url=base_url
+                ).target_tokens
+
         total_chars = sum(len(str(m.get("content", "") or "")) for m in msgs)
         estimated_tokens = total_chars // 4
         logger.debug(
@@ -2497,6 +2630,29 @@ def execute_agent_task(
         return None
 
     for i in range(max_iterations):
+        # --- Early cancellation check ---
+        _is_cancelled = False
+        if cancellation_token:
+            if callable(cancellation_token):
+                _is_cancelled = cancellation_token()
+            elif hasattr(cancellation_token, "is_set"):
+                _is_cancelled = cancellation_token.is_set()
+            elif hasattr(cancellation_token, "is_cancelled"):
+                _is_cancelled = bool(cancellation_token.is_cancelled)
+        if not _is_cancelled and os.environ.get("SAGO_CANCEL_REQUESTED", "0") == "1":
+            _is_cancelled = True
+        if _is_cancelled:
+            logger.info("Agent '%s' cancelled at iteration %d", agent_role, i)
+            _bus_event("executor", "task_cancelled", agent_role=agent_role)
+            return {
+                "success": False,
+                "output": content if "content" in locals() and content else "Task cancelled.",
+                "tool_calls": tool_history,
+                "iterations": i,
+                "tokens": {"input": total_tokens_in, "output": total_tokens_out},
+                "cancelled": True,
+            }
+
         # --- Wall-clock timeout check ---
         if wall_timeout > 0 and (time.time() - start_time) > wall_timeout:
             logger.warning(
@@ -2906,6 +3062,12 @@ def execute_agent_task(
             content = message_obj.content or ""
             if not content and hasattr(message_obj, "reasoning") and message_obj.reasoning:
                 content = message_obj.reasoning
+
+            if on_token and content:
+                try:
+                    on_token(content)
+                except Exception:
+                    pass
 
             # Extract native tool_calls from OpenAI response
             if message_obj.tool_calls:
@@ -3694,6 +3856,13 @@ def execute_agent_task(
                 {"tool": name, "args": args, "result": result_str[:2000], "success": not is_error}
             )
             tools_used_in_iteration.append(name)
+            _bus_event(
+                "executor",
+                "tool_executed",
+                tool=name,
+                success=not is_error,
+                agent_role=agent_role,
+            )
 
             # Record TOOL_DISPATCH event for dev tracer (event graph visibility)
             try:
@@ -3979,28 +4148,36 @@ def execute_agent_task(
                 pass
             continue
 
-        # Auto-compact if messages are getting too large — 175k context guard
-        # Triggers at 175k tokens (~700k chars) to prevent bloat/hallucination.
+        # Auto-compact if messages are getting too large — dynamic context guard
+        # Tiers:
+        # - Local models (Ollama, LM Studio): 50k-100k tokens (trigger: 75k)
+        # - Standard cloud models (Claude, GPT-4o): 150k-200k tokens (trigger: 175k)
+        # - Massive context models (Gemini 1M, Claude 1M): 750k-1M tokens (trigger: 750k)
         # Shows compact summary to user when it happens (manual /compact also works).
-        if len(messages) > 30:
-            # Check actual token estimate, not just message count
+        from sago.memory.compaction import get_dynamic_compaction_thresholds
+
+        dynamic_thresholds = get_dynamic_compaction_thresholds(
+            provider=provider, model=model, base_url=base_url
+        )
+        if len(messages) > 10:
             est_tokens = sum(len(str(m.get("content", "")) or "") // 4 for m in messages)
-            if est_tokens > 175000 or len(messages) > 50:
+            if (
+                est_tokens > dynamic_thresholds.trigger_tokens
+                or len(messages) > dynamic_thresholds.trigger_messages
+            ):
                 old_len = len(messages)
                 old_tokens = est_tokens
-                messages = _compact_messages_if_needed(messages, max_tokens=80000)
+                messages = _compact_messages_if_needed(
+                    messages, max_tokens=dynamic_thresholds.target_tokens
+                )
                 # Show compact summary to user so they see what was summarized
                 try:
-                    compact_info = f"📦 Auto-compact: {old_len} msgs (~{old_tokens:,} tokens) → {len(messages)} msgs | 175k guard tripped"
+                    compact_info = (
+                        f"📦 Auto-compact ({dynamic_thresholds.tier}): {old_len} msgs (~{old_tokens:,} tokens) → "
+                        f"{len(messages)} msgs | {dynamic_thresholds.trigger_tokens // 1000}k guard ({dynamic_thresholds.description})"
+                    )
                     if on_thinking:
                         on_thinking(compact_info)
-                    # Also add as system message so it's visible in chat
-                    messages.append(
-                        {
-                            "role": "system",
-                            "content": f"[COMPACTED] {compact_info}. Recent context preserved, older history summarized.",
-                        }
-                    )
                 except Exception:
                     pass
 
@@ -4289,6 +4466,79 @@ def execute_agent_task(
         total_tokens_out,
         len(files_created),
         time.time() - start_time,
+    )
+
+    # Early cancellation check (env-gated token).
+    if os.environ.get("SAGO_CANCEL_REQUESTED", "0") == "1":
+        logger.info("Execution cancelled via SAGO_CANCEL_REQUESTED")
+        _bus_event("executor", "task_cancelled", agent_role=agent_role)
+        return {
+            "success": False,
+            "output": content if "content" in locals() else "",
+            "tool_calls": tool_history if "tool_history" in locals() else [],
+            "iterations": 0,
+            "tokens": {"input": 0, "output": 0},
+            "cancelled": True,
+        }
+
+    # Optional multi-pass self-correction (env-gated).
+    max_passes = int(
+        os.environ.get(
+            "SAGO_MAX_CORRECTION_PASSES",
+            "1" if os.environ.get("SAGO_MULTI_PASS", "0") == "1" else "0",
+        )
+    )
+    if max_passes > 0:
+        try:
+            from sago.engine.hallucination_verifier import get_verifier
+
+            verifier = get_verifier()
+            eff_root = cwd or os.getcwd()
+            for pass_idx in range(max_passes):
+                verification = verifier.verify(
+                    content,
+                    tool_history=tool_history or [],
+                    task_type=task_type if "task_type" in locals() else "create",
+                    root_dir=eff_root,
+                )
+                if not (verification.has_hallucinations and verification.all_issues):
+                    break
+                correction_prompt = verifier.suggest_correction(verification)
+                if not correction_prompt:
+                    break
+                try:
+                    corr_resp = client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "You are correcting a previous response.",
+                            },
+                            {"role": "user", "content": correction_prompt},
+                        ],
+                        max_tokens=min(1200, max_tokens or 1200),
+                        temperature=0.2,
+                    )
+                    corrected = (
+                        (corr_resp.choices[0].message.content or "").strip()
+                        if corr_resp.choices
+                        else ""
+                    )
+                    if corrected:
+                        content = corrected
+                except Exception as e:
+                    logger.debug("Multi-pass correction failed on pass %d: %s", pass_idx, e)
+                    break
+        except Exception as e:
+            logger.debug("Multi-pass correction setup failed: %s", e)
+
+    _bus_event(
+        "executor",
+        "task_completed",
+        agent_role=agent_role,
+        n_tools=len(tool_history),
+        tokens_out=total_tokens_out,
+        elapsed=time.time() - start_time,
     )
 
     return {

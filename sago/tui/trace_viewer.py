@@ -298,7 +298,7 @@ class TraceViewerScreen(ModalScreen[None]):
         with Vertical(classes="tv-box"):
             with Horizontal(classes="tv-header"):
                 yield Label(
-                    f"⚡ {escape(self.viewer_title)}  [dim]{escape(subtitle)}[/dim]",
+                    f"◈ {escape(self.viewer_title)}  [dim]{escape(subtitle)}[/dim]",
                     classes="tv-title",
                     markup=True,
                 )
@@ -327,7 +327,7 @@ class TraceViewerScreen(ModalScreen[None]):
                     markup=True,
                 )
                 yield Static("", classes="tv-spacer")
-                yield Button("⬆ Export", id="btn-tv-export", classes="tv-btn tv-btn-export")
+                yield Button("⎘ Export", id="btn-tv-export", classes="tv-btn tv-btn-export")
                 yield Button("✕ Close", id="btn-tv-close", classes="tv-btn tv-btn-close")
 
             yield Static(

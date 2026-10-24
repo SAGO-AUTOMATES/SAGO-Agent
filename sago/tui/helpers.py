@@ -321,7 +321,7 @@ def _render_markdown_rich(content: str) -> Any:
 
 def _make_code_copy_button(code: str) -> Button:
     """Create a copy button that stores code for clipboard handler in app.py."""
-    btn = Button("📋 Copy Code", classes="btn-copy-code")
+    btn = Button("⎘ Copy Code", classes="btn-copy-code")
     btn._code_content = code  # type: ignore[attr-defined]
     return btn
 
@@ -809,6 +809,12 @@ class UIHelpers:
             card_lines.append(f"[dim]Targets:[/] [cyan]{targets}[/cyan]")
         if tags:
             card_lines.append(f"[dim]Additions:[/] [green]{tags}[/green]")
+        raw_summary = getattr(enhancement, "context_summary", "")
+        if raw_summary:
+            summary_escaped = escape(str(raw_summary))
+            card_lines.append(
+                f"\n[dim]── Prior Turns & Working Context (2-7 lines) ──[/dim]\n[cyan]{summary_escaped}[/cyan]"
+            )
         if crit_lines:
             card_lines.append(f"\n[bold]Acceptance Criteria:[/]\n{crit_lines}")
 
@@ -1160,7 +1166,7 @@ class UIHelpers:
                     markup=True,
                 )
                 view_btn = Button(
-                    "View Trace ⚡",
+                    "◈ View Trace",
                     id=f"btn-view-trace-{id(traces)}",
                     classes="btn-view-trace",
                 )

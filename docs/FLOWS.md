@@ -292,3 +292,32 @@ flowchart LR
 * **HMAC-SHA256 Message Authentication**: Every mesh packet is cryptographically signed using a shared cluster secret (`SAGO_MESH_SECRET`), guaranteeing packet integrity and authenticity.
 * **Replay Attack Prevention**: Inbound packets include microsecond timestamps; messages outside a configurable 300-second window or with duplicate nonces are rejected.
 * **Automatic Node Discovery**: Nodes announce their capabilities (e.g. `gpu`, `database`, `rust`) over UDP broadcast, allowing automatic multi-node task routing.
+
+---
+
+## 13. Map-Reduce Parallel Refactoring Swarm & Proactive Compaction
+
+For tasks affecting 15+ to 100+ files, SAGO employs an automated Map-Reduce swarm coordinated by [`sago/orchestrator/delegator.py`](file:///mnt/ramdisk/sago/sago/orchestrator/delegator.py):
+
+```mermaid
+flowchart TD
+    Task["⚡ Cross-Cutting Refactor Task (30+ Files)"] --> Partition["1. MapReduceRefactorCoordinator.partition_clusters()"]
+    Partition --> Clusters["Cohesive File Clusters (Max 5-6 files each, priority sorted)"]
+    
+    subgraph Parallel_Workers["2. Map Phase (Parallel Worker Swarm)"]
+        W1["Worker 1 (Cluster A)"]
+        W2["Worker 2 (Cluster B)"]
+        W3["Worker 3 (Cluster C)"]
+    end
+    
+    Clusters --> Parallel_Workers
+    Parallel_Workers --> Reduce["3. Reduce Phase: Aggregate Modified Files & Diffs"]
+    Reduce --> Verify{"ProjectVerifier: Syntax, Linters & Test Suites"}
+    Verify -->|✅ Passed| Merge["Unified Diff & Success Report"]
+    Verify -->|❌ Failed| AutoRepair["Targeted Repair Sub-Pass on Failing Cluster"]
+```
+
+### Proactive Compaction & Context Poisoning Guard
+* **Proactive Auto-Compaction**: In long multi-turn sessions, simple_executor triggers automatic compaction when messages exceed 45,000 tokens or 25 turns, distilling older history and preserving active working context.
+* **Delta Capping**: When 100+ files are modified, SAGO caps the context representation to the top 5 most relevant touched files plus cluster counts, preventing attention diffusion and hallucinations.
+* **Working Context Summarizer**: A fast, lightweight non-agent call synthesizes prior conversation turns into an ultra-concise 2–7 line working context summary before the next big LLM call, displayed transparently in the TUI card.

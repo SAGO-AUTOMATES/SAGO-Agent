@@ -17,6 +17,8 @@ from sago.llm.registry import (
     normalize_provider,
     resolve_api_key,
     resolve_base_url,
+    split_provider_and_model,
+    strip_model_prefix,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,54 +38,37 @@ def resolve_active_llm_config(
     from sago.settings import load_setting
 
     # 1. Resolve Provider
-    resolved_provider = normalize_provider(provider)
-    if not resolved_provider and model:
-        m_lower = model.lower()
-        if m_lower.startswith("gemini"):
-            resolved_provider = "google"
-        elif m_lower.startswith("claude"):
-            resolved_provider = "anthropic"
-        elif m_lower.startswith("ollama"):
-            resolved_provider = "ollama"
-        elif m_lower.startswith("openrouter") or "/" in model:
-            resolved_provider = "openrouter"
-        elif any(m_lower.startswith(pfx) for pfx in ("gpt-", "o1", "o3", "o4", "chatgpt")):
-            resolved_provider = "openai"
+    explicit_provider, clean_model = split_provider_and_model(model)
 
-    if not resolved_provider:
-        resolved_provider = normalize_provider(
-            os.environ.get("SAGO_PROVIDER") or load_setting("provider")
-        )
+    resolved_provider = (
+        normalize_provider(provider)
+        or explicit_provider
+        or normalize_provider(os.environ.get("SAGO_PROVIDER") or load_setting("provider"))
+    )
+
     if not resolved_provider:
         try:
             from sago.config.loader import get_config
 
             cfg = get_config()
-            raw = getattr(cfg.llm_providers, "default", None) or "openrouter"
-            resolved_provider = normalize_provider(raw)
+            raw = getattr(getattr(cfg, "llm_providers", None), "default", None)
+            if raw and isinstance(raw, str):
+                resolved_provider = normalize_provider(raw)
         except Exception:
+            pass
+
+    # Only fall back to an available key if user has NO configured provider anywhere
+    if not resolved_provider:
+        for fallback in fallback_order():
+            fspec = get_provider_spec(fallback)
+            if fspec and (fspec.local or resolve_api_key(fallback)):
+                resolved_provider = fallback
+                break
+        if not resolved_provider:
             resolved_provider = "openrouter"
 
-    # Auto-fallback: if configured provider has no API key, pick one that does
-    _original_provider = resolved_provider
-    spec = get_provider_spec(resolved_provider)
-    needs_key = bool(spec and spec.api_key_env) if spec else True
-    if needs_key:
-        has_key = resolve_api_key(resolved_provider) != ""
-        if not has_key:
-            for fallback in fallback_order():
-                fspec = get_provider_spec(fallback)
-                if fspec is None or fspec.local or not fspec.api_key_env:
-                    continue
-                if resolve_api_key(fallback):
-                    logger.info(
-                        "No API key for %r, falling back to %r", resolved_provider, fallback
-                    )
-                    resolved_provider = fallback
-                    break
-
     # 2. Resolve Model
-    resolved_model = model
+    resolved_model = clean_model if clean_model else None
     if not resolved_model:
         resolved_model = (
             os.environ.get("SAGO_MODEL") or load_setting("model") or load_setting("provider_model")
@@ -93,30 +78,24 @@ def resolve_active_llm_config(
             from sago.config.loader import get_config
 
             cfg = get_config()
-            if hasattr(cfg, "orchestrator") and getattr(cfg.orchestrator, "model", None):
-                resolved_model = cfg.orchestrator.model
+            orch_model = getattr(getattr(cfg, "orchestrator", None), "model", None)
+            if orch_model and isinstance(orch_model, str):
+                resolved_model = orch_model
         except Exception:
-            logger.debug("Could not load config for model resolution")
-
-    # If provider was fallback-changed (or none configured), use its default model
-    provider_changed = resolved_provider != _original_provider
-    if (provider_changed or not resolved_model) and not model:
+            pass
+    if not resolved_model:
         fspec = get_provider_spec(resolved_provider)
         resolved_model = fspec.default_model if fspec else "openrouter/free"
+
+    # Strip redundant provider prefix unless provider is openrouter (which needs vendor/model)
+    if resolved_provider != "openrouter":
+        resolved_model = strip_model_prefix(resolved_provider, resolved_model)
 
     # 3. Resolve API Key
     if api_key:
         resolved_key = api_key
     else:
         resolved_key = resolve_api_key(resolved_provider, resolved_model)
-        if not resolved_key:
-            # Last resort: any configured cloud key
-            for fallback in fallback_order():
-                fspec = get_provider_spec(fallback)
-                if fspec and fspec.api_key_env:
-                    resolved_key = os.environ.get(fspec.api_key_env, "")
-                    if resolved_key:
-                        break
 
     # 4. Resolve Base URL
     if base_url is not None:
@@ -151,16 +130,49 @@ def get_tui_client(provider: str, model: str) -> tuple[Any, str]:
     elif canonical == "ollama" or (model or "").startswith("ollama/"):
         return _get_ollama_client(model)
     elif canonical == "anthropic":
+        try:
+            import anthropic  # noqa: F401
+
+            key = os.environ.get("ANTHROPIC_API_KEY", "")
+            if not key:
+                raise ValueError(
+                    "ANTHROPIC_API_KEY not set. Get one at: https://console.anthropic.com"
+                )
+            # If anthropic SDK is installed and key is set, check if openrouter is preferred or route
+            if os.environ.get("OPENROUTER_API_KEY") and not key:
+                openrouter_model = f"anthropic/{model.replace('anthropic/', '')}"
+                return _get_openrouter_client(
+                    openrouter_model, os.environ["OPENROUTER_API_KEY"]
+                ), openrouter_model
+        except ImportError:
+            pass
+
+        # If direct anthropic SDK is not installed, route via OpenRouter if key is available
+        if os.environ.get("OPENROUTER_API_KEY"):
+            openrouter_model = f"anthropic/{model.replace('anthropic/', '')}"
+            return _get_openrouter_client(
+                openrouter_model, os.environ["OPENROUTER_API_KEY"]
+            ), openrouter_model
+
         raise ValueError(
-            "Direct Anthropic chat is handled via OpenRouter routing; "
-            "use /provider openrouter with a claude-* model."
+            "Direct Anthropic chat requires 'anthropic' package (pip install anthropic) and ANTHROPIC_API_KEY, "
+            "or set OPENROUTER_API_KEY to route Anthropic models via OpenRouter."
         )
-    elif spec and spec.base_url and spec.local:
-        # Registry-driven local/OpenAI-compatible providers
-        return _get_openai_compatible_client(model, spec.base_url, key="ollama")
     elif canonical in ("openrouter", ""):
         api_key = os.environ.get("OPENROUTER_API_KEY", "")
         return _get_openrouter_client(model, api_key), model
+    elif spec and spec.base_url:
+        # Standard OpenAI-compatible provider (DeepSeek, Groq, Mistral, Together, LM Studio, etc.)
+        key = resolve_api_key(canonical, model)
+        if not key and not spec.local:
+            key_name = spec.api_key_env or f"{canonical.upper()}_API_KEY"
+            raise ValueError(
+                f"{key_name} not set for provider '{canonical}'. Get one at: {spec.billing_url or spec.base_url}"
+            )
+        from sago.llm.registry import strip_model_prefix
+
+        api_model = strip_model_prefix(canonical, model)
+        return _get_openai_compatible_client(api_model, spec.base_url, key=key or "local")
 
     raise ValueError(
         f"Unknown provider {provider!r}. Known providers: {', '.join(known_providers())}"
@@ -196,7 +208,13 @@ def _get_ollama_client(model: str) -> tuple[Any, str]:
 
 def _get_google_client(model: str) -> tuple[Any, str]:
     """Google Gemini via native google-genai SDK."""
-    from google import genai as google_genai
+    try:
+        from google import genai as google_genai
+    except ImportError as err:
+        raise ImportError(
+            "The 'google-genai' package is required for Google Gemini models. "
+            "Install it via: pip install google-genai"
+        ) from err
 
     key = os.environ.get("GEMINI_API_KEY", "")
     if not key:
@@ -251,8 +269,6 @@ def generate_with_provider(
     client, api_model = get_tui_client(provider, model)
 
     if provider == "google":
-        from google.genai import types as google_types
-
         contents = []
         sys_msg = system_prompt
         for msg in messages:
@@ -263,27 +279,30 @@ def generate_with_provider(
         if not contents:
             contents = ["Hello"]
 
+        try:
+            from google.genai import types as google_types
+
+            gen_config = google_types.GenerateContentConfig(
+                system_instruction=sys_msg or None,
+                max_output_tokens=max_tokens,
+                temperature=temperature,
+            )
+        except Exception:
+            gen_config = None
+
         if stream:
             return client.models.generate_content_stream(
                 model=api_model,
                 contents=contents,
-                config=google_types.GenerateContentConfig(
-                    system_instruction=sys_msg or None,
-                    max_output_tokens=max_tokens,
-                    temperature=temperature,
-                ),
+                config=gen_config,
             )
         else:
             response = client.models.generate_content(
                 model=api_model,
                 contents=contents,
-                config=google_types.GenerateContentConfig(
-                    system_instruction=sys_msg or None,
-                    max_output_tokens=max_tokens,
-                    temperature=temperature,
-                ),
+                config=gen_config,
             )
-            return response.text or ""
+            return getattr(response, "text", "") or ""
 
     if stream:
         return client.chat.completions.create(

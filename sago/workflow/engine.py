@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import uuid
 from collections.abc import Callable
@@ -491,8 +492,47 @@ class WorkflowEngine:
             step.result = result
             step.status = StepStatus.COMPLETED
 
+            # Optional dynamic replanning (env-gated): one feedback round for
+            # steps that reported failure without raising (LLM/agent steps).
+            if (
+                os.environ.get("SAGO_REPLAN", "").strip() == "1"
+                and isinstance(result, dict)
+                and result.get("success") is False
+                and not step.error
+            ):
+                replan_task = None
+                if step.config.get("task"):
+                    replan_task = (
+                        f"{step.config['task']}\n\nPrevious attempt failed."
+                        f" Do not repeat this mistake: {str(result.get('error', ''))[:500]}"
+                    )
+                if replan_task:
+                    logger.info(
+                        "Dynamic replan: retrying step %s once with error feedback", step.id
+                    )
+                    self._notify("step_replanned", {"workflow_id": workflow.id, "step_id": step.id})
+                    try:
+                        amended = dict(step.config)
+                        amended["task"] = replan_task
+                        result2 = executor(context, amended)
+                        if isinstance(result2, dict) and result2.get("success") is not False:
+                            step.result = result2
+                            step.status = StepStatus.COMPLETED
+                            if isinstance(result2, dict):
+                                workflow.state.update_context(result2)
+                            logger.info("Dynamic replan succeeded for step %s", step.id)
+                        else:
+                            step.result = result2
+                            step.error = (
+                                "Replan failed: "
+                                + str((result2 or {}).get("error", "unknown"))[:300]
+                            )
+                            logger.warning("Dynamic replan failed for step %s", step.id)
+                    except Exception as e2:
+                        logger.warning("Dynamic replan errored for step %s: %s", step.id, e2)
+
             # Update state with result
-            if isinstance(result, dict):
+            if isinstance(step.result, dict) and step.result is result:
                 workflow.state.update_context(result)
 
         except Exception as e:

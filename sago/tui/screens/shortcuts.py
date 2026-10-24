@@ -44,8 +44,10 @@ class ShortcutsScreen(ModalScreen[None]):
     .shortcuts-content {
         height: auto;
         max-height: 24;
-        overflow-y: auto;
-        scrollbar-size: 1 1;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
         padding: 1 0;
     }
@@ -85,7 +87,7 @@ class ShortcutsScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="shortcuts-dialog"):
-            yield Static("⌨️  SAGO SHORTCUTS & QUICK REFERENCE", classes="shortcuts-header")
+            yield Static("⌨ SAGO SHORTCUTS & QUICK REFERENCE", classes="shortcuts-header")
             with ScrollableContainer(classes="shortcuts-content"):
                 yield Static(
                     "[bold yellow]─── KEYBOARD SHORTCUTS ───[/bold yellow]",
@@ -114,6 +116,11 @@ class ShortcutsScreen(ModalScreen[None]):
                 )
                 yield Static(
                     "  [bold cyan]F5[/bold cyan]              : Open Session Switcher & History Manager",
+                    classes="shortcut-row",
+                    markup=True,
+                )
+                yield Static(
+                    "  [bold cyan]F6 / Ctrl + M[/bold cyan] : Open Interactive Model & Provider Switcher",
                     classes="shortcut-row",
                     markup=True,
                 )
