@@ -1015,6 +1015,84 @@ def history(session_id: str) -> None:
             console.print("[dim]...[/]")
 
 
+@cli.command("load")
+@click.argument("session_id", required=False)
+def load_cmd(session_id: str | None) -> None:
+    """Load and resume a previous session in TUI by ID or JSON file."""
+    if not session_id:
+        ctx = click.get_current_context()
+        ctx.invoke(sessions)
+        return
+    from sago.tui.app import SagoApp
+
+    app = SagoApp()
+    app._pending_resume = session_id
+    app.run()
+    if hasattr(app, "print_exit_summary"):
+        app.print_exit_summary()
+
+
+@cli.command("resume")
+@click.argument("session_id", required=False)
+def resume_cmd(session_id: str | None) -> None:
+    """Resume a previous session in TUI."""
+    if not session_id:
+        ctx = click.get_current_context()
+        ctx.invoke(sessions)
+        return
+    from sago.tui.app import SagoApp
+
+    app = SagoApp()
+    app._pending_resume = session_id
+    app.run()
+    if hasattr(app, "print_exit_summary"):
+        app.print_exit_summary()
+
+
+@cli.command("session")
+@click.argument("action", default="list", required=False)
+@click.argument("target", required=False)
+def session_cmd(action: str = "list", target: str | None = None) -> None:
+    """Manage SAGO sessions (list, load, resume, export)."""
+    act = (action or "list").lower()
+    if act in ("list", "ls"):
+        ctx = click.get_current_context()
+        ctx.invoke(sessions)
+    elif act in ("load", "resume", "switch"):
+        if not target:
+            console.print("[yellow]Usage:[/] sago session load <session_id>")
+            return
+        from sago.tui.app import SagoApp
+
+        app = SagoApp()
+        app._pending_resume = target
+        app.run()
+        if hasattr(app, "print_exit_summary"):
+            app.print_exit_summary()
+    elif act == "export":
+        if not target:
+            console.print("[yellow]Usage:[/] sago session export <session_id>")
+            return
+        from sago.sessions.manager import export_session
+
+        exported = export_session(target)
+        if exported:
+            out_file = f"{target[:8]}_export.json"
+            Path(out_file).write_text(exported, encoding="utf-8")
+            console.print(f"[bold green]✓ Session exported to:[/] {out_file}")
+        else:
+            console.print(f"[red]Error:[/] Session '{target}' not found")
+    else:
+        # Treat action as session ID
+        from sago.tui.app import SagoApp
+
+        app = SagoApp()
+        app._pending_resume = action
+        app.run()
+        if hasattr(app, "print_exit_summary"):
+            app.print_exit_summary()
+
+
 @cli.command()
 @click.option("--name", "-n", default=None, help="Project name")
 @click.option("--ssh/--no-ssh", default=False, help="Enable SSH tools")

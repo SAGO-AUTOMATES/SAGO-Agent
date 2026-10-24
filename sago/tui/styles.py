@@ -21,8 +21,10 @@ Screen { background: #0a0d12; }
     background: #111418;
     border-left: solid #21262d;
     padding: 0 1;
-    overflow-y: auto;
-    scrollbar-size: 1 1;
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+    scrollbar-size-vertical: 1;
+    scrollbar-size-horizontal: 0;
     scrollbar-color: #388bfd #161b22;
 }
 #agent-dashboard.hidden { display: none; }
@@ -121,8 +123,14 @@ Collapsible .collapsible-body { background: #0d1117; color: #e6edf3; padding: 1 
 #msg-input { background: #0a0d12; border: none; border-top: solid #21262d; color: #c9d1d9; margin: 0; padding: 0 1; width: 1fr; }
 #msg-input:focus { border: none; border-top: solid #388bfd; color: #ffffff; background: #0a0d12; }
 
-#input-action-bar { height: auto; max-height: 2; margin: 1 0 0 0; overflow-x: auto; overflow-y: hidden; scrollbar-size: 0 0; scrollbar-gutter: auto; }
-.hide-action-bar #input-action-bar { display: none; }
+#action-bar-container { height: 1; width: 100%; layout: horizontal; margin: 1 0 0 0; }
+.hide-action-bar #action-bar-container, .hide-action-bar #input-action-bar { display: none; }
+#input-action-bar { height: 1; width: 1fr; layout: horizontal; overflow-x: auto; overflow-y: hidden; scrollbar-size: 0 0; margin: 0; }
+.action-scroll-arrow { height: 1; min-width: 2; padding: 0; background: transparent; color: #58a6ff; border: none !important; }
+.action-scroll-arrow:hover { background: #21262d; color: #79c0ff; border: none !important; }
+.action-scroll-arrow:focus { background: transparent; border: none !important; }
+.action-scroll-arrow.-active { background: #30363d !important; border: none !important; tint: transparent !important; }
+.action-scroll-arrow.hidden { display: none; }
 .btn-input-action { height: 1; min-width: 4; border: none !important; background: transparent; color: #8b949e; margin-right: 1; padding: 0 1; }
 .btn-input-action:hover { background: #21262d; color: #f0f6fc; border: none !important; }
 .btn-input-action:focus { background: transparent; color: #8b949e; border: none !important; text-style: none; }

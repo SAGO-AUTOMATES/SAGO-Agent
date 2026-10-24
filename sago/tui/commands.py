@@ -543,6 +543,8 @@ class CommandHandlers:
             return
         if sid.lower().startswith("switch "):
             sid = sid[7:].strip()
+        elif sid.lower().startswith("load "):
+            sid = sid[5:].strip()
         if sid.lower().startswith("clean"):
             self._handle_clean_command("sessions")
             return
@@ -552,15 +554,19 @@ class CommandHandlers:
         if sid.lower().startswith("save"):
             self._save_session(sid[5:].strip())
             return
+        if sid.lower().startswith("reset"):
+            self._reset()
+            return
         try:
             from sago.database import MessageStore, Session, init_db
 
             init_db()
             s = Session()
-            sessions = s.list_all(limit=100)
+            matched = s.find_by_prefix(sid)
+            sessions = [matched] if matched else s.list_all(limit=100)
             s.close()
             for ses in sessions:
-                if ses["id"].startswith(sid):
+                if ses and (ses["id"].startswith(sid) or (matched and ses["id"] == matched["id"])):
                     self._hide_welcome_screen()
                     self.current_session_id = ses["id"]
                     # CRITICAL: Reset stale _message_store so new messages go to this session
@@ -745,10 +751,8 @@ class CommandHandlers:
                                         _msg_think = ""
                                         try:
                                             _msg_think = (
-                                                msg.get("thinking", "")
-                                                if isinstance(msg, dict)
-                                                else ""
-                                            )  # type: ignore[attr-defined]  # noqa: F821
+                                                m.get("thinking", "") if isinstance(m, dict) else ""
+                                            )
                                         except Exception:
                                             _msg_think = ""
                                         if (
@@ -1409,6 +1413,49 @@ class CommandHandlers:
 
     def _load_session(self: SagoApp, sid: str) -> None:
         """Load a previous session's messages."""
+        sid = (sid or "").strip()
+        if sid.lower().startswith("load "):
+            sid = sid[5:].strip()
+        elif sid.lower().startswith("switch "):
+            sid = sid[7:].strip()
+        if not sid:
+            self._add_system_message("Usage: /load <session-id | json-file>")
+            return
+
+        # Check if sid points to an existing session file on disk
+        target_path = Path(sid)
+        if target_path.exists() and target_path.is_file():
+            try:
+                import uuid
+
+                file_content = target_path.read_text(encoding="utf-8")
+                sess_data = json.loads(file_content)
+                from sago.database import MessageStore, init_db
+                from sago.database import Session as DbSession
+
+                init_db()
+                file_sid = sess_data.get("id") or str(uuid.uuid4())
+                file_title = sess_data.get("title") or f"Imported: {target_path.name}"
+                with DbSession() as db_s:
+                    if not db_s.find_by_prefix(file_sid):
+                        db_s.id = file_sid
+                        db_s.create(title=file_title, metadata=sess_data.get("metadata") or {})
+                ms = MessageStore(file_sid)
+                if not ms.get_history(limit=1):
+                    for msg in sess_data.get("messages", []):
+                        ms.add(
+                            role=msg.get("role", "user"),
+                            content=msg.get("content", ""),
+                            agent_name=msg.get("agent_name"),
+                            metadata=msg.get("metadata") or {},
+                        )
+                    ms.flush()
+                ms.close()
+                sid = file_sid
+            except Exception as f_err:
+                self._add_system_message(f"Error loading session file {target_path}: {f_err}")
+                return
+
         try:
             from sago.database import MessageStore, Session, ToolUsageStore, init_db
 
@@ -1943,6 +1990,7 @@ class CommandHandlers:
                 f"Session not found: {sid}\nUse /sessions to list available sessions"
             )
         except Exception as e:
+            logger.exception("Failed to load session %s", sid)
             self._add_system_message(f"Load error: {e}")
 
     def _exit_session(self: SagoApp) -> None:

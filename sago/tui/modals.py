@@ -108,6 +108,8 @@ class DiffViewerScreen(ModalScreen):
     #diff-options {
         background: #0d1117;
         border: none;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
         scrollbar-size-vertical: 1;
         scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
@@ -117,6 +119,8 @@ class DiffViewerScreen(ModalScreen):
         width: 68%;
         height: 100%;
         padding: 0 0 0 1;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
         scrollbar-size-vertical: 1;
         scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
@@ -312,6 +316,8 @@ class FileExplorerScreen(ModalScreen):
     DirectoryTree {
         background: #0d1117;
         border: none;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
         scrollbar-size-vertical: 1;
         scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
@@ -321,6 +327,8 @@ class FileExplorerScreen(ModalScreen):
         width: 68%;
         height: 100%;
         padding-left: 1;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
         scrollbar-size-vertical: 1;
         scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
@@ -530,6 +538,8 @@ class SessionManagerScreen(ModalScreen):
     #session-options {
         background: #0d1117;
         border: none;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
         scrollbar-size-vertical: 1;
         scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
@@ -539,6 +549,8 @@ class SessionManagerScreen(ModalScreen):
         width: 60%;
         height: 100%;
         padding: 1 0 0 1;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
         scrollbar-size-vertical: 1;
         scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
@@ -798,6 +810,8 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
         background: #0d1117;
         border: none !important;
         padding: 0;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
         scrollbar-size-vertical: 1;
         scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
@@ -852,6 +866,8 @@ class ModelSwitcherScreen(ModalScreen[dict[str, str] | None]):
     }
     #model-detail-scroll {
         height: 1fr;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
         scrollbar-size-vertical: 1;
         scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;

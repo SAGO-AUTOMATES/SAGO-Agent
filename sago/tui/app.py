@@ -228,6 +228,35 @@ class SagoTextAreaInput(TextArea):
 MultiLinePasteInput = SagoTextAreaInput
 
 
+class SagoActionBar(Horizontal):
+    """Horizontal container for the action bar with auto-updating touch scroll chevrons."""
+
+    def on_resize(self, event: Any) -> None:
+        self._sync_arrows()
+
+    def watch_scroll_x(self, old_val: float, new_val: float) -> None:
+        self._sync_arrows()
+
+    def _sync_arrows(self) -> None:
+        try:
+            prev_b = self.app.query_one("#btn-action-prev", Button)
+            next_b = self.app.query_one("#btn-action-next", Button)
+            if self.max_scroll_x <= 0:
+                prev_b.add_class("hidden")
+                next_b.add_class("hidden")
+            else:
+                if self.scroll_x > 0:
+                    prev_b.remove_class("hidden")
+                else:
+                    prev_b.add_class("hidden")
+                if self.scroll_x < self.max_scroll_x:
+                    next_b.remove_class("hidden")
+                else:
+                    next_b.add_class("hidden")
+        except Exception:
+            pass
+
+
 class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageProcessorMixin):
     CSS = TUI_CSS
 
@@ -346,43 +375,54 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
                     yield MultiLinePasteInput(
                         placeholder="/, @, # for autocomplete (or type a message)", id="msg-input"
                     )
-                    with Horizontal(id="input-action-bar"):
-                        yield Button("⌨ Help [F1]", id="btn-input-help", classes="btn-input-action")
+                    with Horizontal(id="action-bar-container"):
                         yield Button(
-                            "◈ Traces [F2]",
-                            id="btn-input-traces",
-                            classes="btn-input-action dev-only-btn",
+                            "‹", id="btn-action-prev", classes="action-scroll-arrow hidden"
                         )
+                        with SagoActionBar(id="input-action-bar"):
+                            yield Button(
+                                "⌨ Help [F1]", id="btn-input-help", classes="btn-input-action"
+                            )
+                            yield Button(
+                                "◈ Traces [F2]",
+                                id="btn-input-traces",
+                                classes="btn-input-action dev-only-btn",
+                            )
+                            yield Button(
+                                "± Diff [F3]",
+                                id="btn-input-diff",
+                                classes="btn-input-action",
+                            )
+                            yield Button(
+                                "▤ Files [F4]",
+                                id="btn-input-files",
+                                classes="btn-input-action",
+                            )
+                            yield Button(
+                                "↻ Sessions [F5]",
+                                id="btn-input-sessions",
+                                classes="btn-input-action",
+                            )
+                            yield Button(
+                                "✦ Models [F6]",
+                                id="btn-input-model",
+                                classes="btn-input-action",
+                            )
+                            yield Button(
+                                "⊘ Clear", id="btn-input-clear", classes="btn-input-action"
+                            )
+                            yield Button(
+                                "■ Cancel",
+                                id="btn-input-cancel",
+                                classes="btn-input-action btn-action-cancel",
+                            )
+                            yield Button(
+                                "✕ Exit",
+                                id="btn-input-exit",
+                                classes="btn-input-action btn-action-exit",
+                            )
                         yield Button(
-                            "± Diff [F3]",
-                            id="btn-input-diff",
-                            classes="btn-input-action",
-                        )
-                        yield Button(
-                            "▤ Files [F4]",
-                            id="btn-input-files",
-                            classes="btn-input-action",
-                        )
-                        yield Button(
-                            "↻ Sessions [F5]",
-                            id="btn-input-sessions",
-                            classes="btn-input-action",
-                        )
-                        yield Button(
-                            "✦ Models [F6]",
-                            id="btn-input-model",
-                            classes="btn-input-action",
-                        )
-                        yield Button("⊘ Clear", id="btn-input-clear", classes="btn-input-action")
-                        yield Button(
-                            "■ Cancel",
-                            id="btn-input-cancel",
-                            classes="btn-input-action btn-action-cancel",
-                        )
-                        yield Button(
-                            "✕ Exit",
-                            id="btn-input-exit",
-                            classes="btn-input-action btn-action-exit",
+                            "›", id="btn-action-next", classes="action-scroll-arrow hidden"
                         )
             with Vertical(id="agent-dashboard", classes="hidden"):
                 yield Static("Agent Dashboard", classes="dashboard-title", markup=True)
@@ -426,6 +466,8 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         self._auto_refresh_models()
         for btn in self.query("#input-action-bar Button"):
             btn.can_focus = False
+        for b in self.query(".action-scroll-arrow"):
+            b.can_focus = False
         self.query_one("#msg-input").focus()
         # Start dashboard update timer
         self._dashboard_timer = self.set_interval(1.0, self._periodic_dashboard_update)
@@ -1409,6 +1451,17 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         if self.screen is not self:
             return  # Let active modal handle its own scrolling
         try:
+            bar = self.query_one("#input-action-bar", SagoActionBar)
+            if (
+                hasattr(event, "x")
+                and hasattr(event, "y")
+                and bar.region.contains(event.x, event.y)
+            ):
+                bar.scroll_to(x=min(bar.max_scroll_x, bar.scroll_x + 20), animate=True)
+                return
+        except Exception:
+            pass
+        try:
             self.query_one("#messages").scroll_down(animate=True)
             if self.is_scrolled_to_bottom():
                 self._hide_new_messages_badge()
@@ -1419,7 +1472,38 @@ class SagoApp(App, CommandHandlers, UIHelpers, AgentOrchestrationMixin, MessageP
         if self.screen is not self:
             return  # Let active modal handle its own scrolling
         try:
+            bar = self.query_one("#input-action-bar", SagoActionBar)
+            if (
+                hasattr(event, "x")
+                and hasattr(event, "y")
+                and bar.region.contains(event.x, event.y)
+            ):
+                bar.scroll_to(x=max(0, bar.scroll_x - 20), animate=True)
+                return
+        except Exception:
+            pass
+        try:
             self.query_one("#messages").scroll_up(animate=True)
+        except Exception:
+            pass
+
+    @on(Button.Pressed, "#btn-action-prev")
+    def on_action_prev_clicked(self) -> None:
+        """Scroll action bar left on mobile touch."""
+        try:
+            bar = self.query_one("#input-action-bar", SagoActionBar)
+            bar.scroll_to(x=max(0, bar.scroll_x - 25), animate=True)
+            self.query_one("#msg-input").focus()
+        except Exception:
+            pass
+
+    @on(Button.Pressed, "#btn-action-next")
+    def on_action_next_clicked(self) -> None:
+        """Scroll action bar right on mobile touch."""
+        try:
+            bar = self.query_one("#input-action-bar", SagoActionBar)
+            bar.scroll_to(x=min(bar.max_scroll_x, bar.scroll_x + 25), animate=True)
+            self.query_one("#msg-input").focus()
         except Exception:
             pass
 

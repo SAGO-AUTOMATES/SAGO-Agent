@@ -963,3 +963,33 @@ def get_db_stats() -> dict[str, Any]:
         stats["size_bytes"],
     )
     return stats
+
+
+def load_session(session_id_or_prefix: str) -> dict[str, Any] | None:
+    """Load a session with its messages and tool usage from database.
+
+    Args:
+        session_id_or_prefix: Session ID or prefix match.
+
+    Returns:
+        Dict with session info, messages, and tool calls, or None if not found.
+    """
+    init_db()
+    with Session() as s:
+        matched = s.find_by_prefix(session_id_or_prefix)
+    if not matched:
+        return None
+    actual_sid = matched["id"]
+    ms = MessageStore(actual_sid)
+    history = ms.get_history(limit=1000)
+    ms.close()
+    tus = ToolUsageStore(actual_sid)
+    tools = tus.get_all()
+    tus.close()
+    return {
+        "session": matched,
+        "id": actual_sid,
+        "title": matched.get("title", ""),
+        "messages": history,
+        "tools": tools,
+    }

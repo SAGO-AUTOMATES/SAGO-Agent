@@ -44,8 +44,10 @@ class ShortcutsScreen(ModalScreen[None]):
     .shortcuts-content {
         height: auto;
         max-height: 24;
-        overflow-y: auto;
-        scrollbar-size: 1 1;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 0;
         scrollbar-color: #388bfd #161b22;
         padding: 1 0;
     }
